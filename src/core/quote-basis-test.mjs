@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import {resolveQuoteBasis} from "./quote-basis.js";
+const prior={vendor_item_code:"47432",description:"BACON LAYOUT FROZEN",pack_size:"1/15 LB",selling_unit:"LB",price_basis:"measure"};
+const row={code:"47432",description:"BACON LAYOUT FROZEN",packSize:"1/15 LB",sellingUnit:null};
+assert.equal(resolveQuoteBasis(row,prior)?.basis.basis,"measure");
+assert.equal(resolveQuoteBasis(row,prior)?.source,"confirmed vendor item");
+assert.equal(resolveQuoteBasis({...row,code:"OTHER"},prior),null);
+assert.equal(resolveQuoteBasis({...row,packSize:"1/30 LB"},prior),null);
+assert.equal(resolveQuoteBasis({...row,description:"BACON PRECOOKED"},prior),null);
+assert.equal(resolveQuoteBasis(row,{...prior,price_basis:null}),null);
+assert.equal(resolveQuoteBasis({...row,sellingUnit:"CASE"},prior)?.basis.basis,"case");
+console.log("KERDOS quote basis reuse tests passed");
