@@ -1,0 +1,12 @@
+KERDOS V12 — CATEGORY NUMBER SEQUENCES
+
+Includes V11 Apply approval and unit cost override.
+
+1. In Supabase SQL Editor run KERDOS_DATABASE_UPDATE_CLEAN.sql from Part 1. If migrations through 019 were already applied, run knowledge/migration_020_category_numbers.sql instead.
+2. Unzip both parts and upload contents to the GitHub repository root preserving folders. Do not upload the ZIP or an enclosing folder. Both parts are below 99 files.
+3. Wait for final GitHub Actions deployment; hard refresh.
+4. Changing category and clicking Apply assigns the next unused number in that category range. The item's UUID and all vendor links remain intact. Applying the same category retains a valid number.
+5. SQL repairs existing out-of-range numbers, including single digits, when the category has a valid configured range. Old numbers remain reserved in catalog_number_history. A missing or full range produces an error and rolls back the write.
+6. Test by changing one item to another category, applying, and checking the KERDOS number and vendor links. Returning to the old category allocates a new unused number there.
+
+Historical numbers before this migration can only be reserved if present in current data; unavailable past assignments cannot be reconstructed.

@@ -1,0 +1,17 @@
+KERDOS V19 - MULTI-VENDOR READINESS AND COLOR INDICATOR
+
+Unzip and upload the contents to your existing GitHub repository, preserving folder structure. Only 15 files. Prior V16/V18 dependencies are included so earlier gains are retained.
+
+Fix: verified automatic alternatives no longer lose pack-field confidence merely because another vendor sells a different purchasing quantity. Each row must still have a readable pack, a usable quote basis and price, compatible measurements and no outstanding source review. Strict exact-only comparisons retain their pack checks.
+
+The regression test now uses TWO DISTINCT VENDORS and different pack sizes; it failed before this correction and passes afterward. Both vendor rows qualify independently. Earlier tests mistakenly used the same vendor for both alternatives and did not expose this cross-vendor check.
+
+Order Guide items linked to more than one distinct vendor now show a blue '2 VENDORS' (or applicable count) indicator beside the existing Case + Each indicator. Multiple listings from the same vendor do not trigger it. Linked vendor count does not imply every linked price is ready.
+
+Existing four-field dropdown, negotiated prices, plus/minus controls and baskets remain.
+
+No new SQL is needed for this update. V16 SQL still needs to have been applied for automatic grouping. Do not run the old reset SQL.
+
+After deployment succeeds, refresh KERDOS with Command + Shift + R. Missing Quoted per fields and held source reviews are separate issues: this update does not guess whether a vendor's amount is per case, each or pound. Inspect a current Item Catalog row for the remaining blocker.
+
+Full automated tests and the production build passed locally. Live database rows were not available for inspection in this session.

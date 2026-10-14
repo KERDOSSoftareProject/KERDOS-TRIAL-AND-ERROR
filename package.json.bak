@@ -1,0 +1,31 @@
+{
+  "name": "kerdos",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "replay:imports": "node scripts/replay-imports.mjs",
+    "database:build": "node scripts/build-database-update.mjs",
+    "preview": "vite preview",
+    "test": "npm run lint && node src/knowledge/restaurant-dictionaries-test.mjs && node src/regression.mjs && node src/ingestion-test.mjs && node src/core/cell-analysis-test.mjs && node src/core/infer-pricing-basis-test.mjs && node src/core/integration-test.mjs && node src/core/import-status-test.mjs && node src/core/sheet-layout-test.mjs && node src/core/import-evidence-test.mjs && node src/core/invoice-evidence-test.mjs && node src/core/invoice-arithmetic-test.mjs && node src/core/invoice-billing-integration-test.mjs && node src/core/import-to-order-guide-test.mjs && node src/core/vendor-listing-test.mjs && node src/core/catalog-fields-test.mjs && node src/core/quote-controls-test.mjs && node src/core/pack-editor-test.mjs && node src/core/quote-basis-test.mjs && node src/core/price-import-review-test.mjs && node src/core/quote-context-test.mjs && node src/core/automatic-imports-test.mjs && node src/core/alternative-groups-test.mjs && node src/core/ordering-test.mjs && node src/core/catalog-browse-test.mjs && node src/price-basis-test.mjs && node src/identifier-test.mjs && node src/accuracy-test.mjs && node src/services/catalog-test.mjs && node src/services/categories-test.mjs && node src/services/organization-test.mjs && node src/services/service-boundaries-test.mjs && node src/session-test.mjs && node src/backend-contract-test.mjs && node src/backend/records-test.mjs && node src/backend/portable-provider-test.mjs && node src/offline-store-test.mjs && node src/deployment-test.mjs && node src/pages/document-pages-test.mjs && node src/pages/catalog-qualification-test.mjs && node src/backend/catalog-row-sql-test.mjs && node src/backend/document-deletion-sql-test.mjs && node src/backend/vendor-nvim-sql-test.mjs && node src/backend/invoice-mapping-sql-test.mjs && node src/backend/atomic-order-sql-test.mjs && node src/backend/snapshot-test.mjs",
+    "lint": "eslint src scripts vite.config.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "pdfjs-dist": "6.3.289",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tesseract.js": "^7.0.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^15.15.0",
+    "vite": "^5.4.14"
+  }
+}

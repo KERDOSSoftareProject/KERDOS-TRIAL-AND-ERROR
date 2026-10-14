@@ -1,0 +1,58 @@
+{
+  "repository": "KERDOSSoftareProject/KERDOS-SOFTWARE-PROJECT-CHAT-CLAUDE",
+  "baseline_commit": "048668b483e13fdb363ae27c8161690fafa6afda",
+  "preserved_successful_commit": "b69f14d1981ee8669612afa26130e5d06fd9c5d6",
+  "archive_kind": "update only; apply to failed run 73",
+  "changes": [
+    {
+      "path": "RESTAURANT_DICTIONARIES_READ_FIRST.md",
+      "base_sha256": "9c135113c72aa7c355e5241a81a4f25031cb9e2a2bd55492e52f592b1496e3d1",
+      "updated_sha256": "6b94b5dee64a3e2cc785d1ea1fadea0ae74b98ddb379c8b66cbca29971581b33"
+    },
+    {
+      "path": "package.json",
+      "base_sha256": "5e9fa04dab4146eed64eab86b415a997cf0a168d1c414af88bea20b48b3566b6",
+      "updated_sha256": "0c37ef896af510780a7acf3d2f83b08e7e0bdcf4f3944dc16a6be0085fb02fc8"
+    },
+    {
+      "path": "src/App.jsx",
+      "base_sha256": "d2a140325c6b1b9590cdd9b14628d3a12ab3e0f06763a0f9a236b80a3c521652",
+      "updated_sha256": "e90f72306772b9aef979c24f7333167d02155e4562a0e45ac5ef514625f629eb"
+    },
+    {
+      "path": "src/core/import-evidence.js",
+      "base_sha256": "86bbb5c593ecf7754669dcbf083ac01a9eb00dc79476980d48d0a0dc1e40d66f",
+      "updated_sha256": "a396aac9b848bb9fe627e5998579918e1f5818a51f6a7958f2e9bb280a323485"
+    },
+    {
+      "path": "src/core/price-import-review-test.mjs",
+      "base_sha256": "7fe64cd249642e8a9037e22e94194edaf93dce74343a84115b9720221a02922e",
+      "updated_sha256": "c2ce29503c176991e7e6a22e9bde759461a6094e0481de703f0e0ca57b74a1ea"
+    },
+    {
+      "path": "src/core/price-import-review.js",
+      "base_sha256": "271021fbddc09e2991bfb8794aba7a77970402f087cf58f0afc7be5033e45252",
+      "updated_sha256": "13d6a34660266aee1b9a196a5bc8ef8802703ab7efb7a3f605d14a79589f903b"
+    },
+    {
+      "path": "src/knowledge/category-profiles.js",
+      "base_sha256": "46f6fbea1b5bc8c1fb7f754140832897f653a704fbe5b9787dc2254c71e4ac60",
+      "updated_sha256": "d0d287157d8150dc1189fe2ac8ca5ecb8144fafdc73bd75c02e30b475cea501d"
+    },
+    {
+      "path": "src/pages/ImportModal.jsx",
+      "base_sha256": "3ac57eee21b9ccfca97f6727381abec93c74791e7499da50e39c851b4f8f8b81",
+      "updated_sha256": "92e4275196201b31bbcf9f1b446d7ed2b4cf2d0149075a391ea2dc63b3da2b58"
+    },
+    {
+      "path": "src/pages/ItemCatalogPanel.jsx",
+      "base_sha256": "782d058149ead5fd1be2b6432055cdc2061d2561bf735752ab9368d9a94da102",
+      "updated_sha256": "25dd1fe381e5e2e920d7a734752e3686ead511f2069da59e2ca78625db165384"
+    },
+    {
+      "path": "src/procurement.js",
+      "base_sha256": "9c0db01b8c5a93b9b4ebe27bbb36a418a76433c4b56977339e6392bce65c295b",
+      "updated_sha256": "39a46b93dfa1a982929260d4fc0448d0b91ae35140d7c9eecfe59e59142a3836"
+    }
+  ]
+}

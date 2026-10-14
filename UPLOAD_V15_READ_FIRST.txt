@@ -1,0 +1,13 @@
+KERDOS V15 — APPROVED ALTERNATIVES AND COMPACT COMPARISON
+
+1. Run the SEPARATE KERDOS_V15_DATABASE_UPDATE.sql download in Supabase SQL Editor. It adds preferences and atomic grouping only. It does NOT clear any data. Requires V12 database migrations already applied.
+2. Unzip BOTH Git parts. Upload contents to repository ROOT preserving src/, knowledge/ and scripts/ folders. Wait for the final Actions deployment; hard refresh.
+3. Search cream in Item Catalog. Check the specific half-and-half vendor rows. Click Associate selected. Review descriptions, brands and packs; choose the shared existing KERDOS item, edit its item-type name, optionally choose a preferred brand, then Approve alternatives.
+4. Selected vendor rows share the chosen KERDOS number. Missing pack, quoted-per or price information still needs completing with Apply (and unit-cost override if necessary). Pending source-review holds are retained until reviewed.
+5. Order Guide also has selection checkboxes. Its price comparison is one line with a down arrow. Alternatives rank by a shared unit cost, showing actual pack prices and per-unit differences. Prefer this brand is optional; Require this brand and exact-product mode remain in Product details.
+6. Negotiated pricing and vendor splits remain in the expanded menu. Choosing an alternative works before adding quantity. Different listings from one vendor remain individually selectable.
+7. To undo a grouping, edit a vendor row's KERDOS number to another existing catalog item and Apply. Original catalog records and historical orders are retained.
+8. General is the category rule for explicitly canned/prepared products in the Restaurant knowledge module. Existing client category choices are preserved; change their category and Apply when needed.
+
+Includes V13 Apply correction and V14 vendor-column split. No client-specific application logic.
+The knowledge/ SQL files in Git Part 2 are repository migration sources needed by the automated checks; run only the separately supplied SQL download for this deployment.

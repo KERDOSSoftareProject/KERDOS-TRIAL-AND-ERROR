@@ -1,0 +1,36 @@
+KERDOS v10 — field-by-field correction, built on Claude v9
+
+1. Unzip both PART_1 and PART_2.
+2. In Supabase SQL Editor, run KERDOS_DATABASE_UPDATE_CLEAN.sql from PART_1.
+   It includes prerequisites through migration 018. It changes functions/columns; it does not clear records.
+   If migrations 003–017 are already installed, you may instead run only
+   knowledge/migration_018_field_review.sql.
+3. Upload PART_1 contents into the GitHub repository ROOT, preserving folder paths. Commit.
+4. Upload PART_2 contents into the same repository ROOT, preserving folder paths. Commit.
+   Upload the extracted files/folders, not the ZIP or an extra enclosing folder.
+5. Wait for the final GitHub Actions deployment, then hard refresh.
+
+TEST ONE ROW
+- Correct Quoted per and Apply; reload. That field stays confirmed at 100%.
+- Correct Pack and Apply; reload. Previous confirmations stay saved.
+- Correct Price and Apply; reload. Price stays 100% with the editor identity saved.
+- Once the remaining required evidence, product association and current quote qualify,
+  the existing automatic placement sends the row into the Order Guide.
+- Incomplete pack math, expired quotes and conflicting product associations remain blocked.
+
+RETAINED
+Claude v9 UI, writable Item name, Case/Each pack controls, spelled-out units,
+manual initials, vendor ranking, negotiations, history and import behavior.
+
+FIXED
+Price/category/item-name/association confirmations now persist. Review state
+is consumed per field, rather than clearing unrelated conflicts by editing Price.
+Existing review notes remain available. Existing imports with recognizable
+conflict notes can be completed without reimporting. #10-can pack edits remain readable.
+Realtime event payloads no longer act as organization selections.
+
+VALIDATION
+Full npm test passed, including real local SQL transactions and field-by-field
+save/reload/qualification checks. Production build passed. Live schema and live
+vendor document counts have not been verified. This is a focused test deployment,
+not a claim that every issue in the broader code review is resolved.

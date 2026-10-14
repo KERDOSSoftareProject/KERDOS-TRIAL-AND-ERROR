@@ -1,0 +1,7 @@
+KERDOS V13 Apply fix
+
+Unzip and upload the src folder into the GitHub repository root, preserving its subfolders and replacing the existing files. Wait for GitHub Actions to finish, then hard refresh KERDOS and test Apply.
+
+No SQL needed. No data reset needed. Requires the V12 app and database updates already installed.
+
+Corrects text normalization accidentally converting approve_row true to a string and unit_cost_override to text. Both now keep their intended JSON types. Regression checks include approval, no override, valid override and rejected invalid values.
