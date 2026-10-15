@@ -56,3 +56,19 @@ assert.deepEqual(ounceOffers.map(o=>offerDollarDifference(o,ounceOffers[0])),[0,
 const packOffers=rankVendorOffers([option("big",20,{casePrice:20,packSize:"1/10 LB",perUnit:{price:2,unit:"LB"}}),option("small",12,{casePrice:12,packSize:"1/4 LB",perUnit:{price:3,unit:"LB"}})]);
 assert.equal(offerDollarDifference(packOffers[1],packOffers[0]),10,"different packs compare equivalent purchasing quantities in dollars");
 console.log("Dropdown dollar differences passed: equal packs, small per-ounce premiums and unequal purchasing packs.");
+
+
+const replacementOffers=[
+  option("minores",29.90,{vendorItemId:"minores-celery",casePrice:29.90,description:"CELERY 24 CT",packSize:"24 CT"}),
+  option("mina",17.99,{vendorItemId:"mina-celery",casePrice:17.99,description:"CELERY 24 COUNT",packSize:"24 CT"}),
+];
+const explicitReplacement=solveOrder([{catalogItemId:"celery",quantity:3,orderUnit:"case",forcedVendorId:"minores-celery",options:replacementOffers}],[])[0];
+assert.equal(explicitReplacement.vendorItemId,"minores-celery","selected listing replaces the default cheapest listing");
+assert.equal(explicitReplacement.assignedVendorName,"minores","replacement updates vendor");
+assert.equal(explicitReplacement.packSize,"24 CT","replacement retains selected pack");
+assert.equal(explicitReplacement.price,29.90,"replacement retains selected price");
+assert.equal(explicitReplacement.lineTotal,89.70,"basket total uses selected listing price");
+const heldReplacement=solveOrder([{catalogItemId:"celery",quantity:1,orderUnit:"case",forcedVendorId:"mina-celery",options:replacementOffers.map(o=>o.vendorId==="mina"?{...o,unverified:true}:o)}],[])[0];
+assert.equal(heldReplacement.unorderable,true,"held selected listing cannot silently fall back to another vendor");
+assert.equal(heldReplacement.assignedVendorId,null,"held selection must not order the original winner");
+console.log("Power Ranked replacement and held-offer safety tests passed.");
