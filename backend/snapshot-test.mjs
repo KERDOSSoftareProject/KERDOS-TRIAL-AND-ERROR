@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {loadWorkspaceSnapshot} from './supabase.js';
+const calls=[];
+const client={from(table){let bounds=null;const query={select(){return query;},eq(column,value){assert.equal(column==='organization_id'?value:'org','org');return query;},order(){return query;},limit(){return query;},range(from,to){bounds=[from,to];return query;},then(resolve){calls.push({table,bounds});const count=table==='vendor_items'?1003:1;const rows=Array.from({length:count},(_,id)=>({id}));resolve({data:bounds?rows.slice(bounds[0],bounds[1]+1):rows,error:null});}};return query;}};
+const snapshot=await loadWorkspaceSnapshot(client,'org');
+assert.equal(snapshot.vendorItems.length,1003);
+assert.deepEqual(calls.filter(c=>c.table==='vendor_items').map(c=>c.bounds),[[0,499],[500,999],[1000,1499]]);
+assert.equal(new Set(snapshot.vendorItems.map(r=>r.id)).size,1003);
+assert.equal(snapshot.catalogItems.length,1);
+console.log('Workspace pagination passed: all 1003 vendor rows retained.');

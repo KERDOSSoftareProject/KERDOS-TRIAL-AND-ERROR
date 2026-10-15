@@ -1,0 +1,147 @@
+{
+  "release": "KERDOS v5 2026-09-27",
+  "base": "supplied complete reviewed v4; migration 015 already required",
+  "new_migration_required": false,
+  "changed_files": [
+    {
+      "path": "KERDOS_HANDOFF_CONTEXT.md",
+      "sha256": "af087376a576216399824ab6e663e4736b6ba8e7d370d35082eae7eeb62df5df"
+    },
+    {
+      "path": "READ_FIRST_NEW_THREAD.md",
+      "sha256": "32a827b2872c18212a4bb94c637f046a48ce590cd8dde24e5dac208a8c65f4a2"
+    },
+    {
+      "path": "V5_CHANGES_AND_TEST_RESULTS.md",
+      "sha256": "94879ab6f68ba19367eab53cb8ab7beb451bb7cf8c128c174c63d26c9aa6e9d1"
+    },
+    {
+      "path": "package.json",
+      "sha256": "5663cfaf793be9c3ff20adf3e43a6fad9dca0f267a4fa90b7b3abbe065e07c69"
+    },
+    {
+      "path": "scripts/replay-imports.mjs",
+      "sha256": "3b885b894eca1673f585b142a299c096b333cc82ac066cf9c08171475468a8a5"
+    },
+    {
+      "path": "src/App.jsx",
+      "sha256": "06bec6b72c5ccd1d68319902938a6f05b315ebd5814664f484b543f184dbf1cd"
+    },
+    {
+      "path": "src/backend/supabase.js",
+      "sha256": "2dbf2d431a7b62958a22469e6dc4639a0d87b233aa22edaf7b2d7d496f7f7d5a"
+    },
+    {
+      "path": "src/core/automatic-imports-test.mjs",
+      "sha256": "7a16162dbb3838021738b01551b6385e0db770e563306740a7a7c7f594245d3d"
+    },
+    {
+      "path": "src/core/catalog-fields-test.mjs",
+      "sha256": "5444f5bc0648753a406bd369d035c3e84a9e0449c7ae9527689d4e422bd4e731"
+    },
+    {
+      "path": "src/core/catalog-fields.js",
+      "sha256": "03aacfb30c175a4634ed43b073a1f97e6bd0407404def75191b13e3154d35cc7"
+    },
+    {
+      "path": "src/core/import-evidence-test.mjs",
+      "sha256": "34b637f871da17cc3c039df6be85bd710407abcfec7da443f340222b14e70859"
+    },
+    {
+      "path": "src/core/import-evidence.js",
+      "sha256": "347ce0a00c16b8acac31c607e6c3a3afff6f796540211bffb46f691e5f1988e5"
+    },
+    {
+      "path": "src/core/import-resume.js",
+      "sha256": "e13084d15cc91d99ff7d12d2d37378d3b9830d507d639bff2900c0c8feb2aec6"
+    },
+    {
+      "path": "src/core/import-row.js",
+      "sha256": "850e8f7e5f61e592dec839e30f1d032ba9a7e1619298989040ace32ef88a45bf"
+    },
+    {
+      "path": "src/core/invoice-evidence.js",
+      "sha256": "93199f51d5cc2412e8d53c8b0794b6cfd0d351bce380922c78c73b79f2b06a23"
+    },
+    {
+      "path": "src/core/ordering.js",
+      "sha256": "f0c35fa25e1030534e9975bf45f273d9688290606d4415d8eda684b3c5d7eb84"
+    },
+    {
+      "path": "src/core/quote-basis.js",
+      "sha256": "9c4845c61c61d5706a673340955da4f63a70a8533b64d0d3894fdcc88927367f"
+    },
+    {
+      "path": "src/core/quote-context-test.mjs",
+      "sha256": "4544a461a1cc890a4948de4704e8b61031d1c0e2a1a0ae6c8267c7e75284f207"
+    },
+    {
+      "path": "src/core/source-units.js",
+      "sha256": "96653c93e7730e3f6acbacaa0eb06050f3e9a704ffd62c28948384ab8ccec3ce"
+    },
+    {
+      "path": "src/fixtures/automatic-imports.js",
+      "sha256": "3fb77d8fc4333ca1531988153adfb50688f440f1ddfd6873d91ab7fc5efb5314"
+    },
+    {
+      "path": "src/ingestion.js",
+      "sha256": "c6233a8637e09797cbb16f190410e5b7a26fdfc83711f2402b522d8fcc91178e"
+    },
+    {
+      "path": "src/knowledge/category-profiles.js",
+      "sha256": "abf870ef231aac418773c79b8d59e97e3cf1f6c705b8d6962cde71b20abff758"
+    },
+    {
+      "path": "src/knowledge/restaurant-category-context.js",
+      "sha256": "ebaac90f928129e5925e74d52d3b85af39e2a8baa921c9f252110eae3d8a175a"
+    },
+    {
+      "path": "src/knowledge/restaurant-pack-context.js",
+      "sha256": "c39f11088117fc30dd8e968b5345018310fd6811c230d00cf8da5654a05aacc5"
+    },
+    {
+      "path": "src/pages/CatalogRows.jsx",
+      "sha256": "e3f7e0c8341b1dc6623ef01188d67fca1a84a103eae7811bc06bdf6f6f2cbfce"
+    },
+    {
+      "path": "src/pages/DocumentPages.jsx",
+      "sha256": "0ce39bbccbef430c247dd1f4e2bc0a34b0da01efd4f0aa0c22e8a7568a980737"
+    },
+    {
+      "path": "src/pages/ImportModal.jsx",
+      "sha256": "204788eea3051dea9df7b766ecd2617f687572c51abf1fefb3aa8be99a17ac98"
+    },
+    {
+      "path": "src/pages/ItemCatalogPanel.jsx",
+      "sha256": "20b40842a9928ae0aa28d83911175e06900c4c262a840b5a845ec5e842f78609"
+    },
+    {
+      "path": "src/pages/VendorDetail.jsx",
+      "sha256": "6996d099d0d89d7b2799d82e9f8faaa9993832e545730c0f500883735c6e2b66"
+    },
+    {
+      "path": "src/pages/catalog-qualification-test.mjs",
+      "sha256": "460b675c6ca8c561be7ba9823162aa0caa2688f6ec7336ca506ba0c0b12d82bf"
+    },
+    {
+      "path": "src/pages/document-pages-test.mjs",
+      "sha256": "7256c483ec7045c43cec91e567fe68e2ad81082307dcd2b13035409e9d2d69bc"
+    },
+    {
+      "path": "src/procurement.js",
+      "sha256": "bc2d71c65c3d85845ed52511efab3c3b0f79597c6b3686b07401621ae07f05ee"
+    },
+    {
+      "path": "src/services/documents.js",
+      "sha256": "1d7ae1e0c932afc54dba0dca0b47221d91c9753e230056c3204773161616b60a"
+    },
+    {
+      "path": "src/services/imports.js",
+      "sha256": "c8a48d1cc9331304ebee0909525a5433268de215c23f6b9c55be2a8adf9f9dd8"
+    },
+    {
+      "path": "src/services/service-boundaries-test.mjs",
+      "sha256": "a2b3caa18312b774554dcf0baf317284acdf5cceed850f37f6c7704b74c837f0"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+KERDOS V21 — CONSENSUS REVIEW / TEST PACKAGE
+
+Use both GitHub upload parts together. Each contains fewer than 99 files.
+Extract both ZIPs and upload their contents while preserving folder paths.
+Part 1 alone is incomplete; wait until both parts are uploaded before assessing Actions.
+
+SQL is separate: KERDOS_V21_DATABASE_UPDATE.sql. It contains migrations 018–025
+for the existing KERDOS base database; run it separately in Supabase, not through GitHub.
+It does not clear data. Existing prerequisites through migration 017 are required.
+Deployment remains on hold for consensus review; local checks do not prove a live deployment.
+
+VERIFIED LOCALLY
+Complete npm test, production build, GitHub Pages asset paths, and npm ci dependency-lock validation passed.
+New tests exercise standalone placement with an unapproved cross-vendor suggestion,
+confirmed/pending cross-vendor blocking, atomic unlinking, rejection reversal,
+revision guards, preserved unit-cost overrides and price history, and category renumbering.
+Parser tests preserve the shared six-decimal fraction function and original lettuce evidence.
+
+CHANGES FROM CLAUDE PACKAGE (5)
+- Corrected bulk approval revisions; selected group rows only.
+- Individual Unlink on confirmed and review rows; no confirmation dialog for quick unlink.
+- Atomic unlink creates a standalone entry in the same category, preserves the vendor
+  UUID and prices/history, records rejected vendor pairs, and leaves other group rows intact.
+- Suggestions exclude remembered rejected pairs; explicit approval reverses those exclusions.
+- Association targets use creation date with stable ID fallback, never category number as age.
+- Restored recovery of imported items without mappings using the standalone creation policy.
+- Readiness retries include saved row/item data, so correcting fields retries placement.
+- Removed disabled automatic group-write code and the import-time peer promotion path.
+- Retained category-range numbering, dropdown pricing, negotiated prices, baskets and quantity controls.
+
+EXPECTED LIVE TEST
+Import complete rows from two vendors: each complete new item is orderable separately.
+Suggestions do not hold an otherwise complete standalone row.
+Approve a suggested pair, compare offers, unlink either confirmed row, then reimport:
+prices update, the split remains, and the rejected pair is not suggested again.
+Move an item to another category: UUID/vendor links stay, display number changes into
+that category's range, and the old number remains retired.
+For any row still held, use its required-field blockers to identify the missing criterion.

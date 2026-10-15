@@ -1,0 +1,13 @@
+KERDOS V18 - APPROVED ORDER GUIDE PRICE CONTROLS
+
+Unzip this file and upload its contents to the existing GitHub repository, preserving src/, scripts/ and knowledge/ folders. There are only 15 files, below GitHub's 99-file limit. This includes the earlier V16 dependencies and can be applied over V15, V16 or V17.
+
+The existing Order Guide retains its website styling, plus/minus controls, baskets and ordering behavior. Vendor price and negotiated price remain separate visible fields. The vendor-price arrow opens a plain attached dropdown, with one selectable horizontal row per alternate: associated item, vendor, price, dollar difference. The currently selected offer is not repeated. Click another row to replace the selected vendor and price. Click outside or press Escape to close the list.
+
+Alternatives remain Power Ranked by comparable unit cost; dollar differences compare the amount in the lowest-cost purchasing pack when packs differ. The price column retains each vendor's actual purchasing price. Negotiated price Apply and Remove remain available. Brand preferences remain editable in Item Catalog; split-order controls are available under Split order alongside negotiated-price controls.
+
+No new SQL is needed for this Order Guide change. The previously supplied V16 SQL remains necessary for V16 automatic grouping if you have not run it yet; do not rerun the old data-reset SQL.
+
+Wait for the GitHub deployment to show a green check, then refresh with Command + Shift + R. Test one alternate selection at quantity zero and again with a quantity in the basket, plus negotiated price Apply.
+
+Validation: full automated checks and production build passed. Plus/minus controls and basket markup were compared with the earlier code and are identical. Live deployment is performed through your GitHub upload.

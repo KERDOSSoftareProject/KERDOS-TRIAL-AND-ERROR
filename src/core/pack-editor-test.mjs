@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {editablePack,serializePack} from './pack-editor.js';
+import {parsePackSize} from '../procurement.js';
+import {unitLabel} from './unit-labels.js';
+assert.deepEqual(editablePack('4/5 LB'),{type:'case',count:4,size:5,unit:'LB',catchWeight:false});
+assert.deepEqual(editablePack('5 LB'),{type:'each',count:1,size:5,unit:'LB',catchWeight:false});
+assert.equal(editablePack('6/24 CT').count,6);assert.equal(editablePack('6/24 CT').size,24);
+const partial={type:'case',count:4,size:'',unit:'',catchWeight:false};
+const text=serializePack(partial);
+assert.deepEqual(editablePack(text),partial,'partial improvements survive reload');
+assert.ok(!parsePackSize(text)?.parsed,'partial edits cannot be ordered as fully understood');
+assert.equal(serializePack({...partial,size:5,unit:'LB'}),'4/5 LB');
+assert.equal(serializePack({...partial,type:'each',size:5,unit:'LB'}),'5 LB');
+assert.equal(unitLabel('FT'),'Feet');assert.equal(unitLabel('LB'),'Pounds');assert.equal(unitLabel('OZ'),'Ounces');
+console.log('Pack editor checks passed: two levels retained, partial edits durable, complete each/case and full unit names.');
+
+const can=serializePack({...editablePack('6/#10 CN'),count:12});
+assert.equal(can,'12/#10 CN');
+assert.equal(parsePackSize(can).parsed,true);
+assert.equal(parsePackSize(can).caseQty,12);

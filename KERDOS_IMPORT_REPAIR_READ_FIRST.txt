@@ -1,0 +1,8 @@
+KERDOS IMPORT REPAIR — September 26, 2026
+
+Only changed files are in this archive. Keep all other GitHub files.
+1. In Supabase SQL Editor, run the separate KERDOS_INVOICE_MAPPING_UPDATE.sql once.
+2. Unzip this archive and upload the seven changed files to the same paths in GitHub. Commit once.
+3. After Actions is green, reload KERDOS. Import a document. It saves automatically and says Done when finished.
+Existing unlinked vendor listings are brought into Item Catalog automatically when that tab opens.
+If a source row cannot be understood, it remains visible for review with an error.

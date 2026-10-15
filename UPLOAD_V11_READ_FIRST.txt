@@ -1,0 +1,10 @@
+KERDOS V11 — CLIENT APPLY APPROVAL AND UNIT COST OVERRIDE
+
+1. In Supabase SQL Editor, run KERDOS_DATABASE_UPDATE_CLEAN.sql from Part 1. If migrations through 018 were already run, you can run knowledge/migration_019_client_approval.sql instead.
+2. Unzip both parts. Upload their contents to the GitHub repository root, preserving src/, knowledge/, and scripts/ folders. Do not upload the ZIP itself or an enclosing folder. Each part contains fewer than 99 files.
+3. Wait for the final GitHub Actions deployment to finish, then hard refresh the app.
+4. In Item Catalog, click Apply on row 1 even without changing a cell. Apply approves the displayed fields and KERDOS association. A valid complete row becomes eligible for Order Guide.
+5. If unit cost cannot calculate, a popup asks for a positive unit cost, its measurement, and the price of one purchasing pack. Apply override saves those client-approved values.
+6. You may edit and Apply again. Changing price/pack/quoted unit recalculates, or asks for another override. New imports discard old unit cost overrides so an old purchasing price is never reused for a new quote.
+
+Approval preserves original source notes. Missing description/category/positive price must still be supplied. Apply accepts the displayed saved values, not hidden incoming values; use Review incoming values first when desired.
