@@ -113,8 +113,7 @@ export function PriceSheetsPage({vendors,importDocuments,vendorFilter,setVendorF
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"0 0 14px",padding:"10px 12px",background:"rgba(255,255,255,.10)",borderRadius:11}}><VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter}/><span style={{fontSize:11,color:"rgba(255,255,255,.78)"}}>{visible.reduce((sum,group)=>sum+group.documents.length,0)} source file{visible.reduce((sum,group)=>sum+group.documents.length,0)===1?"":"s"}</span></div>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>
       {vendorFilter
-        ? <><div style={{marginBottom:10}}>No price sheets on file for <b>{vendors.find(v=>v.id===vendorFilter)?.name||"this vendor"}</b> yet.</div>
-            {role!=="employee"&&onImport&&<button onClick={()=>onImport(vendorFilter)} style={{fontSize:13,fontWeight:700,padding:"8px 18px",borderRadius:8,background:"#003584",color:"white",border:"none",cursor:"pointer"}}>Import price sheet</button>}</>
+        ? <>No price sheets on file for <b>{vendors.find(v=>v.id===vendorFilter)?.name||"this vendor"}</b> yet. Use <b>Import Price Sheet</b> above.</>
         : <>No price sheets imported yet. Use <b>Import Price Sheet</b> above.</>
       }
     </div>:visible.map(group=>{const color=vendorColors.get(group.vendorId)||{accent:"#003584"};return <VendorSection key={group.vendorId} name={group.vendorName} count={`${group.documents.length} source file${group.documents.length===1?"":"s"}`} accent={color.accent} defaultOpen={Boolean(vendorFilter)} actions={role!=="employee"&&<MoreMenu><MenuButton onClick={()=>onImport(group.vendorId)}>Import price sheet</MenuButton><MenuButton danger onClick={()=>onExpireVendor(group.vendorId)}>Remove current prices from Order Guide</MenuButton></MoreMenu>}>
