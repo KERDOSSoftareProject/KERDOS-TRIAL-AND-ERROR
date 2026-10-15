@@ -1028,20 +1028,21 @@ export default function App() {
                         const heldOptions=(item.linkedOptions||[]).filter(opt=>!orderable(opt));
                         const chosenLinkedOption=(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[activeKey]);
                         const selectedHeldOption=chosenLinkedOption&&!orderable(chosenLinkedOption)?chosenLinkedOption:null;
-                        const displayOption=selectedHeldOption|| (assignment
-                          ?unitOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId)
-                          :rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey])||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0]);
-                        const activePrice=selectedHeldOption?selectedHeldOption.casePrice:assignment?assignment.price:displayOption?.unitPrice;
-                        const activeVendorName=selectedHeldOption?selectedHeldOption.vendorName:assignment?assignment.assignedVendorName:displayOption?.vendorName;
-                        const activeVendorId=selectedHeldOption?.vendorId||assignment?.assignedVendorId||displayOption?.vendorId;
+                        const selectedReadyOption=rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey]);
+                        const displayOption=selectedHeldOption||selectedReadyOption||(
+                          assignment?unitOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId):null
+                        )||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0];
+                        const activePrice=selectedHeldOption?selectedHeldOption.casePrice:selectedReadyOption?selectedReadyOption.unitPrice:assignment?assignment.price:displayOption?.unitPrice;
+                        const activeVendorName=displayOption?.vendorName||assignment?.assignedVendorName;
+                        const activeVendorId=displayOption?.vendorId||assignment?.assignedVendorId;
                         const vc=vendorColors.get(activeVendorId)||PALETTE[0];
                         const customPriceIsWinner=Number.isFinite(negotiation?.[activeVendorId]);
                         const negotiationVendorId=negotiatedVendorDrafts[activeKey]||activeVendorId||rankedOptions[0]?.vendorId||"";
                         const customPriceValue=negotiation?.[negotiationVendorId];
                         const menuOpen=openPriceMenu===activeKey;
-                        const activeBlocked=!!selectedHeldOption||(assignment?assignment.unorderable:!displayOption);
+                        const activeBlocked=!!selectedHeldOption||!displayOption||(!!assignment?.unorderable&&!selectedReadyOption);
                         const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
-                        const activeOption=selectedHeldOption||item.options.find(o=>o.vendorItemId===displayOption?.vendorItemId)||cheapest;
+                        const activeOption=displayOption||cheapest;
                         const activeMatchTrack=activeOption?.matchTrack;
                         const activeMatchConfidence=activeOption?.matchConfidence;
 
