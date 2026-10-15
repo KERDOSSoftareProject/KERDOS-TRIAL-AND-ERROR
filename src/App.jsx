@@ -1144,7 +1144,7 @@ export default function App() {
                                       setNegotiationErrors(prev=>({...prev,[activeKey]:"Choose an available vendor and enter a price above $0."}));return;
                                     }
                                     setNegotiatedPrices(prev=>({...prev,[activeKey]:{...prev[activeKey],[negotiationVendorId]:value}}));
-                                    setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;});
+                                    // Applying a negotiated price must not discard an explicit vendor selection.
                                   }} style={{...btn("#003584","white",{padding:"5px 7px",fontSize:10})}}>Apply</button>
                                 </div>
                                 {negotiationErrors[activeKey]&&<div role="alert" style={{color:"#B42318",fontSize:10,marginTop:4}}>{negotiationErrors[activeKey]}</div>}
