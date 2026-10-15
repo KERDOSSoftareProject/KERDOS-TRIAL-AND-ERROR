@@ -679,7 +679,7 @@ export default function App() {
     // out-of-the-box behavior).
     const groups=new Map();
     matches.forEach(item=>{
-      item={...item,options:item.options.filter(orderable)};
+      item={...item,linkedOptions:item.options,options:item.options.filter(orderable)};
       const cat=item.category;
       if(!groups.has(cat)) groups.set(cat,[]);
       groups.get(cat).push(item);
@@ -1014,7 +1014,7 @@ export default function App() {
                         // allLinkedVendorIds is the full set saved to the product object before
                         // the orderable filter runs, so held vendors are counted correctly.
                         const totalLinkedVendors=item.allLinkedVendorIds?.length??new Set(item.options.map(o=>o.vendorId)).size;
-                        const readyVendorCount=new Set(item.options.map(o=>o.vendorId)).size; // options already filtered to orderable in filtered useMemo
+                        const readyVendorCount=new Set(item.options.map(o=>o.vendorId)).size; // eligible offers only
                         const cheapest=item.options[0];
                         const selectedUnit=hasEach?(unitSelection[item.catalogItemId]||"case"):"case";
                         const activeKey=selectedUnit==="case"?caseKey:eachKey;
@@ -1025,6 +1025,7 @@ export default function App() {
                         const negotiation=negotiatedPrices[activeKey];
                         const unitOptions=rankVendorOffers(selectedUnit==="case"?item.options:item.options.filter(o=>o.eachPrice),negotiation,selectedUnit);
                         const rankedOptions=unitOptions.filter(orderable);
+                        const heldOptions=(item.linkedOptions||[]).filter(opt=>!orderable(opt));
                         const displayOption=assignment
                           ?unitOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId)
                           :rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey])||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0];
@@ -1051,6 +1052,8 @@ export default function App() {
                             <span style={{textAlign:"right"}}>{formatMoney(opt.unitPrice)}</span>
                             <span title={opt.comparisonUnit?"Dollar difference for the same quantity as the lowest-cost purchasing pack":"Dollar difference from the lowest eligible price"} style={{textAlign:"right"}}>{offerDollarDifference(opt,rankedOptions[0])>0?"+":""}{formatMoney(offerDollarDifference(opt,rankedOptions[0]))}</span>
                           </button>)}
+                          {heldOptions.map(opt=><div key={`held-${opt.vendorItemId}`} role="option" aria-disabled="true" title={blockReason(opt)||"Not eligible for ordering"} style={{display:"grid",gridTemplateColumns:"minmax(120px,2fr) minmax(90px,1fr) 75px 85px",gap:8,padding:"7px 8px",borderTop:"1px solid #EEE",fontSize:11,color:"#7A5B16",background:"#FFF9E9"}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{opt.description||item.name}</span><span>{opt.vendorName}</span><span style={{textAlign:"right"}}>{opt.casePrice!=null?formatMoney(opt.casePrice):"—"}</span><span style={{textAlign:"right"}}>Held</span><span style={{gridColumn:"1 / -1",fontSize:10}}>{blockReason(opt)||"Not eligible for ordering"}</span></div>)}
+                          {rankedOptions.length===1&&heldOptions.length===0&&<div style={{padding:"8px",fontSize:11,color:"#667085"}}>Only one eligible vendor offer is available.</div>}
                         </div>;
                         const cells=[
                           <div key={item.catalogItemId+"_name"} draggable={!activeBlocked}
@@ -1068,7 +1071,7 @@ export default function App() {
                                   ?`${totalLinkedVendors} vendors linked · ${readyVendorCount} ready`
                                   :`${totalLinkedVendors} vendors`;
                                 const tip=heldCount>0
-                                  ?`${totalLinkedVendors} vendors carry this item; ${readyVendorCount} have a current eligible price. ${heldCount} held (expired, unverified, or unavailable). Click to compare ready vendors.`
+                                  ?`${totalLinkedVendors} vendors linked; ${readyVendorCount} eligible. ${heldCount} held. Click to see each vendor and the reason.`
                                   :`${totalLinkedVendors} vendors carry this item. Click to compare prices.`;
                                 return <button
                                   type="button"
