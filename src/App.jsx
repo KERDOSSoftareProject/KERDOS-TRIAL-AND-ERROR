@@ -1026,20 +1026,22 @@ export default function App() {
                         const unitOptions=rankVendorOffers(selectedUnit==="case"?item.options:item.options.filter(o=>o.eachPrice),negotiation,selectedUnit);
                         const rankedOptions=unitOptions.filter(orderable);
                         const heldOptions=(item.linkedOptions||[]).filter(opt=>!orderable(opt));
-                        const displayOption=assignment
+                        const chosenLinkedOption=(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[activeKey]);
+                        const selectedHeldOption=chosenLinkedOption&&!orderable(chosenLinkedOption)?chosenLinkedOption:null;
+                        const displayOption=selectedHeldOption|| (assignment
                           ?unitOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId)
-                          :rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey])||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0];
-                        const activePrice=assignment?assignment.price:displayOption?.unitPrice;
-                        const activeVendorName=assignment?assignment.assignedVendorName:displayOption?.vendorName;
-                        const activeVendorId=assignment?.assignedVendorId||displayOption?.vendorId;
+                          :rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey])||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0]);
+                        const activePrice=selectedHeldOption?selectedHeldOption.casePrice:assignment?assignment.price:displayOption?.unitPrice;
+                        const activeVendorName=selectedHeldOption?selectedHeldOption.vendorName:assignment?assignment.assignedVendorName:displayOption?.vendorName;
+                        const activeVendorId=selectedHeldOption?.vendorId||assignment?.assignedVendorId||displayOption?.vendorId;
                         const vc=vendorColors.get(activeVendorId)||PALETTE[0];
                         const customPriceIsWinner=Number.isFinite(negotiation?.[activeVendorId]);
                         const negotiationVendorId=negotiatedVendorDrafts[activeKey]||activeVendorId||rankedOptions[0]?.vendorId||"";
                         const customPriceValue=negotiation?.[negotiationVendorId];
                         const menuOpen=openPriceMenu===activeKey;
-                        const activeBlocked=assignment?assignment.unorderable:!displayOption;
-                        const activeBlockReason=activeBlocked?(displayOption?blockReason(displayOption):"No price on file"):null;
-                        const activeOption=item.options.find(o=>o.vendorItemId===displayOption?.vendorItemId)||cheapest;
+                        const activeBlocked=!!selectedHeldOption||(assignment?assignment.unorderable:!displayOption);
+                        const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
+                        const activeOption=selectedHeldOption||item.options.find(o=>o.vendorItemId===displayOption?.vendorItemId)||cheapest;
                         const activeMatchTrack=activeOption?.matchTrack;
                         const activeMatchConfidence=activeOption?.matchConfidence;
 
@@ -1052,7 +1054,7 @@ export default function App() {
                             <span style={{textAlign:"right"}}>{formatMoney(opt.unitPrice)}</span>
                             <span title={opt.comparisonUnit?"Dollar difference for the same quantity as the lowest-cost purchasing pack":"Dollar difference from the lowest eligible price"} style={{textAlign:"right"}}>{offerDollarDifference(opt,rankedOptions[0])>0?"+":""}{formatMoney(offerDollarDifference(opt,rankedOptions[0]))}</span>
                           </button>)}
-                          {heldOptions.map(opt=><div key={`held-${opt.vendorItemId}`} role="note" title={blockReason(opt)||"Not eligible for ordering"} style={{display:"grid",gridTemplateColumns:"minmax(120px,2fr) minmax(90px,1fr) 75px 85px",gap:8,padding:"7px 8px",borderTop:"1px solid #EEE",fontSize:11,color:"#7A5B16",background:"#FFF9E9"}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{opt.description||item.name}</span><span>{opt.vendorName}</span><span style={{textAlign:"right"}}>{opt.casePrice!=null?formatMoney(opt.casePrice):"—"}</span><span style={{textAlign:"right"}}>Held</span><span style={{gridColumn:"1 / -1",fontSize:10}}>Item Catalog: {blockReason(opt)||"Not eligible for ordering"}. Not available for replacement.</span></div>)}
+                          {heldOptions.map(opt=><button type="button" key={`held-${opt.vendorItemId}`} role="option" aria-selected={selectedHeldOption?.vendorItemId===opt.vendorItemId} onClick={()=>{setVendorOverride(prev=>({...prev,[activeKey]:opt.vendorItemId}));setNegotiatedVendorDrafts(prev=>({...prev,[activeKey]:opt.vendorId}));setOpenPriceMenu(null);}} title={blockReason(opt)||"Not eligible for ordering"} style={{display:"grid",gridTemplateColumns:"minmax(120px,2fr) minmax(90px,1fr) 75px 85px",gap:8,padding:"7px 8px",borderTop:"1px solid #EEE",fontSize:11,color:"#7A5B16",background:"#FFF9E9",width:"100%",border:"none",cursor:"pointer",textAlign:"left"}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{opt.description||item.name}</span><span>{opt.vendorName}</span><span style={{textAlign:"right"}}>{opt.casePrice!=null?formatMoney(opt.casePrice):"—"}</span><span style={{textAlign:"right"}}>Held</span><span style={{gridColumn:"1 / -1",fontSize:10}}>Selected for review only — {blockReason(opt)||"Not eligible for ordering"}. Resolve in Item Catalog before purchasing.</span></button>)}
                           {rankedOptions.length===1&&heldOptions.length===0&&<div style={{padding:"8px",fontSize:11,color:"#667085"}}>Only one eligible vendor offer is available.</div>}
                         </div>;
                         const cells=[
@@ -1117,7 +1119,7 @@ export default function App() {
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
                               <div style={{fontSize:10,color:"#667085",marginBottom:4}}>Vendor price · Power Ranked</div>
                               <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Power Ranked alternatives for ${item.name}`} aria-haspopup="listbox" aria-expanded={menuOpen} title={totalLinkedVendors>1?`${totalLinkedVendors} linked vendors — open Power Ranked`:"Power Ranked alternatives"} style={{width:"100%",textAlign:"left",padding:"7px 9px",border:totalLinkedVendors>1?"2px solid #008577":"1px solid #CBD5E1",borderRadius:6,background:totalLinkedVendors>1?"#F0FAF8":"white",color:totalLinkedVendors>1?"#00695C":"inherit",fontWeight:totalLinkedVendors>1?700:400,cursor:"pointer",fontSize:12}}>
-                                {activeBlocked?activeBlockReason:`${activeVendorName} · ${formatMoney(activePrice)}${customPriceIsWinner?" negotiated":""}`} <span style={{float:"right"}}>{menuOpen?"▴":"▾"}</span>
+                                {selectedHeldOption?`${activeVendorName} · ${activePrice==null?"Price unavailable":formatMoney(activePrice)} · HELD`:activeBlocked?activeBlockReason:`${activeVendorName} · ${formatMoney(activePrice)}${customPriceIsWinner?" negotiated":""}`} <span style={{float:"right"}}>{menuOpen?"▴":"▾"}</span>
                               </button>
                               {vendorOverride[activeKey]&&<button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:"none",border:0,padding:"4px 0 0",cursor:"pointer"}}>Use lowest price</button>}
                               {alternativesMenu}
