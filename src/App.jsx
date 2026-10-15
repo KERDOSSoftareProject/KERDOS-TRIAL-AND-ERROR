@@ -1019,7 +1019,7 @@ export default function App() {
                         const selectedUnit=hasEach?(unitSelection[item.catalogItemId]||"case"):"case";
                         const activeKey=selectedUnit==="case"?caseKey:eachKey;
                         const activeQty=selectedUnit==="case"?caseQty:eachQty;
-                        const activePackSize=selectedUnit==="case"?cheapest?.packSize:cheapest?.eachSize;
+                        const activePackSize=selectedUnit==="case"?(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[caseKey])?.packSize||cheapest?.packSize:(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[eachKey])?.eachSize||cheapest?.eachSize;
                         const cartItemIdForActive=selectedUnit==="case"?item.catalogItemId:item.catalogItemId+"_each";
                         const assignment=assignMap.get(cartItemIdForActive);
                         const negotiation=negotiatedPrices[activeKey];
