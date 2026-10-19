@@ -310,10 +310,23 @@ export function createCatalogService(backend){
     async splitMapping({organizationId,mappingId,description,catalogItems,categories}){
       const placement=await this.placeInCategory({organizationId,description,categories,catalogItems});
       const created=await this.createItem({organizationId,name:description,categoryId:placement.category?.id||null,categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories});
-      const mapping=await run(table("item_mappings").select("vendor_item_id").eq("id",mappingId).single(),"Could not read the current association");
+      // Read vendor_item_id AND catalog_item_id together so we have the
+      // expected catalog item for the stale-mapping guard below.
+      const mapping=await run(table("item_mappings").select("vendor_item_id,catalog_item_id").eq("id",mappingId).single(),"Could not read the current association");
       const vendorItem=await run(table("vendor_items").select("*").eq("id",mapping.vendor_item_id).single(),"Could not read the vendor product");
       const verification=mappingVerification(vendorItem,created);
-      await run(table("item_mappings").update({catalog_item_id:created.id,...verification}).eq("id",mappingId),"Could not point the vendor item at it");
+      // Stale guard: refuse if another session remapped this mapping between
+      // the read above and this write.  Clean up the newly created catalog item
+      // first so it does not become an orphan.
+      const updated=await run(
+        table("item_mappings").update({catalog_item_id:created.id,...verification})
+          .eq("id",mappingId).eq("catalog_item_id",mapping.catalog_item_id).select("id"),
+        "Could not point the vendor item at it"
+      );
+      if(!updated?.length){
+        try{await run(table("catalog_items").delete().eq("id",created.id),"cleanup");}catch{}
+        throw new Error("The association changed since you loaded this page; refresh and try again.");
+      }
       return created;
     },
     // Reject the current catalog match and give the vendor item its own

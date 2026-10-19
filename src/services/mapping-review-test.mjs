@@ -42,18 +42,31 @@ function createInMemoryBackend({orgId,userId,userRole="manager"}={}){
   // Simple query builder that is just enough for the service layer.
   function table(name){
     const store=name==="catalog_items"?catalogs:name==="vendor_items"?vendors:name==="item_mappings"?mappings:categories;
-    let _data=null;let _eq=[];let _single=false;let _select=false;
+    let _data=null;let _insertRows=null;let _eq=[];let _single=false;let _select=false;let _delete=false;
     const api={
       select(f){_select=true;return api;},
       insert(rows){
+        // Store and immediately write rows; return the api chain so callers
+        // can chain .select().single() (e.g. createItem, ensureHoldingCategory).
         const arr=Array.isArray(rows)?rows:[rows];
         const ids=arr.map(r=>{const id=uuid();store.set(id,{id,...r});return id;});
-        return{data:arr.map((r,i)=>({id:ids[i],...r})),error:null};
+        _insertRows=arr.map((r,i)=>({id:ids[i],...r}));
+        return api;
       },
       update(data){_data=data;return api;},
+      delete(){_delete=true;return api;},
       eq(k,v){_eq.push([k,v]);return api;},
       single(){_single=true;return api;},
       async then(resolve){
+        if(_delete){
+          const matched=[...store.entries()].filter(([,r])=>_eq.every(([k,v])=>r[k]===v));
+          for(const [id] of matched)store.delete(id);
+          return resolve({data:null,error:null});
+        }
+        if(_insertRows){
+          if(_single)return resolve({data:_insertRows[0]||null,error:null});
+          return resolve({data:_insertRows,error:null});
+        }
         if(_data){
           const matched=[...store.entries()].filter(([,r])=>_eq.every(([k,v])=>r[k]===v));
           for(const [id,row] of matched)store.set(id,{...row,..._data});
@@ -187,7 +200,7 @@ function makeServices(backend,orgId){
 
 function seed(backend,orgId,vendorId){
   const catId=uuid();const catItemId=uuid();const vendorItemId=uuid();const mappingId=uuid();
-  backend._stores.categories.set(catId,{id:catId,organization_id:orgId,name:"Produce",is_holding_pen:false});
+  backend._stores.categories.set(catId,{id:catId,organization_id:orgId,name:"Produce",is_holding_pen:false,range_start:10000,range_end:19999});
   backend._stores.catalogs.set(catItemId,{id:catItemId,organization_id:orgId,category_id:catId,
     name:"Romaine Lettuce 24ct",master_item_number:10001,matching_behavior:"flexible",comparison_mode:"alternatives",brand_locked:false});
   backend._stores.vendors.set(vendorItemId,{id:vendorItemId,organization_id:orgId,vendor_id:vendorId,
@@ -629,6 +642,100 @@ run("remapToExisting (plain path) is refused when catalog item has changed", asy
       `Expected stale-mapping error, got: ${e.message}`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Module E · Remap — create-new path stale-mapping protection (Tests 19–20)
+// ---------------------------------------------------------------------------
+
+// 19. Successful create-new remap (splitMapping).
+//     The mapping points at the expected catalog item when the operator acts;
+//     the new item is created and the mapping is updated.
+run("splitMapping succeeds when mapping catalog item matches", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  const catalogsBefore=backend._stores.catalogs.size;
+  const created=await catalogService.splitMapping({
+    organizationId:ORG,
+    mappingId,
+    description:"Standalone Tomatoes 25 LB",
+    catalogItems:[...backend._stores.catalogs.values()],
+    categories:[...backend._stores.categories.values()],
+  });
+  assert.ok(created?.id,"splitMapping must return the new catalog item");
+  assert.equal(backend._stores.catalogs.size,catalogsBefore+1,"one new catalog item must be created");
+  const m=backend._stores.mappings.get(mappingId);
+  assert.equal(m.catalog_item_id,created.id,"mapping must point at the new catalog item");
+});
+
+// 20. Stale create-new remap is refused and leaves no orphan item.
+//     A concurrent session remaps the mapping before the operator's create-new
+//     write lands.  splitMapping must refuse AND delete the newly created item.
+run("splitMapping is refused when mapping has changed and cleans up the new item", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const catalogsBefore=backend._stores.catalogs.size;
+
+  // Pre-create the "concurrent" catalog item so we know its id.
+  const concurrentId=uuid();
+  backend._stores.catalogs.set(concurrentId,{id:concurrentId,organization_id:ORG,name:"Concurrent Item",
+    category_id:"cat-x",master_item_number:99999});
+
+  // Build an intercepting query that moves the mapping to concurrentId between
+  // the select read and the guarded update.  Since createCatalogService captures
+  // `table` at construction time, we must pass the intercepting backend TO
+  // makeServices — not replace backend.records.query after the fact.
+  const realTable=backend.records.query;
+  let mappingReadDone=false;
+  function interceptingTable(name){
+    const chain=realTable(name);
+    if(name!=="item_mappings")return chain;
+    // Wrap then() so we can inject the concurrent write between the two
+    // item_mappings calls: first call is the select, second is the update.
+    const origThen=chain.then.bind(chain);
+    chain.then=function(resolve){
+      if(!mappingReadDone){
+        // First item_mappings access: the select — run normally.
+        mappingReadDone=true;
+        return origThen(resolve);
+      }
+      // Second item_mappings access: the update — move the mapping first.
+      backend._stores.mappings.set(mappingId,{
+        ...backend._stores.mappings.get(mappingId),
+        catalog_item_id:concurrentId,
+      });
+      return origThen(resolve);
+    };
+    return chain;
+  }
+  const interceptingBackend={...backend,records:{query:interceptingTable}};
+  const{catalogService:interceptingService}=makeServices(interceptingBackend,ORG);
+
+  try{
+    await interceptingService.splitMapping({
+      organizationId:ORG,
+      mappingId,
+      description:"Standalone Tomatoes 25 LB",
+      catalogItems:[...backend._stores.catalogs.values()],
+      categories:[...backend._stores.categories.values()],
+    });
+    assert.fail("Should have thrown a stale-mapping error");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
+      `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+  // The catalog store should be back to its pre-splitMapping size + the one
+  // concurrent item: the orphan created by splitMapping must have been deleted.
+  assert.equal(
+    backend._stores.catalogs.size,catalogsBefore+1,
+    "orphan catalog item must be deleted on a stale remap; only the concurrent item should remain"
+  );
+  // Mapping stays at the concurrent item (not the orphan, not the original).
+  const m=backend._stores.mappings.get(mappingId);
+  assert.equal(m.catalog_item_id,concurrentId,"mapping must stay at the concurrent item");
 });
 
 console.log("\nAll Module E · Reject + Confirm + Remap tests done.\n");
