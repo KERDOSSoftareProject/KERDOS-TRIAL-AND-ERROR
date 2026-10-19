@@ -268,22 +268,32 @@ run("solveOrder marks item unorderable when ALL options are expired",()=>{
 });
 
 run("vendor minimum fill does not route through an expired option",()=>{
-  // vendor-a has a $60 minimum; it has two items but one is expired.
-  // The valid fill for vendor-a is only $30, below the $60 minimum.
-  // solveOrder must not count the expired option toward vendor-a's minimum.
+  // Setup: vendor-a wins item-x outright (cheapest at $30) but sits below its
+  // $60 delivery minimum.  The fill loop therefore tries to move item-y to
+  // vendor-a to close the gap — but vendor-a's only offer for item-y is expired.
+  // The assertion verifies the fill loop cannot use that expired offer.
+  //
+  //   item-x: vendor-a $30 (cheapest) → assigned to vendor-a initially
+  //           vendor-b $35
+  //   item-y: vendor-a $50 (EXPIRED)  → fill loop candidate, must be rejected
+  //           vendor-b $45 (valid)    → assigned to vendor-b initially
+  //
+  //   vendor-a basket after initial assignment: $30 < $60 minimum → fill triggered
+  //   fill loop considers moving item-y to vendor-a, but that option is expired
+  //   → fill loop must leave item-y on vendor-b
   const vendors=[{id:"vendor-a",name:"Vendor A",delivery_minimum_dollar:60}];
   const cartItems=[
     {
       catalogItemId:"item-x",quantity:1,orderUnit:"case",
       options:[
-        opt("vendor-a",30),              // valid, $30
-        opt("vendor-b",25),              // valid, $25 — cheapest
+        opt("vendor-a",30),   // valid, $30 — cheapest; vendor-a wins this item
+        opt("vendor-b",35),   // valid, $35
       ],
     },
     {
       catalogItemId:"item-y",quantity:1,orderUnit:"case",
       options:[
-        opt("vendor-a",50,{expired:true}), // expired — cannot be used
+        opt("vendor-a",50,{expired:true}), // expired — fill loop must not use this
         opt("vendor-b",45),                // valid
       ],
     },
@@ -291,11 +301,15 @@ run("vendor minimum fill does not route through an expired option",()=>{
 
   const assignments=solveOrder(cartItems,vendors);
 
-  // vendor-a cannot reach $60 with only item-x's $30 (item-y's option is expired).
-  // The fill loop must not assign item-y to vendor-a via an expired option.
+  // The fill loop cannot add item-y to vendor-a (expired), so it cannot meet
+  // vendor-a's $60 minimum.  It then takes "path B": routes item-x back to
+  // vendor-b and drops vendor-a entirely.  Either way, item-y must never be
+  // assigned to vendor-a via the expired offer.
   const itemY=assignments.find(a=>a.catalogItemId==="item-y");
   assert.notEqual(itemY.assignedVendorId,"vendor-a",
     "expired option must not be used to satisfy vendor minimum fill");
+  assert.ok(itemY.assignedVendorId!=null&&!itemY.unorderable,
+    "item-y must still be orderable from vendor-b");
 });
 
 // ---------------------------------------------------------------------------
