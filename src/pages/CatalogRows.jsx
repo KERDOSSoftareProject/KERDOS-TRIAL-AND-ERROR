@@ -96,13 +96,10 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
       <td style={cellStyle}>{canManage&&<input type="checkbox" aria-label={`Select ${vendorItem.description} for alternatives`} checked={selected} onChange={onSelect}/>}</td>
       {CATALOG_COLUMNS.map(([key])=>{
         const f=evidence[key];let content;
-        if(key==="itemNumber")content=<>
-          <input aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} inputMode="numeric" style={{...inputStyle,fontWeight:400,width:105}} disabled={!canManage||busy} value={numberDraft??String(item.master_item_number)} onChange={e=>{setNumberDraft(e.target.value.replace(/^#/,""));setSaved(false);setError("");}}/>
-          {linkDirty&&<small style={{display:"block",color:destination?"#245785":"#A32B20"}}>{destination?`Link to ${destination.name}`:"Enter an existing KERDOS number"}</small>}
-        </>;
+        if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{item.master_item_number!=null?`#${item.master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{f.value||"NVIM pending"}</span>;
-        else if(key==="category")content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;
+        else if(key==="category")content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{categories.filter(c=>!c.is_holding_pen).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;
         else if(key==="pack")content=<>
           <select aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
             <option value="" disabled>Select</option><option value="case">Case</option><option value="each">Each</option>
