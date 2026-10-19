@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {createCategoryService,holdingPen} from "./categories.js";
+import {createCategoryService,holdingPen,buildCategoryDropdown} from "./categories.js";
 import {classifyCategory} from "../procurement.js";
 
 const calls=[];
@@ -85,26 +85,49 @@ const sharedResult=await service.loadStarterPack({
 assert.deepEqual(sharedResult,{added:0,addedVocabulary:0,tagged:1,found:true},"shared category name must be retagged to current industry");
 assert.ok(calls.find(c=>c.table==="catalog_categories"&&c.update?.industry==="Catering"&&c.eq?.[1]==="s2"),"shared-name retag must target the existing row's ID");
 
-// Legacy option rendering logic (extracted from CatalogRows — no React harness needed).
-// When an item's current category is outside the industry-filtered set, legacyCurrent
-// must be non-null so the dropdown injects a "(legacy — reclassify)" option.
+// buildCategoryDropdown — the shared helper imported by CatalogRows.jsx.
+// Testing it here exercises the actual function the component calls; no React
+// harness is needed because the dropdown logic is pure.
 {
-  const industry="Catering";
-  const categories=[
-    {id:"s1",name:"Supplies",is_holding_pen:false,industry:"OldIndustry"},
-    {id:"c1",name:"Coffee",is_holding_pen:false,industry:"Catering"},
+  const allCategories=[
+    {id:"hp",  name:"Holding Pen", is_holding_pen:true,  industry:null},
+    {id:"old", name:"Supplies",    is_holding_pen:false, industry:"OldIndustry"},
+    {id:"cur", name:"Coffee",      is_holding_pen:false, industry:"Catering"},
   ];
-  const categoryId="s1";
-  const category=categories.find(c=>c.id===categoryId);
-  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));
-  const legacyCurrent=category&&!industryCategories.find(c=>c.id===category.id)?category:null;
-  assert.ok(legacyCurrent,"category from prior industry must produce a legacy option");
-  assert.equal(legacyCurrent.id,"s1","legacy option must reference the original category ID");
-  // When the item is already on a current-industry category, no legacy option should appear.
-  const categoryIdCurrent="c1";
-  const categoryCurrent=categories.find(c=>c.id===categoryIdCurrent);
-  const legacyCurrentNone=categoryCurrent&&!industryCategories.find(c=>c.id===categoryCurrent.id)?categoryCurrent:null;
-  assert.equal(legacyCurrentNone,null,"current-industry category must not produce a legacy option");
+
+  // Out-of-industry current category → legacyCurrent non-null; holding pen excluded from choices.
+  const {industryCategories:a,legacyCurrent:legacy1}=buildCategoryDropdown({
+    categories:allCategories, industry:"Catering",
+    currentCategory:allCategories.find(c=>c.id==="old"),
+  });
+  assert.ok(legacy1,"out-of-industry current category must produce a legacyCurrent entry");
+  assert.equal(legacy1.id,"old","legacyCurrent must reference the original category ID");
+  assert.ok(!a.find(c=>c.id==="hp"),"holding pen must be excluded from industryCategories");
+  assert.ok(!a.find(c=>c.id==="old"),"out-of-industry category must not appear in industryCategories");
+  assert.ok(a.find(c=>c.id==="cur"),"current-industry category must appear in industryCategories");
+
+  // Current-industry current category → legacyCurrent null.
+  const {legacyCurrent:legacy2}=buildCategoryDropdown({
+    categories:allCategories, industry:"Catering",
+    currentCategory:allCategories.find(c=>c.id==="cur"),
+  });
+  assert.equal(legacy2,null,"current-industry category must not produce a legacyCurrent entry");
+
+  // Holding pen as current category → legacyCurrent null (holding pen is never a legacy label).
+  const {legacyCurrent:legacy3}=buildCategoryDropdown({
+    categories:allCategories, industry:"Catering",
+    currentCategory:allCategories.find(c=>c.id==="hp"),
+  });
+  assert.equal(legacy3,null,"holding-pen current category must not produce a legacyCurrent entry");
+
+  // No industry set → all non-holding-pen categories shown; legacyCurrent null for any of them.
+  const {industryCategories:b,legacyCurrent:legacy4}=buildCategoryDropdown({
+    categories:allCategories, industry:null,
+    currentCategory:allCategories.find(c=>c.id==="old"),
+  });
+  assert.ok(!b.find(c=>c.id==="hp"),"holding pen excluded even when no industry set");
+  assert.equal(b.length,2,"both non-holding-pen categories visible when no industry set");
+  assert.equal(legacy4,null,"no legacyCurrent when all non-holding-pen categories are shown");
 }
 
 console.log("KERDOS provider-neutral category-service tests passed");

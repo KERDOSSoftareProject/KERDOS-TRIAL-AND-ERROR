@@ -12,6 +12,23 @@ export function holdingPen(categories){
   return categories.find(category=>category.is_holding_pen)||null;
 }
 
+// Pure helper used by CatalogRows and tested independently.
+// Returns the filtered list for a category dropdown and, when the item's
+// current category falls outside that filtered set, a legacyCurrent entry
+// to inject as a labeled "(legacy — reclassify)" option.
+//
+// Rules:
+//   industryCategories — all non-holding-pen categories that belong to the
+//     current industry; when industry is falsy, all non-holding-pen categories
+//     are included (no org industry configured yet).
+//   legacyCurrent — the item's current category when it is NOT in
+//     industryCategories; null otherwise.  Holding-pen is never legacyCurrent.
+export function buildCategoryDropdown({categories,industry,currentCategory}){
+  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));
+  const legacyCurrent=currentCategory&&!currentCategory.is_holding_pen&&!industryCategories.find(c=>c.id===currentCategory.id)?currentCategory:null;
+  return {industryCategories,legacyCurrent};
+}
+
 export function createCategoryService(backend){
   const table=backend.records.query;
   return {
@@ -33,15 +50,17 @@ export function createCategoryService(backend){
       });
       if(categoryRows.length)await run(table("catalog_categories").insert(categoryRows),"Could not add starter categories");
 
-      // Tag existing categories whose names match this industry's templates but
-      // were created before migration_027 (industry===null).  Only untagged rows
-      // are updated; tagged rows (even with a different industry) are left alone
-      // so prior intentional assignments are not silently relabeled.
+      // Retag existing categories whose names match this industry's templates.
+      // This covers two cases:
+      //   1. Pre-migration rows (industry===null) that were created before the
+      //      industry column existed — they need a tag so the strict dropdown
+      //      filter can include them.
+      //   2. Categories shared across industries (e.g. "Dairy" tagged to industry
+      //      A that also appears in industry B's templates) — when the org loads
+      //      B's starter pack, the row is retagged to B so it appears in B's
+      //      dropdowns.  The existing row ID and all catalog item assignments
+      //      are preserved; only the industry metadata column is updated.
       const templateNames=new Set((templates||[]).map(row=>row.category_name.toLowerCase()));
-      // Retag any untagged OR differently-tagged category whose name matches
-      // the current industry's templates so that shared names (e.g. "Dairy"
-      // existing on industry A being claimed by industry B) follow the org's
-      // current industry rather than staying hidden behind the old tag.
       const toTag=categories.filter(c=>c.industry!==name&&!c.is_holding_pen&&templateNames.has(c.name.toLowerCase()));
       if(toTag.length){
         await Promise.all(toTag.map(c=>run(table("catalog_categories").update({industry:name}).eq("id",c.id),"Could not tag existing category")));

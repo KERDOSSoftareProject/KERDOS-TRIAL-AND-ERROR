@@ -3,6 +3,7 @@ import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
 import {QuotedPerControl} from "./QuotedPerControl.jsx";
 import {calculatedUnitCost,comparisonUnits,defaultComparisonUnit} from "../core/quote-controls.js";
+import {buildCategoryDropdown} from "../services/categories.js";
 import {useState,useMemo} from "react";
 import {backend} from "../backend/index.js";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
@@ -99,7 +100,7 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{item.master_item_number!=null?`#${item.master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{f.value||"NVIM pending"}</span>;
-        else if(key==="category"){const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));const legacyCurrent=category&&!industryCategories.find(c=>c.id===category.id)?category:null;content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name} (legacy — reclassify)</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
+        else if(key==="category"){const {industryCategories,legacyCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name} (legacy — reclassify)</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
         else if(key==="pack")content=<>
           <select aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
             <option value="" disabled>Select</option><option value="case">Case</option><option value="each">Each</option>
