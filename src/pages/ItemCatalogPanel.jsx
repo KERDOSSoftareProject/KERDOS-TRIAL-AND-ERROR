@@ -169,11 +169,14 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
     }
     if(!window.confirm(`Confirm this association?\n\nVendor product: ${vendor?.description||"Unknown"}\nPack: ${vendor?.pack_size||"Not provided"}\nCatalog item: ${target?.name||"Unknown"}\n\nThis approval makes the vendor price eligible for ordering and keeps this link for future imports of the same vendor product.`))return;
     setBusyMappingId(mappingId);
-    // Confirm first; only save the learned wording if the confirmation
-    // succeeds. A stale-mapping refusal must not persist abbreviations
-    // from an association the operator did not actually confirm.
-    await act(()=>catalogService.confirmMapping(mappingId,verification,mapping.catalog_item_id));
-    await learnFrom(vendor,peers);
+    // Both steps run inside act so that:
+    // 1. A stale-mapping refusal from confirmMapping prevents learnFrom
+    //    from running (act catches the throw and returns false).
+    // 2. onUpdated (the refresh) fires after learning, not before.
+    await act(async()=>{
+      await catalogService.confirmMapping(mappingId,verification,mapping.catalog_item_id);
+      await learnFrom(vendor,peers);
+    });
     setBusyMappingId(null);
   }
   // Vendor rows with a price but no stated unit. Most sheets quote per
