@@ -69,29 +69,38 @@ run("falls back to case price when options have no per-unit data",()=>{
     "without perUnit, cheapest case price must rank first");
 });
 
-run("falls back to case price when units disagree between options",()=>{
-  // One option is per LB, another per OZ — no common unit available.
-  // comparisonUnit must be null and ranking falls back to casePrice.
+run("option with incompatible unit is marked unverified upstream and excluded from ranking",()=>{
+  // App.jsx sets unverified:true on any orderable option that cannot share a
+  // comparison unit with its peers.  When units disagree (LB vs OZ here),
+  // the option without a usable perUnit is flagged before rankVendorOffers runs.
+  // The test simulates that upstream mark and verifies exclusion, not case-price fallback.
   const options=[
     wopt("by-lb",20,2,"LB"),
-    wopt("by-oz",15,0.5,"OZ"),
+    opt("by-oz",15,{unverified:true,
+      qualificationReason:"Choose a shared comparison measurement or correct the pack before ranking alternatives"}),
   ];
   const ranked=rankVendorOffers(options);
-  assert.equal(ranked[0].vendorId,"by-oz",
-    "disagreeing units must disable per-unit comparison; case price decides");
-  assert.equal(ranked[0].comparisonUnit,null,
-    "comparisonUnit must be null when units disagree");
+  assert.equal(ranked.find(o=>o.vendorId==="by-oz").difference,null,
+    "an option marked unverified must be excluded from ranking (difference:null)");
+  assert.equal(ranked.find(o=>o.vendorId==="by-lb").difference,0,
+    "the remaining eligible option anchors the ranking");
 });
 
-run("falls back to case price when only some options have per-unit data",()=>{
-  // Mixed: one has perUnit, one does not → comparisonUnit null → case price decides.
+run("option without per-unit data is marked unverified upstream and excluded from ranking",()=>{
+  // When some options carry perUnit and one does not, App.jsx marks the one
+  // lacking perUnit as unverified — it cannot be compared on equal footing.
+  // rankVendorOffers then excludes it via orderable(), not by silently
+  // falling back to a case-price comparison.
   const options=[
     wopt("with-per-unit",20,2,"LB"),
-    opt("without-per-unit",15),
+    opt("without-per-unit",15,{unverified:true,
+      qualificationReason:"Choose a shared comparison measurement or correct the pack before ranking alternatives"}),
   ];
   const ranked=rankVendorOffers(options);
-  assert.equal(ranked[0].vendorId,"without-per-unit",
-    "mixed perUnit presence must fall back to case price");
+  assert.equal(ranked.find(o=>o.vendorId==="without-per-unit").difference,null,
+    "an option missing per-unit data must be excluded from ranking after being marked unverified");
+  assert.equal(ranked.find(o=>o.vendorId==="with-per-unit").difference,0,
+    "the eligible per-unit option anchors the ranking");
 });
 
 // ---------------------------------------------------------------------------
