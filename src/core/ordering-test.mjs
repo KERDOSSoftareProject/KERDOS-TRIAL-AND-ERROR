@@ -72,3 +72,51 @@ const heldReplacement=solveOrder([{catalogItemId:"celery",quantity:1,orderUnit:"
 assert.equal(heldReplacement.unorderable,true,"held selected listing cannot silently fall back to another vendor");
 assert.equal(heldReplacement.assignedVendorId,null,"held selection must not order the original winner");
 console.log("Power Ranked replacement and held-offer safety tests passed.");
+
+// Module G · Task 2 · Order — checklist coverage
+//   [1] Case / each selection per item
+//   [4] Vendor dollar and unit minimums tracked
+
+// [1] Each-unit ranking uses eachPrice, not casePrice.
+// vendor-a: case $20, each $2 (cheaper per each).  vendor-b: case $12, each $3 (cheaper per case).
+// rankVendorOffers with unit="each" must rank vendor-a first despite its higher case price.
+const eachOptions=[
+  option("vendor-a",20,{casePrice:20,eachPrice:2}),
+  option("vendor-b",12,{casePrice:12,eachPrice:3}),
+];
+const eachRanked=rankVendorOffers(eachOptions,null,"each");
+assert.equal(eachRanked[0].vendorId,"vendor-a","each-unit ranking must use eachPrice, not casePrice");
+assert.equal(eachRanked[0].difference,0,"the each-price winner carries difference:0");
+assert.equal(eachRanked[1].difference,1,"the more expensive each-price option carries the correct premium");
+console.log("Each-unit ranking uses eachPrice passed.");
+
+// [4a] Dollar-minimum fill — path A success.
+// item-x: vendor-a $30 (wins initially), vendor-b $60.
+// item-y: vendor-b $35 (wins initially), vendor-a $40.
+// vendor-a basket starts at $30, short of $60 minimum.
+// Path A moves item-y to vendor-a ($30+$40=$70 ≥ $60); path B costs $95. Path A wins.
+const dollarMinVendors=[{id:"vendor-a",name:"Vendor A",delivery_minimum_dollar:60}];
+const dollarMinFilled=solveOrder([
+  {catalogItemId:"item-x",quantity:1,orderUnit:"case",options:[option("vendor-a",30),option("vendor-b",60)]},
+  {catalogItemId:"item-y",quantity:1,orderUnit:"case",options:[option("vendor-a",40),option("vendor-b",35)]},
+],dollarMinVendors);
+assert.equal(dollarMinFilled.find(a=>a.catalogItemId==="item-x").assignedVendorId,"vendor-a","item-x stays on vendor-a");
+assert.equal(dollarMinFilled.find(a=>a.catalogItemId==="item-y").assignedVendorId,"vendor-a","item-y moved to vendor-a to meet dollar minimum");
+const vendorADollar=dollarMinFilled.filter(a=>a.assignedVendorId==="vendor-a").reduce((s,a)=>s+a.lineTotal,0);
+assert.ok(vendorADollar>=60,`vendor-a basket must meet the $60 dollar minimum after fill; got $${vendorADollar}`);
+console.log("Dollar-minimum fill (path A success) passed.");
+
+// [4b] Unit-minimum fill — path A success.
+// item-x: vendor-a $10 (wins initially, qty 1), vendor-b $50.
+// item-y: vendor-b $15 (wins initially, qty 2), vendor-a $20.
+// vendor-a basket starts at 1 unit, short of 3-unit minimum.
+// Path A moves item-y (qty 2) to vendor-a (total 3 ≥ 3); path B costs $80 vs path A $50. Path A wins.
+const unitMinVendors=[{id:"vendor-a",name:"Vendor A",delivery_minimum_units:3}];
+const unitMinFilled=solveOrder([
+  {catalogItemId:"item-x",quantity:1,orderUnit:"case",options:[option("vendor-a",10),option("vendor-b",50)]},
+  {catalogItemId:"item-y",quantity:2,orderUnit:"case",options:[option("vendor-a",20),option("vendor-b",15)]},
+],unitMinVendors);
+assert.equal(unitMinFilled.find(a=>a.catalogItemId==="item-y").assignedVendorId,"vendor-a","item-y moved to vendor-a to meet unit minimum");
+const vendorAUnits=unitMinFilled.filter(a=>a.assignedVendorId==="vendor-a").reduce((s,a)=>s+a.quantity,0);
+assert.ok(vendorAUnits>=3,`vendor-a basket must meet the 3-unit minimum after fill; got ${vendorAUnits}`);
+console.log("Unit-minimum fill (path A success) passed.");
