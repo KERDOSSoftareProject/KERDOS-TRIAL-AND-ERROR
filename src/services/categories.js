@@ -13,20 +13,28 @@ export function holdingPen(categories){
 }
 
 // Pure helper used by CatalogRows and tested independently.
-// Returns the filtered list for a category dropdown and, when the item's
-// current category falls outside that filtered set, a legacyCurrent entry
-// to inject as a labeled "(legacy — reclassify)" option.
+// Returns the filtered list for a category dropdown plus two optional
+// "current value" entries that keep the select representable when the item
+// is assigned to a category that is not a valid destination choice.
 //
-// Rules:
+// Fields:
 //   industryCategories — all non-holding-pen categories that belong to the
 //     current industry; when industry is falsy, all non-holding-pen categories
-//     are included (no org industry configured yet).
-//   legacyCurrent — the item's current category when it is NOT in
-//     industryCategories; null otherwise.  Holding-pen is never legacyCurrent.
+//     are included (no org industry configured yet).  Holding pen is always
+//     excluded so it can never be chosen as a destination.
+//   legacyCurrent — set when the item's current category is a real (non-holding-
+//     pen) category that falls outside industryCategories.  Injected as a
+//     one-off selectable option labeled "<name> (legacy — reclassify)" so the
+//     operator can see it and move the item; null otherwise.
+//   holdingPenCurrent — set when the item's current category IS the holding pen.
+//     Injected as a disabled option labeled "Unclassified — assign a category"
+//     so the select value renders (instead of going blank) while preventing the
+//     operator from re-choosing the holding pen as the destination; null otherwise.
 export function buildCategoryDropdown({categories,industry,currentCategory}){
   const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));
   const legacyCurrent=currentCategory&&!currentCategory.is_holding_pen&&!industryCategories.find(c=>c.id===currentCategory.id)?currentCategory:null;
-  return {industryCategories,legacyCurrent};
+  const holdingPenCurrent=currentCategory?.is_holding_pen?currentCategory:null;
+  return {industryCategories,legacyCurrent,holdingPenCurrent};
 }
 
 export function createCategoryService(backend){

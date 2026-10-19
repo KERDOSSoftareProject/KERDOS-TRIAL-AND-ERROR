@@ -95,8 +95,9 @@ assert.ok(calls.find(c=>c.table==="catalog_categories"&&c.update?.industry==="Ca
     {id:"cur", name:"Coffee",      is_holding_pen:false, industry:"Catering"},
   ];
 
-  // Out-of-industry current category → legacyCurrent non-null; holding pen excluded from choices.
-  const {industryCategories:a,legacyCurrent:legacy1}=buildCategoryDropdown({
+  // Out-of-industry current category → legacyCurrent non-null; holding pen excluded from choices;
+  // holdingPenCurrent null (item is not in the holding pen).
+  const {industryCategories:a,legacyCurrent:legacy1,holdingPenCurrent:hpc1}=buildCategoryDropdown({
     categories:allCategories, industry:"Catering",
     currentCategory:allCategories.find(c=>c.id==="old"),
   });
@@ -105,29 +106,38 @@ assert.ok(calls.find(c=>c.table==="catalog_categories"&&c.update?.industry==="Ca
   assert.ok(!a.find(c=>c.id==="hp"),"holding pen must be excluded from industryCategories");
   assert.ok(!a.find(c=>c.id==="old"),"out-of-industry category must not appear in industryCategories");
   assert.ok(a.find(c=>c.id==="cur"),"current-industry category must appear in industryCategories");
+  assert.equal(hpc1,null,"holdingPenCurrent must be null when item is not in the holding pen");
 
-  // Current-industry current category → legacyCurrent null.
-  const {legacyCurrent:legacy2}=buildCategoryDropdown({
+  // Current-industry current category → both legacy entries null.
+  const {legacyCurrent:legacy2,holdingPenCurrent:hpc2}=buildCategoryDropdown({
     categories:allCategories, industry:"Catering",
     currentCategory:allCategories.find(c=>c.id==="cur"),
   });
   assert.equal(legacy2,null,"current-industry category must not produce a legacyCurrent entry");
+  assert.equal(hpc2,null,"holdingPenCurrent must be null when item is on a real category");
 
-  // Holding pen as current category → legacyCurrent null (holding pen is never a legacy label).
-  const {legacyCurrent:legacy3}=buildCategoryDropdown({
+  // Holding pen as current category → holdingPenCurrent non-null, legacyCurrent null.
+  // This is the blank-select fix: the select value (holding-pen ID) must have a
+  // matching option so it renders, but the option is disabled so the pen cannot
+  // be re-chosen as a destination.
+  const {industryCategories:c,legacyCurrent:legacy3,holdingPenCurrent:hpc3}=buildCategoryDropdown({
     categories:allCategories, industry:"Catering",
     currentCategory:allCategories.find(c=>c.id==="hp"),
   });
   assert.equal(legacy3,null,"holding-pen current category must not produce a legacyCurrent entry");
+  assert.ok(hpc3,"holding-pen current category must produce a holdingPenCurrent entry");
+  assert.equal(hpc3.id,"hp","holdingPenCurrent must reference the holding-pen row");
+  assert.ok(!c.find(cat=>cat.id==="hp"),"holding pen must still be excluded from industryCategories even when it is the current value");
 
-  // No industry set → all non-holding-pen categories shown; legacyCurrent null for any of them.
-  const {industryCategories:b,legacyCurrent:legacy4}=buildCategoryDropdown({
+  // No industry set → all non-holding-pen categories shown; both legacy entries null.
+  const {industryCategories:d,legacyCurrent:legacy4,holdingPenCurrent:hpc4}=buildCategoryDropdown({
     categories:allCategories, industry:null,
     currentCategory:allCategories.find(c=>c.id==="old"),
   });
-  assert.ok(!b.find(c=>c.id==="hp"),"holding pen excluded even when no industry set");
-  assert.equal(b.length,2,"both non-holding-pen categories visible when no industry set");
+  assert.ok(!d.find(c=>c.id==="hp"),"holding pen excluded even when no industry set");
+  assert.equal(d.length,2,"both non-holding-pen categories visible when no industry set");
   assert.equal(legacy4,null,"no legacyCurrent when all non-holding-pen categories are shown");
+  assert.equal(hpc4,null,"holdingPenCurrent null when item is not in the holding pen");
 }
 
 console.log("KERDOS provider-neutral category-service tests passed");
