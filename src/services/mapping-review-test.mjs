@@ -16,6 +16,7 @@
 //      row_revision in one step — no partial-failure window.
 //   9. Stale expectedCatalogItemId on reject is refused with a clear error.
 //  10. Cross-org destination is refused by kerdos_remap_to_rejected.
+//  11. Calling rejectMapping without expectedCatalogItemId fails before the RPC.
 //
 // Uses createInMemoryBackend() so no real Supabase connection is needed.
 
@@ -68,6 +69,9 @@ function createInMemoryBackend({orgId,userId,userRole="manager"}={}){
 
   // RPC: kerdos_reject_mapping — auth uses the userId closed over from the factory args.
   async function kerdos_reject_mapping({p_organization_id,p_mapping_id,p_expected_revision,p_expected_catalog_item_id}){
+    // p_expected_catalog_item_id is required — mirrors the DB guard.
+    if(p_expected_catalog_item_id==null)
+      return{data:null,error:{message:"expected_catalog_item_id is required"}};
     const member=userId?members.get(userId+"_"+p_organization_id):null;
     if(!member||!["owner","manager"].includes(member))
       return{data:null,error:{message:"Owner or manager access is required"}};
@@ -77,9 +81,9 @@ function createInMemoryBackend({orgId,userId,userRole="manager"}={}){
     if(!vendor)return{data:null,error:{message:"Vendor product not found"}};
     if(vendor.row_revision!==p_expected_revision)
       return{data:null,error:{message:"This product changed; refresh before rejecting"}};
-    // Re-read mapping (mirrors DB lock re-read) then check stale catalog item.
+    // Re-read mapping (mirrors DB lock re-read); stale check is unconditional.
     const freshMapping=[...mappings.values()].find(m=>m.id===p_mapping_id&&m.organization_id===p_organization_id);
-    if(p_expected_catalog_item_id!=null&&freshMapping.catalog_item_id!==p_expected_catalog_item_id)
+    if(freshMapping.catalog_item_id!==p_expected_catalog_item_id)
       return{data:null,error:{message:"The association changed since you loaded this page; refresh and try again"}};
     const item=[...catalogs.values()].find(c=>c.id===freshMapping.catalog_item_id&&c.organization_id===p_organization_id);
     if(!item)return{data:null,error:{message:"Catalog item not found"}};
@@ -214,7 +218,7 @@ run("rejectMapping creates standalone catalog item with match_method='rejected'"
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
   const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
-  const result=await catalogService.rejectMapping(mappingId,1,{organizationId:ORG});
+  const result=await catalogService.rejectMapping(mappingId,1,{organizationId:ORG,expectedCatalogItemId:catItemId});
   assert.ok(result.catalogItemId,"RPC must return new catalogItemId");
   assert.notEqual(result.catalogItemId,catItemId,"standalone item must be different from rejected item");
   assert.equal(result.rejectedCatalogItemId,catItemId,"RPC must report the rejected catalog item");
@@ -231,9 +235,9 @@ run("rejectMapping creates standalone catalog item with match_method='rejected'"
 // 2. After rejection, reimport finds existingMapping and never calls matchOrCreate.
 run("reimport skips matchOrCreate when rejected mapping already exists", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService,importService}=makeServices(backend,ORG);
-  await catalogService.rejectMapping(mappingId,1,{organizationId:ORG});
+  await catalogService.rejectMapping(mappingId,1,{organizationId:ORG,expectedCatalogItemId:catItemId});
   let matchOrCreateCalled=false;
   const spyCatalogService={
     ...catalogService,
@@ -304,7 +308,7 @@ run("remap to different item preserves rejected_catalog_item_ids", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
   const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
-  await catalogService.rejectMapping(mappingId,1,{organizationId:ORG});
+  await catalogService.rejectMapping(mappingId,1,{organizationId:ORG,expectedCatalogItemId:catItemId});
   // Create another catalog item to remap to.
   const otherId=uuid();
   backend._stores.catalogs.set(otherId,{id:otherId,organization_id:ORG,category_id:"cat-1",
@@ -357,7 +361,8 @@ run("non-member cannot call kerdos_reject_mapping", async()=>{
   const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
   try{
-    await catalogService.rejectMapping(mappingId,1,{organizationId:ORG});
+    // Pass a valid expectedCatalogItemId so the auth check (not the null guard) is the gate.
+    await catalogService.rejectMapping(mappingId,1,{organizationId:ORG,expectedCatalogItemId:catItemId});
     assert.fail("Should have thrown an authorization error");
   }catch(e){
     assert.ok(e.message.toLowerCase().includes("access")||e.message.toLowerCase().includes("authorized")||e.message.toLowerCase().includes("owner"),
@@ -368,11 +373,11 @@ run("non-member cannot call kerdos_reject_mapping", async()=>{
 // 7. Stale row_revision is rejected.
 run("stale row_revision is rejected with a clear error", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
   try{
     // Pass revision 99 when the actual revision is 1.
-    await catalogService.rejectMapping(mappingId,99,{organizationId:ORG});
+    await catalogService.rejectMapping(mappingId,99,{organizationId:ORG,expectedCatalogItemId:catItemId});
     assert.fail("Should have thrown a stale revision error");
   }catch(e){
     assert.ok(e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh")||e.message.toLowerCase().includes("revision"),
@@ -421,6 +426,23 @@ run("stale expectedCatalogItemId on reject is refused with a clear error", async
     assert.ok(
       e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
       `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+});
+
+// 11. Calling rejectMapping without expectedCatalogItemId fails immediately.
+run("rejectMapping without expectedCatalogItemId throws before calling RPC", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  try{
+    // No expectedCatalogItemId — should fail in the JS service layer.
+    await catalogService.rejectMapping(mappingId,1,{organizationId:ORG});
+    assert.fail("Should have thrown for missing expectedCatalogItemId");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("required")||e.message.toLowerCase().includes("catalog item"),
+      `Expected null-guard error, got: ${e.message}`
     );
   }
 });

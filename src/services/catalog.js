@@ -314,12 +314,13 @@ export function createCatalogService(backend){
     // rejectedCatalogItemId} from the RPC.
     async rejectMapping(mappingId,vendorItemRevision,{organizationId,expectedCatalogItemId}={}){
       if(vendorItemRevision==null)throw new Error("Reload this product before rejecting it.");
+      if(expectedCatalogItemId==null)throw new Error("The current catalog item ID is required to reject a match.");
       return run(
         backend.rpc("kerdos_reject_mapping",{
           p_organization_id:organizationId,
           p_mapping_id:mappingId,
           p_expected_revision:vendorItemRevision,
-          p_expected_catalog_item_id:expectedCatalogItemId??null,
+          p_expected_catalog_item_id:expectedCatalogItemId,
         }),
         "Could not reject the match"
       );

@@ -26,7 +26,7 @@ create or replace function public.kerdos_reject_mapping(
   p_organization_id          uuid,
   p_mapping_id               uuid,
   p_expected_revision        bigint,
-  p_expected_catalog_item_id uuid default null
+  p_expected_catalog_item_id uuid
 )
 returns jsonb language plpgsql set search_path = public as $$
 declare
@@ -37,6 +37,13 @@ declare
   v_rejected  jsonb;
   v_resolutions jsonb;
 begin
+  -- Guard: p_expected_catalog_item_id is required — callers must supply the catalog item
+  -- they are looking at so the stale-mapping check below can run unconditionally.
+  -- A NULL here means the caller is using an outdated code path; fail loudly.
+  if p_expected_catalog_item_id is null then
+    raise exception 'expected_catalog_item_id is required';
+  end if;
+
   -- Authorization: owner or manager only.
   if auth.uid() is null or not exists (
     select 1 from organization_members
@@ -71,9 +78,9 @@ begin
   for update;
 
   -- Stale-mapping check: the operator must have been looking at the same catalog
-  -- item they are now rejecting.  Passing null skips the check (backwards-compat).
-  if p_expected_catalog_item_id is not null
-    and v_mapping.catalog_item_id <> p_expected_catalog_item_id then
+  -- item they are now rejecting.  p_expected_catalog_item_id is required (checked
+  -- above), so this comparison is always meaningful.
+  if v_mapping.catalog_item_id <> p_expected_catalog_item_id then
     raise exception 'The association changed since you loaded this page; refresh and try again';
   end if;
 
@@ -140,5 +147,7 @@ begin
 end;
 $$;
 
+-- p_expected_catalog_item_id is now required (no default); the three-argument overload
+-- is dropped by migration_030.  Only this four-argument variant remains.
 revoke all on function public.kerdos_reject_mapping(uuid, uuid, bigint, uuid) from public;
 grant execute on function public.kerdos_reject_mapping(uuid, uuid, bigint, uuid) to authenticated;
