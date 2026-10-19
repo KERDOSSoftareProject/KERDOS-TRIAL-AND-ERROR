@@ -3,7 +3,7 @@
 // Checklist:
 //   [1] Valid pack confirmed
 //   [2] Quoted unit price available and current
-//   [3] Brand resolved (brand_locked enforcement)
+//   [3] Brand resolved when client marks it required (brand_locked enforcement)
 //   [4] Price staleness check against org price_refresh_days setting
 //   [5] Stale items excluded from cheapest-pick and vendor minimum fill
 
