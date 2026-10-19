@@ -317,9 +317,10 @@ run("remap to different item preserves rejected_catalog_item_ids", async()=>{
   backend._stores.catalogs.set(otherId,{id:otherId,organization_id:ORG,category_id:"cat-1",
     name:"Baby Romaine 12ct",master_item_number:10002});
   const vi=backend._stores.vendors.get(vendorItemId);
+  const standaloneMapping=backend._stores.mappings.get(mappingId);
   await catalogService.remapToExisting(mappingId,otherId,
     {comparison_track:"review",confidence_score:60,match_method:"rule_based"},
-    {vendorItemId,currentFieldResolutions:vi.field_resolutions});
+    {vendorItemId,currentFieldResolutions:vi.field_resolutions,expectedCatalogItemId:standaloneMapping.catalog_item_id});
   const viAfter=backend._stores.vendors.get(vendorItemId);
   assert.ok((viAfter.field_resolutions.rejected_catalog_item_ids||[]).includes(catItemId),
     "rejected_catalog_item_ids must still contain the original rejected item after remap to a different item");
@@ -583,4 +584,51 @@ run("confirmMappings is refused when a catalog item has changed (stale bulk)", a
   }
 });
 
-console.log("\nAll Module E · Reject + Confirm tests done.\n");
+// ---------------------------------------------------------------------------
+// Module E · Remap — plain-path stale-mapping protection (Tests 17–18)
+// ---------------------------------------------------------------------------
+
+// 17. Current mapping remaps (plain path).
+//     Remap to a catalog item that is NOT in rejected_catalog_item_ids — the
+//     plain update path — succeeds when expectedCatalogItemId matches.
+run("remapToExisting (plain path) succeeds when catalog item matches", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  const otherId=uuid();
+  backend._stores.catalogs.set(otherId,{id:otherId,organization_id:ORG,name:"Other Item"});
+  await catalogService.remapToExisting(mappingId,otherId,
+    {comparison_track:"review",confidence_score:60,match_method:"manual"},
+    {vendorItemId,currentFieldResolutions:{},expectedCatalogItemId:catItemId,organizationId:ORG});
+  const m=backend._stores.mappings.get(mappingId);
+  assert.equal(m.catalog_item_id,otherId,"mapping must point at the new catalog item after remap");
+});
+
+// 18. Stale mapping is refused (plain path).
+//     Between loading and clicking Remap the mapping was changed by another
+//     session.  The operator's remap must be refused.
+run("remapToExisting (plain path) is refused when catalog item has changed", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  // Silently move the mapping to a different catalog item.
+  const concurrentId=uuid();
+  backend._stores.catalogs.set(concurrentId,{id:concurrentId,organization_id:ORG,name:"Concurrent Item"});
+  backend._stores.mappings.set(mappingId,{...backend._stores.mappings.get(mappingId),catalog_item_id:concurrentId});
+  const otherId=uuid();
+  backend._stores.catalogs.set(otherId,{id:otherId,organization_id:ORG,name:"Other Item"});
+  // Operator still thinks the mapping points at catItemId.
+  try{
+    await catalogService.remapToExisting(mappingId,otherId,
+      {comparison_track:"review",confidence_score:60,match_method:"manual"},
+      {vendorItemId,currentFieldResolutions:{},expectedCatalogItemId:catItemId,organizationId:ORG});
+    assert.fail("Should have thrown a stale-mapping error");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
+      `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+});
+
+console.log("\nAll Module E · Reject + Confirm + Remap tests done.\n");

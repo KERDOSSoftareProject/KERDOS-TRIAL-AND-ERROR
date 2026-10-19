@@ -240,8 +240,12 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
     const verification=mappingVerification(vendor,target,linkedByCatalog.get(newCatalogItemId)||[]);
     if(!target||!window.confirm(`Move this vendor product?\n\n${vendor?.description||"Unknown vendor product"}\nIts pack: ${vendor?.pack_size||"Not provided"}\n\nFrom: ${current?.name||"Unknown"}\nTo: #${target.master_item_number} ${target.name}\nExisting packs: ${summary.packs.join(", ")||"Not listed"}\nImported brand: ${vendor?.brand||"Not stated"}\nExisting brands: ${summary.brands.join(", ")}\n${summary.warning?`Attention: ${summary.warning}.\n`:""}${verification.comparison_track==="review"?"The association will remain in review and its price will not compete until the product and pack are verified.\n":"The full product descriptions and packs agree; its price may compete.\n"}Only this vendor product moves. The other vendor products stay where they are. This selection is saved for future imports.`))return;
     setBusyMappingId(mappingId);
-    if(verification.comparison_track==="exact")await learnFrom(vendor,(linkedByCatalog.get(newCatalogItemId)||[]).filter(peer=>peer.id!==vendor?.id));
-    if(await act(()=>catalogService.remapToExisting(mappingId,newCatalogItemId,verification,{vendorItemId:vendor?.id,currentFieldResolutions:vendor?.field_resolutions||null,vendorItemRevision:vendor?.row_revision??null,expectedCatalogItemId:mapping?.catalog_item_id??null,organizationId:orgId}))){ setRemapOpenFor(null); setRemapSearch(""); }
+    // Both steps run inside act: a stale-mapping refusal stops execution
+    // before learnFrom runs, and onUpdated fires after learning completes.
+    if(await act(async()=>{
+      await catalogService.remapToExisting(mappingId,newCatalogItemId,verification,{vendorItemId:vendor?.id,currentFieldResolutions:vendor?.field_resolutions||null,vendorItemRevision:vendor?.row_revision??null,expectedCatalogItemId:mapping?.catalog_item_id??null,organizationId:orgId});
+      if(verification.comparison_track==="exact")await learnFrom(vendor,(linkedByCatalog.get(newCatalogItemId)||[]).filter(peer=>peer.id!==vendor?.id));
+    })){ setRemapOpenFor(null); setRemapSearch(""); }
     setBusyMappingId(null);
   }
   async function handleRemapNew(mappingId,description){

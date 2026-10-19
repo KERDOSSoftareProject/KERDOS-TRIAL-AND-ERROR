@@ -395,7 +395,16 @@ export function createCatalogService(backend){
           );
         }
       }
-      return run(table("item_mappings").update({catalog_item_id:catalogItemId,...verification}).eq("id",mappingId),"Could not remap the item");
+      // Plain path: apply the same stale-mapping guard used in confirmOne
+      // and kerdos_reject_mapping — refuse if the catalog item the
+      // operator loaded is no longer the current one.
+      if(!expectedCatalogItemId)throw new Error("The current catalog item ID is required to remap.");
+      const updated=await run(
+        table("item_mappings").update({catalog_item_id:catalogItemId,...verification})
+          .eq("id",mappingId).eq("catalog_item_id",expectedCatalogItemId).select("id"),
+        "Could not remap the item"
+      );
+      if(!updated?.length)throw new Error("The association changed since you loaded this page; refresh and try again.");
     },
     renameItem(catalogItemId,name){
       return run(table("catalog_items").update({name:name.slice(0,120)}).eq("id",catalogItemId),"Could not rename the item");
