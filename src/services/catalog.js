@@ -163,6 +163,7 @@ export function createCatalogService(backend){
   // Writes a confirmation to one mapping, refusing if the catalog item has
   // changed since the operator loaded the page (stale-mapping guard).
   async function confirmOne(mappingId,verification,expectedCatalogItemId){
+    if(!expectedCatalogItemId)throw new Error("The current catalog item ID is required to confirm a match.");
     const updated=await run(
       table("item_mappings").update(verification).eq("id",mappingId).eq("catalog_item_id",expectedCatalogItemId).select("id"),
       "Could not confirm the match"

@@ -74,6 +74,7 @@ await test("confirmMappings writes each verified entry and refuses unverified on
   const count=await service.confirmMappings(ready);
   assert.equal(count,1);assert.deepEqual(writes,[{id:"m1",comparison_track:"exact",confidence_score:100,match_method:"manual"}]);
   await assert.rejects(()=>service.confirmMappings([{mappingId:"m2",catalogItemId:"c1",verification:{comparison_track:"review"}}]),/fully verified/);
+  await assert.rejects(()=>service.confirmMappings([{mappingId:"m1",verification:{comparison_track:"exact",confidence_score:100,match_method:"manual"}}]),/catalog item ID is required/);
   // Stale mapping: the DB update matches zero rows (catalog item was changed by another operator).
   const staleService=createCatalogService({records:{query:makeQuery([])}});
   await assert.rejects(

@@ -27,6 +27,7 @@ assert.equal(mappingVerification({id:"v2",description:"American cheese sliced",p
 assert.equal(mappingVerification({id:"v2",description:"American cheese",pack_size:null},{id:"c1",name:"American cheese"},[]).comparison_track,"review");
 assert.equal(mappingVerification({id:"v2",description:"American cheese",pack_size:"1-40# CB"},{id:"c1",name:"American cheese"},[]).comparison_track,"review");
 assert.throws(()=>service.confirmMapping("m1"),/Check this product/);
+await assert.rejects(()=>service.confirmMapping("m1",verified),/catalog item ID is required/);
 const corrected=await service.correctVendorFields({organizationId:"o1",vendorItem:{id:"v2",organization_id:"o1",description:"American cheese",brand:null,pack_size:"120 CT"},mappingId:"m1",description:"American cheese sliced",brand:"Brand A",packSize:"4/10 LB"});
 assert.equal(corrected,true);
 assert.deepEqual(calls.at(-1).catalogSave.patch,{description:"American cheese sliced",brand:"Brand A",pack_size:"4/10 LB"});
