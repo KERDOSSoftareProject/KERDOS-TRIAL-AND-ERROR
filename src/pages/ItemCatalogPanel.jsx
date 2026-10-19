@@ -404,7 +404,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
             <input style={{...inp,width:"100%",marginBottom:10,boxSizing:"border-box"}} placeholder="Item name" value={newItemName} onChange={e=>setNewItemName(e.target.value)} autoFocus />
             <select style={{...inp,width:"100%",marginBottom:14,boxSizing:"border-box"}} value={newItemCategoryId} onChange={e=>setNewItemCategoryId(e.target.value)}>
               <option value="">No category (Uncategorized)</option>
-              {categories.filter(c=>!c.is_holding_pen&&(c.industry==null||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              {categories.filter(c=>!c.is_holding_pen&&c.industry===industry).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>{setAddingItem(false);setNewItemName("");setNewItemCategoryId("");}} style={{...btn("#EEE","#555"),flex:1}}>Cancel</button>
@@ -595,7 +595,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
           <select defaultValue="" disabled={bulkBusy} onChange={e=>{handleBulkAssign(e.target.value);e.target.value="";}}
             style={{...inp,fontSize:12,padding:"7px 9px",width:"auto",flex:"0 1 220px"}}>
             <option value="" disabled>{bulkBusy?"Moving...":"Move all to..."}</option>
-            {categories.filter(c=>c.industry==null||c.industry===industry).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            {categories.filter(c=>c.industry===industry).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <button onClick={()=>setSelectedIds(new Set())} style={{...btn("#EEE","#555",{fontSize:12,padding:"7px 12px"})}}>Clear</button>
         </div>
@@ -686,7 +686,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
                       <div style={{display:"flex",alignItems:"center",gap:9}}>
                         {canManage&&<input type="checkbox" checked={selectedIds.has(item.catalogItemId)} title="Select for category change" onChange={e=>setSelectedIds(prev=>{const next=new Set(prev);e.target.checked?next.add(item.catalogItemId):next.delete(item.catalogItemId);return next;})} />}
                         {canManage&&renamingId===item.catalogItemId?<><input autoFocus style={{...inp,width:220,fontSize:12}} value={renameValue} onChange={e=>setRenameValue(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(item.catalogItemId);if(e.key==="Escape")setRenamingId(null);}} /><button onClick={()=>saveRename(item.catalogItemId)} style={{...btn("#003584","white",{fontSize:11})}}>Save</button></>:<><strong style={{fontSize:13,color:"#19395F"}}>{item.name}</strong>{canManage&&<button onClick={()=>{setRenamingId(item.catalogItemId);setRenameValue(item.name);}} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Rename</button>}</>}
-                        {canManage&&categoryEditId===item.catalogItemId?<select autoFocus defaultValue="" onChange={e=>handleAssignCategory(item.catalogItemId,e.target.value)} style={{...inp,width:165,fontSize:11}}><option value="" disabled>Move category to...</option>{categories.filter(c=>c.name!==item.category&&(c.industry==null||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:canManage&&<button onClick={()=>setCategoryEditId(item.catalogItemId)} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Change category</button>}
+                        {canManage&&categoryEditId===item.catalogItemId?<select autoFocus defaultValue="" onChange={e=>handleAssignCategory(item.catalogItemId,e.target.value)} style={{...inp,width:165,fontSize:11}}><option value="" disabled>Move category to...</option>{categories.filter(c=>c.name!==item.category&&c.industry===industry).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:canManage&&<button onClick={()=>setCategoryEditId(item.catalogItemId)} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Change category</button>}
                       </div>
                       <button onClick={()=>setShowItemNumberFor(showItemNumberFor===item.catalogItemId?null:item.catalogItemId)} style={{border:"1px solid #CBD9E9",borderRadius:6,background:"white",color:"#173C70",padding:"6px 9px",fontWeight:700,cursor:"pointer",fontSize:11}}>{showItemNumberFor===item.catalogItemId?`KERDOS #${item.masterItemNumber} ▴`:"KERDOS number ▾"}</button>
                     </div>
