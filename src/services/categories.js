@@ -38,7 +38,11 @@ export function createCategoryService(backend){
       // are updated; tagged rows (even with a different industry) are left alone
       // so prior intentional assignments are not silently relabeled.
       const templateNames=new Set((templates||[]).map(row=>row.category_name.toLowerCase()));
-      const toTag=categories.filter(c=>!c.industry&&!c.is_holding_pen&&templateNames.has(c.name.toLowerCase()));
+      // Retag any untagged OR differently-tagged category whose name matches
+      // the current industry's templates so that shared names (e.g. "Dairy"
+      // existing on industry A being claimed by industry B) follow the org's
+      // current industry rather than staying hidden behind the old tag.
+      const toTag=categories.filter(c=>c.industry!==name&&!c.is_holding_pen&&templateNames.has(c.name.toLowerCase()));
       if(toTag.length){
         await Promise.all(toTag.map(c=>run(table("catalog_categories").update({industry:name}).eq("id",c.id),"Could not tag existing category")));
       }
