@@ -172,7 +172,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
     // Learn first so the refresh that follows the confirmation already
     // reads the new wording.
     await learnFrom(vendor,peers);
-    await act(()=>catalogService.confirmMapping(mappingId,verification));
+    await act(()=>catalogService.confirmMapping(mappingId,verification,mapping.catalog_item_id));
     setBusyMappingId(null);
   }
   // Vendor rows with a price but no stated unit. Most sheets quote per
@@ -683,7 +683,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
                           setBusyItemId(item.catalogItemId);setError("");
                           try{
                             const toConfirm=mappings.filter(m=>m.catalog_item_id===item.catalogItemId&&m.comparison_track!=="exact");
-                            for(const m of toConfirm)await catalogService.confirmMapping(m.id,{comparison_track:"exact",confidence_score:100,match_method:"rule_based"});
+                            for(const m of toConfirm)await catalogService.confirmMapping(m.id,{comparison_track:"exact",confidence_score:100,match_method:"rule_based"},m.catalog_item_id);
                             await onUpdated();
                           }catch(e){setError(e.message);}finally{setBusyItemId(null);}
                         }} disabled={busyItemId===item.catalogItemId}

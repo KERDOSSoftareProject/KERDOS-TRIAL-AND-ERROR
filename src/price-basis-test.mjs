@@ -53,12 +53,33 @@ await test("no target basis means the pack price",()=>assert.equal(quotePriceOnB
 // --- bulk confirm persistence goes through the records contract, one update per mapping ---
 await test("confirmMappings writes each verified entry and refuses unverified ones",async()=>{
   const writes=[];
-  const query=()=>({update:v=>({eq:(col,id)=>{writes.push({id,...v});return Promise.resolve({data:null,error:null});}})});
-  const service=createCatalogService({records:{query}});
-  const ready=[{mappingId:"m1",verification:{comparison_track:"exact",confidence_score:100,match_method:"manual"}}];
+  function makeQuery(returnRows){
+    return ()=>{
+      const state={};
+      const chain={
+        update(v){state.update=v;return chain;},
+        eq(col,val){(state.eqs=state.eqs||[]).push([col,val]);return chain;},
+        select(f){state.select=f;return chain;},
+        then(resolve){
+          const idEq=state.eqs?.find(([col])=>col==="id");
+          if(idEq&&state.update)writes.push({id:idEq[1],...state.update});
+          resolve({data:state.select?(returnRows??[{id:idEq?.[1]}]):null,error:null});
+        },
+      };
+      return chain;
+    };
+  }
+  const service=createCatalogService({records:{query:makeQuery()}});
+  const ready=[{mappingId:"m1",catalogItemId:"c1",verification:{comparison_track:"exact",confidence_score:100,match_method:"manual"}}];
   const count=await service.confirmMappings(ready);
   assert.equal(count,1);assert.deepEqual(writes,[{id:"m1",comparison_track:"exact",confidence_score:100,match_method:"manual"}]);
-  await assert.rejects(()=>service.confirmMappings([{mappingId:"m2",verification:{comparison_track:"review"}}]),/fully verified/);
+  await assert.rejects(()=>service.confirmMappings([{mappingId:"m2",catalogItemId:"c1",verification:{comparison_track:"review"}}]),/fully verified/);
+  // Stale mapping: the DB update matches zero rows (catalog item was changed by another operator).
+  const staleService=createCatalogService({records:{query:makeQuery([])}});
+  await assert.rejects(
+    ()=>staleService.confirmMappings([{mappingId:"m1",catalogItemId:"c1",verification:{comparison_track:"exact",confidence_score:100,match_method:"manual"}}]),
+    /changed since you loaded/
+  );
 });
 
 console.log(`${passed} passed, 0 failed`);

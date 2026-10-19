@@ -160,6 +160,15 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
 
 export function createCatalogService(backend){
   const table=backend.records.query;
+  // Writes a confirmation to one mapping, refusing if the catalog item has
+  // changed since the operator loaded the page (stale-mapping guard).
+  async function confirmOne(mappingId,verification,expectedCatalogItemId){
+    const updated=await run(
+      table("item_mappings").update(verification).eq("id",mappingId).eq("catalog_item_id",expectedCatalogItemId).select("id"),
+      "Could not confirm the match"
+    );
+    if(!updated?.length)throw new Error("The association changed since you loaded this page; refresh and try again.");
+  }
   return {
     async matchOrCreate({organizationId,vendorId,description,packSize,brand=null,gtin=null,manufacturerCode=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
       const byId=new Map(vendorItems.map(vi=>[vi.id,vi]));
@@ -325,9 +334,9 @@ export function createCatalogService(backend){
         "Could not reject the match"
       );
     },
-    confirmMapping(mappingId,verification){
+    confirmMapping(mappingId,verification,expectedCatalogItemId){
       if(!verification)throw new Error("Check this product against the catalog and its vendor packs before confirming.");
-      return run(table("item_mappings").update(verification).eq("id",mappingId),"Could not confirm the match");
+      return confirmOne(mappingId,verification,expectedCatalogItemId);
     },
     async correctVendorFields({organizationId,vendorItem,mappingId,description,brand,packSize}){
       const patch={description,brand,pack_size:packSize};
@@ -339,7 +348,7 @@ export function createCatalogService(backend){
       let confirmed=0;
       for(const entry of entries){
         if(!entry?.verification||entry.verification.comparison_track!=="exact")throw new Error("Only fully verified associations can be confirmed in bulk.");
-        await run(table("item_mappings").update(entry.verification).eq("id",entry.mappingId),"Could not confirm the match");
+        await confirmOne(entry.mappingId,entry.verification,entry.catalogItemId);
         confirmed++;
       }
       return confirmed;

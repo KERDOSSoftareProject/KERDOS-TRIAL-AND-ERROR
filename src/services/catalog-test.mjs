@@ -12,7 +12,7 @@ function query(table){
     update(value){state.update=value;return chain;},
     insert(value){state.insert=value;return chain;},
     delete(){state.delete=true;return chain;},
-    eq(column,value){state.eq=[column,value];return chain;},
+    eq(column,value){(state.eqs=state.eqs||[]).push([column,value]);return chain;},
     single(){state.single=true;return chain;},
     then(resolve){calls.push({...state});resolve({data:state.insert&&state.single?{id:"created",...state.insert}:state.select?[{id:"mapping"}]:{ok:true},error:null});},
   };
@@ -32,7 +32,7 @@ assert.equal(corrected,true);
 assert.deepEqual(calls.at(-1).catalogSave.patch,{description:"American cheese sliced",brand:"Brand A",pack_size:"4/10 LB"});
 await service.correctVendorFields({organizationId:"o1",vendorItem:{id:"v2",organization_id:"o1",description:"American cheese",pack_size:"120 CT"},mappingId:"m1",description:"American cheese",brand:"",packSize:"nonsense"});
 assert.equal(calls.at(-1).catalogSave.priceAvailable,false,"an unfinished pack may be saved but its quote cannot compete");
-await service.confirmMapping("m1",verified);
+await service.confirmMapping("m1",verified,"c1");
 assert.deepEqual(calls.at(-1).update,{comparison_track:"exact",confidence_score:100,match_method:"manual"});
 await service.renameItem("c1","Client Product");
 assert.equal(calls.at(-1).update.name,"Client Product");

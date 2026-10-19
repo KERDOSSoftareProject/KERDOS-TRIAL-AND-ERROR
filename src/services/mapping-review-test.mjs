@@ -42,9 +42,9 @@ function createInMemoryBackend({orgId,userId,userRole="manager"}={}){
   // Simple query builder that is just enough for the service layer.
   function table(name){
     const store=name==="catalog_items"?catalogs:name==="vendor_items"?vendors:name==="item_mappings"?mappings:categories;
-    let _filter={};let _data=null;let _eq=[];let _single=false;
+    let _data=null;let _eq=[];let _single=false;let _select=false;
     const api={
-      select(f){return api;},
+      select(f){_select=true;return api;},
       insert(rows){
         const arr=Array.isArray(rows)?rows:[rows];
         const ids=arr.map(r=>{const id=uuid();store.set(id,{id,...r});return id;});
@@ -55,9 +55,11 @@ function createInMemoryBackend({orgId,userId,userRole="manager"}={}){
       single(){_single=true;return api;},
       async then(resolve){
         if(_data){
-          for(const [row] of [...store.entries()].filter(([,r])=>_eq.every(([k,v])=>r[k]===v))){
-            store.set(row,{...store.get(row),..._data});
-          }
+          const matched=[...store.entries()].filter(([,r])=>_eq.every(([k,v])=>r[k]===v));
+          for(const [id,row] of matched)store.set(id,{...row,..._data});
+          // When .select() was chained, return the updated rows so callers can
+          // detect a stale-mapping (zero rows = the catalog item changed).
+          if(_select)return resolve({data:matched.map(([id])=>store.get(id)),error:null});
           return resolve({data:null,error:null});
         }
         let rows=[...store.values()].filter(r=>_eq.every(([k,v])=>r[k]===v));
@@ -504,4 +506,81 @@ run("kerdos_reject_mapping RPC rejects null p_expected_catalog_item_id at the DB
   assert.equal(result.data,null,"RPC must not return data when p_expected_catalog_item_id is null");
 });
 
-console.log("\nAll Module E · Reject tests done.\n");
+// ---------------------------------------------------------------------------
+// Module E · Confirm — stale-mapping protection (Tests 13–16)
+// ---------------------------------------------------------------------------
+
+// 13. Current mapping confirms (single).
+//     The operator confirms a mapping whose catalog_item_id still matches what
+//     they loaded — the update should succeed and the mapping should be exact/100.
+run("confirmMapping succeeds when catalog item matches the expected value", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  const verification={comparison_track:"exact",confidence_score:100,match_method:"manual"};
+  await catalogService.confirmMapping(mappingId,verification,catItemId);
+  const m=backend._stores.mappings.get(mappingId);
+  assert.equal(m.comparison_track,"exact","mapping should be exact after confirm");
+  assert.equal(m.confidence_score,100,"confidence_score should be 100 after confirm");
+});
+
+// 14. Stale mapping is refused (single).
+//     Between the operator loading the page and clicking Confirm, another session
+//     moved the mapping to a different catalog item.  The confirm must be refused.
+run("confirmMapping is refused when the catalog item has changed (stale single)", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  // Silently reroute the mapping to a different catalog item, simulating a
+  // concurrent change that the operator's page hasn't seen yet.
+  const differentId=uuid();
+  backend._stores.catalogs.set(differentId,{id:differentId,organization_id:ORG,name:"Other Item"});
+  backend._stores.mappings.set(mappingId,{...backend._stores.mappings.get(mappingId),catalog_item_id:differentId});
+  const verification={comparison_track:"exact",confidence_score:100,match_method:"manual"};
+  try{
+    await catalogService.confirmMapping(mappingId,verification,catItemId);
+    assert.fail("Should have thrown a stale-mapping error");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
+      `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+});
+
+// 15. Current mappings confirm (bulk).
+//     confirmMappings with current entries goes through without error.
+run("confirmMappings succeeds when all catalog items match the expected values", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  const verification={comparison_track:"exact",confidence_score:100,match_method:"manual"};
+  const count=await catalogService.confirmMappings([{mappingId,catalogItemId:catItemId,verification}]);
+  assert.equal(count,1,"confirmMappings should return the number of confirmed entries");
+  const m=backend._stores.mappings.get(mappingId);
+  assert.equal(m.comparison_track,"exact","bulk confirm should write exact to mapping");
+});
+
+// 16. Stale mapping in bulk is refused.
+//     If any entry in a bulk confirm has a changed catalog item, the call throws.
+run("confirmMappings is refused when a catalog item has changed (stale bulk)", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  // Move the mapping to a different catalog item.
+  const differentId=uuid();
+  backend._stores.catalogs.set(differentId,{id:differentId,organization_id:ORG,name:"Other Item"});
+  backend._stores.mappings.set(mappingId,{...backend._stores.mappings.get(mappingId),catalog_item_id:differentId});
+  const verification={comparison_track:"exact",confidence_score:100,match_method:"manual"};
+  try{
+    await catalogService.confirmMappings([{mappingId,catalogItemId:catItemId,verification}]);
+    assert.fail("Should have thrown a stale-mapping error");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
+      `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+});
+
+console.log("\nAll Module E · Reject + Confirm tests done.\n");
