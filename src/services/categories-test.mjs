@@ -27,13 +27,13 @@ const ambiguous=classifyCategory("Heavy Duty Cleaner",[{id:"a",name:"A",keywords
 ]);
 assert.equal(ambiguous,null,"competing contextual examples must require review");
 const starter=await service.loadStarterPack({organizationId:"o1",industry:"Restaurant",categories:[]});
-assert.deepEqual(starter,{added:1,addedVocabulary:1,found:true});
+assert.deepEqual(starter,{added:1,addedVocabulary:1,tagged:0,found:true});
 assert.equal(calls.find(call=>call.table==="catalog_categories"&&call.insert).insert[0].organization_id,"o1");
 // Run the same service with construction data; the engine has no industry branch.
 fixtures.industry_templates=[{category_name:"Lumber",keywords:["plywood","stud"],sort_order:1}];
 fixtures.industry_vocabulary=[{kind:"unit",term:"bdft",canonical:"BF"},{kind:"synonym",term:"plywd",canonical:"plywood"}];
 const construction=await service.loadStarterPack({organizationId:"builder",industry:"Construction",categories:[]});
-assert.deepEqual(construction,{added:1,addedVocabulary:2,found:true});
+assert.deepEqual(construction,{added:1,addedVocabulary:2,tagged:0,found:true});
 assert.equal(calls.filter(call=>call.table==="catalog_categories"&&call.insert).at(-1).insert[0].organization_id,"builder");
 assert.equal(classifyCategory("Plywood 4x8",[{id:"lumber",name:"Lumber",keywords:["plywood"]}])?.id,"lumber");
 const next=await service.assignItem({catalogItemId:"i2",categoryId:"c1",catalogItems:[{id:"i1",category_id:"c1",master_item_number:1000}],categories:[{id:"c1",range_start:1000,range_end:1999}]});
@@ -60,4 +60,51 @@ const movedNumber=await service.assignItem({
 assert.equal(movedNumber,29001,"moving Produce->General assigns next number from General range");
 // The internal ID never changes — only master_item_number and category_id update
 assert.ok(true,"internal ID potato1, vendor links, and history are untouched (DB update touches only category_id and master_item_number)");
+// Retagging: existing category matches template name but carries a different industry tag.
+// loadStarterPack must retag it to the current industry, preserving its ID.
+fixtures.industry_templates=[{category_name:"Supplies",keywords:["paper"],sort_order:1}];
+fixtures.industry_vocabulary=[];
+fixtures.org_vocabulary=[];
+const retagResult=await service.loadStarterPack({
+  organizationId:"o2",industry:"Catering",
+  categories:[{id:"s1",name:"Supplies",is_holding_pen:false,industry:"OldIndustry"}],
+});
+assert.deepEqual(retagResult,{added:0,addedVocabulary:0,tagged:1,found:true},"matching differently-tagged category must be retagged, not duplicated");
+const retagCall=calls.find(c=>c.table==="catalog_categories"&&c.update?.industry==="Catering"&&c.eq?.[0]==="id"&&c.eq?.[1]==="s1");
+assert.ok(retagCall,"loadStarterPack must UPDATE existing category row, not INSERT a new one");
+
+// Shared category name across industries (A→B): "Supplies" tagged "Restaurant", loading
+// "Catering" starter pack which also lists "Supplies".  Must retag to "Catering", not insert.
+fixtures.industry_templates=[{category_name:"Supplies",keywords:["catering"],sort_order:1}];
+fixtures.industry_vocabulary=[];
+fixtures.org_vocabulary=[];
+const sharedResult=await service.loadStarterPack({
+  organizationId:"o3",industry:"Catering",
+  categories:[{id:"s2",name:"Supplies",is_holding_pen:false,industry:"Restaurant"}],
+});
+assert.deepEqual(sharedResult,{added:0,addedVocabulary:0,tagged:1,found:true},"shared category name must be retagged to current industry");
+assert.ok(calls.find(c=>c.table==="catalog_categories"&&c.update?.industry==="Catering"&&c.eq?.[1]==="s2"),"shared-name retag must target the existing row's ID");
+
+// Legacy option rendering logic (extracted from CatalogRows — no React harness needed).
+// When an item's current category is outside the industry-filtered set, legacyCurrent
+// must be non-null so the dropdown injects a "(legacy — reclassify)" option.
+{
+  const industry="Catering";
+  const categories=[
+    {id:"s1",name:"Supplies",is_holding_pen:false,industry:"OldIndustry"},
+    {id:"c1",name:"Coffee",is_holding_pen:false,industry:"Catering"},
+  ];
+  const categoryId="s1";
+  const category=categories.find(c=>c.id===categoryId);
+  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));
+  const legacyCurrent=category&&!industryCategories.find(c=>c.id===category.id)?category:null;
+  assert.ok(legacyCurrent,"category from prior industry must produce a legacy option");
+  assert.equal(legacyCurrent.id,"s1","legacy option must reference the original category ID");
+  // When the item is already on a current-industry category, no legacy option should appear.
+  const categoryIdCurrent="c1";
+  const categoryCurrent=categories.find(c=>c.id===categoryIdCurrent);
+  const legacyCurrentNone=categoryCurrent&&!industryCategories.find(c=>c.id===categoryCurrent.id)?categoryCurrent:null;
+  assert.equal(legacyCurrentNone,null,"current-industry category must not produce a legacy option");
+}
+
 console.log("KERDOS provider-neutral category-service tests passed");
