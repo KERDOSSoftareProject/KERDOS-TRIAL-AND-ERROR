@@ -237,7 +237,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
     if(!target||!window.confirm(`Move this vendor product?\n\n${vendor?.description||"Unknown vendor product"}\nIts pack: ${vendor?.pack_size||"Not provided"}\n\nFrom: ${current?.name||"Unknown"}\nTo: #${target.master_item_number} ${target.name}\nExisting packs: ${summary.packs.join(", ")||"Not listed"}\nImported brand: ${vendor?.brand||"Not stated"}\nExisting brands: ${summary.brands.join(", ")}\n${summary.warning?`Attention: ${summary.warning}.\n`:""}${verification.comparison_track==="review"?"The association will remain in review and its price will not compete until the product and pack are verified.\n":"The full product descriptions and packs agree; its price may compete.\n"}Only this vendor product moves. The other vendor products stay where they are. This selection is saved for future imports.`))return;
     setBusyMappingId(mappingId);
     if(verification.comparison_track==="exact")await learnFrom(vendor,(linkedByCatalog.get(newCatalogItemId)||[]).filter(peer=>peer.id!==vendor?.id));
-    if(await act(()=>catalogService.remapToExisting(mappingId,newCatalogItemId,verification,{vendorItemId:vendor?.id,currentFieldResolutions:vendor?.field_resolutions||null}))){ setRemapOpenFor(null); setRemapSearch(""); }
+    if(await act(()=>catalogService.remapToExisting(mappingId,newCatalogItemId,verification,{vendorItemId:vendor?.id,currentFieldResolutions:vendor?.field_resolutions||null,vendorItemRevision:vendor?.row_revision??null,expectedCatalogItemId:mapping?.catalog_item_id??null,organizationId:orgId}))){ setRemapOpenFor(null); setRemapSearch(""); }
     setBusyMappingId(null);
   }
   async function handleRemapNew(mappingId,description){
@@ -247,10 +247,10 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
     setBusyMappingId(null);
   }
 
-  async function handleReject(mappingId,vendorItemRevision){
+  async function handleReject(mappingId,vendorItemRevision,catalogItemId){
     if(!window.confirm("Mark this match as wrong?\n\nThis vendor product will be separated into its own KERDOS entry. It stays orderable under the usual readiness rules. This decision survives reimport."))return;
     setBusyMappingId(mappingId);
-    await act(()=>catalogService.rejectMapping(mappingId,vendorItemRevision,{organizationId:orgId}));
+    await act(()=>catalogService.rejectMapping(mappingId,vendorItemRevision,{organizationId:orgId,expectedCatalogItemId:catalogItemId??null}));
     setBusyMappingId(null);
   }
 
@@ -503,7 +503,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
                     <button disabled={busyMappingId===m.mappingId} onClick={()=>{setRemapOpenFor(m.mappingId);setRemapSearch("");}}
                       style={{...btn("#EEE","#555",{fontSize:11,padding:"6px 12px"})}}>Choose another item or create new</button>
                     {/* Reject: mark as non-match, create standalone item — only when not already rejected */}
-                    {m.matchMethod!=="rejected"&&<button disabled={busyMappingId===m.mappingId} onClick={()=>handleReject(m.mappingId,m.vendorItemRevision)}
+                    {m.matchMethod!=="rejected"&&<button disabled={busyMappingId===m.mappingId} onClick={()=>handleReject(m.mappingId,m.vendorItemRevision,m.catalogItemId)}
                       style={{...btn("#FFF8E1","#8D4600",{fontSize:11,padding:"6px 12px"})}}>{busyMappingId===m.mappingId?"Saving...":"Not a match"}</button>}
                     {/* Unlink: one-click split for any cross-vendor group — review or confirmed */}
                     {mappings.some(other=>other.catalog_item_id===m.catalogItemId&&other.id!==m.mappingId&&viMap.get(other.vendor_item_id)?.vendor_id!==viMap.get(m.vendorItemId)?.vendor_id)&&(

@@ -23,9 +23,10 @@
 -- vendor links.
 
 create or replace function public.kerdos_reject_mapping(
-  p_organization_id uuid,
-  p_mapping_id      uuid,
-  p_expected_revision bigint
+  p_organization_id          uuid,
+  p_mapping_id               uuid,
+  p_expected_revision        bigint,
+  p_expected_catalog_item_id uuid default null
 )
 returns jsonb language plpgsql set search_path = public as $$
 declare
@@ -68,6 +69,13 @@ begin
   select * into v_mapping from item_mappings
   where id = p_mapping_id and organization_id = p_organization_id
   for update;
+
+  -- Stale-mapping check: the operator must have been looking at the same catalog
+  -- item they are now rejecting.  Passing null skips the check (backwards-compat).
+  if p_expected_catalog_item_id is not null
+    and v_mapping.catalog_item_id <> p_expected_catalog_item_id then
+    raise exception 'The association changed since you loaded this page; refresh and try again';
+  end if;
 
   -- Read the wrongly-matched catalog item (for category inheritance).
   select * into v_item from catalog_items
@@ -132,5 +140,5 @@ begin
 end;
 $$;
 
-revoke all on function public.kerdos_reject_mapping(uuid, uuid, bigint) from public;
-grant execute on function public.kerdos_reject_mapping(uuid, uuid, bigint) to authenticated;
+revoke all on function public.kerdos_reject_mapping(uuid, uuid, bigint, uuid) from public;
+grant execute on function public.kerdos_reject_mapping(uuid, uuid, bigint, uuid) to authenticated;

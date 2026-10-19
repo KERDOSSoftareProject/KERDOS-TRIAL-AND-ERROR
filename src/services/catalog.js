@@ -312,10 +312,15 @@ export function createCatalogService(backend){
     // kerdos_reject_mapping RPC so everything is atomic and authorized
     // at the DB level.  Returns {catalogItemId, masterItemNumber,
     // rejectedCatalogItemId} from the RPC.
-    async rejectMapping(mappingId,vendorItemRevision,{organizationId}={}){
+    async rejectMapping(mappingId,vendorItemRevision,{organizationId,expectedCatalogItemId}={}){
       if(vendorItemRevision==null)throw new Error("Reload this product before rejecting it.");
       return run(
-        backend.rpc("kerdos_reject_mapping",{p_organization_id:organizationId,p_mapping_id:mappingId,p_expected_revision:vendorItemRevision}),
+        backend.rpc("kerdos_reject_mapping",{
+          p_organization_id:organizationId,
+          p_mapping_id:mappingId,
+          p_expected_revision:vendorItemRevision,
+          p_expected_catalog_item_id:expectedCatalogItemId??null,
+        }),
         "Could not reject the match"
       );
     },
@@ -352,16 +357,31 @@ export function createCatalogService(backend){
     // When the operator deliberately maps back to an item that was previously
     // rejected, remove only that UUID from rejected_catalog_item_ids so the
     // deliberate choice is recorded without wiping other rejections.
-    async remapToExisting(mappingId,catalogItemId,verification,{vendorItemId,currentFieldResolutions}={}){
+    // Remap the vendor item to a different (or previously rejected) catalog item.
+    // When the destination is in rejected_catalog_item_ids, uses an atomic RPC
+    // (kerdos_remap_to_rejected) that clears the rejection, updates the mapping,
+    // and bumps row_revision in one transaction, with stale-mapping and
+    // stale-revision checks.
+    // For any other remap, a plain mapping update is safe (no rejection to clear).
+    async remapToExisting(mappingId,catalogItemId,verification,{vendorItemId,currentFieldResolutions,vendorItemRevision,expectedCatalogItemId,organizationId}={}){
       if(!verification)throw new Error("Check this product against the destination and its vendor packs before moving it.");
       if(vendorItemId&&currentFieldResolutions){
         const rejected=currentFieldResolutions.rejected_catalog_item_ids||[];
         if(rejected.includes(catalogItemId)){
-          const trimmed=rejected.filter(id=>id!==catalogItemId);
-          const patch=trimmed.length===rejected.length
-            ?currentFieldResolutions
-            :{...currentFieldResolutions,rejected_catalog_item_ids:trimmed};
-          await run(table("vendor_items").update({field_resolutions:patch}).eq("id",vendorItemId),"Could not clear the previous rejection");
+          // Atomic path: one RPC handles the rejection-clear, mapping update, and revision bump.
+          return run(
+            backend.rpc("kerdos_remap_to_rejected",{
+              p_organization_id:organizationId,
+              p_mapping_id:mappingId,
+              p_new_catalog_item_id:catalogItemId,
+              p_expected_revision:vendorItemRevision??null,
+              p_expected_catalog_item_id:expectedCatalogItemId??null,
+              p_comparison_track:verification.comparison_track,
+              p_confidence_score:verification.confidence_score,
+              p_match_method:verification.match_method,
+            }),
+            "Could not remap to the previously-rejected item"
+          );
         }
       }
       return run(table("item_mappings").update({catalog_item_id:catalogItemId,...verification}).eq("id",mappingId),"Could not remap the item");
