@@ -29,7 +29,7 @@ export function createCategoryService(backend){
       const categoryRows=(templates||[]).filter(row=>!existingNames.has(row.category_name.toLowerCase())).map(row=>{
         const range=nextCategoryRange(working);
         working.push(range);
-        return {organization_id:organizationId,name:row.category_name,keywords:row.keywords,...range};
+        return {organization_id:organizationId,name:row.category_name,keywords:row.keywords,industry:name,...range};
       });
       if(categoryRows.length)await run(table("catalog_categories").insert(categoryRows),"Could not add starter categories");
 
