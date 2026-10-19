@@ -306,6 +306,19 @@ export function createCatalogService(backend){
       await run(table("item_mappings").update({catalog_item_id:created.id,...verification}).eq("id",mappingId),"Could not point the vendor item at it");
       return created;
     },
+    // Reject the current catalog match and give the vendor item its own
+    // standalone catalog item.  The actual DB work (create item, update
+    // mapping, append rejected_catalog_item_ids) runs inside the
+    // kerdos_reject_mapping RPC so everything is atomic and authorized
+    // at the DB level.  Returns {catalogItemId, masterItemNumber,
+    // rejectedCatalogItemId} from the RPC.
+    async rejectMapping(mappingId,vendorItemRevision,{organizationId}={}){
+      if(vendorItemRevision==null)throw new Error("Reload this product before rejecting it.");
+      return run(
+        backend.rpc("kerdos_reject_mapping",{p_organization_id:organizationId,p_mapping_id:mappingId,p_expected_revision:vendorItemRevision}),
+        "Could not reject the match"
+      );
+    },
     confirmMapping(mappingId,verification){
       if(!verification)throw new Error("Check this product against the catalog and its vendor packs before confirming.");
       return run(table("item_mappings").update(verification).eq("id",mappingId),"Could not confirm the match");
@@ -335,8 +348,22 @@ export function createCatalogService(backend){
       await run(table("org_vocabulary").insert(pairs.map(pair=>({organization_id:organizationId,kind:"synonym",term:pair.term,canonical:pair.canonical}))),"Could not save the learned wording");
       return pairs;
     },
-    remapToExisting(mappingId,catalogItemId,verification){
+    // Remap the vendor item to a different (or previously rejected) catalog item.
+    // When the operator deliberately maps back to an item that was previously
+    // rejected, remove only that UUID from rejected_catalog_item_ids so the
+    // deliberate choice is recorded without wiping other rejections.
+    async remapToExisting(mappingId,catalogItemId,verification,{vendorItemId,currentFieldResolutions}={}){
       if(!verification)throw new Error("Check this product against the destination and its vendor packs before moving it.");
+      if(vendorItemId&&currentFieldResolutions){
+        const rejected=currentFieldResolutions.rejected_catalog_item_ids||[];
+        if(rejected.includes(catalogItemId)){
+          const trimmed=rejected.filter(id=>id!==catalogItemId);
+          const patch=trimmed.length===rejected.length
+            ?currentFieldResolutions
+            :{...currentFieldResolutions,rejected_catalog_item_ids:trimmed};
+          await run(table("vendor_items").update({field_resolutions:patch}).eq("id",vendorItemId),"Could not clear the previous rejection");
+        }
+      }
       return run(table("item_mappings").update({catalog_item_id:catalogItemId,...verification}).eq("id",mappingId),"Could not remap the item");
     },
     renameItem(catalogItemId,name){
