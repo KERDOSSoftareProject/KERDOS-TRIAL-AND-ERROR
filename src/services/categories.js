@@ -33,17 +33,27 @@ export function createCategoryService(backend){
       });
       if(categoryRows.length)await run(table("catalog_categories").insert(categoryRows),"Could not add starter categories");
 
+      // Tag existing categories whose names match this industry's templates but
+      // were created before migration_027 (industry===null).  Only untagged rows
+      // are updated; tagged rows (even with a different industry) are left alone
+      // so prior intentional assignments are not silently relabeled.
+      const templateNames=new Set((templates||[]).map(row=>row.category_name.toLowerCase()));
+      const toTag=categories.filter(c=>!c.industry&&!c.is_holding_pen&&templateNames.has(c.name.toLowerCase()));
+      if(toTag.length){
+        await Promise.all(toTag.map(c=>run(table("catalog_categories").update({industry:name}).eq("id",c.id),"Could not tag existing category")));
+      }
+
       const existing=await run(table("org_vocabulary").select("kind,term").eq("organization_id",organizationId),"Could not read vocabulary");
       const have=new Set((existing||[]).map(row=>`${row.kind}:${String(row.term).toLowerCase()}`));
       const vocabularyRows=(vocabulary||[]).filter(row=>!have.has(`${row.kind}:${String(row.term).toLowerCase()}`)).map(row=>({
         organization_id:organizationId,kind:row.kind,term:String(row.term).toLowerCase(),canonical:row.canonical||null,
       }));
       if(vocabularyRows.length)await run(table("org_vocabulary").insert(vocabularyRows),"Could not add starter vocabulary");
-      return {added:categoryRows.length,addedVocabulary:vocabularyRows.length,found:true};
+      return {added:categoryRows.length,addedVocabulary:vocabularyRows.length,tagged:toTag.length,found:true};
     },
-    addCategory({organizationId,name,keywords,categories}){
+    addCategory({organizationId,name,keywords,categories,industry}){
       const range=nextCategoryRange(categories);
-      return run(table("catalog_categories").insert({organization_id:organizationId,name:name.trim(),keywords,...range}),"Could not add the category");
+      return run(table("catalog_categories").insert({organization_id:organizationId,name:name.trim(),keywords,industry:industry||null,...range}),"Could not add the category");
     },
     updateKeywords(categoryId,keywords){
       return run(table("catalog_categories").update({keywords}).eq("id",categoryId),"Could not save keywords");

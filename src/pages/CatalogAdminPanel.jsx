@@ -71,7 +71,7 @@ export function CatalogPanel({orgId,orgIndustry,categories,catalogItems,vocabula
   async function addCategory(){
     if(!newName.trim()) return;
     const keywords=newKeywords.split(",").map(k=>k.trim()).filter(Boolean);
-    try{ await categoryService.addCategory({organizationId:orgId,name:newName,keywords,categories}); }
+    try{ await categoryService.addCategory({organizationId:orgId,name:newName,keywords,categories,industry:orgIndustry||null}); }
     catch(err){ setError(err.message); return; }
     setNewName("");setNewKeywords("");setAdding(false);setError("");
     onUpdated();
