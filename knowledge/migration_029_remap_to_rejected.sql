@@ -73,6 +73,16 @@ begin
     raise exception 'The association changed since you loaded this page; refresh and try again';
   end if;
 
+  -- Organization ownership check: the destination catalog item must belong to the
+  -- same organization.  Without this, a caller could remap to any item in the database
+  -- by guessing its UUID, which would leak cross-org data.
+  if not exists (
+    select 1 from catalog_items
+    where id = p_new_catalog_item_id and organization_id = p_organization_id
+  ) then
+    raise exception 'Destination catalog item not found in this organization';
+  end if;
+
   -- Remove this catalog item's UUID from rejected_catalog_item_ids (if present).
   -- Uses a WHERE filter so absent UUIDs are a safe no-op.
   v_resolutions := coalesce(v_vendor.field_resolutions, '{}'::jsonb);

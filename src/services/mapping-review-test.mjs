@@ -15,6 +15,7 @@
 //   8. Atomic remap: kerdos_remap_to_rejected clears rejection AND bumps
 //      row_revision in one step — no partial-failure window.
 //   9. Stale expectedCatalogItemId on reject is refused with a clear error.
+//  10. Cross-org destination is refused by kerdos_remap_to_rejected.
 //
 // Uses createInMemoryBackend() so no real Supabase connection is needed.
 
@@ -113,6 +114,10 @@ function createInMemoryBackend({orgId,userId,userRole="manager"}={}){
     const freshMapping=[...mappings.values()].find(m=>m.id===p_mapping_id&&m.organization_id===p_organization_id);
     if(p_expected_catalog_item_id!=null&&freshMapping.catalog_item_id!==p_expected_catalog_item_id)
       return{data:null,error:{message:"The association changed since you loaded this page; refresh and try again"}};
+    // Same-org check: destination catalog item must belong to this organization.
+    const destItem=[...catalogs.values()].find(c=>c.id===p_new_catalog_item_id&&c.organization_id===p_organization_id);
+    if(!destItem)
+      return{data:null,error:{message:"Destination catalog item not found in this organization"}};
     // Remove rejected UUID (no-op when absent).
     const res=vendor.field_resolutions||{};
     const prev=res.rejected_catalog_item_ids||[];
@@ -404,7 +409,7 @@ run("remap back to rejected item is atomic: rejection cleared and row_revision b
 });
 
 // 9. Stale expectedCatalogItemId on reject is refused with a clear error.
-run("stale expectedCatalogItemId is rejected with a clear error", async()=>{
+run("stale expectedCatalogItemId on reject is refused with a clear error", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
   const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
@@ -416,6 +421,41 @@ run("stale expectedCatalogItemId is rejected with a clear error", async()=>{
     assert.ok(
       e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
       `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+});
+
+// 10. Cross-org destination is refused by kerdos_remap_to_rejected.
+run("cross-org destination catalog item is refused", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catalogService}=makeServices(backend,ORG);
+  // Reject so catItemId lands in rejected_catalog_item_ids; row_revision → 2.
+  await catalogService.rejectMapping(mappingId,1,{organizationId:ORG,expectedCatalogItemId:catItemId});
+  const standaloneMapping=backend._stores.mappings.get(mappingId);
+  // Plant a catalog item that belongs to a different org.
+  const foreignId=uuid();
+  backend._stores.catalogs.set(foreignId,{id:foreignId,organization_id:"org-other",
+    category_id:"cat-1",name:"Foreign Item",master_item_number:99999});
+  // Manually add foreignId to the rejection list so the RPC branch is taken.
+  const vi=backend._stores.vendors.get(vendorItemId);
+  backend._stores.vendors.set(vendorItemId,{...vi,field_resolutions:{
+    ...vi.field_resolutions,
+    rejected_catalog_item_ids:[...(vi.field_resolutions.rejected_catalog_item_ids||[]),foreignId],
+  }});
+  const viNow=backend._stores.vendors.get(vendorItemId);
+  try{
+    await catalogService.remapToExisting(mappingId,foreignId,
+      {comparison_track:"review",confidence_score:70,match_method:"manual"},
+      {vendorItemId,currentFieldResolutions:viNow.field_resolutions,
+       vendorItemRevision:viNow.row_revision,
+       expectedCatalogItemId:standaloneMapping.catalog_item_id,
+       organizationId:ORG});
+    assert.fail("Should have refused a cross-org destination");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("not found")||e.message.toLowerCase().includes("organization"),
+      `Expected cross-org error, got: ${e.message}`
     );
   }
 });
