@@ -61,12 +61,16 @@ run("actual order price is the case price, not the normalized comparison price",
     "order price must reflect the pack price, not the per-LB comparison price");
 });
 
-run("falls back to case price when options have no per-unit data",()=>{
-  // No perUnit field → comparisonUnit is null → cheapest case price wins.
-  const options=[opt("a",30),opt("b",25),opt("c",35)];
+run("options lacking per-unit data are all marked unverified upstream and excluded from ranking",()=>{
+  // App.jsx marks every orderable option unverified when multiple orderable options
+  // exist and any option lacks perUnit — including when all options lack it.
+  // Without a shared comparison basis no option can be ranked against the others.
+  const uv={unverified:true,
+    qualificationReason:"Choose a shared comparison measurement or correct the pack before ranking alternatives"};
+  const options=[opt("a",30,uv),opt("b",25,uv),opt("c",35,uv)];
   const ranked=rankVendorOffers(options);
-  assert.equal(ranked[0].vendorId,"b",
-    "without perUnit, cheapest case price must rank first");
+  assert.ok(ranked.every(o=>o.difference===null),
+    "all options marked unverified must have difference:null — no case-price fallback");
 });
 
 run("option with incompatible unit is marked unverified upstream and excluded from ranking",()=>{
