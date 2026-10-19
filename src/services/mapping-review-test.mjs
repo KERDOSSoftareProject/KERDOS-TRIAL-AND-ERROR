@@ -17,6 +17,7 @@
 //   9. Stale expectedCatalogItemId on reject is refused with a clear error.
 //  10. Cross-org destination is refused by kerdos_remap_to_rejected.
 //  11. Calling rejectMapping without expectedCatalogItemId fails before the RPC.
+//  12. The RPC itself rejects a null expectedCatalogItemId (DB-level guard, not JS).
 //
 // Uses createInMemoryBackend() so no real Supabase connection is needed.
 
@@ -480,6 +481,27 @@ run("cross-org destination catalog item is refused", async()=>{
       `Expected cross-org error, got: ${e.message}`
     );
   }
+});
+
+// 12. The RPC itself rejects a null expectedCatalogItemId — DB-level guard, not JS.
+//     Calls backend.rpc() directly, bypassing the JS service null check, to prove
+//     the database function (mirrored by the mock) enforces the requirement independently.
+run("kerdos_reject_mapping RPC rejects null p_expected_catalog_item_id at the DB level", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{mappingId}=seed(backend,ORG,VENDOR);
+  // Call the RPC directly — no JS service layer in the path.
+  const result=await backend.rpc("kerdos_reject_mapping",{
+    p_organization_id:ORG,
+    p_mapping_id:mappingId,
+    p_expected_revision:1,
+    p_expected_catalog_item_id:null,
+  });
+  assert.ok(result.error,"RPC must return an error for null p_expected_catalog_item_id");
+  assert.ok(
+    result.error.message.toLowerCase().includes("required"),
+    `Expected null-guard error from RPC, got: ${result.error.message}`
+  );
+  assert.equal(result.data,null,"RPC must not return data when p_expected_catalog_item_id is null");
 });
 
 console.log("\nAll Module E · Reject tests done.\n");
