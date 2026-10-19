@@ -645,7 +645,7 @@ run("remapToExisting (plain path) is refused when catalog item has changed", asy
 });
 
 // ---------------------------------------------------------------------------
-// Module E · Remap — create-new path stale-mapping protection (Tests 19–20)
+// Module E · Remap — create-new path stale-mapping protection (Tests 19–22)
 // ---------------------------------------------------------------------------
 
 // 19. Successful create-new remap (splitMapping).
@@ -662,6 +662,7 @@ run("splitMapping succeeds when mapping catalog item matches", async()=>{
     description:"Standalone Tomatoes 25 LB",
     catalogItems:[...backend._stores.catalogs.values()],
     categories:[...backend._stores.categories.values()],
+    expectedCatalogItemId:catItemId,
   });
   assert.ok(created?.id,"splitMapping must return the new catalog item");
   assert.equal(backend._stores.catalogs.size,catalogsBefore+1,"one new catalog item must be created");
@@ -719,6 +720,7 @@ run("splitMapping is refused when mapping has changed and cleans up the new item
       description:"Standalone Tomatoes 25 LB",
       catalogItems:[...backend._stores.catalogs.values()],
       categories:[...backend._stores.categories.values()],
+      expectedCatalogItemId:catItemId,
     });
     assert.fail("Should have thrown a stale-mapping error");
   }catch(e){
@@ -736,6 +738,77 @@ run("splitMapping is refused when mapping has changed and cleans up the new item
   // Mapping stays at the concurrent item (not the orphan, not the original).
   const m=backend._stores.mappings.get(mappingId);
   assert.equal(m.catalog_item_id,concurrentId,"mapping must stay at the concurrent item");
+});
+
+// 21. splitMapping is refused when the page was already stale before the call.
+//     The mapping was remapped by another session before the operator clicked
+//     "Create new item."  splitMapping must refuse before creating any catalog
+//     item — no orphan is left behind.
+run("splitMapping is refused when page was already stale (no item created)", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const catalogsBefore=backend._stores.catalogs.size;
+
+  // Simulate: another session already moved the mapping to a different catalog item.
+  const otherCatalogId=uuid();
+  backend._stores.catalogs.set(otherCatalogId,{id:otherCatalogId,organization_id:ORG,name:"Other Item",
+    category_id:"cat-x",master_item_number:88888});
+  backend._stores.mappings.set(mappingId,{
+    ...backend._stores.mappings.get(mappingId),
+    catalog_item_id:otherCatalogId,
+  });
+
+  const{catalogService}=makeServices(backend,ORG);
+  // The operator's page still shows catItemId as the current catalog item.
+  try{
+    await catalogService.splitMapping({
+      organizationId:ORG,
+      mappingId,
+      description:"Standalone Tomatoes 25 LB",
+      catalogItems:[...backend._stores.catalogs.values()],
+      categories:[...backend._stores.categories.values()],
+      expectedCatalogItemId:catItemId,  // stale: mapping already points at otherCatalogId
+    });
+    assert.fail("Should have thrown a stale-mapping error");
+  }catch(e){
+    assert.ok(
+      e.message.toLowerCase().includes("changed")||e.message.toLowerCase().includes("refresh"),
+      `Expected stale-mapping error, got: ${e.message}`
+    );
+  }
+  // No new catalog item must have been created: the only addition is otherCatalogId
+  // (pre-seeded above), not a new orphan from splitMapping.
+  assert.equal(
+    backend._stores.catalogs.size,catalogsBefore+1,
+    "no orphan catalog item must be created when the page was already stale"
+  );
+  // Mapping stays at otherCatalogId.
+  const m=backend._stores.mappings.get(mappingId);
+  assert.equal(m.catalog_item_id,otherCatalogId,"mapping must stay at the other item");
+});
+
+// 22. splitMapping is refused when expectedCatalogItemId is missing entirely.
+//     The service must throw before touching the database.
+run("splitMapping throws immediately when expectedCatalogItemId is absent", async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const catalogsBefore=backend._stores.catalogs.size;
+  const{catalogService}=makeServices(backend,ORG);
+  try{
+    await catalogService.splitMapping({
+      organizationId:ORG,
+      mappingId,
+      description:"Standalone Tomatoes 25 LB",
+      catalogItems:[...backend._stores.catalogs.values()],
+      categories:[...backend._stores.categories.values()],
+      // expectedCatalogItemId intentionally omitted
+    });
+    assert.fail("Should have thrown");
+  }catch(e){
+    assert.ok(e.message.toLowerCase().includes("required")||e.message.toLowerCase().includes("catalog item"),
+      `Expected missing-id error, got: ${e.message}`);
+  }
+  assert.equal(backend._stores.catalogs.size,catalogsBefore,"no catalog item must be created when expectedCatalogItemId is absent");
 });
 
 console.log("\nAll Module E · Reject + Confirm + Remap tests done.\n");

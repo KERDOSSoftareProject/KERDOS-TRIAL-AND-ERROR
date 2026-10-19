@@ -307,17 +307,22 @@ export function createCatalogService(backend){
       for(const id of catalogItemIds){await this.confirmCategory(id);confirmed++;}
       return confirmed;
     },
-    async splitMapping({organizationId,mappingId,description,catalogItems,categories}){
+    async splitMapping({organizationId,mappingId,description,catalogItems,categories,expectedCatalogItemId}){
+      if(!expectedCatalogItemId)throw new Error("The current catalog item ID is required to create a separate item.");
+      // Read vendor_item_id AND catalog_item_id before creating anything so
+      // we can detect a stale page without leaving an orphan.
+      const mapping=await run(table("item_mappings").select("vendor_item_id,catalog_item_id").eq("id",mappingId).single(),"Could not read the current association");
+      // Stale-before-call guard: if the mapping already moved on before this
+      // call started, refuse now before creating the new catalog item.
+      if(mapping.catalog_item_id!==expectedCatalogItemId)
+        throw new Error("The association changed since you loaded this page; refresh and try again.");
       const placement=await this.placeInCategory({organizationId,description,categories,catalogItems});
       const created=await this.createItem({organizationId,name:description,categoryId:placement.category?.id||null,categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories});
-      // Read vendor_item_id AND catalog_item_id together so we have the
-      // expected catalog item for the stale-mapping guard below.
-      const mapping=await run(table("item_mappings").select("vendor_item_id,catalog_item_id").eq("id",mappingId).single(),"Could not read the current association");
       const vendorItem=await run(table("vendor_items").select("*").eq("id",mapping.vendor_item_id).single(),"Could not read the vendor product");
       const verification=mappingVerification(vendorItem,created);
-      // Stale guard: refuse if another session remapped this mapping between
-      // the read above and this write.  Clean up the newly created catalog item
-      // first so it does not become an orphan.
+      // Concurrent-change guard: refuse if another session remapped this
+      // mapping between the read above and this write.  Clean up the newly
+      // created catalog item first so it does not become an orphan.
       const updated=await run(
         table("item_mappings").update({catalog_item_id:created.id,...verification})
           .eq("id",mappingId).eq("catalog_item_id",mapping.catalog_item_id).select("id"),

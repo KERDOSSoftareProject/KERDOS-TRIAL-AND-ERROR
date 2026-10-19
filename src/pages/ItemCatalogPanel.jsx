@@ -250,8 +250,9 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
   }
   async function handleRemapNew(mappingId,description){
     if(!window.confirm(`Create a separate catalog item for "${description}"?\n\nOnly this vendor product will move to the new item. Existing vendor products remain in their current catalog items.`))return;
+    const expectedCatalogItemId=mappings.find(m=>m.id===mappingId)?.catalog_item_id??null;
     setBusyMappingId(mappingId);
-    if(await act(()=>catalogService.splitMapping({organizationId:orgId,mappingId,description,catalogItems,categories}))){ setRemapOpenFor(null); setRemapSearch(""); }
+    if(await act(()=>catalogService.splitMapping({organizationId:orgId,mappingId,description,catalogItems,categories,expectedCatalogItemId}))){ setRemapOpenFor(null); setRemapSearch(""); }
     setBusyMappingId(null);
   }
 
@@ -518,7 +519,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
                       <button disabled={busyMappingId===m.mappingId} onClick={async()=>{
                         if(!window.confirm("Unlink this vendor product? It will get its own KERDOS entry and stay orderable. This survives reimport."))return;
                         setBusyMappingId(m.mappingId);
-                        try{await catalogService.splitMapping({organizationId:orgId,mappingId:m.mappingId,description:viMap.get(m.vendorItemId)?.description||"",catalogItems,categories});await onUpdated();}
+                        try{await catalogService.splitMapping({organizationId:orgId,mappingId:m.mappingId,description:viMap.get(m.vendorItemId)?.description||"",catalogItems,categories,expectedCatalogItemId:m.catalogItemId??null});await onUpdated();}
                         catch(e){setError(e.message);}
                         finally{setBusyMappingId(null);}
                       }} style={{...btn("#FFF3E0","#E65100",{fontSize:11,padding:"6px 12px"})}}>Unlink from group</button>
