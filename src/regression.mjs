@@ -119,6 +119,8 @@ for(const [a,b,e] of [
 t("uncertain boneless not auto linked",bestCatalogMatch("Boneless chicken breast",[{name:"Chicken breast"}])?.track,"similar");
 t("same identity wins over fuzzy candidate",bestCatalogMatch("Chicken breast 40lb",[{name:"Chicken breast"},{name:"Chicken breast 40 lb"}])?.catalogItem?.name,"Chicken breast 40 lb");
 t("slice counts remain distinct",compareProductIdentity("American cheese 120 slices","American cheese 160 slices").status,"review");
+t("fat percentage distinguishes milk grades",compareProductIdentity("UHT MILK 1%","UHT MILK 2%").status,"review");
+t("same fat percentage links milk grades",compareProductIdentity("UHT MILK 1%","UHT MILK 1%").status,"same");
 t("equal total with different case configuration needs review",comparePurchasingPack("4/1 GAL","2/2 GAL").status,"review");
 t("different count packs cannot automatically compete",bestPurchasingMatch("American cheese","160 CT",[{name:"American cheese",pack_size:"120 CT"}])?.track,"similar");
 t("identical product and pack can auto link",bestPurchasingMatch("American cheese","120 CT",[{name:"American cheese",pack_size:"120 CT"}])?.track,"exact");

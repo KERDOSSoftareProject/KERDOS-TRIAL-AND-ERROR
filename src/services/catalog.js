@@ -41,7 +41,12 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[])
     return g.code==="wording"&&g.detail==="No shared defining product terms";
   });
   const identityOk=(allPeersHaveIdentifier&&noProductConflict)||identity.every(result=>result.status==="same");
-  const brandOk=!catalogItem.brand_locked||brandsAgree;
+  // When the catalog item has a locked brand, the vendor item's own brand must match
+  // the locked brand directly — peer brand agreement is irrelevant here (a peer with a
+  // different brand is already blocked separately by orderGuideAssessment's brand blocker
+  // and must not prevent verification for a vendor item whose brand IS correct).
+  // When not brand-locked, brand is not a gating criterion for exact verification.
+  const brandOk=!catalogItem.brand_locked||brandsMatch(vendorItem.brand,catalogItem.locked_brand);
   const exact=!!parsePackSize(vendorItem.pack_size)?.parsed&&brandOk&&identifiersAgree&&identityOk&&packs.every(result=>result.status==="same");
   return {comparison_track:exact?"exact":"review",confidence_score:exact?100:null,match_method:"manual"};
 }
@@ -229,13 +234,15 @@ export function createCatalogService(backend){
         if(!ci.brand_locked)return true;
         return !brand||!ci.knownBrand||brandsMatch(brand,ci.knownBrand);
       })();
-      // Only suggest when description identity is confirmed "same".
-      // Vocabulary gaps (unresolved abbreviations, unknown modifiers like "DIET") return "review"
-      // and must not drive a suggestion — unresolved terms may mean genuinely different products.
-      // CANDY SKITTLES ≠ CANDY M&M; SODA BIRCH WHITE ≠ SODA BIRCH WHITE DIET.
-      // Abbreviation variants ("AMER" for "AMERICAN") without vocabulary confirmation also fall
-      // through to a new entry; the client can merge manually if the products are the same.
-      const suggestionSafe=rawSuggestion&&suggestionIdentity?.status==="same"&&suggestionBrandOk;
+      // Allow a suggestion when identity is "same" (all defining terms confirmed) or "review"
+      // (incoming description is a subset — it omits qualifiers but conflicts with nothing).
+      // "CHICKEN BREAST" vs "BONELESS SKINLESS CHICKEN BREAST": onlyA=[], onlyB=["boneless","skinless"]
+      // → "review" → surfaced to a human to confirm; NOT auto-merged.
+      // Block when identity is "different" (conflicting terms on both sides) or any unrecognised
+      // status: "CANDY SKITTLES" vs "CANDY M&M" → "different" → no suggestion.
+      // Use an explicit allowlist so future statuses don't accidentally pass through.
+      const SUGGESTION_ALLOWED_STATUSES=new Set(["same","review"]);
+      const suggestionSafe=rawSuggestion&&SUGGESTION_ALLOWED_STATUSES.has(suggestionIdentity?.status)&&suggestionBrandOk;
       const suggestion=suggestionSafe?rawSuggestion:null;
       // If a plausible, identity-confirmed match exists, link to that item at review track
       // so the client can confirm pack agreement. Only link when product identity is confirmed.

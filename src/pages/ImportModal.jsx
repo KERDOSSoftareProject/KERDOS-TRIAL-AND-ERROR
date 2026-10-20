@@ -9,7 +9,7 @@ import {createCategoryService} from "../services/categories.js";
 import {createDocumentService} from "../services/documents.js";
 import {createImportService} from "../services/imports.js";
 import {createOrganizationService} from "../services/organization.js";
-import {rememberedLayout,withRememberedLayout} from "../core/sheet-layout.js";
+import {rememberedLayout,withRememberedLayout,COLUMN_ROLE_LABELS,COLUMN_ROLES_FOR_CHOICE} from "../core/sheet-layout.js";
 import {formatMoney} from "../localization.js";
 import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
@@ -26,7 +26,7 @@ const documents=createDocumentService(backend);
 const importService=createImportService(backend);
 const r2=value=>Math.round(value*100)/100;
 
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,initialVendorId,initialMode}) {
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,initialVendorId,initialMode,initialFiles}) {
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
   // be dropped in until a vendor is chosen, so a sheet can't land under
@@ -60,7 +60,29 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const [invoiceSources,setInvoiceSources]=useState([]);
   const [invoiceLoad,setInvoiceLoad]=useState("loading");
   const [acceptedInvoiceConflicts,setAcceptedInvoiceConflicts]=useState(new Set());
+  // Step 1.5 — unknown column header confirmation.
+  // Each entry: { groupId, fingerprint, unknownHeaders: [{index,label,engineGuess}], confirmedAnswers: {index:role} }
+  const [pendingUnknowns,setPendingUnknowns]=useState([]);
+  // Staged groups waiting for unknown-column confirmation before advancing to step 2.
+  const [stagedGroups,setStagedGroups]=useState([]);
   const quotedUnits=unitChoices(vocabulary,false,industry);
+
+  // When opened from the email inbox, pre-load the supplied File objects so
+  // the user lands on the file-ready state rather than an empty drop zone.
+  // Vendor selection is still required before parsing can proceed.
+  useEffect(()=>{
+    if(!initialFiles||!initialFiles.length) return;
+    let active=true;
+    (async()=>{
+      const newGroups=await Promise.all(initialFiles.map(async file=>{
+        const text=await fileToText(file);
+        return {id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
+      }));
+      if(active) setFileGroups(newGroups);
+    })().catch(err=>setParseError(`Could not read attached file: ${err.message||String(err)}`));
+    return ()=>{active=false;};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   useEffect(()=>{
     if(mode!=="pricelist"||!vendorId)return;
@@ -84,7 +106,6 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   async function handleDroppedFiles(files){
     const fileArr=Array.from(files||[]);
     if(!fileArr.length||fileBusy||parsing) return;
-    if(!vendorId){setParseError("Choose the vendor first, so the sheet is filed under the right name.");return;}
     setFileBusy(true);
     const shownAt=Date.now();
     try{
@@ -153,20 +174,37 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const answers=fingerprint?answersFor(fingerprint):{};
     return Object.keys(answers).length?parseDocument(text,{layoutAnswers:answers}):first;
   }
-  // Unknown headings are settled without asking: the engine's reading of
-  // the column's contents becomes the answer and is remembered for this
-  // vendor's layout. The person never sees a question.
-  async function settleUnknownHeaders(groups){
+  // Unknown column headers: collect any that the engine couldn't map by
+  // name, surface them to the client once, and remember only the
+  // confirmed answer for this vendor's layout fingerprint. The engine's
+  // data-profile guess is the default choice — the client confirms,
+  // corrects, or marks it ignored. Silently skips fingerprints for which
+  // remembered answers already cover every unknown.
+  function gatherUnknownsForConfirmation(groups){
+    const toAsk=[];
+    for(const g of groups){
+      const fp=g.layout?.fingerprint;
+      const unknown=(g.layout?.unknown||[]).filter(h=>h.label);
+      if(!fp||!unknown.length)continue;
+      const remembered=rememberedLayout(orgSettings,vendorId,fp);
+      // If every unknown already has a remembered answer, no need to ask.
+      const needsAnswer=unknown.filter(h=>remembered[String(h.index)]===undefined&&remembered[h.index]===undefined);
+      if(!needsAnswer.length)continue;
+      const unknownHeaders=needsAnswer.map(h=>{
+        const engineGuess=Object.entries(g.columnMap||{}).find(([,i])=>i===h.index)?.[0]||"ignore";
+        return {index:h.index,label:h.label,engineGuess};
+      });
+      toAsk.push({groupId:g.id,fingerprint:fp,unknownHeaders,confirmedAnswers:Object.fromEntries(unknownHeaders.map(h=>[h.index,h.engineGuess]))});
+    }
+    return toAsk;
+  }
+
+  // Apply confirmed answers (from the client or auto-remembered) to a set
+  // of parsed groups. Returns settled groups. Persists to orgSettings.
+  async function applyConfirmedAnswers(groups,confirmedByFingerprint){
     let settled=groups;
     const toRemember=[];
-    for(const g of groups){
-      const fp=g.layout?.fingerprint;const unknown=g.layout?.unknown||[];
-      if(!fp||!unknown.length)continue;
-      const answers={};
-      for(const h of unknown){
-        const guessed=Object.entries(g.columnMap||{}).find(([,i])=>i===h.index)?.[0];
-        answers[h.index]=guessed||"ignore";
-      }
+    for(const [fp,answers] of Object.entries(confirmedByFingerprint)){
       toRemember.push([fp,answers]);
       setLayoutAnswers(prev=>({...prev,[fp]:answers}));
       settled=settled.map(x=>{
@@ -181,6 +219,48 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       try{await organizationService.update(orgId,{settings:next});}catch{/* remembering is a convenience */}
     }
     return settled;
+  }
+
+  // Entry point called after initial parse. If any document has unknown
+  // headers that haven't been confirmed before, pause at step 1.5 to ask.
+  // Otherwise apply any auto-remembered answers and advance to step 2.
+  async function settleUnknownHeaders(groups){
+    const toAsk=gatherUnknownsForConfirmation(groups);
+    if(toAsk.length){
+      setStagedGroups(groups);
+      setPendingUnknowns(toAsk);
+      setStep(1.5);
+      return;
+    }
+    // Nothing to ask — apply remembered answers for any known fingerprints
+    // and go straight to the review step.
+    const autoAnswers={};
+    for(const g of groups){
+      const fp=g.layout?.fingerprint;
+      if(!fp)continue;
+      const remembered=rememberedLayout(orgSettings,vendorId,fp);
+      if(Object.keys(remembered).length)autoAnswers[fp]=remembered;
+    }
+    const settled=Object.keys(autoAnswers).length?await applyConfirmedAnswers(groups,autoAnswers):groups;
+    if(mode==="invoice"&&settled.every(looksLikePriceSheet)){setMode("pricelist");setSwitchedToPriceSheet(true);}
+    setParsedGroups(settled);
+    setStep(1.8);
+  }
+
+  // Called when the client clicks "Continue" from the step 1.5 panel.
+  async function confirmUnknownHeaders(){
+    const confirmedByFingerprint={};
+    for(const pending of pendingUnknowns){
+      confirmedByFingerprint[pending.fingerprint]={
+        ...rememberedLayout(orgSettings,vendorId,pending.fingerprint),
+        ...pending.confirmedAnswers,
+      };
+    }
+    const settled=await applyConfirmedAnswers(stagedGroups,confirmedByFingerprint);
+    setStagedGroups([]);setPendingUnknowns([]);
+    if(mode==="invoice"&&settled.every(looksLikePriceSheet)){setMode("pricelist");setSwitchedToPriceSheet(true);}
+    setParsedGroups(settled);
+    setStep(1.8);
   }
   async function parseSources(files,text){
     // Every dropped/selected file is parsed on its own — never merged into
@@ -207,10 +287,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         setParseError(`No product rows could be read from ${docs.map(d=>d.name).join(", ")}. Check that the file contains item lines, or paste a sample of its text for review.`);
         return;
       }
-      const settled=await settleUnknownHeaders(groups);
-      if(mode==="invoice"&&settled.every(looksLikePriceSheet)){setMode("pricelist");setSwitchedToPriceSheet(true);}
-      setParsedGroups(settled);
-      setStep(2);
+      // settleUnknownHeaders handles all step transitions: it either pauses at
+      // step 1.5 to ask about unknown columns, or advances directly to step 2.
+      await settleUnknownHeaders(groups);
     }catch(error){setParseError(`Could not parse the document: ${error.message||String(error)}`);}
     finally{setParsing(false);}
   }
@@ -570,7 +649,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     if(!saveError&&mode==="pricelist"){
       try{await onDone();}catch{/* the page refresh reports its own failure */}
       setLoading(false);
-      onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}.`});
+      onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:sourceDocumentId||null});
       setStep(4);
       return;
     }
@@ -594,7 +673,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"white",borderRadius:"16px 16px 0 0",padding:20,width:"100%",maxWidth:mode==="pricelist"&&step===2?1450:600,maxHeight:"90vh",overflowY:"auto"}}>
+      <div style={{background:"white",borderRadius:"16px 16px 0 0",padding:20,width:"100%",maxWidth:mode==="pricelist"&&step===2?1450:600,maxHeight:"90vh",overflowY:"auto"}} aria-live="polite">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <h3 style={{margin:0,fontSize:16}}>{mode==="pricelist"?"📋 Import Price Sheet":"🧾 Record Invoice"}</h3>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,cursor:"pointer",color:"#888"}}>×</button>
@@ -627,8 +706,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               onDrop={e=>{e.preventDefault();setDragOver(false);handleDroppedFiles(e.dataTransfer.files);}}
               style={{position:"relative",border:dragOver?"2px dashed #003584":"2px dashed #DDD",borderRadius:8,padding:16,textAlign:"center",background:dragOver?"#F0F6FF":"#FAFAFA"}}
             >
-              <div style={{fontSize:13,color:"#888",marginBottom:8}}>{vendorId?"Drop files here — any number at once":"Choose a vendor above, then drop the file here"}</div>
-              <input type="file" multiple accept=".csv,.txt,.tsv,.xlsx,.xls,.pdf,.eml,.html,.htm" disabled={!vendorId}
+              <div style={{fontSize:13,color:"#888",marginBottom:8}}>Drop files here to preview — no data is saved until you click Save Import</div>
+              <input type="file" multiple accept=".csv,.txt,.tsv,.xlsx,.xls,.pdf,.eml,.html,.htm"
                 onChange={e=>{handleDroppedFiles(e.target.files);e.target.value="";}}
                 style={{fontSize:12}} />
               {(fileBusy||parsing)&&<div style={{position:"absolute",inset:0,background:"rgba(255,255,255,0.85)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#003584",fontWeight:700,borderRadius:8}}><Drachma label={parsing?"Reading item rows…":"Reading file…"}/></div>}
@@ -654,6 +733,92 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           </div>
           {parseError&&<div role="alert" style={{background:"#FFEBEE",color:"#B71C1C",padding:10,marginBottom:9,fontSize:12}}>{parseError}</div>}
           {pastedText.trim().length>=10&&<button onClick={doParse} disabled={fileBusy||parsing} style={{...btn("#003584"),width:"100%"}}>{parsing?"Reading item rows…":"Review pasted text"}</button>}
+        </>}
+
+        {step===1.5&&pendingUnknowns.length>0&&<>
+          <div style={{marginBottom:12,fontSize:13,color:"#333"}}>
+            <b>Check unrecognized column{pendingUnknowns.flatMap(p=>p.unknownHeaders).length>1?"s":""}</b>
+            <p style={{margin:"6px 0 0",color:"#555",fontSize:12}}>
+              The engine found column headings it did not recognize. Review the suggested role for each one,
+              then click Continue. Your answer will be remembered for this vendor's layout.
+            </p>
+          </div>
+          {pendingUnknowns.map((pending,pi)=>(
+            <div key={pending.fingerprint} style={{marginBottom:14,padding:"10px 14px",background:"#F5F7FF",borderRadius:8,border:"1px solid #DDE2F0"}}>
+              {pendingUnknowns.length>1&&<div style={{fontSize:11,fontWeight:700,color:"#555",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>
+                {stagedGroups.find(g=>g.id===pending.groupId)?.name||"Document"}
+              </div>}
+              {pending.unknownHeaders.map(h=>(
+                <div key={h.index} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                  <span style={{fontFamily:"monospace",background:"#EBEBEB",padding:"2px 8px",borderRadius:4,fontSize:12,minWidth:120,flexShrink:0}}>
+                    {h.label}
+                  </span>
+                  <span style={{fontSize:12,color:"#666",flexShrink:0}}>is the</span>
+                  <select
+                    value={pendingUnknowns[pi].confirmedAnswers[h.index]||"ignore"}
+                    onChange={e=>{
+                      const role=e.target.value;
+                      setPendingUnknowns(prev=>prev.map((p,i)=>i!==pi?p:{
+                        ...p,confirmedAnswers:{...p.confirmedAnswers,[h.index]:role}
+                      }));
+                    }}
+                    style={{...inp,fontSize:12,padding:"4px 8px",minWidth:200}}
+                  >
+                    {COLUMN_ROLES_FOR_CHOICE.map(role=>(
+                      <option key={role} value={role}>{COLUMN_ROLE_LABELS[role]||role}</option>
+                    ))}
+                  </select>
+                  {h.engineGuess&&h.engineGuess!=="ignore"&&(
+                    <span style={{fontSize:11,color:"#45735b"}}>
+                      (engine guessed: {COLUMN_ROLE_LABELS[h.engineGuess]||h.engineGuess})
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button onClick={()=>{setStagedGroups([]);setPendingUnknowns([]);setStep(1);}} style={{...btn("#EEE","#555"),flex:1}}>← Back</button>
+            <button onClick={confirmUnknownHeaders} style={{...btn("#003584"),flex:2}}>Continue →</button>
+          </div>
+        </>}
+
+        {step===1.8&&<>
+          <div style={{background:"#E8F5E9",padding:"10px 14px",borderRadius:8,marginBottom:14,fontSize:13}}>
+            <b>Preview — nothing has been saved yet</b>
+          </div>
+          {parsedGroups.map(g=>(
+            <div key={g.id} style={{marginBottom:12,padding:"10px 14px",background:"#F5F7FF",borderRadius:8,border:"1px solid #DDE2F0"}}>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:6}}>📎 {g.name}</div>
+              <div style={{fontSize:12,color:"#333",marginBottom:3}}>
+                <b>{g.rows.length}</b> product row{g.rows.length===1?"":"s"} read
+                {g.skipped.length>0&&<span style={{color:"#B26A00"}}> · {g.skipped.length} line{g.skipped.length===1?"":"s"} skipped (not recognized as product rows)</span>}
+              </div>
+              {Object.keys(g.columnMap||{}).length>0&&(
+                <div style={{fontSize:11,color:"#555",marginTop:4}}>
+                  Column roles detected: {Object.keys(g.columnMap).join(", ")}
+                </div>
+              )}
+              {g.layout?.unknown?.filter(h=>h.label).length>0&&(
+                <div style={{fontSize:11,color:"#B26A00",marginTop:4}}>
+                  Unrecognized columns: {g.layout.unknown.filter(h=>h.label).map(h=>h.label).join(", ")}
+                </div>
+              )}
+            </div>
+          ))}
+          {!vendorId&&(
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Select a vendor to save this import</div>
+              <select style={{...inp,color:"#888"}} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
+                <option value="">Select vendor…</option>
+                {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button onClick={()=>{setParsedGroups([]);setStagedGroups([]);setPendingUnknowns([]);setFileGroups([]);setParseError("");setStep(1);}} style={{...btn("#EEE","#555"),flex:1}}>Cancel</button>
+            <button onClick={()=>setStep(2)} disabled={!vendorId} style={{...btn("#003584"),flex:2,opacity:vendorId?1:0.5}} title={vendorId?"":"Select a vendor above to enable saving"}>Save Import →</button>
+          </div>
         </>}
 
         {step===2&&<>
