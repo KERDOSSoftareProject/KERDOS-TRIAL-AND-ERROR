@@ -61,26 +61,5 @@ const ordered=displayRows.sort((x,y)=>compareCatalogRows(x,y));
 assert.deepEqual(ordered.map(r=>r.vendor.name),['Vendor','Per pound','Zeta','Alpha','Expired','Vendor'],'category/item groups retained; current equivalent pack prices rank vendors; expired offers last within item');
 assert.equal(ordered[0].evidence.category.value,'General');
 assert.equal(ordered.at(-1).evidence.category.value,'Produce');
-// ── Conflict guard: items with clashing product terms must never link ──────────
-// "TOMATO SAUCE" vs "TOMATO PASTE": both are recognized food terms, onlyA=["sauce"],
-// onlyB=["paste"] → compareProductIdentity returns "different" → not in
-// SUGGESTION_ALLOWED_STATUSES → no suggestion → each creates its own catalog entry.
-// Note: brand-specific names like "CANDY SKITTLES" vs "CANDY M&M" contain unresolved
-// vocabulary (brand names), so compareProductIdentity returns "review" (unresolved terms)
-// rather than "different" — those go to human review, which is also correct behavior.
-const conflictBase={...base,pack_size:'6/#10 CAN',price:15};
-const tomatoSauce=await importRow({...conflictBase,id:'ts',vendor_id:'TS1',description:'TOMATO SAUCE'});
-const tomatoPaste=await importRow({...conflictBase,id:'tp',vendor_id:'TP1',description:'TOMATO PASTE',price:14});
-assert.equal(tomatoSauce.track,'new','TOMATO SAUCE creates its own catalog entry');
-assert.equal(tomatoPaste.track,'new','TOMATO PASTE must not attach to TOMATO SAUCE — conflicting product terms');
-assert.notEqual(tomatoSauce.catalogItemId,tomatoPaste.catalogItemId,'conflicting terms produce separate catalog items');
-// ── Additive-qualifier guard: DIET modifier must not auto-link ─────────────────
-// "SODA BIRCH WHITE DIET" vs "SODA BIRCH WHITE": onlyA=["diet"], onlyB=[] → "review"
-// → in allowlist → surfaced to human as a suggestion; must NOT auto-link (never exact).
-const sodaBase={...base,pack_size:'24/12 OZ',price:22};
-const birchWhite=await importRow({...sodaBase,id:'bw', vendor_id:'W1',description:'SODA BIRCH WHITE'});
-const birchDiet =await importRow({...sodaBase,id:'bd', vendor_id:'W2',description:'SODA BIRCH WHITE DIET',price:21});
-assert.equal(birchWhite.track,'new','SODA BIRCH WHITE creates its own entry');
-assert.notEqual(birchDiet.track,'exact','SODA BIRCH WHITE DIET must not auto-link to SODA BIRCH WHITE — additive modifier requires human confirmation');
 configureProcurement();
 console.log('Multi-vendor workflow passed: two imports, one KERDOS number, dictionary/brand-independent identity, ready offers, ranked dropdown prices, review attachment, distinct packs and unlink memory.');

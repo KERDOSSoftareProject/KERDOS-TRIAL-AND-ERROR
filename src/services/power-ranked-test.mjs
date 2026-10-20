@@ -7,7 +7,7 @@
 //   [4] Exclude stale and ineligible offers
 
 import assert from "node:assert/strict";
-import {orderable,rankVendorOffers,offerDollarDifference,solveOrder} from "../core/ordering.js";
+import {rankVendorOffers,offerDollarDifference,solveOrder} from "../core/ordering.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

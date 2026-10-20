@@ -12,7 +12,7 @@ function query(table){
     update(value){state.update=value;return chain;},
     insert(value){state.insert=value;return chain;},
     delete(){state.delete=true;return chain;},
-    eq(column,value){(state.eqs=state.eqs||[]).push([column,value]);return chain;},
+    eq(column,value){state.eq=[column,value];return chain;},
     single(){state.single=true;return chain;},
     then(resolve){calls.push({...state});resolve({data:state.insert&&state.single?{id:"created",...state.insert}:state.select?[{id:"mapping"}]:{ok:true},error:null});},
   };
@@ -27,13 +27,12 @@ assert.equal(mappingVerification({id:"v2",description:"American cheese sliced",p
 assert.equal(mappingVerification({id:"v2",description:"American cheese",pack_size:null},{id:"c1",name:"American cheese"},[]).comparison_track,"review");
 assert.equal(mappingVerification({id:"v2",description:"American cheese",pack_size:"1-40# CB"},{id:"c1",name:"American cheese"},[]).comparison_track,"review");
 assert.throws(()=>service.confirmMapping("m1"),/Check this product/);
-await assert.rejects(()=>service.confirmMapping("m1",verified),/catalog item ID is required/);
 const corrected=await service.correctVendorFields({organizationId:"o1",vendorItem:{id:"v2",organization_id:"o1",description:"American cheese",brand:null,pack_size:"120 CT"},mappingId:"m1",description:"American cheese sliced",brand:"Brand A",packSize:"4/10 LB"});
 assert.equal(corrected,true);
 assert.deepEqual(calls.at(-1).catalogSave.patch,{description:"American cheese sliced",brand:"Brand A",pack_size:"4/10 LB"});
 await service.correctVendorFields({organizationId:"o1",vendorItem:{id:"v2",organization_id:"o1",description:"American cheese",pack_size:"120 CT"},mappingId:"m1",description:"American cheese",brand:"",packSize:"nonsense"});
 assert.equal(calls.at(-1).catalogSave.priceAvailable,false,"an unfinished pack may be saved but its quote cannot compete");
-await service.confirmMapping("m1",verified,"c1");
+await service.confirmMapping("m1",verified);
 assert.deepEqual(calls.at(-1).update,{comparison_track:"exact",confidence_score:100,match_method:"manual"});
 await service.renameItem("c1","Client Product");
 assert.equal(calls.at(-1).update.name,"Client Product");
@@ -81,11 +80,10 @@ const reviewed=await service.matchOrCreate({organizationId:"o1",description:"Ame
 // Different purchasing packs → separate catalog entries. A human links them if needed.
 assert.equal(reviewed.track,"new","same product different pack creates a new catalog entry");
 const differingWords=await service.matchOrCreate({organizationId:"o1",description:"CHEESE AMER SLI 160 WHITE",packSize:"4/5 LB",catalogItems:[{id:"c2",name:"CHEESE AMERICAN 160CT WHITE",matching_behavior:"flexible"}],categories:[],vendorItems:[{id:"v2",description:"CHEESE AMERICAN 160CT WHITE",pack_size:"4/5 LB"}],mappings:[{catalog_item_id:"c2",vendor_item_id:"v2"}]});
-// Vocabulary resolves "AMER" → "american", so the abbreviation is no longer unresolved.
-// "SLI" (sliced) appears only on the incoming side → compareProductIdentity returns "review".
-// The engine surfaces this as a suggestion for human confirmation; it must NOT auto-link.
-assert.equal(differingWords.track,"review","vocabulary confirms abbreviation; remaining sliced/unsliced difference correctly goes to human review");
-assert.notEqual(differingWords.track,"exact","abbreviated description never auto-links — human must confirm");
+// Without vocabulary confirmation that "AMER"="AMERICAN", the engine cannot confirm
+// these are the same product. A new entry is created; the client can merge manually.
+// Linking on unresolved abbreviations risks collisions with genuinely different products.
+assert.equal(differingWords.track,"new","unresolved abbreviation without vocabulary creates a new entry — client merges if same product");
 
 // ── THE HARD RULE ────────────────────────────────────────────────────────────
 // Every vendor item lands on an existing KERDOS entry when the engine

@@ -25,7 +25,6 @@ import {CatalogPanel} from "./pages/CatalogAdminPanel.jsx";
 import {ItemCatalogPanel} from "./pages/ItemCatalogPanel.jsx";
 import {PasteModal} from "./pages/ImportModal.jsx";
 import {VendorDetail} from "./pages/VendorDetail.jsx";
-import {EmailInboxPanel,RoutingAddressPanel} from "./pages/EmailInboxPanel.jsx";
 import {PALETTE,btn,chipStyle,inp} from "./ui/styles.js";
 
 const documents=createDocumentService(backend);
@@ -896,7 +895,7 @@ export default function App() {
           ["catalog",`🗂️ Item Catalog${needsAttentionCount>0?` (${needsAttentionCount})`:""}`],
           ["priceSheets","📊 Price Sheets"],
           ["invoices",`📁 Invoices${invoiceReviewCount>0?` (${invoiceReviewCount})`:""}`],
-          ...(org.role==="owner"||org.role==="manager"?[["inbox","📥 Inbox"],["team","👥 Admin"]]:[])].map(([id,label])=>(
+          ...(org.role==="owner"||org.role==="manager"?[["team","👥 Admin"]]:[])].map(([id,label])=>(
           <button key={id} onClick={()=>id==="order"?openOrderGuide():setTab(id)}
             style={{flex:1,padding:"12px 4px",border:"none",background:"none",cursor:"pointer",
               fontSize:12,fontWeight:600,
@@ -1448,23 +1447,6 @@ export default function App() {
         )}
 
         {/* TEAM TAB */}
-        {tab==="inbox"&&(org.role==="owner"||org.role==="manager")&&(
-          <>
-            <RoutingAddressPanel orgId={org.id} onUpdated={loadData} />
-            <EmailInboxPanel
-              orgId={org.id}
-              industry={org.industry}
-              vendors={vendors}
-              orgSettings={org.settings}
-              catalogItems={catalogItems}
-              categories={categories}
-              vocabulary={vocabulary}
-              vendorItems={vendorItems}
-              mappings={mappings}
-              onDone={loadData}
-            />
-          </>
-        )}
         {tab==="team"&&(org.role==="owner"||org.role==="manager")&&(
           <>
             <TeamPanel orgId={org.id} orgName={org.name} orgIndustry={org.industry} orgSettings={org.settings} categories={categories} myRole={org.role} currentUserId={session.user.id} currentUserEmail={session.user.email} onOrgUpdated={loadData}

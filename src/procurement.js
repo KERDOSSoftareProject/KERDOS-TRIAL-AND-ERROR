@@ -553,8 +553,7 @@ function extractComparableMeasurements(value) {
     if (x) out.push(`${x.dimension}:${x.baseUnit}:${round(x.baseQuantity,3)}`);
   }
   const ratios=[...text.matchAll(/\b(\d+)\s*[\/x]\s*(\d+)\b/g)].map(m=>`ratio:${m[1]}x${m[2]}`);
-  const pcts=[...text.matchAll(/\b(\d+(?:\.\d+)?)%/g)].map(m=>`percent:pct:${parseFloat(m[1])}`);
-  return new Set([...out,...ratios,...pcts]);
+  return new Set([...out,...ratios]);
 }
 
 function productCoreWords(value) {

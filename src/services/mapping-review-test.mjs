@@ -375,7 +375,7 @@ run("remap back to same rejected item clears only that UUID from rejected_catalo
 run("non-member cannot call kerdos_reject_mapping", async()=>{
   // userRole:null → no member entry added → auth check fails.
   const backend=createInMemoryBackend({orgId:ORG,userId:"outsider",userRole:null});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
   try{
     // Pass a valid expectedCatalogItemId so the auth check (not the null guard) is the gate.
@@ -390,7 +390,7 @@ run("non-member cannot call kerdos_reject_mapping", async()=>{
 // 7. Stale row_revision is rejected.
 run("stale row_revision is rejected with a clear error", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
   try{
     // Pass revision 99 when the actual revision is 1.
@@ -433,7 +433,7 @@ run("remap back to rejected item is atomic: rejection cleared and row_revision b
 // 9. Stale expectedCatalogItemId on reject is refused with a clear error.
 run("stale expectedCatalogItemId on reject is refused with a clear error", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId:_catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
   try{
     // Pass a wrong catalog item ID — simulates the user acting on a stale page.
@@ -653,7 +653,7 @@ run("remapToExisting (plain path) is refused when catalog item has changed", asy
 //     the new item is created and the mapping is updated.
 run("splitMapping succeeds when mapping catalog item matches", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const{catalogService}=makeServices(backend,ORG);
   const catalogsBefore=backend._stores.catalogs.size;
   const created=await catalogService.splitMapping({
@@ -675,7 +675,7 @@ run("splitMapping succeeds when mapping catalog item matches", async()=>{
 //     write lands.  splitMapping must refuse AND delete the newly created item.
 run("splitMapping is refused when mapping has changed and cleans up the new item", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId:_catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const catalogsBefore=backend._stores.catalogs.size;
 
   // Pre-create the "concurrent" catalog item so we know its id.
@@ -746,7 +746,7 @@ run("splitMapping is refused when mapping has changed and cleans up the new item
 //     item — no orphan is left behind.
 run("splitMapping is refused when page was already stale (no item created)", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const catalogsBefore=backend._stores.catalogs.size;
 
   // Simulate: another session already moved the mapping to a different catalog item.
@@ -791,7 +791,7 @@ run("splitMapping is refused when page was already stale (no item created)", asy
 //     The service must throw before touching the database.
 run("splitMapping throws immediately when expectedCatalogItemId is absent", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId:_catItemId2,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const catalogsBefore=backend._stores.catalogs.size;
   const{catalogService}=makeServices(backend,ORG);
   try{

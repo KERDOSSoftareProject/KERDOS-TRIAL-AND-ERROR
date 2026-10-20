@@ -46,7 +46,7 @@ const COLUMN_ROLES = {
   sellingUnit: ["type", "selling unit", "order unit", "quoted per", "price unit", "price uom", "pricing unit", "pricing basis", "price basis", "unit of sale"],
   qty:         ["qty", "quantity", "count", "ordered", "order qty", "ord qty", "delivered", "dlv", "dlvd"],
   packSize:    ["unit", "size", "pack", "uom", "pack size", "pk", "pkg", "package", "pack/size", "pack & size", "pack & size:", "package size", "unit size"],
-  price:       ["price", "pr", "prc", "unit price", "cost", "unit cost", "rate", "your price", "net price", "sell", "sell price", "selling price", "quote price", "quoted price", "list price", "price/case", "price per case", "price/ea", "price/lb", "price/gal"],
+  price:       ["price", "pr", "prc", "unit price", "cost", "unit cost", "rate", "your price", "net price", "sell price", "selling price", "quote price", "quoted price", "list price", "price/case", "price per case", "price/ea", "price/lb", "price/gal"],
   amount:      ["amount", "total", "ext", "extended", "ext price", "ext. price", "line total", "line amount", "extended price", "total price", "total amount"],
 };
 
@@ -285,7 +285,7 @@ function findHeaderRow(grid) {
 // the first match in this list wins. "your price" beats "list price".
 const PRICE_PRIORITY = ["your price","net price","sell price","selling price",
   "quote price","quoted price","unit price","price/case","price per case",
-  "price","pr","prc","cost","unit cost","rate","sell","list price"];
+  "price","pr","prc","cost","unit cost","rate","list price"];
 
 function mapColumnsFromHeader(headerCells) {
   const map = {};
@@ -458,33 +458,10 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   const priceUnavailable = price === null && amount === null &&
     (isNoPricePlaceholder(priceRaw) || isNoPricePlaceholder(amountRaw));
 
-  // A row with a blank or unreadable price cell (but not a recognised "no
-  // price" placeholder) is still a real product row — the value is just
-  // missing or malformed.  Keep it and attach a "missing-price" issue so it
-  // surfaces for review rather than disappearing silently into result.skipped.
-  //
-  // The key guard is priceRaw !== undefined: when the price column is mapped
-  // and a cell value was actually read (even if that value is blank or ""), the
-  // vendor's row genuinely has a price slot — it just wasn't filled or is
-  // unreadable.  That row is worth keeping.  When priceRaw is undefined the
-  // price column was inferred beyond the row's actual width (e.g. a bare
-  // category heading "FRUIT" in space-delimited text whose price column was
-  // detected from neighbouring rows) — in that case the row has no price slot
-  // at all and is discarded as before.
-  //
-  // Additional guard: priceRaw must either be empty (blank cell — genuine missing
-  // price) or start with a digit or currency symbol (a numeric-like value that
-  // failed to parse).  A purely alphabetic-leading string such as "Col1", "Col4",
-  // or "Price" is a column label that leaked through an undetected header row,
-  // not a product price — those rows must fall through to the discard path below.
-  const _priceRawStr = priceRaw != null ? String(priceRaw).trim() : null;
-  const _priceRawLooksNumeric = _priceRawStr === "" || (_priceRawStr != null && /^[$€£¥\d]/.test(_priceRawStr));
-  const priceUnreadable = price === null && amount === null && !priceUnavailable
-    && priceRaw !== undefined && priceRaw !== null && _priceRawLooksNumeric;
-
-  // Discard rows with no price that are not a recognised placeholder and have
-  // no actual price cell (priceRaw undefined/null = no mapped price slot).
-  if (price === null && amount === null && !priceUnavailable && !priceUnreadable) return null;
+  // A row needs at least one valid money value to be usable - UNLESS
+  // it's a recognized "no price listed" placeholder, in which case the
+  // product itself is still real and worth keeping, just flagged.
+  if (price === null && amount === null && !priceUnavailable) return null;
 
   let description = (get("description") || "").trim();
   // If we don't know which column is the description, fall back to
@@ -544,14 +521,6 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   const fullDescription=[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
   const issues=[];
 
-  // A row whose price cell was blank or unreadable gets flagged for review.
-  // priceUnavailable is also set so ImportModal doesn't throw "No confirmed
-  // positive unit price" and instead saves the row with the issue attached.
-  if (priceUnreadable) {
-    const rawHint = priceRaw != null && String(priceRaw).trim() ? ` ("${String(priceRaw).trim()}")` : "";
-    issues.push({ kind: "missing-price", message: `Price missing or could not be read${rawHint}` });
-  }
-
   // Run cell analysis to pick up flags and metadata the column-map path doesn't surface:
   // priceUnavailable (zero price), requiresReview (negative price), originalRaw on pack.
   // Build a header-hint array from the column map: each cell gets its role name as the hint.
@@ -560,7 +529,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   const cellEvidence = analyzeRow(cells, headerHints, priceHeader, confirmedColIndices);
   const priceProposal = cellEvidence.resolved.price;
   const packProposal  = cellEvidence.resolved.pack;
-  const finalPriceUnavailable = priceUnavailable || priceUnreadable || priceProposal?.priceUnavailable || false;
+  const finalPriceUnavailable = priceUnavailable || priceProposal?.priceUnavailable || false;
   const finalRequiresReview   = priceProposal?.requiresReview || false;
   const finalOriginalRaw      = packProposal?.originalRaw || null;
   // Preserve unresolved-field explanations and conflict details on the row so they

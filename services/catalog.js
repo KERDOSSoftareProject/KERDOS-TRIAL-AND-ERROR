@@ -41,12 +41,7 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[])
     return g.code==="wording"&&g.detail==="No shared defining product terms";
   });
   const identityOk=(allPeersHaveIdentifier&&noProductConflict)||identity.every(result=>result.status==="same");
-  // When the catalog item has a locked brand, the vendor item's own brand must match
-  // the locked brand directly — peer brand agreement is irrelevant here (a peer with a
-  // different brand is already blocked separately by orderGuideAssessment's brand blocker
-  // and must not prevent verification for a vendor item whose brand IS correct).
-  // When not brand-locked, brand is not a gating criterion for exact verification.
-  const brandOk=!catalogItem.brand_locked||brandsMatch(vendorItem.brand,catalogItem.locked_brand);
+  const brandOk=!catalogItem.brand_locked||brandsAgree;
   const exact=!!parsePackSize(vendorItem.pack_size)?.parsed&&brandOk&&identifiersAgree&&identityOk&&packs.every(result=>result.status==="same");
   return {comparison_track:exact?"exact":"review",confidence_score:exact?100:null,match_method:"manual"};
 }
@@ -165,16 +160,6 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
 
 export function createCatalogService(backend){
   const table=backend.records.query;
-  // Writes a confirmation to one mapping, refusing if the catalog item has
-  // changed since the operator loaded the page (stale-mapping guard).
-  async function confirmOne(mappingId,verification,expectedCatalogItemId){
-    if(!expectedCatalogItemId)throw new Error("The current catalog item ID is required to confirm a match.");
-    const updated=await run(
-      table("item_mappings").update(verification).eq("id",mappingId).eq("catalog_item_id",expectedCatalogItemId).select("id"),
-      "Could not confirm the match"
-    );
-    if(!updated?.length)throw new Error("The association changed since you loaded this page; refresh and try again.");
-  }
   return {
     async matchOrCreate({organizationId,vendorId,description,packSize,brand=null,gtin=null,manufacturerCode=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
       const byId=new Map(vendorItems.map(vi=>[vi.id,vi]));
@@ -234,15 +219,13 @@ export function createCatalogService(backend){
         if(!ci.brand_locked)return true;
         return !brand||!ci.knownBrand||brandsMatch(brand,ci.knownBrand);
       })();
-      // Allow a suggestion when identity is "same" (all defining terms confirmed) or "review"
-      // (incoming description is a subset — it omits qualifiers but conflicts with nothing).
-      // "CHICKEN BREAST" vs "BONELESS SKINLESS CHICKEN BREAST": onlyA=[], onlyB=["boneless","skinless"]
-      // → "review" → surfaced to a human to confirm; NOT auto-merged.
-      // Block when identity is "different" (conflicting terms on both sides) or any unrecognised
-      // status: "CANDY SKITTLES" vs "CANDY M&M" → "different" → no suggestion.
-      // Use an explicit allowlist so future statuses don't accidentally pass through.
-      const SUGGESTION_ALLOWED_STATUSES=new Set(["same","review"]);
-      const suggestionSafe=rawSuggestion&&SUGGESTION_ALLOWED_STATUSES.has(suggestionIdentity?.status)&&suggestionBrandOk;
+      // Only suggest when description identity is confirmed "same".
+      // Vocabulary gaps (unresolved abbreviations, unknown modifiers like "DIET") return "review"
+      // and must not drive a suggestion — unresolved terms may mean genuinely different products.
+      // CANDY SKITTLES ≠ CANDY M&M; SODA BIRCH WHITE ≠ SODA BIRCH WHITE DIET.
+      // Abbreviation variants ("AMER" for "AMERICAN") without vocabulary confirmation also fall
+      // through to a new entry; the client can merge manually if the products are the same.
+      const suggestionSafe=rawSuggestion&&suggestionIdentity?.status==="same"&&suggestionBrandOk;
       const suggestion=suggestionSafe?rawSuggestion:null;
       // If a plausible, identity-confirmed match exists, link to that item at review track
       // so the client can confirm pack agreement. Only link when product identity is confirmed.
@@ -304,65 +287,25 @@ export function createCatalogService(backend){
     },
     // The client's word on a guessed placement: keep it where it is.
     confirmCategory(catalogItemId){
-      // Write category_reason:"confirmed" so that a current engine "review"
-      // result cannot silently downgrade an explicitly accepted placement.
-      // category_reason non-null → catAcc=DERIVED (90) regardless of engine.
-      return run(table("catalog_items").update({category_review:false,category_reason:"confirmed"}).eq("id",catalogItemId),"Could not confirm the category");
+      return run(table("catalog_items").update({category_review:false,category_reason:null}).eq("id",catalogItemId),"Could not confirm the category");
     },
     async confirmCategories(catalogItemIds){
       let confirmed=0;
       for(const id of catalogItemIds){await this.confirmCategory(id);confirmed++;}
       return confirmed;
     },
-    async splitMapping({organizationId,mappingId,description,catalogItems,categories,expectedCatalogItemId}){
-      if(!expectedCatalogItemId)throw new Error("The current catalog item ID is required to create a separate item.");
-      // Read vendor_item_id AND catalog_item_id before creating anything so
-      // we can detect a stale page without leaving an orphan.
-      const mapping=await run(table("item_mappings").select("vendor_item_id,catalog_item_id").eq("id",mappingId).single(),"Could not read the current association");
-      // Stale-before-call guard: if the mapping already moved on before this
-      // call started, refuse now before creating the new catalog item.
-      if(mapping.catalog_item_id!==expectedCatalogItemId)
-        throw new Error("The association changed since you loaded this page; refresh and try again.");
+    async splitMapping({organizationId,mappingId,description,catalogItems,categories}){
       const placement=await this.placeInCategory({organizationId,description,categories,catalogItems});
       const created=await this.createItem({organizationId,name:description,categoryId:placement.category?.id||null,categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories});
+      const mapping=await run(table("item_mappings").select("vendor_item_id").eq("id",mappingId).single(),"Could not read the current association");
       const vendorItem=await run(table("vendor_items").select("*").eq("id",mapping.vendor_item_id).single(),"Could not read the vendor product");
       const verification=mappingVerification(vendorItem,created);
-      // Concurrent-change guard: refuse if another session remapped this
-      // mapping between the read above and this write.  Clean up the newly
-      // created catalog item first so it does not become an orphan.
-      const updated=await run(
-        table("item_mappings").update({catalog_item_id:created.id,...verification})
-          .eq("id",mappingId).eq("catalog_item_id",mapping.catalog_item_id).select("id"),
-        "Could not point the vendor item at it"
-      );
-      if(!updated?.length){
-        try{await run(table("catalog_items").delete().eq("id",created.id),"cleanup");}catch{}
-        throw new Error("The association changed since you loaded this page; refresh and try again.");
-      }
+      await run(table("item_mappings").update({catalog_item_id:created.id,...verification}).eq("id",mappingId),"Could not point the vendor item at it");
       return created;
     },
-    // Reject the current catalog match and give the vendor item its own
-    // standalone catalog item.  The actual DB work (create item, update
-    // mapping, append rejected_catalog_item_ids) runs inside the
-    // kerdos_reject_mapping RPC so everything is atomic and authorized
-    // at the DB level.  Returns {catalogItemId, masterItemNumber,
-    // rejectedCatalogItemId} from the RPC.
-    async rejectMapping(mappingId,vendorItemRevision,{organizationId,expectedCatalogItemId}={}){
-      if(vendorItemRevision==null)throw new Error("Reload this product before rejecting it.");
-      if(expectedCatalogItemId==null)throw new Error("The current catalog item ID is required to reject a match.");
-      return run(
-        backend.rpc("kerdos_reject_mapping",{
-          p_organization_id:organizationId,
-          p_mapping_id:mappingId,
-          p_expected_revision:vendorItemRevision,
-          p_expected_catalog_item_id:expectedCatalogItemId,
-        }),
-        "Could not reject the match"
-      );
-    },
-    confirmMapping(mappingId,verification,expectedCatalogItemId){
+    confirmMapping(mappingId,verification){
       if(!verification)throw new Error("Check this product against the catalog and its vendor packs before confirming.");
-      return confirmOne(mappingId,verification,expectedCatalogItemId);
+      return run(table("item_mappings").update(verification).eq("id",mappingId),"Could not confirm the match");
     },
     async correctVendorFields({organizationId,vendorItem,mappingId,description,brand,packSize}){
       const patch={description,brand,pack_size:packSize};
@@ -374,7 +317,7 @@ export function createCatalogService(backend){
       let confirmed=0;
       for(const entry of entries){
         if(!entry?.verification||entry.verification.comparison_track!=="exact")throw new Error("Only fully verified associations can be confirmed in bulk.");
-        await confirmOne(entry.mappingId,entry.verification,entry.catalogItemId);
+        await run(table("item_mappings").update(entry.verification).eq("id",entry.mappingId),"Could not confirm the match");
         confirmed++;
       }
       return confirmed;
@@ -389,47 +332,9 @@ export function createCatalogService(backend){
       await run(table("org_vocabulary").insert(pairs.map(pair=>({organization_id:organizationId,kind:"synonym",term:pair.term,canonical:pair.canonical}))),"Could not save the learned wording");
       return pairs;
     },
-    // Remap the vendor item to a different (or previously rejected) catalog item.
-    // When the operator deliberately maps back to an item that was previously
-    // rejected, remove only that UUID from rejected_catalog_item_ids so the
-    // deliberate choice is recorded without wiping other rejections.
-    // Remap the vendor item to a different (or previously rejected) catalog item.
-    // When the destination is in rejected_catalog_item_ids, uses an atomic RPC
-    // (kerdos_remap_to_rejected) that clears the rejection, updates the mapping,
-    // and bumps row_revision in one transaction, with stale-mapping and
-    // stale-revision checks.
-    // For any other remap, a plain mapping update is safe (no rejection to clear).
-    async remapToExisting(mappingId,catalogItemId,verification,{vendorItemId,currentFieldResolutions,vendorItemRevision,expectedCatalogItemId,organizationId}={}){
+    remapToExisting(mappingId,catalogItemId,verification){
       if(!verification)throw new Error("Check this product against the destination and its vendor packs before moving it.");
-      if(vendorItemId&&currentFieldResolutions){
-        const rejected=currentFieldResolutions.rejected_catalog_item_ids||[];
-        if(rejected.includes(catalogItemId)){
-          // Atomic path: one RPC handles the rejection-clear, mapping update, and revision bump.
-          return run(
-            backend.rpc("kerdos_remap_to_rejected",{
-              p_organization_id:organizationId,
-              p_mapping_id:mappingId,
-              p_new_catalog_item_id:catalogItemId,
-              p_expected_revision:vendorItemRevision??null,
-              p_expected_catalog_item_id:expectedCatalogItemId??null,
-              p_comparison_track:verification.comparison_track,
-              p_confidence_score:verification.confidence_score,
-              p_match_method:verification.match_method,
-            }),
-            "Could not remap to the previously-rejected item"
-          );
-        }
-      }
-      // Plain path: apply the same stale-mapping guard used in confirmOne
-      // and kerdos_reject_mapping — refuse if the catalog item the
-      // operator loaded is no longer the current one.
-      if(!expectedCatalogItemId)throw new Error("The current catalog item ID is required to remap.");
-      const updated=await run(
-        table("item_mappings").update({catalog_item_id:catalogItemId,...verification})
-          .eq("id",mappingId).eq("catalog_item_id",expectedCatalogItemId).select("id"),
-        "Could not remap the item"
-      );
-      if(!updated?.length)throw new Error("The association changed since you loaded this page; refresh and try again.");
+      return run(table("item_mappings").update({catalog_item_id:catalogItemId,...verification}).eq("id",mappingId),"Could not remap the item");
     },
     renameItem(catalogItemId,name){
       return run(table("catalog_items").update({name:name.slice(0,120)}).eq("id",catalogItemId),"Could not rename the item");
