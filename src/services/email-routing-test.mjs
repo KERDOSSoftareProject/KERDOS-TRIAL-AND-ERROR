@@ -20,7 +20,6 @@
  * attachment-processor.mjs so changes to that logic are automatically covered.
  */
 
-import assert from "assert";
 import { processAttachments, base64ToBytes as processorBase64 } from
   "../../supabase/functions/inbound-email/attachment-processor.mjs";
 
@@ -302,7 +301,7 @@ function verifyBasicAuth(authHeader, expectedUser, expectedPass) {
   } catch { return false; }
 }
 
-function base64ToBytes(b64) {
+function _base64ToBytes(b64) {
   const clean = b64.replace(/\s/g, "");
   const binary = atob(clean);
   const bytes = new Uint8Array(binary.length);
@@ -775,7 +774,7 @@ console.log("\n── A. Edge Function logic ───────────�
   backend.from = function(tableName) {
     const q = originalFrom(tableName);
     if (tableName === "inbound_attachments") {
-      const originalThen = q.then.bind(q);
+      const _originalThen = q.then.bind(q);
       // Wrap .insert() to force 23505 on first call
       const originalInsert = q.insert.bind(q);
       q.insert = function(payload) {

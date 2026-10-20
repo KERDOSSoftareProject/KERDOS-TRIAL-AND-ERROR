@@ -675,7 +675,7 @@ run("splitMapping succeeds when mapping catalog item matches", async()=>{
 //     write lands.  splitMapping must refuse AND delete the newly created item.
 run("splitMapping is refused when mapping has changed and cleans up the new item", async()=>{
   const backend=createInMemoryBackend({orgId:ORG,userId:USER});
-  const{catItemId:_catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const{catItemId,vendorItemId:_vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
   const catalogsBefore=backend._stores.catalogs.size;
 
   // Pre-create the "concurrent" catalog item so we know its id.

@@ -28,7 +28,7 @@ import {
   deactivateRoutingAddress,
   listMessages,
   getMessage,
-  listPendingAttachments,
+  listPendingAttachments as _listPendingAttachments,
   markAttachmentIngested,
   getAttachmentFile,
 } from "../services/email-routing.js";
