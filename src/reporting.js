@@ -1,7 +1,7 @@
 import {blockReason,orderable} from "./core/ordering.js";
 import {formatMoney} from "./localization.js";
 
-function csvEscape(value){const text=String(value??"");return /[",\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;}
+function csvEscape(value){const text=String(value??"");return /[",\n\r]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;}
 function rowsToCSV(rows){return rows.map(row=>row.map(csvEscape).join(",")).join("\r\n");}
 
 export function downloadTextFile(filename,content,mimeType){
@@ -16,7 +16,7 @@ export function buildCatalogExportCSV(productList,vendors){
     const cheapest=item.options.filter(orderable)[0]||item.options[0]||null;
     let status="No price on file",confidence="";
     if(cheapest){if(!orderable(cheapest))status=blockReason(cheapest);else if(cheapest.matchTrack==="similar"){status="Needs review";confidence=`${cheapest.matchConfidence}%`;}else status="100% matched";}
-    const vendorCells=vendors.map(vendor=>{const option=item.options.find(candidate=>candidate.vendorId===vendor.id&&orderable(candidate));return option?formatMoney(option.casePrice):"";});
+    const vendorCells=vendors.map(vendor=>{const option=item.options.find(candidate=>candidate.vendorId===vendor.id);return option?.casePrice?formatMoney(option.casePrice):"";});
     const best=cheapest&&orderable(cheapest)?cheapest:null;
     rows.push([item.name,item.category,best?formatMoney(best.casePrice):"",best?best.vendorName:"",best?.perUnit?`${formatMoney(best.perUnit.price)}/${best.perUnit.unit}`:"",status,confidence,...vendorCells]);
   }
