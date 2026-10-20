@@ -81,8 +81,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       if(active) setFileGroups(newGroups);
     })().catch(err=>setParseError(`Could not read attached file: ${err.message||String(err)}`));
     return ()=>{active=false;};
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
+  },[]);// initialFiles is intentionally read only on mount
 
   useEffect(()=>{
     if(mode!=="pricelist"||!vendorId)return;
@@ -357,6 +356,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
 
       let failedRows=0;
+      let lastSourceDocumentId=null;
       for(const group of parsedGroups){
         if(!group.rows.length)continue;
         let sourceFilePath=null;
@@ -378,6 +378,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
         }
         let sourceDocumentId=existingDoc?.id||null;
+        lastSourceDocumentId=sourceDocumentId;
         if(!existingDoc){
           if(group.file){
             const uploaded=await documents.uploadOriginal(orgId,vendorId,group.file);
@@ -649,7 +650,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     if(!saveError&&mode==="pricelist"){
       try{await onDone();}catch{/* the page refresh reports its own failure */}
       setLoading(false);
-      onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:sourceDocumentId||null});
+      onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
       setStep(4);
       return;
     }

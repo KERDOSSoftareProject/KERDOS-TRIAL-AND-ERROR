@@ -13,7 +13,7 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[])
   const descriptions=peers.length?peers.map(peer=>peer.description):[catalogItem.name];
   const identity=descriptions.map(description=>compareProductIdentity(vendorItem.description,description));
   const packs=peers.map(peer=>comparePurchasingPack(vendorItem.pack_size,peer.pack_size));
-  const brandsAgree=peers.every(peer=>!vendorItem.brand&&!peer.brand||brandsMatch(vendorItem.brand,peer.brand));
+  const _brandsAgree=peers.every(peer=>!vendorItem.brand&&!peer.brand||brandsMatch(vendorItem.brand,peer.brand));
   const identifiersAgree=peers.every(peer=>(!vendorItem.gtin||!peer.gtin||vendorItem.gtin===peer.gtin)&&
     (!vendorItem.manufacturer_code||!peer.manufacturer_code||vendorItem.manufacturer_code===peer.manufacturer_code));
   // When every peer shares a GTIN (or mfr code + brand), the identifier resolves
