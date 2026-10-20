@@ -337,6 +337,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0;
     const identified=[];
     let saveError=null;
+    let lastSourceDocumentId=null;
 
     if(mode==="pricelist"){
       const workingCatalogItems=[...catalogItems];
@@ -356,7 +357,6 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
 
       let failedRows=0;
-      let lastSourceDocumentId=null;
       for(const group of parsedGroups){
         if(!group.rows.length)continue;
         let sourceFilePath=null;
