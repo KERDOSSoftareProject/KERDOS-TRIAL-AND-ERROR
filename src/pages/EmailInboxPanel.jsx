@@ -26,6 +26,7 @@ import {
   createRoutingAddress,
   listRoutingAddresses,
   deactivateRoutingAddress,
+  updateRoutingAddress,
   listMessages,
   getMessage,
   listPendingAttachments as _listPendingAttachments,
@@ -61,7 +62,7 @@ function Badge({n,color="#003584"}){
 
 // ── RoutingAddressPanel ────────────────────────────────────────────────────
 
-export function RoutingAddressPanel({orgId,onUpdated}){
+export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
   const [addresses,setAddresses]=useState([]);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -69,8 +70,11 @@ export function RoutingAddressPanel({orgId,onUpdated}){
   const [address,setAddress]=useState("");
   const [label,setLabel]=useState("");
   const [forwardTo,setForwardTo]=useState("");
+  const [vendorId,setVendorId]=useState("");
   const [saving,setSaving]=useState(false);
   const [deactivating,setDeactivating]=useState(null);
+  // Per-row vendor-edit state: addressId → { editVendorId, saving, error }
+  const [rowEdits,setRowEdits]=useState({});
 
   const load=useCallback(async()=>{
     setLoading(true);setError("");
@@ -92,12 +96,35 @@ export function RoutingAddressPanel({orgId,onUpdated}){
         routingAddress:address.trim(),
         label:label.trim()||null,
         forwardTo:forwardTo.trim()||null,
+        vendorId:vendorId||null,
       });
-      setShowForm(false);setAddress("");setLabel("");setForwardTo("");
+      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");
       await load();
       onUpdated?.();
     }catch(e){setError(e.message);}
     setSaving(false);
+  }
+
+  function startVendorEdit(a){
+    setRowEdits(prev=>({...prev,[a.id]:{editVendorId:a.vendor_id||"",saving:false,error:""}}));
+  }
+
+  function cancelVendorEdit(id){
+    setRowEdits(prev=>{const n={...prev};delete n[id];return n;});
+  }
+
+  async function saveVendorEdit(id){
+    const edit=rowEdits[id];
+    if(!edit) return;
+    setRowEdits(prev=>({...prev,[id]:{...prev[id],saving:true,error:""}}));
+    try{
+      await updateRoutingAddress(backend,orgId,id,{vendorId:edit.editVendorId||null});
+      await load();
+      onUpdated?.();
+      setRowEdits(prev=>{const n={...prev};delete n[id];return n;});
+    }catch(e){
+      setRowEdits(prev=>({...prev,[id]:{...prev[id],saving:false,error:e.message}}));
+    }
   }
 
   async function handleDeactivate(id){
@@ -146,6 +173,25 @@ export function RoutingAddressPanel({orgId,onUpdated}){
               onChange={e=>setLabel(e.target.value)}
             />
           </div>
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>
+              Assign to vendor (optional)
+            </label>
+            <select
+              style={{...inp,fontSize:13}}
+              value={vendorId}
+              onChange={e=>setVendorId(e.target.value)}
+            >
+              <option value="">— no vendor (attachments go to manual review) —</option>
+              {vendors.map(v=>(
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
+              When a vendor is assigned, KERDOS will attempt to auto-import price lists from
+              this address. Without a vendor, every attachment is queued for manual review.
+            </p>
+          </div>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>
               Forward email text to (optional)
@@ -184,25 +230,80 @@ export function RoutingAddressPanel({orgId,onUpdated}){
             </p>
           : (
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {addresses.map(a=>(
-                <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",
-                  background:"#F8F9FE",borderRadius:8,padding:"10px 14px"}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:13,fontFamily:"monospace"}}>{a.routing_address}</div>
-                    {a.label&&<div style={{fontSize:12,color:"#555",marginTop:2}}>{a.label}</div>}
-                    {a.forward_to&&(
-                      <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
+              {addresses.map(a=>{
+                const edit=rowEdits[a.id];
+                return(
+                  <div key={a.id} style={{background:"#F8F9FE",borderRadius:8,padding:"10px 14px"}}>
+                    {/* top row: address + remove button */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:13,fontFamily:"monospace"}}>{a.routing_address}</div>
+                        {a.label&&<div style={{fontSize:12,color:"#555",marginTop:2}}>{a.label}</div>}
+                        {a.forward_to&&(
+                          <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
+                        )}
+                      </div>
+                      <button
+                        disabled={deactivating===a.id}
+                        onClick={()=>handleDeactivate(a.id)}
+                        style={{...btn("#FFF3E0","#E65100",{fontSize:11,padding:"5px 10px",
+                          border:"1px solid #FFCC80",opacity:deactivating===a.id?0.5:1,flexShrink:0,marginLeft:8})}}>
+                        {deactivating===a.id?"Removing…":"Remove"}
+                      </button>
+                    </div>
+
+                    {/* vendor assignment row */}
+                    {edit?(
+                      <div style={{marginTop:8}}>
+                        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                          <select
+                            style={{...inp,fontSize:12,flex:"1 1 180px"}}
+                            value={edit.editVendorId}
+                            onChange={e=>setRowEdits(prev=>({...prev,[a.id]:{...prev[a.id],editVendorId:e.target.value}}))}
+                            disabled={edit.saving}
+                          >
+                            <option value="">— no vendor (manual review) —</option>
+                            {vendors.map(v=>(
+                              <option key={v.id} value={v.id}>{v.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            disabled={edit.saving}
+                            onClick={()=>saveVendorEdit(a.id)}
+                            style={{...btn("#003584","white",{fontSize:11,padding:"5px 10px",
+                              opacity:edit.saving?0.6:1,flexShrink:0})}}>
+                            {edit.saving?"Saving…":"Save"}
+                          </button>
+                          <button
+                            disabled={edit.saving}
+                            onClick={()=>cancelVendorEdit(a.id)}
+                            style={{...btn("#EEE","#333",{fontSize:11,padding:"5px 10px",flexShrink:0})}}>
+                            Cancel
+                          </button>
+                        </div>
+                        {edit.error&&(
+                          <p style={{color:"#c62828",fontSize:11,margin:"4px 0 0"}}>{edit.error}</p>
+                        )}
+                      </div>
+                    ):(
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
+                        {a.vendor_id?(
+                          <span style={{fontSize:11,color:"#1a5f1a"}}>
+                            🏭 {vendors.find(v=>v.id===a.vendor_id)?.name ?? "Unknown vendor"}
+                          </span>
+                        ):(
+                          <span style={{fontSize:11,color:"#b26500"}}>⚠ No vendor — attachments go to manual review</span>
+                        )}
+                        <button
+                          onClick={()=>startVendorEdit(a)}
+                          style={{...btn("#EEE","#555",{fontSize:10,padding:"3px 8px",flexShrink:0})}}>
+                          {a.vendor_id?"Change vendor":"Assign vendor"}
+                        </button>
+                      </div>
                     )}
                   </div>
-                  <button
-                    disabled={deactivating===a.id}
-                    onClick={()=>handleDeactivate(a.id)}
-                    style={{...btn("#FFF3E0","#E65100",{fontSize:11,padding:"5px 10px",
-                      border:"1px solid #FFCC80",opacity:deactivating===a.id?0.5:1,flexShrink:0,marginLeft:8})}}>
-                    {deactivating===a.id?"Removing…":"Remove"}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )
       }

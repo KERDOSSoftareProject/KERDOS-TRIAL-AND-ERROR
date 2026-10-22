@@ -35,10 +35,10 @@ async function run(promise, context) {
  *
  * @param {object} backend  — the Supabase client from src/backend/index.js
  * @param {string} organizationId
- * @param {{ routingAddress: string, label?: string, forwardTo?: string }} opts
+ * @param {{ routingAddress: string, label?: string, forwardTo?: string, vendorId?: string }} opts
  * @returns {Promise<object>} the created row
  */
-export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo }) {
+export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo, vendorId }) {
   if (!routingAddress) throw new Error("routingAddress is required");
   const normalized = routingAddress.toLowerCase().trim();
   if (!normalized.endsWith("@inbound.kerdos.com")) {
@@ -52,6 +52,7 @@ export async function createRoutingAddress(backend, organizationId, { routingAdd
         routing_address: normalized,
         label: label ?? null,
         forward_to: forwardTo ?? null,
+        vendor_id: vendorId ?? null,
       })
       .select()
       .single(),
@@ -70,11 +71,39 @@ export async function listRoutingAddresses(backend, organizationId) {
   return run(
     backend
       .from("email_routing_addresses")
-      .select("id, routing_address, label, forward_to, is_active, created_at")
+      .select("id, routing_address, label, forward_to, vendor_id, is_active, created_at")
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .order("created_at", { ascending: false }),
     "listRoutingAddresses"
+  );
+}
+
+/**
+ * Update mutable fields on an existing routing address.
+ * Currently supports reassigning the vendor (vendorId) and changing the label.
+ * Pass null for vendorId to clear the vendor assignment.
+ *
+ * @param {object} backend
+ * @param {string} organizationId
+ * @param {string} addressId
+ * @param {{ vendorId?: string | null, label?: string | null }} updates
+ * @returns {Promise<object>} the updated row
+ */
+export async function updateRoutingAddress(backend, organizationId, addressId, updates) {
+  const patch = {};
+  if ("vendorId" in updates) patch.vendor_id = updates.vendorId ?? null;
+  if ("label"    in updates) patch.label     = updates.label    ?? null;
+  if (Object.keys(patch).length === 0) throw new Error("No fields to update");
+  return run(
+    backend
+      .from("email_routing_addresses")
+      .update(patch)
+      .eq("id", addressId)
+      .eq("organization_id", organizationId)
+      .select()
+      .single(),
+    "updateRoutingAddress"
   );
 }
 

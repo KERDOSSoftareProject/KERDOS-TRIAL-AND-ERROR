@@ -1450,7 +1450,7 @@ export default function App() {
         {/* TEAM TAB */}
         {tab==="inbox"&&(org.role==="owner"||org.role==="manager")&&(
           <>
-            <RoutingAddressPanel orgId={org.id} onUpdated={loadData} />
+            <RoutingAddressPanel orgId={org.id} vendors={vendors} onUpdated={loadData} />
             <EmailInboxPanel
               orgId={org.id}
               industry={org.industry}

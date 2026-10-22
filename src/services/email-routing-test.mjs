@@ -276,6 +276,7 @@ import {
   createRoutingAddress,
   listRoutingAddresses,
   deactivateRoutingAddress,
+  updateRoutingAddress,
   listMessages,
   getMessage,
   listPendingAttachments,
@@ -1010,6 +1011,41 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
+  // B17. createRoutingAddress stores a supplied vendorId
+  const backend = makeMockBackend();
+  const row = await createRoutingAddress(backend, "org-1", {
+    routingAddress: "acme-orders@inbound.kerdos.com",
+    vendorId: "v-initial",
+  });
+  t("B17: vendor_id stored on create", row.vendor_id, "v-initial");
+
+  // Also verify omitting vendorId stores null (not undefined)
+  const backend2 = makeMockBackend();
+  const row2 = await createRoutingAddress(backend2, "org-1", {
+    routingAddress: "acme-nv@inbound.kerdos.com",
+  });
+  t("B17: vendor_id is null when omitted", row2.vendor_id ?? null, null);
+}
+
+{
+  // B18. listRoutingAddresses returns vendor_id on each row
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-lv1", organization_id: "org-1", routing_address: "x@inbound.kerdos.com",
+        vendor_id: "v-abc", is_active: true },
+      { id: "ra-lv2", organization_id: "org-1", routing_address: "y@inbound.kerdos.com",
+        vendor_id: null, is_active: true },
+    ],
+  });
+  const rows = await listRoutingAddresses(backend, "org-1");
+  t("B18: listRoutingAddresses returns 2 rows", rows.length, 2);
+  const withVendor = rows.find(r => r.id === "ra-lv1");
+  const noVendor   = rows.find(r => r.id === "ra-lv2");
+  t("B18: vendor_id present on assigned row", withVendor?.vendor_id, "v-abc");
+  t("B18: vendor_id null on unassigned row",  noVendor?.vendor_id ?? null, null);
+}
+
+{
   // B13. Gap B: markAttachmentIngested rejects attachment with ingest_error set.
   //
   // An attachment that failed base64 decode has ingest_error IS NOT NULL.
@@ -1103,6 +1139,90 @@ console.log("\n── B. Service layer ─────────────�
   ok("B16: different import_document_id still rejected", threw);
   const att = backend._tables.inbound_attachments.find(r => r.id === "a-diff");
   t("B16: original import_document_id preserved", att.import_document_id, "doc-42");
+}
+
+{
+  // B-U1. updateRoutingAddress: assign a vendor to an address that has none
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-u1", organization_id: "org-1", routing_address: "a@inbound.kerdos.com",
+        vendor_id: null, is_active: true },
+    ],
+  });
+  await updateRoutingAddress(backend, "org-1", "ra-u1", { vendorId: "v-1" });
+  const row = backend._tables.email_routing_addresses.find(r => r.id === "ra-u1");
+  t("B-U1: vendor_id assigned", row.vendor_id, "v-1");
+}
+
+{
+  // B-U2. updateRoutingAddress: change to a different vendor (reassign)
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-u2", organization_id: "org-1", routing_address: "b@inbound.kerdos.com",
+        vendor_id: "v-1", is_active: true },
+    ],
+  });
+  await updateRoutingAddress(backend, "org-1", "ra-u2", { vendorId: "v-2" });
+  const row = backend._tables.email_routing_addresses.find(r => r.id === "ra-u2");
+  t("B-U2: vendor_id reassigned to v-2", row.vendor_id, "v-2");
+}
+
+{
+  // B-U3. updateRoutingAddress: clear the vendor assignment with null
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-u3", organization_id: "org-1", routing_address: "c@inbound.kerdos.com",
+        vendor_id: "v-1", is_active: true },
+    ],
+  });
+  await updateRoutingAddress(backend, "org-1", "ra-u3", { vendorId: null });
+  const row = backend._tables.email_routing_addresses.find(r => r.id === "ra-u3");
+  t("B-U3: vendor_id cleared to null", row.vendor_id ?? null, null);
+}
+
+{
+  // B-U4. updateRoutingAddress: scoped to org+address — other org's row untouched
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-u4a", organization_id: "org-1", routing_address: "d@inbound.kerdos.com",
+        vendor_id: null, is_active: true },
+      { id: "ra-u4b", organization_id: "org-2", routing_address: "e@inbound.kerdos.com",
+        vendor_id: null, is_active: true },
+    ],
+  });
+  // Update org-1's address only
+  await updateRoutingAddress(backend, "org-1", "ra-u4a", { vendorId: "v-org1" });
+  const rowA = backend._tables.email_routing_addresses.find(r => r.id === "ra-u4a");
+  const rowB = backend._tables.email_routing_addresses.find(r => r.id === "ra-u4b");
+  t("B-U4: org-1 address updated",         rowA.vendor_id,         "v-org1");
+  t("B-U4: org-2 address untouched", rowB.vendor_id ?? null, null);
+
+  // Also verify cross-address scoping: passing org-2's address ID to org-1 does nothing
+  const backend2 = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-u4c", organization_id: "org-2", routing_address: "f@inbound.kerdos.com",
+        vendor_id: null, is_active: true },
+    ],
+  });
+  await updateRoutingAddress(backend2, "org-1", "ra-u4c", { vendorId: "v-wrong" });
+  const rowC = backend2._tables.email_routing_addresses.find(r => r.id === "ra-u4c");
+  t("B-U4: wrong-org address ID leaves row untouched", rowC.vendor_id ?? null, null);
+}
+
+{
+  // B-U5. updateRoutingAddress: empty updates object throws
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-u5", organization_id: "org-1", routing_address: "g@inbound.kerdos.com",
+        vendor_id: "v-1", is_active: true },
+    ],
+  });
+  await rejects("B-U5: empty updates object throws", async () => {
+    await updateRoutingAddress(backend, "org-1", "ra-u5", {});
+  });
+  // Row should be completely unchanged
+  const row = backend._tables.email_routing_addresses.find(r => r.id === "ra-u5");
+  t("B-U5: row unchanged after rejected empty update", row.vendor_id, "v-1");
 }
 
 // ── Section C: Ingestion handoff ──────────────────────────────────────────
