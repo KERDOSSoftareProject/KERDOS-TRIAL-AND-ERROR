@@ -1,0 +1,43 @@
+name: A1.2.g Race Test – B1 and B2
+
+# Manual trigger only. Never runs automatically.
+on:
+  workflow_dispatch:
+
+jobs:
+  race-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned database driver
+        run: pip install "psycopg2-binary==2.9.9"
+
+      # Verify the URL targets kerdos-test before any database work.
+      # Exits non-zero if the project ID is missing; never prints the URL.
+      - name: Verify target project
+        env:
+          KERDOS_TEST_DATABASE_URL: ${{ secrets.KERDOS_TEST_DATABASE_URL }}
+        run: |
+          python - <<'PYEOF'
+          import os, sys
+          url = os.environ.get("KERDOS_TEST_DATABASE_URL", "")
+          if not url:
+              sys.exit("ABORT: KERDOS_TEST_DATABASE_URL secret is not set.")
+          if "gwtnaudjfoxjermhvhpx" not in url:
+              sys.exit("ABORT: URL does not identify project gwtnaudjfoxjermhvhpx. Refusing to run.")
+          print("Project check passed.")
+          PYEOF
+
+      - name: Run B1 and B2 race test
+        env:
+          KERDOS_TEST_DATABASE_URL: ${{ secrets.KERDOS_TEST_DATABASE_URL }}
+        run: python scripts/test_a1_2_g_race.py
