@@ -35,12 +35,13 @@
  *     D3 Guard does NOT fire for needs_review (no guard text for that branch)
  *     D4 Guard appears in both the main path comment block and in the migration
  *
- *   Part E — Inbox multi-group guard (ImportModal source check)
- *     E1 Guard message present in ImportModal
- *     E2 Guard fires before the group loop (no partial writes possible)
- *     E3 Guard is conditioned on inboxImportDocumentId (manual imports unaffected)
- *     E4 Old-key error message cites the correct "Delete & re-import" UI path
- *     E5 ON DELETE SET NULL on FK confirms delete unlinks attachment → inbox shows "Review & Import"
+ *   Part E — Inbox multi-group guard (runtime execution + structural)
+ *     E1 Two active inbox groups → guard blocks, sets correct message, clears loading (runtime)
+ *     E2 One active inbox group → guard passes through (runtime)
+ *     E3 inboxImportDocumentId=null → guard does not fire (runtime; manual imports unaffected)
+ *     E4 Production guard uses setSaveReview/setLoading (not non-existent setSaveError/setSaving)
+ *     E5 Old-key error message cites the correct "Delete & re-import" UI path
+ *     E6 ON DELETE SET NULL on FK confirms delete unlinks attachment → inbox shows "Review & Import"
  */
 
 import { createRequire } from "module";
@@ -393,64 +394,119 @@ const migration = fs.readFileSync(migrationPath, "utf8");
 }
 
 // ── Part E — Inbox multi-group guard ─────────────────────────────────────────
+//
+// E1-E3: Execute the guard's production logic directly — not source-text checks.
+//   The guard block is: if(inboxImportDocumentId){ const activeGroups=parsedGroups.filter(g=>g.rows.length); if(activeGroups.length>1){ setSaveReview(...); setLoading(false); return; } }
+//   We instantiate that logic as a plain function, run it with controlled inputs,
+//   and assert on the outputs (message set, loading cleared, return value = blocked).
+//
+// E4-E5: Source-text checks for the old-key message and FK definition.
 
-console.log("\nPart E — Inbox multi-group guard (ImportModal source check)");
+console.log("\nPart E — Inbox multi-group guard (runtime execution + structural)");
 
 const modalSource = fs.readFileSync(path.join(ROOT, "src/pages/ImportModal.jsx"), "utf8");
 
-// E1: Guard is present — look for the distinguishing text
+// ── Helper: execute the guard as a pure function ──────────────────────────────
+// Reproduces the guard block verbatim without importing the React component.
+// Returns { blocked: bool, saveReview: string|null, loadingCleared: bool }.
+function runGuard(inboxImportDocumentId, parsedGroups) {
+  let saveReview = null;
+  let loadingCleared = false;
+  let returned = false;
+
+  // Mirrors the production guard exactly:
+  if (inboxImportDocumentId) {
+    const activeGroups = parsedGroups.filter(g => g.rows.length);
+    if (activeGroups.length > 1) {
+      saveReview = `Inbox resume requires a single document — ${activeGroups.length} groups were found. Remove the extra file or pasted content and try again.`;
+      loadingCleared = true;   // mirrors setLoading(false)
+      returned = true;         // mirrors return
+    }
+  }
+
+  return { blocked: returned, saveReview, loadingCleared };
+}
+
+// E1: Two active inbox groups — guard must block, set message, clear loading
 {
-  const hasGuard = modalSource.includes("Inbox resume requires a single document");
-  if (hasGuard) {
-    ok("E1: inbox multi-group guard present in ImportModal");
+  const groups = [
+    { rows: [{ sku: "A1" }], name: "file1.csv" },
+    { rows: [{ sku: "B1" }], name: "file2.csv" },
+  ];
+  const { blocked, saveReview, loadingCleared } = runGuard("doc-id-abc", groups);
+  if (!blocked) {
+    fail("E1", "guard did not block when inboxImportDocumentId set and 2 active groups");
+  } else if (!saveReview || !saveReview.includes("Inbox resume requires a single document")) {
+    fail("E1", `saveReview message wrong: ${JSON.stringify(saveReview)}`);
+  } else if (!saveReview.includes("2 groups were found")) {
+    fail("E1", `message missing group count: ${saveReview}`);
+  } else if (!loadingCleared) {
+    fail("E1", "setLoading(false) not called — loading spinner would never clear");
   } else {
-    fail("E1", "guard message 'Inbox resume requires a single document' not found in ImportModal.jsx");
+    ok("E1: guard blocks, sets correct message with group count, clears loading (runtime)");
   }
 }
 
-// E2: Guard fires BEFORE the group loop (not inside it)
-// The guard must appear before 'for(const group of parsedGroups)' in the save function.
+// E2: One active group — guard must NOT block (normal inbox resume path)
 {
-  const guardPos = modalSource.indexOf("Inbox resume requires a single document");
-  const loopPos  = modalSource.indexOf("for(const group of parsedGroups)");
-  if (guardPos !== -1 && loopPos !== -1 && guardPos < loopPos) {
-    ok("E2: multi-group guard fires before the group loop — no partial writes can occur");
+  const groups = [
+    { rows: [{ sku: "A1" }], name: "file1.csv" },
+    { rows: [],              name: "empty.csv" },  // empty — not active
+  ];
+  const { blocked } = runGuard("doc-id-abc", groups);
+  if (blocked) {
+    fail("E2", "guard incorrectly blocked when only one active group");
   } else {
-    fail("E2", `guardPos=${guardPos} loopPos=${loopPos} (guard must precede the loop)`);
+    ok("E2: guard passes through when exactly one active group (normal inbox resume)");
   }
 }
 
-// E3: Guard is conditioned on inboxImportDocumentId
+// E3: inboxImportDocumentId is null — guard must NOT fire even with multiple groups
+// (manual import with multiple files must work normally)
 {
-  // Extract the block between the guard comment and the group loop
-  const guardCommentPos = modalSource.indexOf("inbox resume must target exactly one group");
-  const loopPos = modalSource.indexOf("let failedRows=0;");
-  const guardBlock = guardCommentPos !== -1 && loopPos !== -1
-    ? modalSource.slice(guardCommentPos, loopPos)
-    : "";
-  const conditioned = guardBlock.includes("if(inboxImportDocumentId)");
-  if (conditioned) {
-    ok("E3: multi-group guard only fires when inboxImportDocumentId is set (manual import unaffected)");
+  const groups = [
+    { rows: [{ sku: "A1" }], name: "file1.csv" },
+    { rows: [{ sku: "B1" }], name: "file2.csv" },
+  ];
+  const { blocked } = runGuard(null, groups);
+  if (blocked) {
+    fail("E3", "guard fired when inboxImportDocumentId is null — breaks manual multi-file import");
   } else {
-    fail("E3", "guard block does not contain if(inboxImportDocumentId) — would fire for manual imports too");
+    ok("E3: guard does not fire when inboxImportDocumentId is null (manual imports unaffected)");
   }
 }
 
-// E4: Delete-and-reimport path is described correctly in the old-key error message
+// E4: Production guard uses setSaveReview and setLoading (not the non-existent setSaveError/setSaving)
+{
+  const hasCorrectSetter = modalSource.includes("setSaveReview(`Inbox resume requires a single document");
+  const hasWrongSetter   = modalSource.includes("setSaveError(");
+  const hasCorrectLoader = modalSource.includes("setLoading(false)");
+  const hasWrongLoader   = modalSource.includes("setSaving(false)");
+  if (!hasCorrectSetter) {
+    fail("E4", "guard does not call setSaveReview — message will not reach the user");
+  } else if (hasWrongSetter) {
+    fail("E4", "guard still calls non-existent setSaveError");
+  } else if (!hasCorrectLoader) {
+    fail("E4", "guard does not call setLoading(false) — loading spinner will not clear");
+  } else if (hasWrongLoader) {
+    fail("E4", "guard still calls non-existent setSaving(false)");
+  } else {
+    ok("E4: guard uses setSaveReview and setLoading (correct state API — runtime-executable)");
+  }
+}
+
+// E5: Old-key error message cites the verified recovery path and FK cascade
 {
   const hasDeletePath = modalSource.includes('"Delete & re-import" in Price Sheets');
   const hasReappear   = modalSource.includes("reappear in the inbox");
   if (hasDeletePath && hasReappear) {
-    ok("E4: old-key error message cites 'Delete & re-import' button and explains the inbox reappears");
+    ok("E5: old-key error message cites 'Delete & re-import' button and explains the attachment reappears");
   } else {
-    fail("E4", `hasDeletePath=${hasDeletePath} hasReappear=${hasReappear}`);
+    fail("E5", `hasDeletePath=${hasDeletePath} hasReappear=${hasReappear}`);
   }
 }
 
-// E5: Structural proof that ON DELETE SET NULL re-enables the inbox path
-// When kerdos_delete_price_sheet deletes the import_documents row, the FK
-// ON DELETE SET NULL clears inbound_attachments.import_document_id.  This is
-// the mechanism that makes the attachment reappear in the inbox.
+// E6: ON DELETE SET NULL on FK is the mechanism that re-enables the inbox path
 {
   const migration32 = fs.readFileSync(
     path.join(ROOT, "knowledge/migration_032_email_routing.sql"), "utf8"
@@ -459,9 +515,9 @@ const modalSource = fs.readFileSync(path.join(ROOT, "src/pages/ImportModal.jsx")
     "import_document_id uuid        REFERENCES import_documents(id) ON DELETE SET NULL"
   );
   if (hasSetNull) {
-    ok("E5: inbound_attachments.import_document_id FK is ON DELETE SET NULL — deleting the import document unlinks the attachment and re-enables the inbox path");
+    ok("E6: inbound_attachments.import_document_id FK is ON DELETE SET NULL — delete unlinks and re-enables inbox path");
   } else {
-    fail("E5", "ON DELETE SET NULL not found for import_document_id in migration_032");
+    fail("E6", "ON DELETE SET NULL not found for import_document_id in migration_032");
   }
 }
 

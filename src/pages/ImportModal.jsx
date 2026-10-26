@@ -372,8 +372,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       if(inboxImportDocumentId){
         const activeGroups=parsedGroups.filter(g=>g.rows.length);
         if(activeGroups.length>1){
-          setSaveError(`Inbox resume requires a single document — ${activeGroups.length} groups were found. Remove the extra file or pasted content and try again.`);
-          setSaving(false);
+          setSaveReview(`Inbox resume requires a single document — ${activeGroups.length} groups were found. Remove the extra file or pasted content and try again.`);
+          setLoading(false);
           return;
         }
       }
