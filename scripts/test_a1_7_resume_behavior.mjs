@@ -59,6 +59,9 @@ const ROOT = path.resolve(scriptDir, "..");
 const resumeUrl = pathToFileURL(path.join(ROOT, "src/core/import-resume.js")).href;
 const { verifyResumeRows } = await import(resumeUrl);
 
+const guardUrl = pathToFileURL(path.join(ROOT, "src/core/inbox-group-guard.js")).href;
+const { checkInboxGroupGuard } = await import(guardUrl);
+
 // ── Test harness ─────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -395,118 +398,103 @@ const migration = fs.readFileSync(migrationPath, "utf8");
 
 // ── Part E — Inbox multi-group guard ─────────────────────────────────────────
 //
-// E1-E3: Execute the guard's production logic directly — not source-text checks.
-//   The guard block is: if(inboxImportDocumentId){ const activeGroups=parsedGroups.filter(g=>g.rows.length); if(activeGroups.length>1){ setSaveReview(...); setLoading(false); return; } }
-//   We instantiate that logic as a plain function, run it with controlled inputs,
-//   and assert on the outputs (message set, loading cleared, return value = blocked).
+// E1-E3: Import and call the production checkInboxGroupGuard() from
+//   src/core/inbox-group-guard.js — the same module ImportModal uses.
+//   These tests exercise the real implementation, not a copy of it.
 //
-// E4-E5: Source-text checks for the old-key message and FK definition.
+// E4: Source-text check that ImportModal delegates to checkInboxGroupGuard
+//   (not an inlined copy) and calls the correct state setters.
+//
+// E5-E6: Old-key message accuracy and FK proof.
 
-console.log("\nPart E — Inbox multi-group guard (runtime execution + structural)");
+console.log("\nPart E — Inbox multi-group guard (production helper + structural)");
 
 const modalSource = fs.readFileSync(path.join(ROOT, "src/pages/ImportModal.jsx"), "utf8");
 
-// ── Helper: execute the guard as a pure function ──────────────────────────────
-// Reproduces the guard block verbatim without importing the React component.
-// Returns { blocked: bool, saveReview: string|null, loadingCleared: bool }.
-function runGuard(inboxImportDocumentId, parsedGroups) {
-  let saveReview = null;
-  let loadingCleared = false;
-  let returned = false;
-
-  // Mirrors the production guard exactly:
-  if (inboxImportDocumentId) {
-    const activeGroups = parsedGroups.filter(g => g.rows.length);
-    if (activeGroups.length > 1) {
-      saveReview = `Inbox resume requires a single document — ${activeGroups.length} groups were found. Remove the extra file or pasted content and try again.`;
-      loadingCleared = true;   // mirrors setLoading(false)
-      returned = true;         // mirrors return
-    }
-  }
-
-  return { blocked: returned, saveReview, loadingCleared };
-}
-
-// E1: Two active inbox groups — guard must block, set message, clear loading
+// E1: Two active inbox groups — production guard must block with correct message
 {
   const groups = [
     { rows: [{ sku: "A1" }], name: "file1.csv" },
     { rows: [{ sku: "B1" }], name: "file2.csv" },
   ];
-  const { blocked, saveReview, loadingCleared } = runGuard("doc-id-abc", groups);
-  if (!blocked) {
-    fail("E1", "guard did not block when inboxImportDocumentId set and 2 active groups");
-  } else if (!saveReview || !saveReview.includes("Inbox resume requires a single document")) {
-    fail("E1", `saveReview message wrong: ${JSON.stringify(saveReview)}`);
-  } else if (!saveReview.includes("2 groups were found")) {
-    fail("E1", `message missing group count: ${saveReview}`);
-  } else if (!loadingCleared) {
-    fail("E1", "setLoading(false) not called — loading spinner would never clear");
+  const result = checkInboxGroupGuard("doc-id-abc", groups);
+  if (!result.blocked) {
+    fail("E1", "checkInboxGroupGuard did not block with 2 active groups");
+  } else if (!result.message || !result.message.includes("Inbox resume requires a single document")) {
+    fail("E1", `message wrong: ${JSON.stringify(result.message)}`);
+  } else if (!result.message.includes("2 groups were found")) {
+    fail("E1", `message missing group count: ${result.message}`);
   } else {
-    ok("E1: guard blocks, sets correct message with group count, clears loading (runtime)");
+    ok("E1: production checkInboxGroupGuard blocks with 2 active groups — correct message and count");
   }
 }
 
-// E2: One active group — guard must NOT block (normal inbox resume path)
+// E2: One active group (one empty) — production guard must NOT block
 {
   const groups = [
     { rows: [{ sku: "A1" }], name: "file1.csv" },
-    { rows: [],              name: "empty.csv" },  // empty — not active
+    { rows: [],              name: "empty.csv" },
   ];
-  const { blocked } = runGuard("doc-id-abc", groups);
-  if (blocked) {
-    fail("E2", "guard incorrectly blocked when only one active group");
+  const result = checkInboxGroupGuard("doc-id-abc", groups);
+  if (result.blocked) {
+    fail("E2", `production guard blocked unexpectedly: ${result.message}`);
   } else {
-    ok("E2: guard passes through when exactly one active group (normal inbox resume)");
+    ok("E2: production guard passes through when exactly one active group");
   }
 }
 
-// E3: inboxImportDocumentId is null — guard must NOT fire even with multiple groups
-// (manual import with multiple files must work normally)
+// E3: inboxImportDocumentId=null — production guard must not fire
 {
   const groups = [
     { rows: [{ sku: "A1" }], name: "file1.csv" },
     { rows: [{ sku: "B1" }], name: "file2.csv" },
   ];
-  const { blocked } = runGuard(null, groups);
-  if (blocked) {
-    fail("E3", "guard fired when inboxImportDocumentId is null — breaks manual multi-file import");
+  const result = checkInboxGroupGuard(null, groups);
+  if (result.blocked) {
+    fail("E3", "production guard fired when inboxImportDocumentId is null — breaks manual multi-file import");
   } else {
-    ok("E3: guard does not fire when inboxImportDocumentId is null (manual imports unaffected)");
+    ok("E3: production guard does not fire when inboxImportDocumentId is null");
   }
 }
 
-// E4: Production guard uses setSaveReview and setLoading (not the non-existent setSaveError/setSaving)
+// E4: ImportModal delegates to production checkInboxGroupGuard and uses correct state setters
 {
-  const hasCorrectSetter = modalSource.includes("setSaveReview(`Inbox resume requires a single document");
-  const hasWrongSetter   = modalSource.includes("setSaveError(");
+  const importsHelper    = modalSource.includes('from "../core/inbox-group-guard.js"');
+  const callsHelper      = modalSource.includes("checkInboxGroupGuard(inboxImportDocumentId,parsedGroups)");
+  const hasCorrectReview = modalSource.includes("setSaveReview(guard.message)");
   const hasCorrectLoader = modalSource.includes("setLoading(false)");
+  const hasWrongSetter   = modalSource.includes("setSaveError(");
   const hasWrongLoader   = modalSource.includes("setSaving(false)");
-  if (!hasCorrectSetter) {
-    fail("E4", "guard does not call setSaveReview — message will not reach the user");
-  } else if (hasWrongSetter) {
-    fail("E4", "guard still calls non-existent setSaveError");
+
+  if (!importsHelper) {
+    fail("E4", "ImportModal does not import checkInboxGroupGuard from inbox-group-guard.js");
+  } else if (!callsHelper) {
+    fail("E4", "ImportModal does not call checkInboxGroupGuard — guard is inlined, tests diverge from production");
+  } else if (!hasCorrectReview) {
+    fail("E4", "call site does not use setSaveReview(guard.message)");
   } else if (!hasCorrectLoader) {
-    fail("E4", "guard does not call setLoading(false) — loading spinner will not clear");
+    fail("E4", "call site does not use setLoading(false)");
+  } else if (hasWrongSetter) {
+    fail("E4", "call site still references non-existent setSaveError");
   } else if (hasWrongLoader) {
-    fail("E4", "guard still calls non-existent setSaving(false)");
+    fail("E4", "call site still references non-existent setSaving");
   } else {
-    ok("E4: guard uses setSaveReview and setLoading (correct state API — runtime-executable)");
+    ok("E4: ImportModal imports and delegates to checkInboxGroupGuard; uses setSaveReview/setLoading");
   }
 }
 
-// E5: Old-key error message cites the verified recovery path and FK cascade
+// E5: Old-key error message cites the verified recovery path
 {
   const hasDeletePath = modalSource.includes('"Delete & re-import" in Price Sheets');
   const hasReappear   = modalSource.includes("reappear in the inbox");
   if (hasDeletePath && hasReappear) {
-    ok("E5: old-key error message cites 'Delete & re-import' button and explains the attachment reappears");
+    ok("E5: old-key error message cites 'Delete & re-import' and explains the attachment reappears");
   } else {
     fail("E5", `hasDeletePath=${hasDeletePath} hasReappear=${hasReappear}`);
   }
 }
 
-// E6: ON DELETE SET NULL on FK is the mechanism that re-enables the inbox path
+// E6: ON DELETE SET NULL on FK re-enables the inbox path after delete
 {
   const migration32 = fs.readFileSync(
     path.join(ROOT, "knowledge/migration_032_email_routing.sql"), "utf8"

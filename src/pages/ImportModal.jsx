@@ -15,6 +15,7 @@ import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
 import {importPriceRow} from "../core/import-price-row.js";
 import {verifyResumeRows} from "../core/import-resume.js";
+import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
 import {enrichFromInvoices,invoiceEvidence} from "../core/invoice-evidence.js";
 import {btn,inp} from "../ui/styles.js";
@@ -362,17 +363,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         workingCatalogItems[index]={...current,category_id:categoryId,master_item_number:number};
       }
 
-      // A1.7: inbox resume must target exactly one group — the background worker
-      // always produces one group per attachment file, and inboxImportDocumentId
-      // points to that group's import document.  A second group (extra pasted text
-      // or a second file dropped in) would attempt to resume the SAME document,
-      // colliding with the saved evidence or writing unrelated rows into it.
-      // Block before any writes rather than letting the per-group loops detect it
-      // mid-flight after some rows have already been committed.
-      if(inboxImportDocumentId){
-        const activeGroups=parsedGroups.filter(g=>g.rows.length);
-        if(activeGroups.length>1){
-          setSaveReview(`Inbox resume requires a single document — ${activeGroups.length} groups were found. Remove the extra file or pasted content and try again.`);
+      // A1.7: inbox resume must target exactly one group.
+      // Guard is in src/core/inbox-group-guard.js (pure, importable by tests).
+      {
+        const guard=checkInboxGroupGuard(inboxImportDocumentId,parsedGroups);
+        if(guard.blocked){
+          setSaveReview(guard.message);
           setLoading(false);
           return;
         }
