@@ -12,6 +12,17 @@
  * Postmark to retry.  Permanent errors (malformed base64) are recorded
  * as visible ingest_error rows so the inbox UI can show the failure.
  *
+ * A1.2.e handoff (Gap 4)
+ * ──────────────────────
+ * After step 4 successfully inserts the DB row, this module fires a
+ * fire-and-forget invocation of the process-attachment Edge Function via
+ * backend.functions.invoke().  The invoke is deliberately NOT awaited —
+ * inbound-email must return 200 to Postmark within its own timeout budget,
+ * while automatic import processing is allowed to run longer.
+ * If invoke fails (edge function down, quota exceeded) the attachment
+ * remains in 'pending' processing_status and can be retried later.
+ * Errors from the fire-and-forget call are logged but never thrown.
+ *
  * Idempotency key
  * ───────────────
  * Each attachment is identified by (message_id, attachment_index),
@@ -176,7 +187,7 @@ export async function processAttachments(backend, organizationId, messageId, att
         // Orphaned Storage object: prior request crashed after uploading
         // but before writing the DB row.  Recover by inserting the row now;
         // storagePath is deterministic so we know exactly where the file is.
-        const { error: recoverErr } = await backend
+        const { data: recoveredRow, error: recoverErr } = await backend
           .from("inbound_attachments")
           .insert({
             organization_id:  organizationId,
@@ -187,14 +198,19 @@ export async function processAttachments(backend, organizationId, messageId, att
             file_size_bytes:  att.ContentLength || bytes.length,
             storage_path:     storagePath,
             import_document_id: null,
-          });
+          })
+          .select("id")
+          .single();
         if (recoverErr) {
           if (recoverErr.code === "23505") continue; // concurrent recovery race
           throw new Error(
             `recovery insert failed for attachment ${attachmentIndex} (${filename}): ${recoverErr.message}`
           );
         }
-        // Recovery succeeded — continue to next attachment
+        // Recovery succeeded — fire process-attachment for this recovered row
+        if (recoveredRow?.id) {
+          fireProcessAttachment(backend, organizationId, recoveredRow.id, filename, attachmentIndex);
+        }
         continue;
       }
 
@@ -205,7 +221,7 @@ export async function processAttachments(backend, organizationId, messageId, att
     }
 
     // ── 4. Write DB row ──────────────────────────────────────────────────
-    const { error: attErr } = await backend
+    const { data: newRow, error: attErr } = await backend
       .from("inbound_attachments")
       .insert({
         organization_id:  organizationId,
@@ -216,7 +232,9 @@ export async function processAttachments(backend, organizationId, messageId, att
         file_size_bytes:  att.ContentLength || bytes.length,
         storage_path:     storagePath,
         import_document_id: null,
-      });
+      })
+      .select("id")
+      .single();
 
     if (attErr) {
       if (attErr.code === "23505") {
@@ -228,5 +246,40 @@ export async function processAttachments(backend, organizationId, messageId, att
         `insert failed for attachment ${attachmentIndex} (${filename}): ${attErr.message}`
       );
     }
+
+    // ── 5. Fire-and-forget process-attachment (A1.2.e Gap 4 handoff) ────
+    // Kick off automatic processing asynchronously.  inbound-email must
+    // return 200 to Postmark quickly; the import pipeline runs in the
+    // process-attachment function on its own timeline.
+    if (newRow?.id) {
+      fireProcessAttachment(backend, organizationId, newRow.id, filename, attachmentIndex);
+    }
   }
+}
+
+// ── fireProcessAttachment ─────────────────────────────────────────────────────
+//
+// Invokes the process-attachment Edge Function without awaiting the result.
+// Uses backend.functions.invoke() — available on both the Supabase service-role
+// client and the mock backend created by the test harness.
+//
+// Errors are caught and logged; they are never thrown because inbound-email must
+// finish its 200 response regardless of whether automatic processing starts.
+
+function fireProcessAttachment(backend, organizationId, attachmentId, filename, attachmentIndex) {
+  // Determine whether backend exposes functions.invoke (Supabase client) or a
+  // mock equivalent.  If neither is available (minimal test mock), skip silently.
+  const invoke = backend?.functions?.invoke;
+  if (typeof invoke !== "function") return;
+
+  const promise = invoke.call(backend.functions, "process-attachment", {
+    body: { attachmentId, organizationId },
+  });
+
+  // Fire-and-forget: attach a rejection handler but do not await.
+  promise.catch((err) => {
+    console.error(
+      `[inbound-email] process-attachment invoke failed for attachment ${attachmentIndex} (${filename}): ${err?.message ?? err}`
+    );
+  });
 }

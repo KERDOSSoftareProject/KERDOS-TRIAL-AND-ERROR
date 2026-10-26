@@ -87,19 +87,18 @@ function readTextBytes(bytes) {
 
 // ── XLSX reading ──────────────────────────────────────────────────────────────
 //
-// XLSX is a ZIP file containing XML.  We parse it without an external library
-// using the platform's built-in ZIP capabilities (Deno.readDir + Deno.readFile
-// are not available here, but the DecompressionStream API is standard in Deno
-// and modern Node).
+// XLSX is a ZIP file containing XML.  We parse it without an external library.
+// ZIP method 8 (deflate) entries are decompressed with DecompressionStream
+// ("deflate-raw"), which is available in Deno (Edge Functions), Node 18+, and
+// modern browsers.
 //
 // For the purposes of the background processing pipeline we only need the cell
 // values as strings.  Full formula / type fidelity is handled by the browser's
 // PasteModal if the attachment is escalated to needs_review.
 //
-// Implementation note: a full no-dependency XLSX parser is complex.  If the
-// workbook cannot be parsed (corrupt ZIP, encrypted file, OOXML variant we
-// don't handle), we throw FileReadError so the attachment goes to needs_review
-// rather than causing a Postmark retry loop.
+// If the workbook cannot be parsed (corrupt ZIP, encrypted file, OOXML variant
+// we don't handle), we throw FileReadError so the attachment goes to
+// needs_review rather than causing a Postmark retry loop.
 
 async function readXlsxBytes(bytes) {
   // Try to decompress as ZIP and find the shared strings + worksheet XML.
@@ -129,7 +128,7 @@ async function readXlsxBytes(bytes) {
 async function parseXlsx(bytes) {
   // ── 1. Unzip ─────────────────────────────────────────────────────────────
   // We walk the ZIP central directory to locate the files we need.
-  const zip = parseZip(bytes);
+  const zip = await parseZip(bytes);
 
   const sharedStringsEntry = zip["xl/sharedStrings.xml"];
   const workbookEntry      = zip["xl/workbook.xml"];
@@ -169,9 +168,49 @@ async function parseXlsx(bytes) {
   return results;
 }
 
+// ── ZIP decompression ─────────────────────────────────────────────────────────
+
+/**
+ * Decompress raw deflate (ZIP method 8) bytes using the platform's built-in
+ * DecompressionStream with the "deflate-raw" format.
+ *
+ * "deflate-raw" = RFC 1951 raw deflate, no zlib (RFC 1950) wrapper and no
+ * gzip (RFC 1952) wrapper — exactly what ZIP method 8 stores.
+ *
+ * Available in:
+ *   • Deno 1.9+ (Supabase Edge Functions run Deno 1.30+)
+ *   • Node.js 18+
+ *   • Modern browsers (Chrome 80+, Firefox 113+, Safari 16.4+)
+ */
+async function decompressDeflateRaw(compressed) {
+  // DecompressionStream("deflate-raw") decodes raw DEFLATE (RFC 1951).
+  const ds = new DecompressionStream("deflate-raw");
+  const writer = ds.writable.getWriter();
+  const reader = ds.readable.getReader();
+
+  // Write the compressed data then close the writable side.
+  await writer.write(compressed);
+  await writer.close();
+
+  // Collect all output chunks.
+  const chunks = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+
+  // Concatenate into a single Uint8Array.
+  const totalLen = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length; }
+  return out;
+}
+
 // ── ZIP parser ────────────────────────────────────────────────────────────────
 
-function parseZip(bytes) {
+async function parseZip(bytes) {
   // Locate End of Central Directory record (signature 0x06054b50)
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let eocdOffset = -1;
@@ -183,7 +222,8 @@ function parseZip(bytes) {
   const cdOffset = view.getUint32(eocdOffset + 16, true);
   const cdSize   = view.getUint32(eocdOffset + 12, true);
 
-  const entries = {};
+  // First pass: collect raw entry data from the central directory.
+  const rawEntries = []; // { filename, compression, compData }
   let pos = cdOffset;
   while (pos < cdOffset + cdSize) {
     if (view.getUint32(pos, true) !== 0x02014b50) break; // Central dir signature
@@ -195,6 +235,8 @@ function parseZip(bytes) {
     const localOffset  = view.getUint32(pos + 42, true);
     const fnBytes      = bytes.slice(pos + 46, pos + 46 + fnLen);
     const filename     = new TextDecoder().decode(fnBytes);
+    // compressed_size is at offset 20 in the CD entry (before pos was advanced)
+    const compSize     = view.getUint32(pos + 20, true);
 
     pos += 46 + fnLen + extraLen + commentLen;
 
@@ -204,44 +246,41 @@ function parseZip(bytes) {
     const localFnLen    = localView.getUint16(26, true);
     const localExtraLen = localView.getUint16(28, true);
     const dataOffset    = localOffset + 30 + localFnLen + localExtraLen;
-    const compSize      = view.getUint32(pos - commentLen - extraLen - fnLen - 46 + 20, true);
+    const compData      = bytes.slice(dataOffset, dataOffset + compSize);
 
-    const compData = bytes.slice(dataOffset, dataOffset + compSize);
-    if (compression === 0) {
-      // Stored (no compression)
-      entries[filename] = compData;
-    } else if (compression === 8) {
-      // Deflate — decompress synchronously using DecompressionStream
-      // Note: this is async in browsers but we use a workaround for Edge Functions.
-      entries[filename] = compData; // raw deflate data; deferred below
-      entries[`__deflate__${filename}`] = true;
-    }
+    rawEntries.push({ filename, compression, compData });
   }
 
-  // Decompress deflate entries.  In Deno we can use DecompressionStream.
-  // For entries that are deflate-compressed, replace with decompressed bytes.
-  // This is a best-effort path; if decompression fails, the entry is omitted.
-  for (const key of Object.keys(entries)) {
-    if (!key.startsWith("__deflate__")) continue;
-    const filename = key.slice("__deflate__".length);
-    try {
-      // Wrap raw deflate in a gzip-compatible stream is not trivial.
-      // Fallback: mark as unreadable so we surface a FileReadError rather
-      // than crashing with an obscure type error.
-      // A production implementation would use a WASM deflate library or
-      // the Deno.Command approach; this is intentionally left as a stub
-      // because the only reliable path for Deno Edge Functions is to use
-      // the built-in DecompressionStream with a 'raw' format specifier,
-      // which requires async stream handling.
-      //
-      // For the test suite (which uses csvBytes(), not real XLSX) this
-      // path is never reached.  A complete implementation belongs in a
-      // follow-on task that adds proper XLSX support.
-      delete entries[filename];
-    } catch (_) {
-      delete entries[filename];
+  // Second pass: decompress asynchronously where needed.
+  // Decompression runs in parallel for all deflate entries.
+  const deflateJobs = rawEntries
+    .filter(e => e.compression === 8)
+    .map(async e => {
+      try {
+        return { filename: e.filename, data: await decompressDeflateRaw(e.compData) };
+      } catch (_) {
+        // Decompression failure → omit this entry so the caller can throw
+        // FileReadError ("missing xl/workbook.xml") rather than crashing.
+        return { filename: e.filename, data: null };
+      }
+    });
+
+  const decompressed = Object.fromEntries(
+    (await Promise.all(deflateJobs))
+      .filter(r => r.data !== null)
+      .map(r => [r.filename, r.data])
+  );
+
+  // Assemble final entries map.
+  const entries = {};
+  for (const e of rawEntries) {
+    if (e.compression === 0) {
+      entries[e.filename] = e.compData;
+    } else if (e.compression === 8 && decompressed[e.filename]) {
+      entries[e.filename] = decompressed[e.filename];
     }
-    delete entries[key];
+    // Other compression methods are silently skipped; they will surface as
+    // a FileReadError when a required OOXML file is missing from the map.
   }
 
   return entries;
