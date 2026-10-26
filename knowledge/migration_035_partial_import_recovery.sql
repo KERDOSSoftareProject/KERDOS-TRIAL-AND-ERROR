@@ -1,4 +1,4 @@
--- migration_034_partial_import_recovery.sql
+-- migration_035_partial_import_recovery.sql
 --
 -- A1.7 — Partial Import Recovery
 --
@@ -10,15 +10,31 @@
 --   the inbox badge never clears and the attachment looks perpetually unfinished.
 --
 -- Fix:
---   Add an optional p_final_status parameter to mark_attachment_ingested().
---   When the caller supplies it (value 'auto_imported' or 'needs_review') the
---   function also updates processing_status in the same transaction.
+--   Replace mark_attachment_ingested(uuid, uuid) with a new 3-parameter version
+--   mark_attachment_ingested(uuid, uuid, text DEFAULT NULL).  When the caller
+--   supplies p_final_status ('auto_imported' or 'needs_review') the function
+--   also updates processing_status in the same transaction.
 --
 --   Existing callers that omit the parameter get the original behaviour
 --   (import_document_id linked, processing_status left unchanged).
 --
+-- Why DROP first:
+--   PostgreSQL treats functions with different parameter lists as separate
+--   overloads.  CREATE OR REPLACE on (uuid, uuid, text) would leave the old
+--   (uuid, uuid) function intact — callers using two positional arguments
+--   would continue to hit the old version without the p_final_status logic.
+--   Dropping the 2-param overload first ensures only the 3-param version exists
+--   after this migration, eliminating the ambiguity.
+--
 -- No schema additions needed; processing_status already exists on
 -- inbound_attachments (added by migration_033_auto_processing.sql).
+
+-- ── Drop the superseded 2-parameter overload ──────────────────────────────────
+-- The old signature (uuid, uuid) was created in migration_032 and updated in
+-- migration_032_email_routing_addendum.  All callers (email-routing.js) have
+-- been updated to pass the optional third argument; dropping the old overload
+-- ensures no call site can accidentally bypass p_final_status handling.
+DROP FUNCTION IF EXISTS mark_attachment_ingested(uuid, uuid);
 
 CREATE OR REPLACE FUNCTION mark_attachment_ingested(
   p_attachment_id      uuid,
@@ -138,3 +154,10 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- ── Grants ────────────────────────────────────────────────────────────────────
+-- The old 2-param function's grants were revoked above (implicitly by DROP).
+-- Re-grant the new 3-param version to authenticated.  PUBLIC is excluded so
+-- anonymous callers cannot trigger the SECURITY DEFINER path.
+REVOKE EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) TO authenticated;

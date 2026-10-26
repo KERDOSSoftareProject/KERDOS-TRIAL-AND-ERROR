@@ -363,8 +363,20 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
 
       let failedRows=0;
+      // A1.7.b: global counter across all groups so key format matches the
+      // background worker's row:N scheme.  Background always produces one group,
+      // but a global counter ensures consistency if that ever changes and prevents
+      // key collisions when the same row:0 appears in two groups of a manual import.
+      let globalRowIndex=0;
       for(const group of parsedGroups){
-        if(!group.rows.length)continue;
+        if(!group.rows.length){
+          // Still advance the counter so subsequent groups stay in sync with any
+          // background-produced completed_keys that span multiple groups.
+          // (Background skips empty groups before creating them, so this is
+          // defensive rather than required for the current A1.7 case.)
+          // No-op: empty groups have no rows to advance over.
+          continue;
+        }
         let sourceFilePath=null;
         // Stable SHA-256 of the original extracted text: re-importing the
         // same vendor quotation cannot silently append duplicate history.
@@ -375,29 +387,38 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // directly (validates org+vendor ownership) instead of re-fingerprinting.
         // This ensures the user's review session resumes the exact document the
         // background worker created rather than creating a duplicate.
-        // Fall back to fingerprint if the linked ID no longer matches this org+vendor
-        // (e.g. stale link after a vendor re-assignment).
+        // If the linked document cannot be verified, fail immediately — do NOT fall
+        // back to fingerprint.  A fallback could select or create a different document
+        // while the attachment remains linked to the original, producing split history.
         if(inboxImportDocumentId){
           try{existingDoc=await importService.findPriceDocumentById({organizationId:orgId,vendorId,documentId:inboxImportDocumentId});}
-          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          catch(err){failedRows+=group.rows.length;globalRowIndex+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           if(!existingDoc){
-            // Ownership mismatch — fall through to fingerprint lookup as safety net.
-            try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
-            catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+            // Document not found or belongs to a different org/vendor — fail safely.
+            failedRows+=group.rows.length;globalRowIndex+=group.rows.length;
+            saveError=(saveError?saveError+" ":"")+`${group.name}: linked import document could not be verified — it may have been deleted or re-assigned to a different vendor.`;
+            continue;
           }
         } else {
           try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
-          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          catch(err){failedRows+=group.rows.length;globalRowIndex+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
         }
         // A file that finished is not re-run (use Delete & re-import). A
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
         // is safe to repeat.
-        if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
+        if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;globalRowIndex+=group.rows.length;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
+        // A1.7.b: old partial documents (before the row:N fix) may have non-standard
+        // keys in completed_keys.  Filter them out so verifyResumeRows doesn't throw —
+        // those rows will be re-processed and ON CONFLICT DO NOTHING prevents duplicates.
+        if(inboxImportDocumentId){
+          const validRowKey=/^row:\d+$/;
+          for(const k of completedKeys){if(!validRowKey.test(k))completedKeys.delete(k);}
+        }
         if(existingDoc){
           try{verifyResumeRows(group.rows,[...completedKeys],await importService.resumeSources(orgId,vendorId,existingDoc.id));}
-          catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
+          catch(error){failedRows+=group.rows.length;globalRowIndex+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
         }
         let sourceDocumentId=existingDoc?.id||null;
         lastSourceDocumentId=sourceDocumentId;
@@ -412,12 +433,14 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           sourceDocumentId=storedDoc.id;
         }
-        // The original file fingerprint fixes row order. The ordinal is
-        // unique even when a vendor repeats an item code or description.
-        const progressKey=index=>`row:${index}`;
+        // globalRowIndex (defined above the group loop) produces row:N keys that
+        // are unique across all groups and match the background worker's scheme.
+        // rowIndex (from entries()) is kept as a UI-only key for invoice-conflict
+        // tracking (acceptedIssues, invoiceClues) and is not stored in the DB.
         const failuresBeforeGroup=failedRows;
       for(const [rowIndex,sourceRow] of group.rows.entries()){
-        const completedKey=progressKey(rowIndex);
+        const completedKey=`row:${globalRowIndex}`;
+        globalRowIndex++;
         if(completedKeys.has(completedKey))continue;
         let row=enrichFromInvoices(sourceRow,invoiceSources);
         // A price sheet never waits on a person. A row with parser issues or

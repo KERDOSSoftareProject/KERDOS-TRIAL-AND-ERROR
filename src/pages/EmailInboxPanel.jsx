@@ -221,6 +221,10 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
   const [pendingFile,setPendingFile]=useState(null);
   // Gap 3: track import doc id when markAttachmentIngested fails after import success
   const [pendingImportDocumentId,setPendingImportDocumentId]=useState(null);
+  // A1.7.c: also preserve the final status so the retry can set processing_status
+  // atomically — without it a retry after a transient failure leaves the attachment
+  // in 'needs_review' even after the import_document_id link succeeds.
+  const [pendingFinalStatus,setPendingFinalStatus]=useState(null);
   const [auditError,setAuditError]=useState("");
 
   // A1.7.a/c: an attachment is fully ingested only when import_document_id is
@@ -263,6 +267,7 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
         // Preserve the importDocumentId so the user can retry the link
         // without re-importing the file.
         setPendingImportDocumentId(importDocumentId);
+        setPendingFinalStatus("auto_imported");
         setAuditError(`Import saved, but the audit link failed: ${e.message}. Click Retry to re-link.`);
       }
     }else{
@@ -274,8 +279,12 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
     if(!pendingImportDocumentId) return;
     setAuditError("");
     try{
-      await markAttachmentIngested(backend,orgId,att.id,pendingImportDocumentId);
+      // A1.7.c: pass the preserved final status so processing_status is updated
+      // atomically on retry — mark_attachment_ingested's idempotency path applies it
+      // even when the import_document_id link already exists from the first attempt.
+      await markAttachmentIngested(backend,orgId,att.id,pendingImportDocumentId,pendingFinalStatus);
       setPendingImportDocumentId(null);
+      setPendingFinalStatus(null);
       setStatus("ingested");
       onDone?.();
     }catch(e){
