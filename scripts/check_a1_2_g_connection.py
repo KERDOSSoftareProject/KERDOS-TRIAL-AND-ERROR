@@ -12,6 +12,24 @@ from psycopg2.extensions import parse_dsn
 PROJECT_REF = "gwtnaudjfoxjermhvhpx"
 
 
+def safe_error_reason(exc):
+    """Classify connection failures without echoing a DSN or credential."""
+    message = str(exc).lower()
+    if "password authentication failed" in message or getattr(exc, "pgcode", None) == "28P01":
+        return "database rejected the password for this project"
+    if "tenant or user not found" in message:
+        return "pooler rejected the project username"
+    if "could not translate host name" in message or "name or service not known" in message:
+        return "pooler hostname could not be resolved"
+    if "timeout expired" in message or "timed out" in message:
+        return "connection timed out"
+    if "connection refused" in message:
+        return "pooler refused the network connection"
+    if "no pg_hba.conf entry" in message or "not allowed" in message:
+        return "database access rule rejected the connection"
+    return "database connection failed for an unclassified reason"
+
+
 def main():
     url = os.environ.get("KERDOS_TEST_DATABASE_URL")
     if not url:
@@ -68,6 +86,6 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         # psycopg2 errors can contain the username/host. Never echo a DSN.
-        print(f"CONNECTION FAILED: {type(exc).__name__}; check secret, project, "
-              "pooler mode, and network access.", file=sys.stderr)
+        reason = safe_error_reason(exc) if isinstance(exc, psycopg2.OperationalError) else type(exc).__name__
+        print(f"CONNECTION FAILED: {reason}.", file=sys.stderr)
         sys.exit(1)
