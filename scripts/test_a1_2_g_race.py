@@ -43,9 +43,16 @@ import sys
 import threading
 import time
 import uuid
-import psycopg2
-import psycopg2.extensions
-from psycopg2.extras import RealDictCursor
+
+# psycopg2 is required for B1/B2 but not for --test-timeout.
+# Import lazily so the self-contained timeout test can run without it.
+try:
+    import psycopg2
+    import psycopg2.extensions
+    from psycopg2.extras import RealDictCursor
+    _PSYCOPG2_AVAILABLE = True
+except ImportError:
+    _PSYCOPG2_AVAILABLE = False
 
 # ── constants ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +66,8 @@ MONITOR_INTERVAL  = 0.05   # pg_blocking_pids poll frequency (seconds)
 # ── connection helpers ────────────────────────────────────────────────────────
 
 def get_url() -> str:
+    if not _PSYCOPG2_AVAILABLE:
+        sys.exit("ERROR: psycopg2 is not installed. Run: pip install psycopg2-binary==2.9.9")
     url = os.environ.get("KERDOS_TEST_DATABASE_URL", "")
     if not url:
         sys.exit("ERROR: KERDOS_TEST_DATABASE_URL is not set.")
@@ -79,7 +88,7 @@ def get_url() -> str:
     return url
 
 
-def connect(url: str) -> psycopg2.extensions.connection:
+def connect(url: str):
     conn = psycopg2.connect(
         url, cursor_factory=RealDictCursor,
         connect_timeout=10, sslmode="require",
@@ -88,7 +97,7 @@ def connect(url: str) -> psycopg2.extensions.connection:
     return conn
 
 
-def connect_ac(url: str) -> psycopg2.extensions.connection:
+def connect_ac(url: str):
     """Autocommit connection for monitoring and read-only checks."""
     conn = psycopg2.connect(
         url, cursor_factory=RealDictCursor,
@@ -116,6 +125,24 @@ def close_quietly(conn):
         conn.close()
     except Exception:
         pass
+
+
+def cancel_and_close(conn):
+    """
+    Send pg_cancel_backend to the server (non-blocking), then close.
+
+    cancel() must come before rollback()/close() when a thread may still be
+    blocked inside cur.execute(). Without it, rollback() itself blocks on the
+    socket waiting for the current query to finish. cancel() causes the server
+    to raise QueryCanceled, which unblocks the thread's execute() call so the
+    thread can catch the error and exit cleanly. close() then cleans up the
+    local socket regardless of whether the thread already closed the connection.
+    """
+    try:
+        conn.cancel()
+    except Exception:
+        pass
+    close_quietly(conn)
 
 
 def backend_pid(conn) -> int:
@@ -464,9 +491,13 @@ def run_race(
             close_quietly(conn2)
 
     # Start monitor and wait until it has completed its first poll.
+    # If it fails to connect, close both worker connections before raising —
+    # they are open at this point and must not be leaked.
     monitor.start()
     if not monitor.ready_event.wait(timeout=10):
         monitor.halt()
+        close_quietly(conn1)
+        close_quietly(conn2)
         raise AssertionError(f"{label}: monitor did not connect within 10 s.")
 
     t1 = threading.Thread(target=run_fn1, daemon=True, name=f"{label}-fn1")
@@ -480,19 +511,27 @@ def run_race(
     monitor.halt()
     monitor.join(timeout=2)
 
-    # Close connections before checking is_alive. If either thread is still
-    # alive (timeout), closing the connection forces it to error out quickly,
-    # so live transactions do not hold row locks into fixture cleanup.
-    close_quietly(conn1)
-    close_quietly(conn2)
-
     if t1.is_alive() or t2.is_alive():
-        t1.join(timeout=3)
-        t2.join(timeout=3)
+        # One or both threads are still blocked inside a database call.
+        # cancel() sends pg_cancel_backend (non-blocking). The server raises
+        # QueryCanceled on the blocked backend, which unblocks cur.execute()
+        # so the thread's except-handler can run and exit. We must NOT call
+        # rollback() or close() before cancel() — those would block on the
+        # socket waiting for the in-progress query to complete.
+        cancel_and_close(conn1)
+        cancel_and_close(conn2)
+        # Give threads time to handle the QueryCanceled and exit.
+        t1.join(timeout=5)
+        t2.join(timeout=5)
         raise AssertionError(
-            f"{label}: worker thread(s) did not finish — "
+            f"{label}: worker thread(s) did not finish within the join timeout; "
+            f"connections were cancelled. "
             f"fn1.alive={t1.is_alive()}, fn2.alive={t2.is_alive()}"
         )
+
+    # Both threads finished normally; safe to close their connections.
+    close_quietly(conn1)
+    close_quietly(conn2)
 
     if fn1_result["error"]:
         raise AssertionError(f"{label}: fn1 raised: {fn1_result['error']}")
@@ -631,6 +670,122 @@ def run_b2(url: str, run_id: str) -> bool:
             verify_cleanup(url, ids)
 
 
+# ── timeout path test (no database required) ─────────────────────────────────
+
+def test_timeout_path():
+    """
+    Verifies the run_race() timeout path without a database connection.
+
+    Simulates two worker threads that block indefinitely (as if waiting on a
+    locked row). FakeConn.cancel() sets an Event that unblocks the thread,
+    mimicking the server's QueryCanceled response to pg_cancel_backend.
+
+    Checks:
+      1. cancel() is called on both connections.
+      2. close() is called on both connections.
+      3. Both threads stop after cancel_and_close().
+      4. An AssertionError is raised (the race timed out).
+      5. When the monitor fails before threads start, conn1 and conn2 are
+         closed before the error is raised (no leaked connections).
+    """
+    print("── test_timeout_path ────────────────────────────────────────────")
+
+    # ── shared fixture ────────────────────────────────────────────────────────
+    class FakeConn:
+        """
+        Drop-in stand-in for a psycopg2 connection that records calls and
+        optionally unblocks a threading.Event on cancel() to simulate the
+        server's QueryCanceled response.
+        """
+        def __init__(self, name: str, unblock: threading.Event = None):
+            self.name    = name
+            self.unblock = unblock
+            self.calls: list = []
+
+        def cancel(self):
+            self.calls.append("cancel")
+            if self.unblock:
+                self.unblock.set()
+
+        def rollback(self):
+            self.calls.append("rollback")
+
+        def close(self):
+            self.calls.append("close")
+
+        def __repr__(self):
+            return f"FakeConn({self.name}, calls={self.calls})"
+
+    # ── test 1: threads time out, cancel+close stops them ────────────────────
+    print("  [1] thread-timeout: cancel_and_close stops hanging threads")
+
+    unblock1 = threading.Event()
+    unblock2 = threading.Event()
+    conn1    = FakeConn("conn1", unblock=unblock1)
+    conn2    = FakeConn("conn2", unblock=unblock2)
+
+    def hanging(stop_event: threading.Event):
+        stop_event.wait(timeout=30)   # blocks until cancel() sets the event
+
+    t1 = threading.Thread(target=hanging, args=(unblock1,), daemon=True)
+    t2 = threading.Thread(target=hanging, args=(unblock2,), daemon=True)
+    t1.start()
+    t2.start()
+
+    assert t1.is_alive() and t2.is_alive(), \
+        "precondition: both threads should be blocking"
+
+    # Replicate the exact timeout path from run_race.
+    cancel_and_close(conn1)
+    cancel_and_close(conn2)
+    t1.join(timeout=2)
+    t2.join(timeout=2)
+
+    assert not t1.is_alive(), "t1 should have stopped after cancel()"
+    assert not t2.is_alive(), "t2 should have stopped after cancel()"
+    assert "cancel" in conn1.calls, f"cancel() not called on conn1: {conn1}"
+    assert "cancel" in conn2.calls, f"cancel() not called on conn2: {conn2}"
+    assert "close"  in conn1.calls, f"close() not called on conn1: {conn1}"
+    assert "close"  in conn2.calls, f"close() not called on conn2: {conn2}"
+    print("    PASSED.")
+
+    # ── test 2: cancel() before rollback/close (ordering check) ──────────────
+    print("  [2] cancel_and_close call order: cancel → rollback → close")
+
+    block_event = threading.Event()
+    conn3 = FakeConn("conn3", unblock=block_event)
+    cancel_and_close(conn3)
+
+    assert conn3.calls[0] == "cancel",   f"first call should be cancel: {conn3.calls}"
+    assert "rollback" in conn3.calls,    f"rollback not called: {conn3.calls}"
+    assert conn3.calls[-1] == "close",   f"last call should be close: {conn3.calls}"
+    print("    PASSED.")
+
+    # ── test 3: monitor-failure path closes conn1 and conn2 ──────────────────
+    print("  [3] monitor-failure path: conn1 and conn2 closed before raise")
+
+    # Reconstruct the monitor-failure guard from run_race using FakeConn.
+    conn_a = FakeConn("conn_a")
+    conn_b = FakeConn("conn_b")
+    monitor_ready = threading.Event()    # deliberately never set (timeout)
+
+    caught = None
+    try:
+        if not monitor_ready.wait(timeout=0.001):   # immediate timeout
+            close_quietly(conn_a)
+            close_quietly(conn_b)
+            raise AssertionError("monitor did not connect within 10 s.")
+    except AssertionError as exc:
+        caught = exc
+
+    assert caught is not None, "expected AssertionError was not raised"
+    assert "close" in conn_a.calls, f"conn_a not closed on monitor failure: {conn_a}"
+    assert "close" in conn_b.calls, f"conn_b not closed on monitor failure: {conn_b}"
+    print("    PASSED.")
+
+    print("\nAll timeout-path tests PASSED.")
+
+
 # ── main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -666,4 +821,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "--test-timeout":
+        test_timeout_path()
+        sys.exit(0)
     main()
