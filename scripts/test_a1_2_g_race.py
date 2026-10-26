@@ -22,17 +22,20 @@ B2 – recover_stale_attachment() holds the lock first. price-save blocks,
        processing_status = 'pending'
        processing_lease_token IS NULL
 
-Overlap proof: Connection 1 calls its function inside an open transaction,
-fires lock_acquired, then sleeps for LOCK_HOLD_SECONDS before committing.
-Connection 2 starts as soon as lock_acquired fires and immediately blocks on
-the same row. A monitor thread queries pg_stat_activity and pg_blocking_pids()
+Overlap proof: the monitor connects and confirms it is polling BEFORE the
+race threads start. Connection 1 calls its function inside an open
+transaction, fires lock_acquired, then sleeps LOCK_HOLD_SECONDS before
+committing. Connection 2 starts immediately after lock_acquired and blocks
+on the same row. The monitor queries pg_stat_activity and pg_blocking_pids()
 every MONITOR_INTERVAL seconds; both must confirm the block. Sequential
 execution cannot produce a passing result.
 
-Fixture hierarchy (confirmed schema):
-  email_routing_addresses -> inbound_messages -> inbound_attachments
-  vendor_items and price_history are created/checked by item_code and
-  vendor_item_id; vendor_items has no attachment_id column.
+Schema (confirmed on kerdos-test):
+  vendor_items.vendor_item_code  -- column confirmed
+  vendors                        -- table confirmed
+  email_routing_addresses        -- zero rows on kerdos-test; not used as
+                                    fixture source; org+vendor borrowed from
+                                    vendor_items JOIN vendors instead
 """
 
 import os
@@ -48,8 +51,9 @@ from psycopg2.extras import RealDictCursor
 
 REQUIRED_PROJECT  = "gwtnaudjfoxjermhvhpx"
 ROUTING_DOMAIN    = "inbound.kerdos.com"
-LOCK_HOLD_SECONDS = 0.5    # conn1 sleeps this long before committing
-MONITOR_INTERVAL  = 0.02   # pg_blocking_pids poll frequency (seconds)
+LOCK_HOLD_SECONDS = 2.0    # conn1 sleeps this long before committing;
+                            # long enough for the monitor to sample reliably
+MONITOR_INTERVAL  = 0.05   # pg_blocking_pids poll frequency (seconds)
 
 
 # ── connection helpers ────────────────────────────────────────────────────────
@@ -59,8 +63,6 @@ def get_url() -> str:
     if not url:
         sys.exit("ERROR: KERDOS_TEST_DATABASE_URL is not set.")
 
-    # Structural check: parse the DSN and verify host or user
-    # identifies the expected project. Never prints the URL.
     try:
         params = psycopg2.extensions.parse_dsn(url)
     except Exception as exc:
@@ -78,14 +80,20 @@ def get_url() -> str:
 
 
 def connect(url: str) -> psycopg2.extensions.connection:
-    conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(
+        url, cursor_factory=RealDictCursor,
+        connect_timeout=10, sslmode="require",
+    )
     conn.autocommit = False
     return conn
 
 
 def connect_ac(url: str) -> psycopg2.extensions.connection:
     """Autocommit connection for monitoring and read-only checks."""
-    conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(
+        url, cursor_factory=RealDictCursor,
+        connect_timeout=10, sslmode="require",
+    )
     conn.autocommit = True
     return conn
 
@@ -120,24 +128,27 @@ def backend_pid(conn) -> int:
 
 def create_fixtures(url: str, run_id: str, label: str) -> dict:
     """
-    Borrows an existing organization_id and vendor_id from kerdos-test,
-    then inserts the minimum records needed for one race test.
-    All IDs are returned for exact-ID cleanup.
+    Borrows organization_id and vendor_id together from one existing
+    vendor_items row (joined to vendors to confirm the vendor exists).
+    kerdos-test has zero email_routing_addresses, so that table is not
+    used as a fixture source. Both IDs come from the same row to ensure
+    they belong to the same organization.
     """
     conn = connect(url)
     try:
-        org_rows = run_sql(conn,
-            "SELECT organization_id FROM email_routing_addresses LIMIT 1")
-        if not org_rows:
+        seed_rows = run_sql(conn, """
+            SELECT vi.organization_id, vi.vendor_id
+            FROM vendor_items vi
+            JOIN vendors v ON v.id = vi.vendor_id
+            LIMIT 1
+        """)
+        if not seed_rows:
             raise RuntimeError(
-                "email_routing_addresses is empty; cannot borrow organization_id."
+                "vendor_items (joined to vendors) returned no rows; "
+                "cannot borrow organization_id and vendor_id."
             )
-        org_id = str(org_rows[0]["organization_id"])
-
-        vendor_rows = run_sql(conn, "SELECT id FROM vendors LIMIT 1")
-        if not vendor_rows:
-            raise RuntimeError("vendors is empty; cannot borrow vendor_id.")
-        vendor_id = str(vendor_rows[0]["id"])
+        org_id    = str(seed_rows[0]["organization_id"])
+        vendor_id = str(seed_rows[0]["vendor_id"])
 
         routing_id    = str(uuid.uuid4())
         message_id    = str(uuid.uuid4())
@@ -167,7 +178,7 @@ def create_fixtures(url: str, run_id: str, label: str) -> dict:
         ))
 
         # processing_started_at and processing_heartbeat_at set 2 hours ago
-        # so recover_stale_attachment(id, now()) treats this as stale.
+        # so recover_stale_attachment(id, now()) treats this row as stale.
         run_sql(conn, """
             INSERT INTO inbound_attachments (
                 id, organization_id, message_id, attachment_index,
@@ -199,13 +210,13 @@ def create_fixtures(url: str, run_id: str, label: str) -> dict:
         conn.close()
 
     return {
-        "org_id":       org_id,
-        "vendor_id":    vendor_id,
-        "routing_id":   routing_id,
-        "message_id":   message_id,
+        "org_id":        org_id,
+        "vendor_id":     vendor_id,
+        "routing_id":    routing_id,
+        "message_id":    message_id,
         "attachment_id": attachment_id,
-        "lease_token":  lease_token,
-        "item_code":    item_code,
+        "lease_token":   lease_token,
+        "item_code":     item_code,
     }
 
 
@@ -260,12 +271,11 @@ def delete_fixtures(url: str, ids: dict, vendor_item_id=None):
     """
     Deletes all records created by this run using exact IDs.
     Cleans price_history and vendor_items by both vendor_item_id (if
-    captured) and item_code (belt-and-suspenders for B2 where id was not
-    returned). Raises on any transaction error so failures are visible.
+    captured from B1) and vendor_item_code (covers B2 where no id was
+    returned). Raises on any error so failures are visible.
     """
     conn = connect(url)
     try:
-        # price_history and vendor_items by captured id
         if vendor_item_id:
             run_sql(conn, """
                 DELETE FROM price_history WHERE vendor_item_id = %s::uuid
@@ -274,7 +284,7 @@ def delete_fixtures(url: str, ids: dict, vendor_item_id=None):
                 DELETE FROM vendor_items WHERE id = %s::uuid
             """, (vendor_item_id,))
 
-        # sweep by item_code (catches B2 edge case; no-ops if already deleted)
+        # Belt-and-suspenders sweep by item_code; no-ops if already deleted.
         run_sql(conn, """
             DELETE FROM price_history
             WHERE vendor_item_id IN (
@@ -298,7 +308,7 @@ def delete_fixtures(url: str, ids: dict, vendor_item_id=None):
         conn.commit()
     except Exception:
         close_quietly(conn)
-        raise   # never swallow; let the caller see the error
+        raise
     else:
         conn.close()
 
@@ -327,13 +337,16 @@ def verify_cleanup(url: str, ids: dict):
     print("  Cleanup verified: zero test rows remain.")
 
 
-# ── monitor – blocking confirmation is required ───────────────────────────────
+# ── monitor ───────────────────────────────────────────────────────────────────
 
 class LockWaitMonitor(threading.Thread):
     """
     Polls pg_stat_activity and pg_blocking_pids() until it confirms that
-    holder_pid is blocking racer_pid. Sets wait_observed and signals
-    observed_event when confirmed.
+    holder_pid is blocking racer_pid.
+
+    ready_event fires after the monitor's first successful database poll,
+    which lets run_race delay starting the race until the monitor is
+    actually connected and sampling.
 
     Uses self._halt (not self._stop) to avoid conflicting with
     threading.Thread internals.
@@ -345,6 +358,7 @@ class LockWaitMonitor(threading.Thread):
         self.racer_pid      = racer_pid
         self.holder_pid     = holder_pid
         self.wait_observed  = False
+        self.ready_event    = threading.Event()   # fires after first poll
         self.observed_event = threading.Event()
         self._halt          = threading.Event()
 
@@ -352,14 +366,21 @@ class LockWaitMonitor(threading.Thread):
         try:
             conn = connect_ac(self.url)
             with conn.cursor() as cur:
+                first_poll = True
                 while not self._halt.is_set():
                     # Step 1: is the racer waiting on any lock?
                     cur.execute("""
                         SELECT 1 FROM pg_stat_activity
                         WHERE pid = %s AND wait_event_type = 'Lock'
                     """, (self.racer_pid,))
-                    if cur.fetchone():
-                        # Step 2: is the holder specifically the blocker?
+                    lock_row = cur.fetchone()
+
+                    if first_poll:
+                        self.ready_event.set()   # monitor is connected & polling
+                        first_poll = False
+
+                    if lock_row:
+                        # Step 2: confirm holder is specifically the blocker
                         cur.execute("""
                             SELECT %s = ANY(pg_blocking_pids(%s)) AS confirmed
                         """, (self.holder_pid, self.racer_pid))
@@ -375,6 +396,7 @@ class LockWaitMonitor(threading.Thread):
                     time.sleep(MONITOR_INTERVAL)
             conn.close()
         except Exception as exc:
+            self.ready_event.set()   # unblock run_race even on monitor error
             print(f"    [monitor] error: {exc}")
 
     def halt(self):
@@ -390,10 +412,17 @@ def run_race(
     label: str,
 ) -> dict:
     """
-    Calls fn1 inside an open transaction on conn1 (holding row locks), then
-    starts fn2 on conn2. The monitor must confirm conn1 blocks conn2 via
-    pg_blocking_pids() before conn1 commits. Connections are not closed while
-    threads are alive. Fails explicitly if overlap is not observed.
+    Sequence:
+      1. Start monitor; wait for ready_event (confirms it is polling).
+      2. Start fn1 and fn2 threads.
+      3. fn1: calls SQL inside an open transaction (row locks held), fires
+         lock_acquired, sleeps LOCK_HOLD_SECONDS, commits.
+      4. fn2: waits for lock_acquired, calls SQL — immediately blocks.
+      5. Monitor must confirm via pg_blocking_pids() before fn1 commits.
+      6. Join both threads; close connections only after both have stopped.
+         On timeout, connections are closed first so live transactions do
+         not block fixture cleanup.
+      7. Raise if overlap was not observed.
     """
     conn1 = connect(url)
     conn2 = connect(url)
@@ -402,7 +431,6 @@ def run_race(
     fn2_result: dict = {"rows": [], "error": None}
     lock_acquired     = threading.Event()
 
-    # Capture backend PIDs while connections are idle (no open transaction).
     conn1_pid = backend_pid(conn1)
     conn2_pid = backend_pid(conn2)
 
@@ -412,8 +440,8 @@ def run_race(
         try:
             rows = run_sql(conn1, fn1_sql, fn1_params)
             fn1_result["rows"] = rows
-            lock_acquired.set()               # row locks are held; fn2 may start
-            time.sleep(LOCK_HOLD_SECONDS)     # keep locks alive for monitor
+            lock_acquired.set()               # row locks held; fn2 may start
+            time.sleep(LOCK_HOLD_SECONDS)     # hold long enough for monitor
             conn1.commit()
         except Exception as exc:
             fn1_result["error"] = exc
@@ -435,31 +463,36 @@ def run_race(
             fn2_result["error"] = exc
             close_quietly(conn2)
 
+    # Start monitor and wait until it has completed its first poll.
+    monitor.start()
+    if not monitor.ready_event.wait(timeout=10):
+        monitor.halt()
+        raise AssertionError(f"{label}: monitor did not connect within 10 s.")
+
     t1 = threading.Thread(target=run_fn1, daemon=True, name=f"{label}-fn1")
     t2 = threading.Thread(target=run_fn2, daemon=True, name=f"{label}-fn2")
-
-    monitor.start()
     t1.start()
     t2.start()
 
     t1.join(timeout=15)
     t2.join(timeout=15)
 
-    # Do not touch connections while threads are still alive.
+    monitor.halt()
+    monitor.join(timeout=2)
+
+    # Close connections before checking is_alive. If either thread is still
+    # alive (timeout), closing the connection forces it to error out quickly,
+    # so live transactions do not hold row locks into fixture cleanup.
+    close_quietly(conn1)
+    close_quietly(conn2)
+
     if t1.is_alive() or t2.is_alive():
-        monitor.halt()
-        monitor.join(timeout=2)
+        t1.join(timeout=3)
+        t2.join(timeout=3)
         raise AssertionError(
             f"{label}: worker thread(s) did not finish — "
             f"fn1.alive={t1.is_alive()}, fn2.alive={t2.is_alive()}"
         )
-
-    monitor.halt()
-    monitor.join(timeout=2)
-
-    # Threads are done; safe to close.
-    close_quietly(conn1)
-    close_quietly(conn2)
 
     if fn1_result["error"]:
         raise AssertionError(f"{label}: fn1 raised: {fn1_result['error']}")
