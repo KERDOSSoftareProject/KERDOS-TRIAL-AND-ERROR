@@ -63,6 +63,29 @@ LOCK_HOLD_SECONDS = 2.0    # conn1 sleeps this long before committing;
 MONITOR_INTERVAL  = 0.05   # pg_blocking_pids poll frequency (seconds)
 
 
+# ── exceptions ────────────────────────────────────────────────────────────────
+
+class WorkerTimeoutError(Exception):
+    """
+    Raised by run_race() when one or both worker threads are still alive after
+    the initial join timeout, cancel() signals have been sent, and the
+    secondary cancel-join timeout has also expired.
+
+    Carrying this as a distinct type lets run_b1/run_b2 distinguish a
+    thread-timeout (where fixture cleanup must be skipped — the threads may
+    still hold open transactions) from any other assertion failure.
+    """
+    def __init__(self, label: str, fn1_alive: bool, fn2_alive: bool):
+        self.label     = label
+        self.fn1_alive = fn1_alive
+        self.fn2_alive = fn2_alive
+        super().__init__(
+            f"{label}: worker thread(s) still alive after cancel+join — "
+            f"fn1.alive={fn1_alive}, fn2.alive={fn2_alive}. "
+            f"Fixture cleanup was skipped; IDs were printed above."
+        )
+
+
 # ── connection helpers ────────────────────────────────────────────────────────
 
 def get_url() -> str:
@@ -112,7 +135,10 @@ def run_sql(conn, sql: str, params=None) -> list:
         cur.execute(sql, params)
         try:
             return cur.fetchall()
-        except psycopg2.ProgrammingError:
+        except Exception:
+            # psycopg2.ProgrammingError: no results to fetch (e.g. void func).
+            # execute() raises for serious errors before fetchall() is reached,
+            # so swallowing only at this point is safe.
             return []
 
 
@@ -125,24 +151,6 @@ def close_quietly(conn):
         conn.close()
     except Exception:
         pass
-
-
-def cancel_and_close(conn):
-    """
-    Send pg_cancel_backend to the server (non-blocking), then close.
-
-    cancel() must come before rollback()/close() when a thread may still be
-    blocked inside cur.execute(). Without it, rollback() itself blocks on the
-    socket waiting for the current query to finish. cancel() causes the server
-    to raise QueryCanceled, which unblocks the thread's execute() call so the
-    thread can catch the error and exit cleanly. close() then cleans up the
-    local socket regardless of whether the thread already closed the connection.
-    """
-    try:
-        conn.cancel()
-    except Exception:
-        pass
-    close_quietly(conn)
 
 
 def backend_pid(conn) -> int:
@@ -371,9 +379,10 @@ class LockWaitMonitor(threading.Thread):
     Polls pg_stat_activity and pg_blocking_pids() until it confirms that
     holder_pid is blocking racer_pid.
 
-    ready_event fires after the monitor's first successful database poll,
-    which lets run_race delay starting the race until the monitor is
-    actually connected and sampling.
+    ready_event fires after the monitor's first successful database poll
+    (connected=True), OR immediately on a connection error (connected=False).
+    run_race() checks both: if ready_event is set but connected is False, the
+    monitor failed to connect and run_race() raises before starting the race.
 
     Uses self._halt (not self._stop) to avoid conflicting with
     threading.Thread internals.
@@ -384,8 +393,9 @@ class LockWaitMonitor(threading.Thread):
         self.url            = url
         self.racer_pid      = racer_pid
         self.holder_pid     = holder_pid
+        self.connected      = False           # True only after first successful poll
         self.wait_observed  = False
-        self.ready_event    = threading.Event()   # fires after first poll
+        self.ready_event    = threading.Event()   # set on first poll OR on error
         self.observed_event = threading.Event()
         self._halt          = threading.Event()
 
@@ -403,7 +413,8 @@ class LockWaitMonitor(threading.Thread):
                     lock_row = cur.fetchone()
 
                     if first_poll:
-                        self.ready_event.set()   # monitor is connected & polling
+                        self.connected = True     # first poll succeeded
+                        self.ready_event.set()    # unblock run_race
                         first_poll = False
 
                     if lock_row:
@@ -423,8 +434,10 @@ class LockWaitMonitor(threading.Thread):
                     time.sleep(MONITOR_INTERVAL)
             conn.close()
         except Exception as exc:
-            self.ready_event.set()   # unblock run_race even on monitor error
-            print(f"    [monitor] error: {exc}")
+            # connected remains False; ready_event still fires so run_race()
+            # does not wait forever — it will see connected=False and abort.
+            self.ready_event.set()
+            print(f"    [monitor] connection error: {exc}")
 
     def halt(self):
         self._halt.set()
@@ -437,22 +450,56 @@ def run_race(
     fn1_sql: str, fn1_params: tuple,
     fn2_sql: str, fn2_params: tuple,
     label: str,
+    *,
+    _test_hooks: dict = None,
 ) -> dict:
     """
     Sequence:
-      1. Start monitor; wait for ready_event (confirms it is polling).
-      2. Start fn1 and fn2 threads.
-      3. fn1: calls SQL inside an open transaction (row locks held), fires
-         lock_acquired, sleeps LOCK_HOLD_SECONDS, commits.
-      4. fn2: waits for lock_acquired, calls SQL — immediately blocks.
-      5. Monitor must confirm via pg_blocking_pids() before fn1 commits.
-      6. Join both threads; close connections only after both have stopped.
-         On timeout, connections are closed first so live transactions do
-         not block fixture cleanup.
-      7. Raise if overlap was not observed.
+      1. Open conn1 and conn2 (or use _test_hooks["conns"] for testing).
+      2. Start monitor; wait for ready_event + connected=True.
+         If the monitor signals ready but connected=False, it hit a connection
+         error — close both worker connections and raise AssertionError.
+      3. Start fn1 and fn2 threads.
+      4. fn1: calls SQL inside an open transaction (row locks held), fires
+         lock_acquired, sleeps lock_hold seconds, commits.
+      5. fn2: waits for lock_acquired, calls SQL — immediately blocks.
+      6. Monitor must confirm via pg_blocking_pids() before fn1 commits.
+      7. Join both threads (join_timeout seconds).
+      8. If either thread is still alive:
+           a. Send cancel() to both connections (non-blocking — signals
+              pg_cancel_backend; must NOT call rollback/close here, those
+              block on the socket while a query is executing).
+           b. Join again (cancel_join_timeout seconds) so threads can handle
+              QueryCanceled and exit cleanly.
+           c. Only AFTER threads have stopped, call close_quietly() — safe
+              because no thread is using the connection any more.
+           d. Raise WorkerTimeoutError. Callers (run_b1/run_b2) must NOT
+              proceed to fixture cleanup: the threads may still hold open
+              transactions on the database.
+      9. Both threads finished normally: close connections, check results.
+
+    _test_hooks (dict, for testing only):
+      conns              – (conn1, conn2) to use instead of connect(url)
+      monitor            – object with .connected, .ready_event, .wait_observed,
+                           .start(), .halt(), .join() to use instead of
+                           LockWaitMonitor
+      join_timeout       – seconds for initial t1/t2 join (default 15)
+      cancel_join_timeout – seconds for post-cancel t1/t2 join (default 5)
+      monitor_timeout    – seconds to wait for monitor.ready_event (default 10)
+      lock_hold          – seconds fn1 sleeps before committing (default
+                           LOCK_HOLD_SECONDS)
     """
-    conn1 = connect(url)
-    conn2 = connect(url)
+    hooks               = _test_hooks or {}
+    join_timeout        = hooks.get("join_timeout",         15)
+    cancel_join_timeout = hooks.get("cancel_join_timeout",   5)
+    monitor_timeout     = hooks.get("monitor_timeout",      10)
+    lock_hold           = hooks.get("lock_hold",   LOCK_HOLD_SECONDS)
+
+    if "conns" in hooks:
+        conn1, conn2 = hooks["conns"]
+    else:
+        conn1 = connect(url)
+        conn2 = connect(url)
 
     fn1_result: dict = {"rows": [], "error": None}
     fn2_result: dict = {"rows": [], "error": None}
@@ -461,14 +508,17 @@ def run_race(
     conn1_pid = backend_pid(conn1)
     conn2_pid = backend_pid(conn2)
 
-    monitor = LockWaitMonitor(url, racer_pid=conn2_pid, holder_pid=conn1_pid)
+    if "monitor" in hooks:
+        monitor = hooks["monitor"]
+    else:
+        monitor = LockWaitMonitor(url, racer_pid=conn2_pid, holder_pid=conn1_pid)
 
     def run_fn1():
         try:
             rows = run_sql(conn1, fn1_sql, fn1_params)
             fn1_result["rows"] = rows
             lock_acquired.set()               # row locks held; fn2 may start
-            time.sleep(LOCK_HOLD_SECONDS)     # hold long enough for monitor
+            time.sleep(lock_hold)             # hold long enough for monitor
             conn1.commit()
         except Exception as exc:
             fn1_result["error"] = exc
@@ -490,46 +540,75 @@ def run_race(
             fn2_result["error"] = exc
             close_quietly(conn2)
 
-    # Start monitor and wait until it has completed its first poll.
-    # If it fails to connect, close both worker connections before raising —
-    # they are open at this point and must not be leaked.
+    # ── start monitor ─────────────────────────────────────────────────────────
+    # Wait for the monitor to complete its first poll before starting the race
+    # threads. If it fires ready_event but connected=False it hit a connection
+    # error; close both worker connections (open at this point) before raising.
     monitor.start()
-    if not monitor.ready_event.wait(timeout=10):
+    ready = monitor.ready_event.wait(timeout=monitor_timeout)
+
+    if not ready:
         monitor.halt()
         close_quietly(conn1)
         close_quietly(conn2)
-        raise AssertionError(f"{label}: monitor did not connect within 10 s.")
+        raise AssertionError(
+            f"{label}: monitor did not become ready within {monitor_timeout} s."
+        )
+    if not monitor.connected:
+        monitor.halt()
+        close_quietly(conn1)
+        close_quietly(conn2)
+        raise AssertionError(
+            f"{label}: monitor failed to connect "
+            f"(ready_event fired on error, not on first successful poll)."
+        )
 
+    # ── start race threads ────────────────────────────────────────────────────
     t1 = threading.Thread(target=run_fn1, daemon=True, name=f"{label}-fn1")
     t2 = threading.Thread(target=run_fn2, daemon=True, name=f"{label}-fn2")
     t1.start()
     t2.start()
 
-    t1.join(timeout=15)
-    t2.join(timeout=15)
+    t1.join(timeout=join_timeout)
+    t2.join(timeout=join_timeout)
 
     monitor.halt()
     monitor.join(timeout=2)
 
+    # ── timeout handling ──────────────────────────────────────────────────────
     if t1.is_alive() or t2.is_alive():
         # One or both threads are still blocked inside a database call.
-        # cancel() sends pg_cancel_backend (non-blocking). The server raises
-        # QueryCanceled on the blocked backend, which unblocks cur.execute()
-        # so the thread's except-handler can run and exit. We must NOT call
-        # rollback() or close() before cancel() — those would block on the
-        # socket waiting for the in-progress query to complete.
-        cancel_and_close(conn1)
-        cancel_and_close(conn2)
-        # Give threads time to handle the QueryCanceled and exit.
-        t1.join(timeout=5)
-        t2.join(timeout=5)
-        raise AssertionError(
-            f"{label}: worker thread(s) did not finish within the join timeout; "
-            f"connections were cancelled. "
-            f"fn1.alive={t1.is_alive()}, fn2.alive={t2.is_alive()}"
-        )
+        #
+        # Correct cancel sequence:
+        #   1. cancel() – non-blocking; tells the server to raise QueryCanceled
+        #      on the backend. Must NOT call rollback() or close() yet —
+        #      both block on the socket while a query is still executing.
+        #   2. join() – let threads receive QueryCanceled, catch the error in
+        #      their except-handler, and exit. This is when rollback happens
+        #      (inside close_quietly inside run_fn1/run_fn2's except block).
+        #   3. close_quietly() – only AFTER threads have stopped. Safe because
+        #      no thread is using the connection. Idempotent if the thread
+        #      already closed it.
+        for conn in (conn1, conn2):
+            try:
+                conn.cancel()
+            except Exception:
+                pass
+        t1.join(timeout=cancel_join_timeout)
+        t2.join(timeout=cancel_join_timeout)
+        # Only close a connection whose thread has actually stopped.
+        # If a thread is still alive its socket is still in use — calling
+        # rollback() or close() from the main thread blocks on the wire
+        # exactly as it did before cancel(). Leave that connection open;
+        # the server will clean it up when the process exits or the client
+        # disconnects. The fixture IDs are printed for manual cleanup.
+        if not t1.is_alive():
+            close_quietly(conn1)
+        if not t2.is_alive():
+            close_quietly(conn2)
+        raise WorkerTimeoutError(label, t1.is_alive(), t2.is_alive())
 
-    # Both threads finished normally; safe to close their connections.
+    # ── normal finish ─────────────────────────────────────────────────────────
     close_quietly(conn1)
     close_quietly(conn2)
 
@@ -555,8 +634,9 @@ def run_race(
 
 def run_b1(url: str, run_id: str) -> bool:
     print("\n── B1: price-save-first ─────────────────────────────────────────")
-    ids            = None
-    vendor_item_id = None
+    ids              = None
+    vendor_item_id   = None
+    worker_timed_out = False
     try:
         ids = create_fixtures(url, run_id, "b1")
         print(f"  attachment_id : {ids['attachment_id']}")
@@ -603,8 +683,25 @@ def run_b1(url: str, run_id: str) -> bool:
         print("  B1 PASSED.")
         return True
 
+    except WorkerTimeoutError:
+        worker_timed_out = True
+        raise
+
     finally:
-        if ids:
+        if ids is None:
+            pass   # fixtures were never created; nothing to clean
+        elif worker_timed_out:
+            # One or more worker threads may still hold open transactions.
+            # Attempting cleanup here would block indefinitely or corrupt state.
+            # Print all fixture IDs so they can be cleaned up by a targeted
+            # DELETE after the stuck connections are cleared.
+            print("  Skipping cleanup — worker thread(s) may still hold DB connections.")
+            print("  Fixture IDs for manual cleanup:")
+            print(f"    attachment_id : {ids['attachment_id']}")
+            print(f"    message_id    : {ids['message_id']}")
+            print(f"    routing_id    : {ids['routing_id']}")
+            print(f"    item_code     : {ids['item_code']}")
+        else:
             delete_fixtures(url, ids, vendor_item_id)
             verify_cleanup(url, ids)
 
@@ -613,7 +710,8 @@ def run_b1(url: str, run_id: str) -> bool:
 
 def run_b2(url: str, run_id: str) -> bool:
     print("\n── B2: recovery-first ───────────────────────────────────────────")
-    ids = None
+    ids              = None
+    worker_timed_out = False
     try:
         ids = create_fixtures(url, run_id, "b2")
         print(f"  attachment_id: {ids['attachment_id']}")
@@ -664,8 +762,21 @@ def run_b2(url: str, run_id: str) -> bool:
         print("  B2 PASSED.")
         return True
 
+    except WorkerTimeoutError:
+        worker_timed_out = True
+        raise
+
     finally:
-        if ids:
+        if ids is None:
+            pass
+        elif worker_timed_out:
+            print("  Skipping cleanup — worker thread(s) may still hold DB connections.")
+            print("  Fixture IDs for manual cleanup:")
+            print(f"    attachment_id : {ids['attachment_id']}")
+            print(f"    message_id    : {ids['message_id']}")
+            print(f"    routing_id    : {ids['routing_id']}")
+            print(f"    item_code     : {ids['item_code']}")
+        else:
             delete_fixtures(url, ids, vendor_item_id=None)
             verify_cleanup(url, ids)
 
@@ -674,38 +785,91 @@ def run_b2(url: str, run_id: str) -> bool:
 
 def test_timeout_path():
     """
-    Verifies the run_race() timeout path without a database connection.
+    Verifies run_race() failure paths without a database connection.
 
-    Simulates two worker threads that block indefinitely (as if waiting on a
-    locked row). FakeConn.cancel() sets an Event that unblocks the thread,
-    mimicking the server's QueryCanceled response to pg_cancel_backend.
+    Uses _test_hooks injection to supply fake connections and a fake monitor,
+    then calls run_race() and asserts on the actual exception type, the
+    call-ordering of cancel/close, and the correct error message.
 
-    Checks:
-      1. cancel() is called on both connections.
-      2. close() is called on both connections.
-      3. Both threads stop after cancel_and_close().
-      4. An AssertionError is raised (the race timed out).
-      5. When the monitor fails before threads start, conn1 and conn2 are
-         closed before the error is raised (no leaked connections).
+    Sub-tests:
+      [t1] Worker-timeout path: run_race() times out at initial join_timeout,
+           sends cancel() to both connections (non-blocking), joins again,
+           then calls close_quietly() AFTER threads have stopped. Verifies
+           cancel precedes close on both connections and WorkerTimeoutError
+           is raised.
+
+      [t2] Monitor-error path: monitor fires ready_event but connected=False
+           (simulating a connection error in LockWaitMonitor.run()). Verifies
+           run_race() closes both worker connections before raising
+           AssertionError, and the message identifies the monitor as the
+           cause.
     """
     print("── test_timeout_path ────────────────────────────────────────────")
 
-    # ── shared fixture ────────────────────────────────────────────────────────
+    # ── fake connection infrastructure ───────────────────────────────────────
+
+    class _FakeCursor:
+        """
+        Context-manager cursor. First cursor on a FakeConn returns pid_row;
+        subsequent cursors block on block_event until it is set (simulating a
+        hung execute()) then return [].
+        """
+        def __init__(self, result, block_event=None):
+            self._result = result
+            self._block  = block_event
+
+        def __enter__(self):  return self
+        def __exit__(self, *a): return False
+
+        def execute(self, sql, params=None):
+            if self._block:
+                self._block.wait()   # blocks until FakeConn.cancel() sets it
+
+        def fetchall(self):
+            return self._result if self._result is not None else []
+
+        def fetchone(self):
+            r = self.fetchall()
+            return r[0] if r else None
+
     class FakeConn:
         """
-        Drop-in stand-in for a psycopg2 connection that records calls and
-        optionally unblocks a threading.Event on cancel() to simulate the
-        server's QueryCanceled response.
+        Stand-in for a psycopg2 connection.
+
+        pid              – integer returned by the first cursor (backend_pid)
+        block_event      – threading.Event; if given, the second+ cursor blocks
+                           in execute() until the event is set
+        cancel_unblocks  – if True (default), cancel() sets block_event,
+                           mimicking pg_cancel_backend unblocking the query;
+                           if False, cancel() is recorded but does NOT set
+                           block_event, simulating a backend that ignores the
+                           cancel signal (used by [t3])
         """
-        def __init__(self, name: str, unblock: threading.Event = None):
-            self.name    = name
-            self.unblock = unblock
-            self.calls: list = []
+        def __init__(self, name: str, pid: int,
+                     block_event: threading.Event = None,
+                     cancel_unblocks: bool = True):
+            self.name            = name
+            self._pid            = pid
+            self._block          = block_event
+            self._cancel_unblocks = cancel_unblocks
+            self._cursor_seq     = 0
+            self.calls: list     = []
+
+        def cursor(self):
+            self._cursor_seq += 1
+            if self._cursor_seq == 1:
+                # First cursor: backend_pid query — returns immediately.
+                return _FakeCursor([{"pid": self._pid}])
+            else:
+                # Subsequent cursors: fn SQL — blocks until event is set.
+                return _FakeCursor([], block_event=self._block)
+
+        def commit(self):   pass
 
         def cancel(self):
             self.calls.append("cancel")
-            if self.unblock:
-                self.unblock.set()
+            if self._block and self._cancel_unblocks:
+                self._block.set()   # unblocks any waiting cursor execute()
 
         def rollback(self):
             self.calls.append("rollback")
@@ -714,73 +878,164 @@ def test_timeout_path():
             self.calls.append("close")
 
         def __repr__(self):
-            return f"FakeConn({self.name}, calls={self.calls})"
+            return f"FakeConn({self.name!r}, calls={self.calls})"
 
-    # ── test 1: threads time out, cancel+close stops them ────────────────────
-    print("  [1] thread-timeout: cancel_and_close stops hanging threads")
+    class _FakeMonitor:
+        """
+        Stand-in for LockWaitMonitor. Fires ready_event immediately;
+        connected reflects whether the monitor 'connected' successfully.
+        wait_observed stays False (no actual DB polling).
+        """
+        def __init__(self, connected: bool):
+            self.connected     = connected
+            self.wait_observed = False
+            self.ready_event   = threading.Event()
+            self.ready_event.set()   # already ready when start() is called
 
-    unblock1 = threading.Event()
-    unblock2 = threading.Event()
-    conn1    = FakeConn("conn1", unblock=unblock1)
-    conn2    = FakeConn("conn2", unblock=unblock2)
+        def start(self): pass
+        def halt(self):  pass
+        def join(self, timeout=None): pass
 
-    def hanging(stop_event: threading.Event):
-        stop_event.wait(timeout=30)   # blocks until cancel() sets the event
+    # ── [t1] worker-timeout path ──────────────────────────────────────────────
+    print("  [t1] worker-timeout: cancel() before close_quietly(), both in order")
 
-    t1 = threading.Thread(target=hanging, args=(unblock1,), daemon=True)
-    t2 = threading.Thread(target=hanging, args=(unblock2,), daemon=True)
-    t1.start()
-    t2.start()
+    block1 = threading.Event()
+    block2 = threading.Event()
+    c1 = FakeConn("conn1", pid=101, block_event=block1)
+    c2 = FakeConn("conn2", pid=102, block_event=block2)
 
-    assert t1.is_alive() and t2.is_alive(), \
-        "precondition: both threads should be blocking"
-
-    # Replicate the exact timeout path from run_race.
-    cancel_and_close(conn1)
-    cancel_and_close(conn2)
-    t1.join(timeout=2)
-    t2.join(timeout=2)
-
-    assert not t1.is_alive(), "t1 should have stopped after cancel()"
-    assert not t2.is_alive(), "t2 should have stopped after cancel()"
-    assert "cancel" in conn1.calls, f"cancel() not called on conn1: {conn1}"
-    assert "cancel" in conn2.calls, f"cancel() not called on conn2: {conn2}"
-    assert "close"  in conn1.calls, f"close() not called on conn1: {conn1}"
-    assert "close"  in conn2.calls, f"close() not called on conn2: {conn2}"
-    print("    PASSED.")
-
-    # ── test 2: cancel() before rollback/close (ordering check) ──────────────
-    print("  [2] cancel_and_close call order: cancel → rollback → close")
-
-    block_event = threading.Event()
-    conn3 = FakeConn("conn3", unblock=block_event)
-    cancel_and_close(conn3)
-
-    assert conn3.calls[0] == "cancel",   f"first call should be cancel: {conn3.calls}"
-    assert "rollback" in conn3.calls,    f"rollback not called: {conn3.calls}"
-    assert conn3.calls[-1] == "close",   f"last call should be close: {conn3.calls}"
-    print("    PASSED.")
-
-    # ── test 3: monitor-failure path closes conn1 and conn2 ──────────────────
-    print("  [3] monitor-failure path: conn1 and conn2 closed before raise")
-
-    # Reconstruct the monitor-failure guard from run_race using FakeConn.
-    conn_a = FakeConn("conn_a")
-    conn_b = FakeConn("conn_b")
-    monitor_ready = threading.Event()    # deliberately never set (timeout)
-
-    caught = None
+    t1_caught = None
     try:
-        if not monitor_ready.wait(timeout=0.001):   # immediate timeout
-            close_quietly(conn_a)
-            close_quietly(conn_b)
-            raise AssertionError("monitor did not connect within 10 s.")
-    except AssertionError as exc:
-        caught = exc
+        run_race(
+            url="",                          # unused — conns injected
+            fn1_sql="SELECT 1", fn1_params=(),
+            fn2_sql="SELECT 1", fn2_params=(),
+            label="TEST-T1",
+            _test_hooks={
+                "conns":               (c1, c2),
+                "monitor":             _FakeMonitor(connected=True),
+                "join_timeout":        0.05,   # time out quickly
+                "cancel_join_timeout": 3.0,    # enough for threads to finish
+                "monitor_timeout":     1.0,
+                "lock_hold":           0.0,    # no sleep after fn1 unblocks
+            },
+        )
+    except WorkerTimeoutError as exc:
+        t1_caught = exc
 
-    assert caught is not None, "expected AssertionError was not raised"
-    assert "close" in conn_a.calls, f"conn_a not closed on monitor failure: {conn_a}"
-    assert "close" in conn_b.calls, f"conn_b not closed on monitor failure: {conn_b}"
+    assert t1_caught is not None, \
+        "expected WorkerTimeoutError was not raised"
+
+    assert "cancel" in c1.calls, \
+        f"cancel() not called on conn1: {c1}"
+    assert "cancel" in c2.calls, \
+        f"cancel() not called on conn2: {c2}"
+    assert "close" in c1.calls, \
+        f"close() not called on conn1: {c1}"
+    assert "close" in c2.calls, \
+        f"close() not called on conn2: {c2}"
+
+    # cancel must appear before close — the core ordering guarantee
+    c1_cancel = c1.calls.index("cancel")
+    c1_close  = c1.calls.index("close")
+    assert c1_cancel < c1_close, \
+        f"conn1: cancel must precede close, got: {c1.calls}"
+
+    c2_cancel = c2.calls.index("cancel")
+    c2_close  = c2.calls.index("close")
+    assert c2_cancel < c2_close, \
+        f"conn2: cancel must precede close, got: {c2.calls}"
+
+    print("    PASSED.")
+
+    # ── [t2] monitor-error path ───────────────────────────────────────────────
+    print("  [t2] monitor-error: both connections closed before AssertionError")
+
+    c3 = FakeConn("conn3", pid=201)
+    c4 = FakeConn("conn4", pid=202)
+
+    t2_caught = None
+    try:
+        run_race(
+            url="",
+            fn1_sql="SELECT 1", fn1_params=(),
+            fn2_sql="SELECT 1", fn2_params=(),
+            label="TEST-T2",
+            _test_hooks={
+                "conns":           (c3, c4),
+                "monitor":         _FakeMonitor(connected=False),
+                "monitor_timeout": 1.0,
+            },
+        )
+    except AssertionError as exc:
+        t2_caught = exc
+    except WorkerTimeoutError as exc:
+        t2_caught = exc
+
+    assert t2_caught is not None, \
+        "expected AssertionError was not raised"
+    assert not isinstance(t2_caught, WorkerTimeoutError), \
+        "monitor failure should raise AssertionError, not WorkerTimeoutError"
+
+    assert "close" in c3.calls, \
+        f"conn3 not closed after monitor failure: {c3}"
+    assert "close" in c4.calls, \
+        f"conn4 not closed after monitor failure: {c4}"
+
+    msg = str(t2_caught).lower()
+    assert "monitor" in msg, \
+        f"error message should mention 'monitor': {t2_caught}"
+
+    print("    PASSED.")
+
+    # ── [t3] cancel does not stop the worker ──────────────────────────────────
+    print("  [t3] cancel ignored: close_quietly NOT called on still-alive thread")
+
+    # block_event is never set — simulates a backend that ignores pg_cancel_backend.
+    # cancel_unblocks=False means cancel() records the call but does NOT set the
+    # event, so the thread remains blocked through the entire cancel-join window.
+    never_unblock = threading.Event()
+    c5 = FakeConn("conn5", pid=301, block_event=never_unblock, cancel_unblocks=False)
+    c6 = FakeConn("conn6", pid=302)   # no block; fn2 waits for lock_acquired,
+                                       # which fn1 never sets → also stays alive
+
+    t3_caught = None
+    try:
+        run_race(
+            url="",
+            fn1_sql="SELECT 1", fn1_params=(),
+            fn2_sql="SELECT 1", fn2_params=(),
+            label="TEST-T3",
+            _test_hooks={
+                "conns":               (c5, c6),
+                "monitor":             _FakeMonitor(connected=True),
+                "join_timeout":        0.05,   # both threads still alive
+                "cancel_join_timeout": 0.1,    # short; fn1 never unblocks
+                "monitor_timeout":     1.0,
+                "lock_hold":           0.0,
+            },
+        )
+    except WorkerTimeoutError as exc:
+        t3_caught = exc
+
+    assert t3_caught is not None, \
+        "expected WorkerTimeoutError was not raised"
+    assert t3_caught.fn1_alive, \
+        "fn1 should still be alive (cancel did not unblock it)"
+
+    # The critical property: close_quietly must NOT have been called on a
+    # connection whose thread is still alive — rollback() would block on the
+    # socket exactly as before cancel() was sent.
+    assert "close" not in c5.calls, (
+        f"close_quietly was called on conn5 while its thread was still alive — "
+        f"rollback() would block: {c5.calls}"
+    )
+
+    # cancel() must still have been attempted (we send it; the server just
+    # didn't respond in time)
+    assert "cancel" in c5.calls, \
+        f"cancel() was never called on conn5: {c5.calls}"
+
     print("    PASSED.")
 
     print("\nAll timeout-path tests PASSED.")
@@ -793,24 +1048,46 @@ def main():
     run_id = str(uuid.uuid4())[:8]
     print(f"A1.2.g race test  run={run_id}  project={REQUIRED_PROJECT}")
 
-    b1_passed = b2_passed = False
-    exit_code = 0
+    b1_passed         = False
+    b2_passed         = False
+    b1_worker_timeout = False
+    exit_code         = 0
 
     try:
         b1_passed = run_b1(url, run_id)
+    except WorkerTimeoutError as exc:
+        b1_worker_timeout = True
+        print(f"\nB1 TIMEOUT: {exc}")
+        exit_code = 1
     except (AssertionError, RuntimeError) as exc:
         print(f"\nB1 ERROR: {exc}")
         exit_code = 1
 
-    try:
-        b2_passed = run_b2(url, run_id)
-    except (AssertionError, RuntimeError) as exc:
-        print(f"\nB2 ERROR: {exc}")
+    if b1_worker_timeout:
+        # A live worker thread after cancel+join means an open transaction may
+        # still exist. Running B2 (which creates new fixtures and starts new
+        # connections) against a database with a stuck transaction is unsafe.
+        print(
+            "\nSkipping B2 — B1 had a live worker thread after cancel+join.\n"
+            "Investigate and clear stuck connections before re-running."
+        )
         exit_code = 1
+    else:
+        try:
+            b2_passed = run_b2(url, run_id)
+        except WorkerTimeoutError as exc:
+            print(f"\nB2 TIMEOUT: {exc}")
+            exit_code = 1
+        except (AssertionError, RuntimeError) as exc:
+            print(f"\nB2 ERROR: {exc}")
+            exit_code = 1
 
     print("\n── Summary ──────────────────────────────────────────────────────")
     print(f"  B1 (price-save-first): {'PASSED' if b1_passed else 'FAILED'}")
-    print(f"  B2 (recovery-first):   {'PASSED' if b2_passed else 'FAILED'}")
+    if b1_worker_timeout:
+        print(f"  B2 (recovery-first):   SKIPPED (B1 worker timeout)")
+    else:
+        print(f"  B2 (recovery-first):   {'PASSED' if b2_passed else 'FAILED'}")
 
     if b1_passed and b2_passed:
         print("\nA1.2.g PASSED – lease stops competing database writes.")
