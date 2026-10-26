@@ -362,6 +362,21 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         workingCatalogItems[index]={...current,category_id:categoryId,master_item_number:number};
       }
 
+      // A1.7: inbox resume must target exactly one group — the background worker
+      // always produces one group per attachment file, and inboxImportDocumentId
+      // points to that group's import document.  A second group (extra pasted text
+      // or a second file dropped in) would attempt to resume the SAME document,
+      // colliding with the saved evidence or writing unrelated rows into it.
+      // Block before any writes rather than letting the per-group loops detect it
+      // mid-flight after some rows have already been committed.
+      if(inboxImportDocumentId){
+        const activeGroups=parsedGroups.filter(g=>g.rows.length);
+        if(activeGroups.length>1){
+          setSaveError(`Inbox resume requires a single document — ${activeGroups.length} groups were found. Remove the extra file or pasted content and try again.`);
+          setSaving(false);
+          return;
+        }
+      }
       let failedRows=0;
       for(const group of parsedGroups){
         if(!group.rows.length)continue;
@@ -410,7 +425,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           const badKeys=[...completedKeys].filter(k=>!validRowKey.test(k));
           if(badKeys.length>0){
             failedRows+=group.rows.length;
-            saveError=(saveError?saveError+" ":"")+`${group.name}: this partial import was saved with an older format and cannot be resumed — the saved row evidence uses a different key scheme. Delete the document in Price Sheets and import the file again.`;
+            // Explain the delete path precisely:
+            // kerdos_delete_price_sheet deletes the import_documents row;
+            // the FK on inbound_attachments.import_document_id is ON DELETE SET NULL,
+            // so the attachment's link is cleared automatically.  The inbox then
+            // shows "Review & Import" for a fresh import — no manual unlinking needed.
+            saveError=(saveError?saveError+" ":"")+`${group.name}: this partial import was saved with an older format and cannot be resumed — the saved row evidence uses a different key scheme. Use "Delete & re-import" in Price Sheets; the attachment will reappear in the inbox ready for a fresh import.`;
             continue;
           }
         }

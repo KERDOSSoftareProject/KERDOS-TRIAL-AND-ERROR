@@ -165,9 +165,35 @@ check(modal_js, "cannot be resumed",
 check_absent(modal_js, "if(!validRowKey.test(k))completedKeys.delete(k)",
              "A1.7.b.12: old silent delete-from-completedKeys filter removed")
 
+# Old-key error message must cite the accurate recovery path:
+# "Delete & re-import" button exists in DocumentPages; ON DELETE SET NULL
+# cascades when the import_document is deleted, re-enabling the inbox path.
+check(modal_js, '"Delete & re-import" in Price Sheets',
+      "A1.7.b.13: old-key message cites the correct UI action (Delete & re-import)")
+check(modal_js, "reappear in the inbox",
+      "A1.7.b.14: old-key message explains the attachment re-appears in inbox after delete")
+
+# Inbox multi-group guard: when inboxImportDocumentId is set, block if more
+# than one group has rows — all groups would try to write into the same
+# linked document, which is always a single-group attachment document.
+check(modal_js, "Inbox resume requires a single document",
+      "A1.7.b.15: inbox multi-group guard present — blocks before any writes")
+
+# Guard must come BEFORE the group loop so no partial writes can happen
+guard_mg_pos = modal_js.find("Inbox resume requires a single document")
+loop_pos     = modal_js.find("let failedRows=0;")
+if guard_mg_pos == -1:
+    fail("A1.7.b.16", "multi-group guard message not found")
+elif loop_pos == -1:
+    fail("A1.7.b.16", "failedRows declaration not found")
+elif guard_mg_pos < loop_pos:
+    ok("A1.7.b.16: multi-group guard is positioned before the group loop (before failedRows)")
+else:
+    fail("A1.7.b.16", f"guard at {guard_mg_pos} must precede loop at {loop_pos}")
+
 # verifyResumeRows regex unchanged
 check(resume_js, r"/^row:(\d+)$/",
-      "A1.7.b.11: verifyResumeRows regex still /^row:(\\d+)$/")
+      "A1.7.b.17: verifyResumeRows regex still /^row:(\\d+)$/")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # A1.7.c — Status persistence

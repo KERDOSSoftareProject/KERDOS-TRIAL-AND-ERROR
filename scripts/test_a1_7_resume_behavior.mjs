@@ -34,6 +34,13 @@
  *     D2 Guard checks status = 'complete' for auto_imported
  *     D3 Guard does NOT fire for needs_review (no guard text for that branch)
  *     D4 Guard appears in both the main path comment block and in the migration
+ *
+ *   Part E — Inbox multi-group guard (ImportModal source check)
+ *     E1 Guard message present in ImportModal
+ *     E2 Guard fires before the group loop (no partial writes possible)
+ *     E3 Guard is conditioned on inboxImportDocumentId (manual imports unaffected)
+ *     E4 Old-key error message cites the correct "Delete & re-import" UI path
+ *     E5 ON DELETE SET NULL on FK confirms delete unlinks attachment → inbox shows "Review & Import"
  */
 
 import { createRequire } from "module";
@@ -382,6 +389,79 @@ const migration = fs.readFileSync(migrationPath, "utf8");
     ok("D4: no SQL conditional branch on needs_review in guard block (partial documents are expected — comment mention is fine)");
   } else {
     fail("D4", "found unexpected SQL IF branch on needs_review in guard block");
+  }
+}
+
+// ── Part E — Inbox multi-group guard ─────────────────────────────────────────
+
+console.log("\nPart E — Inbox multi-group guard (ImportModal source check)");
+
+const modalSource = fs.readFileSync(path.join(ROOT, "src/pages/ImportModal.jsx"), "utf8");
+
+// E1: Guard is present — look for the distinguishing text
+{
+  const hasGuard = modalSource.includes("Inbox resume requires a single document");
+  if (hasGuard) {
+    ok("E1: inbox multi-group guard present in ImportModal");
+  } else {
+    fail("E1", "guard message 'Inbox resume requires a single document' not found in ImportModal.jsx");
+  }
+}
+
+// E2: Guard fires BEFORE the group loop (not inside it)
+// The guard must appear before 'for(const group of parsedGroups)' in the save function.
+{
+  const guardPos = modalSource.indexOf("Inbox resume requires a single document");
+  const loopPos  = modalSource.indexOf("for(const group of parsedGroups)");
+  if (guardPos !== -1 && loopPos !== -1 && guardPos < loopPos) {
+    ok("E2: multi-group guard fires before the group loop — no partial writes can occur");
+  } else {
+    fail("E2", `guardPos=${guardPos} loopPos=${loopPos} (guard must precede the loop)`);
+  }
+}
+
+// E3: Guard is conditioned on inboxImportDocumentId
+{
+  // Extract the block between the guard comment and the group loop
+  const guardCommentPos = modalSource.indexOf("inbox resume must target exactly one group");
+  const loopPos = modalSource.indexOf("let failedRows=0;");
+  const guardBlock = guardCommentPos !== -1 && loopPos !== -1
+    ? modalSource.slice(guardCommentPos, loopPos)
+    : "";
+  const conditioned = guardBlock.includes("if(inboxImportDocumentId)");
+  if (conditioned) {
+    ok("E3: multi-group guard only fires when inboxImportDocumentId is set (manual import unaffected)");
+  } else {
+    fail("E3", "guard block does not contain if(inboxImportDocumentId) — would fire for manual imports too");
+  }
+}
+
+// E4: Delete-and-reimport path is described correctly in the old-key error message
+{
+  const hasDeletePath = modalSource.includes('"Delete & re-import" in Price Sheets');
+  const hasReappear   = modalSource.includes("reappear in the inbox");
+  if (hasDeletePath && hasReappear) {
+    ok("E4: old-key error message cites 'Delete & re-import' button and explains the inbox reappears");
+  } else {
+    fail("E4", `hasDeletePath=${hasDeletePath} hasReappear=${hasReappear}`);
+  }
+}
+
+// E5: Structural proof that ON DELETE SET NULL re-enables the inbox path
+// When kerdos_delete_price_sheet deletes the import_documents row, the FK
+// ON DELETE SET NULL clears inbound_attachments.import_document_id.  This is
+// the mechanism that makes the attachment reappear in the inbox.
+{
+  const migration32 = fs.readFileSync(
+    path.join(ROOT, "knowledge/migration_032_email_routing.sql"), "utf8"
+  );
+  const hasSetNull = migration32.includes(
+    "import_document_id uuid        REFERENCES import_documents(id) ON DELETE SET NULL"
+  );
+  if (hasSetNull) {
+    ok("E5: inbound_attachments.import_document_id FK is ON DELETE SET NULL — deleting the import document unlinks the attachment and re-enables the inbox path");
+  } else {
+    fail("E5", "ON DELETE SET NULL not found for import_document_id in migration_032");
   }
 }
 
