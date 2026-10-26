@@ -363,20 +363,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
 
       let failedRows=0;
-      // A1.7.b: global counter across all groups so key format matches the
-      // background worker's row:N scheme.  Background always produces one group,
-      // but a global counter ensures consistency if that ever changes and prevents
-      // key collisions when the same row:0 appears in two groups of a manual import.
-      let globalRowIndex=0;
       for(const group of parsedGroups){
-        if(!group.rows.length){
-          // Still advance the counter so subsequent groups stay in sync with any
-          // background-produced completed_keys that span multiple groups.
-          // (Background skips empty groups before creating them, so this is
-          // defensive rather than required for the current A1.7 case.)
-          // No-op: empty groups have no rows to advance over.
-          continue;
-        }
+        if(!group.rows.length)continue;
         let sourceFilePath=null;
         // Stable SHA-256 of the original extracted text: re-importing the
         // same vendor quotation cannot silently append duplicate history.
@@ -392,33 +380,43 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // while the attachment remains linked to the original, producing split history.
         if(inboxImportDocumentId){
           try{existingDoc=await importService.findPriceDocumentById({organizationId:orgId,vendorId,documentId:inboxImportDocumentId});}
-          catch(err){failedRows+=group.rows.length;globalRowIndex+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           if(!existingDoc){
             // Document not found or belongs to a different org/vendor — fail safely.
-            failedRows+=group.rows.length;globalRowIndex+=group.rows.length;
+            failedRows+=group.rows.length;
             saveError=(saveError?saveError+" ":"")+`${group.name}: linked import document could not be verified — it may have been deleted or re-assigned to a different vendor.`;
             continue;
           }
         } else {
           try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
-          catch(err){failedRows+=group.rows.length;globalRowIndex+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
         }
         // A file that finished is not re-run (use Delete & re-import). A
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
         // is safe to repeat.
-        if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;globalRowIndex+=group.rows.length;continue;}
+        if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
-        // A1.7.b: old partial documents (before the row:N fix) may have non-standard
-        // keys in completed_keys.  Filter them out so verifyResumeRows doesn't throw —
-        // those rows will be re-processed and ON CONFLICT DO NOTHING prevents duplicates.
+        // A1.7.b: old partial documents (before the row:N fix) have non-standard keys
+        // in completed_keys.  verifyResumeRows uses saved.key to index into the row array
+        // (rows[N] from row:N) so old-format saved rows cause it to throw before the
+        // completedKeys check is even reached.  Block resumption explicitly rather than
+        // silently discarding the saved-row evidence — the user needs to know the
+        // partial cannot be resumed safely, and they have a clear path (delete and
+        // re-import).  On CONFLICT DO NOTHING would not protect against duplicates either
+        // because old-format rows were stored under different source_row_key values.
         if(inboxImportDocumentId){
           const validRowKey=/^row:\d+$/;
-          for(const k of completedKeys){if(!validRowKey.test(k))completedKeys.delete(k);}
+          const badKeys=[...completedKeys].filter(k=>!validRowKey.test(k));
+          if(badKeys.length>0){
+            failedRows+=group.rows.length;
+            saveError=(saveError?saveError+" ":"")+`${group.name}: this partial import was saved with an older format and cannot be resumed — the saved row evidence uses a different key scheme. Delete the document in Price Sheets and import the file again.`;
+            continue;
+          }
         }
         if(existingDoc){
           try{verifyResumeRows(group.rows,[...completedKeys],await importService.resumeSources(orgId,vendorId,existingDoc.id));}
-          catch(error){failedRows+=group.rows.length;globalRowIndex+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
+          catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
         }
         let sourceDocumentId=existingDoc?.id||null;
         lastSourceDocumentId=sourceDocumentId;
@@ -433,14 +431,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           sourceDocumentId=storedDoc.id;
         }
-        // globalRowIndex (defined above the group loop) produces row:N keys that
-        // are unique across all groups and match the background worker's scheme.
-        // rowIndex (from entries()) is kept as a UI-only key for invoice-conflict
-        // tracking (acceptedIssues, invoiceClues) and is not stored in the DB.
+        // row:N uses the per-group ordinal (rowIndex from entries()).  For manual
+        // imports each group has its own document, so per-group keys are unique
+        // within that document and verifyResumeRows can safely index rows[N].
+        // For inbox resume (inboxImportDocumentId set), the background worker
+        // always produces exactly one group from one file, so per-group index
+        // equals the global index — the keys align with what the background
+        // worker stored without needing a separate global counter.
         const failuresBeforeGroup=failedRows;
       for(const [rowIndex,sourceRow] of group.rows.entries()){
-        const completedKey=`row:${globalRowIndex}`;
-        globalRowIndex++;
+        const completedKey=`row:${rowIndex}`;
         if(completedKeys.has(completedKey))continue;
         let row=enrichFromInvoices(sourceRow,invoiceSources);
         // A price sheet never waits on a person. A row with parser issues or

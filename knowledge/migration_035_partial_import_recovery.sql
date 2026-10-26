@@ -104,6 +104,23 @@ BEGIN
     RAISE EXCEPTION 'import document not found or belongs to a different organization';
   END IF;
 
+  -- Completion guard: 'auto_imported' asserts that the entire file has been
+  -- processed.  Enforce this at the database level so a bug or race in the
+  -- caller cannot mark an attachment fully imported while the import document
+  -- is still partial or processing.  'needs_review' has no equivalent guard —
+  -- a partial document (status 'partial' or 'processing') is the expected
+  -- state when the background worker routes a document to human review.
+  IF p_final_status = 'auto_imported' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.import_documents
+      WHERE id     = p_import_document_id
+        AND status = 'complete'
+    ) THEN
+      RAISE EXCEPTION
+        'import document is not complete — cannot mark attachment as auto_imported; finalize the import first';
+    END IF;
+  END IF;
+
   -- Idempotency: if this attachment is already linked to the SAME import
   -- document, update processing_status (if requested) and return.  This
   -- handles the case where the DB UPDATE succeeded but the RPC response was
@@ -113,6 +130,8 @@ BEGIN
       -- Already linked to the same document — idempotent success.
       -- Still apply the status update so a retry after a partial response
       -- (link wrote, status write was lost) also converges.
+      -- The completion guard above runs before this path so the status
+      -- invariant is enforced even on retry.
       IF p_final_status IS NOT NULL THEN
         UPDATE public.inbound_attachments
            SET processing_status = p_final_status

@@ -137,23 +137,33 @@ check(bg, "globalRowIndex++", "A1.7.b.3: background increments for every row")
 check_absent(bg, "sourceRow.rowKey || sourceRow.sourceLine",
              "A1.7.b.4: old fallback key format removed from background")
 
-# ImportModal must ALSO use globalRowIndex (not a per-group index)
-check(modal_js, "let globalRowIndex=0",
-      "A1.7.b.5: ImportModal declares globalRowIndex before the group loop")
-check(modal_js, "`row:${globalRowIndex}`",
-      "A1.7.b.6: ImportModal completedKey = row:${globalRowIndex}")
-check(modal_js, "globalRowIndex++",
-      "A1.7.b.7: ImportModal increments globalRowIndex for every row")
-
-# The old per-group progressKey must be gone
+# ImportModal uses per-group counter (row:${rowIndex}) NOT globalRowIndex.
+# Per-group is correct: each group has its own document; verifyResumeRows uses
+# rows[N] where N is parsed from row:N, so keys must be 0-based within the
+# passed-in group.rows array.  For inbox resume (single group), per-group ==
+# global so alignment with the background worker is preserved.
+check(modal_js, "`row:${rowIndex}`",
+      "A1.7.b.5: ImportModal completedKey = row:${rowIndex} (per-group)")
+check_absent(modal_js, "let globalRowIndex=0",
+             "A1.7.b.6: no globalRowIndex in ImportModal (reverted; per-group is correct)")
 check_absent(modal_js, "const progressKey=index=>`row:${index}`",
-             "A1.7.b.8: per-group progressKey removed from ImportModal")
+             "A1.7.b.7: old per-group progressKey helper removed from ImportModal")
 
-# Old-key filter for inbox resume path
+# Old-key detection: block explicitly rather than silently filter.
+# verifyResumeRows throws on old-format saved keys (savedRows pass) BEFORE
+# the completedKeys check; silently filtering completedKeys did not address
+# the savedRows side.  Explicit block preserves saved-row evidence and gives
+# the user a clear path (delete and re-import).
 check(modal_js, "validRowKey=/^row:\\d+$/",
-      "A1.7.b.9: modal filters non-row:N keys from completedKeys for inbox resume")
-check(modal_js, "if(!validRowKey.test(k))completedKeys.delete(k)",
-      "A1.7.b.10: modal deletes non-matching keys from completedKeys")
+      "A1.7.b.8: modal declares validRowKey regex for inbox old-key detection")
+check(modal_js, "badKeys=[...completedKeys].filter(k=>!validRowKey.test(k))",
+      "A1.7.b.9: modal collects bad keys into badKeys array")
+check(modal_js, "if(badKeys.length>0){",
+      "A1.7.b.10: modal blocks resumption when any bad key detected")
+check(modal_js, "cannot be resumed",
+      "A1.7.b.11: block message tells user partial cannot be resumed")
+check_absent(modal_js, "if(!validRowKey.test(k))completedKeys.delete(k)",
+             "A1.7.b.12: old silent delete-from-completedKeys filter removed")
 
 # verifyResumeRows regex unchanged
 check(resume_js, r"/^row:(\d+)$/",
@@ -190,44 +200,59 @@ check(migration, "NOT IN ('auto_imported', 'needs_review')",
 check(migration, "SET processing_status = p_final_status",
       "A1.7.c.6: migration sets processing_status column")
 
+# Completion guard: auto_imported requires import_document to be 'complete'
+guard_text = "import document is not complete"
+check(migration, guard_text,
+      "A1.7.c.7: completion guard present — auto_imported requires complete document")
+guard_pos      = migration.find(guard_text)
+idempotent_pos = migration.find("Idempotency: if this attachment is already linked")
+if guard_pos == -1:
+    fail("A1.7.c.8", "completion guard not found")
+elif idempotent_pos == -1:
+    fail("A1.7.c.8", "idempotency block marker not found")
+elif guard_pos < idempotent_pos:
+    ok("A1.7.c.8: completion guard positioned before idempotency block")
+else:
+    fail("A1.7.c.8", f"guard at {guard_pos} must precede idempotency block at {idempotent_pos}")
+
 # Idempotent re-link path also applies status
 idempotent = migration[migration.find("Already linked to the same document"):]
 check(idempotent, "SET processing_status = p_final_status",
-      "A1.7.c.7: idempotent re-link path also updates processing_status")
+      "A1.7.c.9: idempotent re-link path also updates processing_status")
 
 # Grants for new 3-param signature
 check(migration, "REVOKE EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) FROM PUBLIC",
-      "A1.7.c.8: REVOKE from PUBLIC on 3-param signature")
+      "A1.7.c.10: REVOKE from PUBLIC on 3-param signature")
 check(migration, "GRANT  EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) TO authenticated",
-      "A1.7.c.9: GRANT to authenticated on 3-param signature")
+      "A1.7.c.11: GRANT to authenticated on 3-param signature")
 
 # email-routing.js passes finalStatus
 check(routing_js, "finalStatus = null",
-      "A1.7.c.10: markAttachmentIngested accepts optional finalStatus")
+      "A1.7.c.12: markAttachmentIngested accepts optional finalStatus")
 check(routing_js, "p_final_status:       finalStatus",
-      "A1.7.c.11: markAttachmentIngested forwards finalStatus as p_final_status")
+      "A1.7.c.13: markAttachmentIngested forwards finalStatus as p_final_status")
 
 # EmailInboxPanel passes 'auto_imported'
 check(inbox_jsx, '"auto_imported"',
-      "A1.7.c.12: EmailInboxPanel passes auto_imported to markAttachmentIngested")
+      "A1.7.c.14: EmailInboxPanel passes auto_imported to markAttachmentIngested")
 
 # Audit retry preserves and replays pendingFinalStatus
 check(inbox_jsx, "pendingFinalStatus",
-      "A1.7.c.13: EmailInboxPanel tracks pendingFinalStatus state")
+      "A1.7.c.15: EmailInboxPanel tracks pendingFinalStatus state")
 check(inbox_jsx, "setPendingFinalStatus(\"auto_imported\")",
-      "A1.7.c.14: sets pendingFinalStatus to auto_imported on first failure")
+      "A1.7.c.16: sets pendingFinalStatus to auto_imported on first failure")
 check(inbox_jsx, "markAttachmentIngested(backend,orgId,att.id,pendingImportDocumentId,pendingFinalStatus)",
-      "A1.7.c.15: retry passes pendingFinalStatus to markAttachmentIngested")
+      "A1.7.c.17: retry passes pendingFinalStatus to markAttachmentIngested")
 check(inbox_jsx, "setPendingFinalStatus(null)",
-      "A1.7.c.16: clears pendingFinalStatus after successful retry")
+      "A1.7.c.18: clears pendingFinalStatus after successful retry")
 
 # alreadyIngested excludes needs_review
 check(inbox_jsx, 'att.processing_status !== "needs_review"',
-      "A1.7.c.17: alreadyIngested excludes needs_review attachments")
+      "A1.7.c.19: alreadyIngested excludes needs_review attachments")
 
 # pending_count includes needs_review
 check(routing_js, 'processing_status === "needs_review"',
-      "A1.7.c.18: pending_count includes needs_review attachments")
+      "A1.7.c.20: pending_count includes needs_review attachments")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Deduplication safety proof
