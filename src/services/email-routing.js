@@ -178,16 +178,23 @@ export async function getMessage(backend, organizationId, messageId) {
  * @returns {Promise<object[]>}
  */
 export async function listPendingAttachments(backend, organizationId) {
+  // Include both unprocessed attachments (import_document_id IS NULL) and
+  // background partial imports that need human review
+  // (import_document_id IS NOT NULL AND processing_status = 'needs_review').
+  // The old filter `.is("import_document_id", null)` excluded the latter,
+  // making background-processed documents invisible in the queue view.
+  // Fixed: A1.2.e/f reconciliation (Gap 5).
   return run(
     backend
       .from("inbound_attachments")
       .select(`
         id, message_id, filename, content_type, file_size_bytes,
         storage_path, created_at,
+        import_document_id, processing_status,
         inbound_messages ( sender_email, sender_name, subject, received_at )
       `)
       .eq("organization_id", organizationId)
-      .is("import_document_id", null)
+      .or("import_document_id.is.null,processing_status.eq.needs_review")
       .order("created_at", { ascending: false }),
     "listPendingAttachments"
   );

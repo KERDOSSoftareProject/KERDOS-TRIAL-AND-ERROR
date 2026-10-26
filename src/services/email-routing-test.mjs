@@ -97,6 +97,24 @@ function makeMockBackend(seed = {}) {
         rows = rows.filter(r => r[field] === value || (value === null && r[field] == null));
         return q;
       },
+      or(filterStr) {
+        // Minimal PostgREST `.or()` parser for the subset used in tests.
+        // Handles "col.is.null" and "col.eq.value" clauses joined by commas.
+        // Example: "import_document_id.is.null,processing_status.eq.needs_review"
+        const clauses = filterStr.split(",").map(s => s.trim());
+        rows = rows.filter(row => clauses.some(clause => {
+          const parts = clause.split(".");
+          const col = parts[0];
+          const op  = parts[1];
+          const val = parts.slice(2).join(".");
+          if (op === "is" && val === "null")  return row[col] == null;
+          if (op === "is" && val === "notnull") return row[col] != null;
+          if (op === "eq") return String(row[col]) === val;
+          if (op === "neq") return String(row[col]) !== val;
+          return false;
+        }));
+        return q;
+      },
       order(field, { ascending = true } = {}) {
         rows.sort((a, b) => {
           if (a[field] < b[field]) return ascending ? -1 : 1;
@@ -920,7 +938,10 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
-  // B8. listPendingAttachments only returns null import_document_id
+  // B8. listPendingAttachments returns unprocessed AND background-partial attachments.
+  // Fixed: old filter (.is("import_document_id", null)) excluded background partials
+  // where import_document_id IS NOT NULL but processing_status = 'needs_review'.
+  // New filter: import_document_id IS NULL OR processing_status = 'needs_review'.
   const backend = makeMockBackend({
     inbound_messages: [
       { id: "m1", organization_id: "org-1", routing_address_id: "ra-1",
@@ -928,18 +949,32 @@ console.log("\n── B. Service layer ─────────────�
         subject: "Prices", received_at: new Date().toISOString() },
     ],
     inbound_attachments: [
+      // a1: not yet processed — should appear
       { id: "a1", organization_id: "org-1", message_id: "m1",
         filename: "pending.pdf", storage_path: "org-1/inbound/m1/0-pending.pdf",
-        import_document_id: null, created_at: new Date().toISOString() },
+        import_document_id: null, processing_status: "pending",
+        created_at: new Date().toISOString() },
+      // a2: fully auto-imported — should NOT appear
       { id: "a2", organization_id: "org-1", message_id: "m1",
         filename: "done.pdf", storage_path: "org-1/inbound/m1/1-done.pdf",
-        import_document_id: "doc-99", created_at: new Date().toISOString() },
+        import_document_id: "doc-99", processing_status: "auto_imported",
+        created_at: new Date().toISOString() },
+      // a3: background partial that needs human review — should appear (Gap 5 fix)
+      { id: "a3", organization_id: "org-1", message_id: "m1",
+        filename: "partial.csv", storage_path: "org-1/inbound/m1/2-partial.csv",
+        import_document_id: "doc-partial", processing_status: "needs_review",
+        created_at: new Date().toISOString() },
     ],
   });
 
   const pending = await listPendingAttachments(backend, "org-1");
-  t("B8: only pending attachments returned", pending.length, 1);
-  t("B8: correct attachment", pending[0].filename, "pending.pdf");
+  t("B8: pending + background-partial attachments returned", pending.length, 2);
+  const ids = pending.map(a => a.id).sort();
+  t("B8: unprocessed attachment included", ids.includes("a1"), true);
+  t("B8: background partial (needs_review) included", ids.includes("a3"), true);
+  t("B8: auto_imported attachment excluded", ids.includes("a2"), false);
+  t("B8: import_document_id present in result", pending.find(a => a.id === "a3").import_document_id, "doc-partial");
+  t("B8: processing_status present in result", pending.find(a => a.id === "a3").processing_status, "needs_review");
 }
 
 {
