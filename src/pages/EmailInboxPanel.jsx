@@ -223,7 +223,13 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
   const [pendingImportDocumentId,setPendingImportDocumentId]=useState(null);
   const [auditError,setAuditError]=useState("");
 
-  const alreadyIngested=!!att.import_document_id;
+  // A1.7.a/c: an attachment is fully ingested only when import_document_id is
+  // set AND processing_status is NOT 'needs_review'.  When the background worker
+  // created a partial and set processing_status='needs_review', import_document_id
+  // is already linked but the user still has to complete the review — showing
+  // "✓ Imported" in that state would hide the actionable item.
+  const alreadyIngested=!!(att.import_document_id && att.processing_status !== "needs_review");
+  const isBackgroundPartial=att.processing_status==="needs_review"&&!!att.import_document_id;
 
   async function handleReviewAndImport(){
     if(alreadyIngested||status==="loading") return;
@@ -246,7 +252,10 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
     setPendingFile(null);
     if(importDocumentId){
       try{
-        await markAttachmentIngested(backend,orgId,att.id,importDocumentId);
+        // A1.7.c: pass 'auto_imported' so processing_status is updated atomically
+        // with the import_document_id link — the attachment clears from the
+        // pending queue without a separate status-update round-trip.
+        await markAttachmentIngested(backend,orgId,att.id,importDocumentId,"auto_imported");
         setStatus("ingested");
         onDone?.();
       }catch(e){
@@ -309,9 +318,9 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           : <button
               disabled={status==="loading"}
               onClick={handleReviewAndImport}
-              style={{...btn("#003584","white",{fontSize:11,padding:"5px 10px",whiteSpace:"nowrap",
+              style={{...btn(isBackgroundPartial?"#E65100":"#003584","white",{fontSize:11,padding:"5px 10px",whiteSpace:"nowrap",
                 opacity:status==="loading"?0.6:1,flexShrink:0})}}>
-              {status==="loading"?"Loading…":"Review & Import"}
+              {status==="loading"?"Loading…":isBackgroundPartial?"Complete Import":"Review & Import"}
             </button>
         }
       </div>
@@ -345,6 +354,7 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           onClose={()=>setPendingFile(null)}
           onDone={()=>{}}
           onFinished={handleImportFinished}
+          inboxImportDocumentId={att.import_document_id||null}
         />
       )}
     </>

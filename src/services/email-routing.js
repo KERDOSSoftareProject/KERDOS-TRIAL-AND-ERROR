@@ -116,7 +116,7 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
       .select(`
         id, routing_address_id, postmark_message_id,
         sender_email, sender_name, subject, received_at,
-        inbound_attachments ( id, filename, content_type, import_document_id, ingest_error )
+        inbound_attachments ( id, filename, content_type, import_document_id, ingest_error, processing_status )
       `)
       .eq("organization_id", organizationId)
       .order("received_at", { ascending: false })
@@ -132,7 +132,11 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
       attachment_count: atts.length,
       // Failed attachments (ingest_error set) are permanently unimportable;
       // exclude them from the pending count so the badge reflects actionable items.
-      pending_count: atts.filter((a) => a.import_document_id === null && !a.ingest_error).length,
+      // A background partial (processing_status='needs_review') is still actionable
+      // even though import_document_id is set — the user must complete the review.
+      pending_count: atts.filter(
+        (a) => !a.ingest_error && (a.import_document_id === null || a.processing_status === "needs_review")
+      ).length,
     };
   });
 }
@@ -154,7 +158,7 @@ export async function getMessage(backend, organizationId, messageId) {
         sender_email, sender_name, subject, body_text, received_at,
         inbound_attachments (
           id, filename, content_type, file_size_bytes,
-          storage_path, import_document_id, ingest_error, created_at
+          storage_path, import_document_id, ingest_error, processing_status, created_at
         )
       `)
       .eq("organization_id", organizationId)
@@ -265,11 +269,19 @@ export async function getAttachmentFile(backend, organizationId, attachmentId) {
  * @param {string} importDocumentId
  * @returns {Promise<void>}
  */
-export async function markAttachmentIngested(backend, organizationId, attachmentId, importDocumentId) {
+/**
+ * @param {string|null} [finalStatus]  — optional terminal processing_status to set atomically
+ *   with the import_document_id link.  Accepted values: 'auto_imported', 'needs_review', null.
+ *   Pass 'auto_imported' when the user successfully completed a PasteModal review so the
+ *   attachment clears from the pending queue.  Omit (or pass null) to leave processing_status
+ *   unchanged — used by the audit-retry path which only needs to re-link the document id.
+ */
+export async function markAttachmentIngested(backend, organizationId, attachmentId, importDocumentId, finalStatus = null) {
   await run(
     backend.rpc("mark_attachment_ingested", {
       p_attachment_id:      attachmentId,
       p_import_document_id: importDocumentId,
+      p_final_status:       finalStatus,
     }),
     "markAttachmentIngested"
   );

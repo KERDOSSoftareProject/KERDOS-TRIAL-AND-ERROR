@@ -26,7 +26,13 @@ const documents=createDocumentService(backend);
 const importService=createImportService(backend);
 const r2=value=>Math.round(value*100)/100;
 
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,initialVendorId,initialMode,initialFiles}) {
+// A1.7.a: inboxImportDocumentId is the import_documents.id that the background
+// worker linked via set_attachment_processing_status when it produced a partial
+// (needs_review) result.  When supplied, the save loop looks up the existing
+// document by ID + ownership instead of re-fingerprinting — ensuring the user's
+// PasteModal session resumes the SAME partial document the worker created rather
+// than creating a duplicate under the content fingerprint.
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,initialVendorId,initialMode,initialFiles,inboxImportDocumentId=null}) {
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
   // be dropped in until a vendor is chosen, so a sheet can't land under
@@ -365,8 +371,24 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(group.text));
         const fingerprint=Array.from(new Uint8Array(digest)).map(n=>n.toString(16).padStart(2,"0")).join("");
         let existingDoc;
-        try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
-        catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+        // A1.7.a: when the inbox passes a linked partial-document ID, look it up
+        // directly (validates org+vendor ownership) instead of re-fingerprinting.
+        // This ensures the user's review session resumes the exact document the
+        // background worker created rather than creating a duplicate.
+        // Fall back to fingerprint if the linked ID no longer matches this org+vendor
+        // (e.g. stale link after a vendor re-assignment).
+        if(inboxImportDocumentId){
+          try{existingDoc=await importService.findPriceDocumentById({organizationId:orgId,vendorId,documentId:inboxImportDocumentId});}
+          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          if(!existingDoc){
+            // Ownership mismatch — fall through to fingerprint lookup as safety net.
+            try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
+            catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          }
+        } else {
+          try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
+          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+        }
         // A file that finished is not re-run (use Delete & re-import). A
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below

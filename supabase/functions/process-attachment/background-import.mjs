@@ -233,9 +233,24 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   let reviewReason = null;
   let failedCount = 0;
 
+  // A1.7.b: use row:N (0-based across all groups) as the completedKey so the
+  // format matches ImportModal's progressKey = index => `row:${index}`.
+  //
+  // This alignment is required for three reasons:
+  //   1. import_documents.completed_keys must use the same key format so
+  //      PasteModal's completedKeys.has(`row:${index}`) skips already-saved rows.
+  //   2. verifyResumeRows() expects keys matching /^row:(\d+)$/ and maps them
+  //      back to row positions; non-matching keys cause it to throw on resume.
+  //   3. kerdos_auto_apply_price_quote stores rowKey as price_history.source_row_key
+  //      for the ON CONFLICT DO NOTHING idempotency guard; consistent keys ensure
+  //      a user PasteModal retry for the same row hits ON CONFLICT rather than
+  //      inserting a duplicate price_history row.
+  let globalRowIndex = 0;
+
   for (const group of groups) {
     for (const sourceRow of group.rows) {
-      const completedKey = sourceRow.rowKey || sourceRow.sourceLine || JSON.stringify(sourceRow);
+      const completedKey = `row:${globalRowIndex}`;
+      globalRowIndex++;
       if (completedRows.has(completedKey)) continue; // already saved (resume)
 
       // Find existing vendor item for this row's code.
