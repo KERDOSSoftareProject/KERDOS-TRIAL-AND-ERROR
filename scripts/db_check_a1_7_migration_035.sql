@@ -1,5 +1,7 @@
 -- A1.7 database check for kerdos-test (gwtnaudjfoxjermhvhpx) only.
 -- Run AFTER migration_035_partial_import_recovery.sql is applied.
+-- migration_035 must REVOKE from both PUBLIC and anon (Supabase keeps a direct
+-- anon grant that REVOKE FROM PUBLIC does not cover).  T2 verifies both.
 -- All fixture writes, role claims, and temporary tables are rolled back.
 -- Read the final A1.7 NOTICE summary; a preflight failure makes no fixtures.
 BEGIN;

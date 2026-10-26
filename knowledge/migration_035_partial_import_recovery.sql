@@ -176,7 +176,14 @@ $$;
 
 -- ── Grants ────────────────────────────────────────────────────────────────────
 -- The old 2-param function's grants were revoked above (implicitly by DROP).
--- Re-grant the new 3-param version to authenticated.  PUBLIC is excluded so
--- anonymous callers cannot trigger the SECURITY DEFINER path.
+-- Re-grant the new 3-param version to authenticated.  PUBLIC and anon are
+-- excluded so anonymous callers cannot trigger the SECURITY DEFINER path.
+--
+-- anon is revoked explicitly because Supabase creates a direct EXECUTE grant
+-- for anon on functions that previously existed with public access.  REVOKE
+-- FROM PUBLIC does not cover that direct grant; without this line a fresh
+-- database applying this migration would leave anon able to call the function.
+-- (Caught by T2 in the A1.7 rollback check suite — first run: anon=true.)
 REVOKE EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) FROM anon;
 GRANT  EXECUTE ON FUNCTION mark_attachment_ingested(uuid, uuid, text) TO authenticated;
