@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useState} from "react";
 import {backend} from "../backend/index.js";
 import {createCategoryService} from "../services/categories.js";
@@ -385,7 +386,7 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
       ))}
 
       {showInvite&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <MovableDialog label="Invite someone" maxWidth={428} zIndex={1000}>
           <div style={{background:"white",borderRadius:12,padding:24,width:"100%",maxWidth:380}}>
             {!newCode?(<>
               <h3 style={{margin:"0 0 14px",fontSize:16}}>Invite someone</h3>
@@ -408,7 +409,7 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
               <button onClick={()=>setShowInvite(false)} style={{...btn("#003584"),width:"100%"}}>Done</button>
             </>)}
           </div>
-        </div>
+        </MovableDialog>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
@@ -143,7 +144,7 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
       </td>
     </tr>
     {overrideOpen&&<tr><td colSpan={CATALOG_COLUMNS.length+2}>
-      <div role="dialog" aria-modal="true" aria-label="Unit cost override" style={{position:"fixed",inset:0,background:"#0006",zIndex:1000,display:"grid",placeItems:"center"}}>
+      <MovableDialog label="Unit cost override" maxWidth={428} zIndex={1000}>
         <div style={{background:"white",padding:24,borderRadius:10,width:380,maxWidth:"90vw"}}>
           <div>KERDOS cannot calculate unit cost from this pack and quoted unit. Enter your approved values to continue.</div>
           <label style={{display:"block",marginTop:12}}>Unit cost<input aria-label="Override unit cost" type="number" min="0" step="any" style={inputStyle} value={overrideCost} onChange={e=>setOverrideCost(e.target.value)}/></label>
@@ -153,7 +154,7 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
           {error&&<div role="alert" style={{color:"#A32B20"}}>{error}</div>}
           <div style={{marginTop:16}}><button disabled={busy} onClick={()=>save({price:Number(overrideCost),unit:overrideUnit,packPrice:Number(overridePackPrice)})} style={btn("#003584","white")}>Apply override</button><button disabled={busy} onClick={()=>setOverrideOpen(false)} style={{marginLeft:12}}>Cancel</button></div>
         </div>
-      </div>
+      </MovableDialog>
     </td></tr>}
     {details&&<tr><td colSpan={CATALOG_COLUMNS.length+2} style={{...cellStyle,background:"#F2F6FA"}}>
       <div style={{fontWeight:700,marginBottom:10}}>{assessment.ready?"Meets Order Guide field requirements":"Waiting on: "+assessment.blockers.map(code=>BLOCKER_LABELS[code]).join("; ")}{dirty?" (unsaved preview)":""}</div>

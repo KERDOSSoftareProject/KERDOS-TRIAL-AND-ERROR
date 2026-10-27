@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
 import {useMemo,useState} from "react";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
@@ -414,7 +415,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
       {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
 
       {canManage&&addingItem&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <MovableDialog label="Add a catalog item" maxWidth={428} zIndex={1000}>
           <div style={{background:"white",borderRadius:12,padding:24,width:"100%",maxWidth:380}}>
             <h3 style={{margin:"0 0 4px",fontSize:16}}>Add a catalog item</h3>
             <p style={{margin:"0 0 14px",fontSize:12,color:"#888"}}>This is your item — name it however makes sense to you. Vendor prices get matched into it as they come in.</p>
@@ -428,7 +429,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
               <button onClick={handleAddItem} disabled={addingBusy||!newItemName.trim()} style={{...btn("#003584"),flex:2}}>{addingBusy?"Adding...":"Add Item"}</button>
             </div>
           </div>
-        </div>
+        </MovableDialog>
       )}
 
       <div style={{display:"flex",gap:8,marginBottom:14}}>
