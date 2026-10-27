@@ -15,14 +15,14 @@ const SNAPSHOT_QUERIES = Object.freeze([
   ["vocabulary", c=>c.from("org_vocabulary").select("*")],
 ]);
 
-export function createSupabaseBackend({url,anonKey}) {
+export function createSupabaseBackend({url,anonKey}, clientFactory=createClient) {
   if(!url||!anonKey) throw new Error("Supabase adapter requires an external URL and anonymous key");
   // Auth belongs to this browser tab. A refresh or a switch to another tab
   // keeps the session; closing this tab ends it. Remove the old default
   // localStorage token once so an earlier persistent login cannot revive it.
   const storageKey=`sb-${new URL(url).hostname.split(".")[0]}-auth-token`;
   try{window.localStorage.removeItem(storageKey);}catch{}
-  const client=createClient(url,anonKey,{auth:{storage:window.sessionStorage,storageKey,persistSession:true}});
+  const client=clientFactory(url,anonKey,{auth:{storage:window.sessionStorage,storageKey,persistSession:true}});
   return {
     kind:"supabase",
     session:{
@@ -43,6 +43,7 @@ export function createSupabaseBackend({url,anonKey}) {
         return loadWorkspaceSnapshot(client,organizationId);
       },
     },
+    inbox:createSupabaseInbox(client),
     orders:{submit(row){return providerResult(client.rpc("kerdos_submit_order",row),"Record order");}},
     documents:{
       upload(path,file,options){return providerResult(client.storage.from("documents").upload(path,file,options),"Upload document");},
@@ -145,4 +146,20 @@ export async function loadWorkspaceSnapshot(client,organizationId){
           return [name,rows];
         }));
         return Object.fromEntries(entries);
+}
+
+// Only the provider adapter names and invokes database procedures.
+export function createSupabaseInbox(client) {
+  return {
+    beginManualReview(organizationId, attachmentId) {
+      return providerResult(client.rpc("begin_manual_attachment_review", {
+        p_organization_id:organizationId, p_attachment_id:attachmentId,
+      }), "Reserve Inbox attachment");
+    },
+    markAttachmentIngested(_organizationId, attachmentId, importDocumentId, finalStatus=null) {
+      return providerResult(client.rpc("mark_attachment_ingested", {
+        p_attachment_id:attachmentId, p_import_document_id:importDocumentId, p_final_status:finalStatus,
+      }), "Complete Inbox attachment");
+    },
+  };
 }
