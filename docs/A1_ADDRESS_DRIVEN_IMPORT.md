@@ -69,9 +69,13 @@ combined database-update builder does not include these files; do not use that
 combined bundle as this rollout's migration source. No database migration or
 function/frontend deployment was performed for this implementation.
 
-Before the deployment recommendation: verify draft migrations against the
-actual test schema and check the current deployed environment. After test
-rollout, verify actual mail receipt and saved invoice/price-sheet data in the
+Both draft migrations were subsequently executed inside a rolled-back
+transaction against the actual kerdos-test schema. Compilation, service-only
+function grants and snapshot consistency checks passed. Follow-up inspection
+confirmed neither migration remained applied. This is real schema-compatibility
+evidence, not deployed invoice-processing evidence. The invoice changes are
+ready for a controlled Trial and Error test rollout. After that rollout,
+verify actual mail receipt and saved invoice/price-sheet data in the
 Trial and Error app, including a closed browser, duplicate delivery and
 manual-review exceptions. Real receiving domains/addresses must be supplied
 and configured; illustrative addresses are not treated as live. Supported
