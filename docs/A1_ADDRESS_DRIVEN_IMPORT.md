@@ -109,3 +109,31 @@ checks now total 29. Integration with the latest Trial and Error main preserves
 its Inbox adapter, test receiving-address configuration and movable dialogs.
 Combined npm test/lint and build passed. Frontend deployment and verification
 of the parser update against deployed fixtures follow this source checkpoint.
+
+## Zero-action registration correction
+
+The client-facing routing setup was the wrong entry point. Receiving addresses
+are now provisioned by vendor lifecycle triggers, not by a form or a page visit.
+The authenticated organization supplies the client; the vendor row supplies
+the vendor. Provisioning creates both document registrations. Invoices and
+Price Sheets each display the correct receiving address for their context.
+The Inbox overview is read-only. There is no Add Address, vendor-assignment,
+document-type or Save control in the receiving UI. Existing manual upload
+features remain available as their separate ingestion path.
+
+Platform configuration is private and service-only. Actual delivery-ready
+price-sheet and invoice domains are deployment settings, with arbitrary
+company names and domain extensions. No illustrative domain is activated.
+When platform domains become delivery-ready, existing vendors are backfilled;
+new vendors get both addresses immediately. Inactive vendors lose active
+receivers; reactivation reuses them. Name collisions cannot cross tenants,
+and renaming a vendor does not silently change its established addresses.
+Client roles can read their own automatic registrations, but cannot insert,
+edit, deactivate or reassign them. Receipt snapshots remain unchanged.
+
+Validation: 12 PostgreSQL provisioning/access/lifecycle checks, four rendered
+context checks, full npm test/lint and build passed. A transaction against the
+actual kerdos-test schema verified automatic registration, address/type
+ownership and client write denial, then rolled back. Real receiving domains
+have not been supplied; mail-provider/DNS readiness must be established by the
+platform operator, never delegated to each client through setup dropdowns.

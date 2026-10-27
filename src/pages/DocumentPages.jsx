@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from "react";
 import {createPortal} from "react-dom";
+import {ReceivingAddressesPanel} from "./ReceivingAddresses.jsx";
 
 const navy="#073B83",ink="#17243A",muted="#6D7A8B",line="#E4EAF1",surface="#F5F8FC";
 const button=(background,color="white")=>({background,color,border:"1px solid transparent",borderRadius:9,padding:"10px 14px",fontWeight:800,cursor:"pointer",fontSize:12,boxShadow:"0 1px 2px rgba(16,35,61,.08)"});
@@ -71,7 +72,7 @@ function DocumentRow({title,meta,amount,warning,open,onToggle,children,controls}
   </article>;
 }
 
-export function InvoicesPage({vendors,invoices,vendorFilter,setVendorFilter,vendorColors,formatDate,formatMoney,
+export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilter,vendorColors,formatDate,formatMoney,
   attentionCount,role,onImport,onExport,onViewOriginal,onEdit,onDelete,expandedId,setExpandedId}){
   const groups=new Map();
   for(const invoice of invoices){
@@ -85,6 +86,7 @@ export function InvoicesPage({vendors,invoices,vendorFilter,setVendorFilter,vend
   const vendorGroups=[...groups.entries()].map(([vendorId,rows])=>({vendorId,vendorName:rows[0]?.vendors?.name||vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",rows:rows.sort((a,b)=>new Date(b.invoice_date||b.created_at)-new Date(a.invoice_date||a.created_at))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorFilter?vendorGroups.filter(group=>group.vendorId===vendorFilter):vendorGroups;
   return <div>
+    {orgId&&<ReceivingAddressesPanel orgId={orgId} vendors={vendors} documentType="invoice"/>}
     <PageHeader eyebrow="Purchasing records" title="Invoice History" description="Invoices are preserved as their original files for historical reference. KERDOS reads them in the background only to verify that ordered items and charged prices agree with the applicable price sheet." actionLabel={role!=="employee"?"🧾 Import Invoice":null} onAction={()=>onImport(vendorFilter)} secondaryLabel="Export Variance Report" onSecondary={onExport}/>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"0 0 14px",padding:"10px 12px",background:"rgba(255,255,255,.10)",borderRadius:11}}><VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter}/><span style={{fontSize:11,color:"rgba(255,255,255,.78)"}}>{visible.reduce((sum,group)=>sum+group.rows.length,0)} invoice file{visible.reduce((sum,group)=>sum+group.rows.length,0)===1?"":"s"}</span></div>
     {attentionCount>0&&<div style={{background:"#FFF3E0",color:"#8A5A00",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:14}}>{attentionCount} invoice price comparison{attentionCount===1?"":"s"} need review. The original invoice remains the source record.</div>}
@@ -99,7 +101,7 @@ export function InvoicesPage({vendors,invoices,vendorFilter,setVendorFilter,vend
   </div>;
 }
 
-export function PriceSheetsPage({vendors,importDocuments,vendorFilter,setVendorFilter,vendorColors,
+export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setVendorFilter,vendorColors,
   formatDate,role,onImport,onExpireVendor,onDelete,onClear,onViewOriginal,onViewSource,
   expandedId,setExpandedId,hasMore,loadingMore,onLoadMore}){
   // Only a saved import is a document. Price changes and catalog corrections
@@ -109,6 +111,7 @@ export function PriceSheetsPage({vendors,importDocuments,vendorFilter,setVendorF
   const vendorGroups=[...groups.entries()].map(([vendorId,docs])=>({vendorId,vendorName:vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",documents:docs.sort((a,b)=>new Date(b.date)-new Date(a.date))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorFilter?vendorGroups.filter(group=>group.vendorId===vendorFilter):vendorGroups;
   return <div>
+    {orgId&&<ReceivingAddressesPanel orgId={orgId} vendors={vendors} documentType="pricelist"/>}
     <PageHeader eyebrow="Vendor source files" title="Price Sheet History" description="Your imported price sheets, organized by vendor and date. Open a file to view the original document." actionLabel={role!=="employee"?"📋 Import Price Sheet":null} onAction={()=>onImport(vendorFilter)}/>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"0 0 14px",padding:"10px 12px",background:"rgba(255,255,255,.10)",borderRadius:11}}><VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter}/><span style={{fontSize:11,color:"rgba(255,255,255,.78)"}}>{visible.reduce((sum,group)=>sum+group.documents.length,0)} source file{visible.reduce((sum,group)=>sum+group.documents.length,0)===1?"":"s"}</span></div>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>

@@ -13,7 +13,7 @@
     "lint": "eslint src scripts vite.config.js",
     "test:a1-ui": "node scripts/test_a1_preview_save.mjs",
     "test:a1-inbox": "node src/services/email-routing-test.mjs && node src/services/email-routing-manual-claim-test.mjs && node scripts/test_a1_inbox_adapter.mjs && node scripts/test_a1_test_receiving_address.mjs",
-    "test:a1": "node src/services/email-routing-test.mjs && node scripts/test_module_a_interactions.mjs && node scripts/test_module_a_importer.mjs && node supabase/functions/process-attachment/process-attachment-test.mjs && node supabase/functions/process-attachment/lease-handoff-test.mjs && node scripts/test_a1_atomic_invoice.mjs && npm run test:a1-ui"
+    "test:a1": "node src/services/email-routing-test.mjs && node scripts/test_module_a_interactions.mjs && node scripts/test_module_a_importer.mjs && node supabase/functions/process-attachment/process-attachment-test.mjs && node supabase/functions/process-attachment/lease-handoff-test.mjs && node scripts/test_a1_atomic_invoice.mjs && npm run test:a1-ui && node scripts/test_a1_automatic_registration.mjs && node scripts/test_a1_receiving_context.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
