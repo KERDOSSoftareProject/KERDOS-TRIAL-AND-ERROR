@@ -40,4 +40,15 @@ check("H13 failed action", attachmentActionBlocked(failed), true);
 check("H13 failed overrides linked state", attachmentRenderOutcome({ ...partial, ingest_error: "bad base64" }), "failed");
 check("H13 missing row safely blocked", attachmentActionBlocked(null), true);
 
+// A1 cross-task handoff: no manual import may overlap an active worker.
+const processing = { import_document_id: null, processing_status: "processing", ingest_error: null };
+check("processing row shows its worker state", attachmentRenderOutcome(processing), "processing");
+check("processing row blocks manual action", attachmentActionBlocked(processing), true);
+check("processing row with a document is not falsely imported",
+  attachmentRenderOutcome({ ...processing, import_document_id: "doc-1" }), "processing");
+const recovered = { import_document_id: "doc-1", processing_status: "pending", ingest_error: null };
+check("recovered pending partial is not marked imported", attachmentStateFlags(recovered),
+  { alreadyIngested: false, partialReview: true });
+check("recovered pending partial offers resume after atomic manual claim", attachmentRenderOutcome(recovered), "partial");
+
 console.log(`${passed} attachment-state assertions passed`);

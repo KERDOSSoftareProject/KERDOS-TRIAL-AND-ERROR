@@ -30,6 +30,7 @@ import {
   getMessage,
   listPendingAttachments as _listPendingAttachments,
   markAttachmentIngested,
+  beginManualAttachmentReview,
   getAttachmentFile,
 } from "../services/email-routing.js";
 import {btn,inp} from "../ui/styles.js";
@@ -235,6 +236,13 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
     setStatus("loading");setError("");
     let file;
     try{
+      const reserved=await beginManualAttachmentReview(backend,orgId,att.id);
+      if(!reserved){
+        setError("Automatic processing is still running or this attachment is already complete. Refresh the inbox and try again.");
+        setStatus("idle");
+        onDone?.();
+        return;
+      }
       file=await getAttachmentFile(backend,orgId,att.id);
     }catch(e){
       setError(e.message||"Could not fetch attachment.");
@@ -317,7 +325,9 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           </div>
           {sizeKB&&<div style={{fontSize:11,color:"#888"}}>{sizeKB}</div>}
         </div>
-        {renderOutcome==="imported"
+        {renderOutcome==="processing"
+          ? <span style={{fontSize:11,color:"#666",fontWeight:700,whiteSpace:"nowrap"}}>Processing…</span>
+          : renderOutcome==="imported"
           ? <span style={{fontSize:11,color:"#388e3c",fontWeight:700,whiteSpace:"nowrap"}}>✓ Imported</span>
           : <button
               disabled={status==="loading"}

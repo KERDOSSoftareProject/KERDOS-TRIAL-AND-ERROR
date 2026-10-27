@@ -293,3 +293,17 @@ export async function markAttachmentIngested(backend, organizationId, attachment
     "markAttachmentIngested"
   );
 }
+
+/** Atomically reserve an attachment for manual review before opening PasteModal.
+ * A pending automatic worker and the user compete for the same database row lock.
+ * Only one can change the state; a running worker returns false.
+ */
+export async function beginManualAttachmentReview(backend, organizationId, attachmentId) {
+  return run(
+    backend.rpc("begin_manual_attachment_review", {
+      p_organization_id: organizationId,
+      p_attachment_id: attachmentId,
+    }),
+    "beginManualAttachmentReview"
+  );
+}
