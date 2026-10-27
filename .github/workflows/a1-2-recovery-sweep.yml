@@ -1,0 +1,24 @@
+# Test environment only. Runs manually after the function is deployed and
+# KERDOS_TEST_RECOVERY_SWEEP_SECRET is configured. Do not add a schedule
+# until the live check passes.
+name: A1.2.f Test Recovery Sweep
+on:
+  workflow_dispatch:
+
+jobs:
+  sweep-kerdos-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Recover stale and retry pending test attachments
+        env:
+          RECOVERY_SWEEP_SECRET: ${{ secrets.KERDOS_TEST_RECOVERY_SWEEP_SECRET }}
+        run: |
+          if [ -z "$RECOVERY_SWEEP_SECRET" ]; then
+            echo 'The test recovery sweep secret is not configured.' >&2
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -X POST \
+            -H "Authorization: Bearer $RECOVERY_SWEEP_SECRET" \
+            'https://gwtnaudjfoxjermhvhpx.supabase.co/functions/v1/recovery-sweep'

@@ -12,6 +12,12 @@
  * Postmark to retry.  Permanent errors (malformed base64) are recorded
  * as visible ingest_error rows so the inbox UI can show the failure.
  *
+ * A1.2.e handoff (Gap 4)
+ * ──────────────────────
+ * After storing the row, this module awaits the process-attachment result.
+ * A dispatch failure throws to inbound-email, which responds 500 so Postmark
+ * retries. The existing-row path re-dispatches pending rows on that retry.
+ *
  * Idempotency key
  * ───────────────
  * Each attachment is identified by (message_id, attachment_index),
@@ -47,6 +53,8 @@
  * (with a non-23505 code) the function THROWS so Postmark retries the
  * entire webhook and gets another chance to record the failure row.
  */
+
+import { isDispatchable, VALID_OUTCOMES } from "./attachment-state.mjs";
 
 // ── base64 decode ──────────────────────────────────────────────────────────
 
@@ -93,7 +101,7 @@ export async function processAttachments(backend, organizationId, messageId, att
     // ── 1. Idempotency: skip if DB row already present ───────────────────
     const { data: existingAtt, error: existsErr } = await backend
       .from("inbound_attachments")
-      .select("id")
+      .select("id, processing_status, ingest_error, storage_path")
       .eq("message_id", messageId)
       .eq("attachment_index", attachmentIndex)
       .maybeSingle();
@@ -103,7 +111,14 @@ export async function processAttachments(backend, organizationId, messageId, att
         `existence check failed for attachment ${attachmentIndex} (${filename}): ${existsErr.message}`
       );
     }
-    if (existingAtt) continue; // already stored by a prior attempt
+    if (existingAtt) {
+      // A prior delivery may have stored the row but failed to launch the
+      // processor. Retrying a dispatchable pending row must complete that handoff.
+      if (isDispatchable(existingAtt)) {
+        await triggerProcessAttachment(backend, organizationId, existingAtt.id, filename, attachmentIndex);
+      }
+      continue;
+    }
 
     // ── 2. Decode base64 (permanent error → ingest_error row) ───────────
     let bytes;
@@ -171,12 +186,15 @@ export async function processAttachments(backend, organizationId, messageId, att
             `re-check after storage conflict failed for attachment ${attachmentIndex} (${filename}): ${raceErr.message}`
           );
         }
-        if (raceRow) continue; // concurrent request finished cleanly
+        if (raceRow) {
+          await triggerProcessAttachment(backend, organizationId, raceRow.id, filename, attachmentIndex);
+          continue;
+        }
 
         // Orphaned Storage object: prior request crashed after uploading
         // but before writing the DB row.  Recover by inserting the row now;
         // storagePath is deterministic so we know exactly where the file is.
-        const { error: recoverErr } = await backend
+        const { data: recoveredRow, error: recoverErr } = await backend
           .from("inbound_attachments")
           .insert({
             organization_id:  organizationId,
@@ -187,14 +205,25 @@ export async function processAttachments(backend, organizationId, messageId, att
             file_size_bytes:  att.ContentLength || bytes.length,
             storage_path:     storagePath,
             import_document_id: null,
-          });
+          })
+          .select("id")
+          .single();
         if (recoverErr) {
-          if (recoverErr.code === "23505") continue; // concurrent recovery race
+          if (recoverErr.code === "23505") {
+            const { data: winner, error: winnerErr } = await backend.from("inbound_attachments")
+              .select("id").eq("message_id", messageId)
+              .eq("attachment_index", attachmentIndex).maybeSingle();
+            if (winnerErr || !winner) throw new Error(`recovery winner lookup failed: ${winnerErr?.message ?? "missing row"}`);
+            await triggerProcessAttachment(backend, organizationId, winner.id, filename, attachmentIndex);
+            continue;
+          }
           throw new Error(
             `recovery insert failed for attachment ${attachmentIndex} (${filename}): ${recoverErr.message}`
           );
         }
-        // Recovery succeeded — continue to next attachment
+        // Recovery succeeded — fire process-attachment for this recovered row
+        if (!recoveredRow?.id) throw new Error("recovery insert returned no attachment ID");
+        await triggerProcessAttachment(backend, organizationId, recoveredRow.id, filename, attachmentIndex);
         continue;
       }
 
@@ -205,7 +234,7 @@ export async function processAttachments(backend, organizationId, messageId, att
     }
 
     // ── 4. Write DB row ──────────────────────────────────────────────────
-    const { error: attErr } = await backend
+    const { data: newRow, error: attErr } = await backend
       .from("inbound_attachments")
       .insert({
         organization_id:  organizationId,
@@ -216,17 +245,48 @@ export async function processAttachments(backend, organizationId, messageId, att
         file_size_bytes:  att.ContentLength || bytes.length,
         storage_path:     storagePath,
         import_document_id: null,
-      });
+      })
+      .select("id")
+      .single();
 
     if (attErr) {
       if (attErr.code === "23505") {
         // Concurrent retry inserted the row after our existence check
-        // passed.  The file and row both exist — treat as success.
+        // passed. Fetch the winner so its pending handoff can be retried.
+        const { data: winner, error: winnerErr } = await backend.from("inbound_attachments")
+          .select("id").eq("message_id", messageId)
+          .eq("attachment_index", attachmentIndex).maybeSingle();
+        if (winnerErr || !winner) throw new Error(`insert winner lookup failed: ${winnerErr?.message ?? "missing row"}`);
+        await triggerProcessAttachment(backend, organizationId, winner.id, filename, attachmentIndex);
         continue;
       }
       throw new Error(
         `insert failed for attachment ${attachmentIndex} (${filename}): ${attErr.message}`
       );
     }
+
+    // ── 5. Confirm the processing handoff before acknowledging Postmark ──
+    if (!newRow?.id) throw new Error("attachment insert returned no ID");
+    await triggerProcessAttachment(backend, organizationId, newRow.id, filename, attachmentIndex);
+  }
+}
+
+// ── triggerProcessAttachment ──────────────────────────────────────────────────
+//
+// The invocation is awaited. An error reaches inbound-email's 500 response,
+// allowing Postmark to retry the existing attachment's pending handoff.
+
+async function triggerProcessAttachment(backend, organizationId, attachmentId, filename, attachmentIndex) {
+  // Supabase client or a test mock must expose functions.invoke.
+  const invoke = backend?.functions?.invoke;
+  if (typeof invoke !== "function") throw new Error("process-attachment invocation is unavailable");
+
+  const { data, error } = await invoke.call(backend.functions, "process-attachment", {
+    body: { attachmentId, organizationId },
+  });
+  if (error || !VALID_OUTCOMES.includes(data?.outcome)) {
+    // A failed dispatch must not be acknowledged as a successful delivery.
+    // Postmark retries, and the existing-row path above will retry the handoff.
+    throw new Error(`process-attachment failed for ${attachmentIndex} (${filename}): ${error?.message ?? data?.reason ?? "unknown"}`);
   }
 }

@@ -19,6 +19,8 @@
  *   7. No vendor assigned — processAttachmentInBackground throws before any I/O
  *   8. Row-save failure → needs_review immediately; loop stops, later rows not attempted
  *   9. needs_review status carries the import_document id (Fix 4 — document must be linked)
+ *  10. Compressed XLSX (deflate ZIP method 8) — portable-file-reader decodes it correctly
+ *  11. inbound-email handoff — fireProcessAttachment is called with correct payload
  */
 
 import assert from "node:assert/strict";
@@ -637,6 +639,265 @@ await test("needs_review status carries import_document id (Fix 4 — document m
   );
   assert.equal(statusEntry.docId, expectedDocId,
     `Expected docId "${expectedDocId}" but got "${statusEntry.docId}"`);
+});
+
+// ── Test 10: compressed XLSX (deflate ZIP method 8) ──────────────────────────
+//
+// Real-world XLSX files use ZIP with deflate (method 8) for every entry.
+// portable-file-reader.mjs now uses DecompressionStream("deflate-raw") to
+// decompress them.  This test builds a minimal XLSX-shaped ZIP in memory —
+// the smallest file that exercises the full parseZip → parseXlsx → sheet
+// extraction path — and verifies that readAttachment returns { kind: "sheets" }.
+//
+// The test does NOT run the full import pipeline.  Its single purpose is to
+// confirm the reader no longer produces FileReadError for deflate ZIP entries
+// (the regression introduced in ac40b07 where the stub silently deleted all
+// method-8 entries).
+//
+// Note: this test runs in Node.js (via the node:zlib built-in), but
+// DecompressionStream is only available in Deno / browser.  We test the
+// reader's public readAttachment() function using the real bytes it would
+// receive at runtime; the decompression path inside parseZip uses
+// DecompressionStream which is available in Deno 1.9+ (Edge Functions 1.30+).
+//
+// When running under Node.js the DecompressionStream API is available since
+// Node 18.  The test therefore also works in Node 18+.
+
+import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
+import zlib from "node:zlib";
+import { promisify } from "node:util";
+
+const deflateRaw = promisify(zlib.deflateRaw);
+
+/**
+ * Build a minimal XLSX-shaped ZIP with deflate (method 8) entries.
+ *
+ * XLSX is a ZIP of XML files.  The minimum viable XLSX that survives
+ * parseXlsx must contain:
+ *   xl/workbook.xml   — lists sheets
+ *   xl/worksheets/sheet1.xml  — first sheet with one data cell
+ *   [Content_Types].xml  — required to be present (read by parseXlsx prologue)
+ *
+ * All three entries are deflated (method 8) so the test exercises the
+ * real decompression path.
+ */
+async function buildMinimalXlsxBytes() {
+  // Minimal content for each XLSX entry
+  const entries = {
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`,
+    // The workbook relationships file maps rId1 (used in workbook.xml) to the
+    // worksheet path.  parseXlsx reads xl/_rels/workbook.xml.rels; without it,
+    // rels = {} and all sheets are silently skipped.
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>`,
+    "xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr"><is><t>code</t></is></c>
+      <c r="B1" t="inlineStr"><is><t>price</t></is></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="inlineStr"><is><t>SKU-001</t></is></c>
+      <c r="B2"><v>10.00</v></c>
+    </row>
+  </sheetData>
+</worksheet>`,
+  };
+
+  const enc = new TextEncoder();
+  const parts = [];
+
+  // local file header offsets for central directory
+  const localOffsets = {};
+  let offset = 0;
+
+  for (const [filename, content] of Object.entries(entries)) {
+    const fnBytes   = enc.encode(filename);
+    const rawBytes  = enc.encode(content);
+    const compBytes = await deflateRaw(rawBytes);
+
+    const view = new DataView(new ArrayBuffer(30 + fnBytes.length));
+    view.setUint32(0,  0x04034b50, true); // local file header signature
+    view.setUint16(4,  20,         true); // version needed
+    view.setUint16(6,  0,          true); // flags
+    view.setUint16(8,  8,          true); // compression method: deflate
+    view.setUint16(10, 0,          true); // last mod time
+    view.setUint16(12, 0,          true); // last mod date
+    view.setUint32(14, 0,          true); // crc-32 (0 = not checked by our reader)
+    view.setUint32(18, compBytes.length, true); // compressed size
+    view.setUint32(22, rawBytes.length,  true); // uncompressed size
+    view.setUint16(26, fnBytes.length,   true); // filename length
+    view.setUint16(28, 0,                true); // extra field length
+    for (let i = 0; i < fnBytes.length; i++) view.setUint8(30 + i, fnBytes[i]);
+
+    localOffsets[filename] = offset;
+    offset += view.byteLength + compBytes.length;
+    parts.push(new Uint8Array(view.buffer));
+    parts.push(compBytes);
+  }
+
+  // Central directory
+  const cdParts = [];
+  let cdSize = 0;
+  for (const [filename, content] of Object.entries(entries)) {
+    const fnBytes  = enc.encode(filename);
+    const rawBytes = enc.encode(content);
+    const compBytes = await deflateRaw(rawBytes);
+
+    const cdEntry = new DataView(new ArrayBuffer(46 + fnBytes.length));
+    cdEntry.setUint32(0,  0x02014b50,          true); // CD signature
+    cdEntry.setUint16(4,  20,                  true); // version made by
+    cdEntry.setUint16(6,  20,                  true); // version needed
+    cdEntry.setUint16(8,  0,                   true); // flags
+    cdEntry.setUint16(10, 8,                   true); // compression method: deflate
+    cdEntry.setUint16(12, 0,                   true); // last mod time
+    cdEntry.setUint16(14, 0,                   true); // last mod date
+    cdEntry.setUint32(16, 0,                   true); // crc-32
+    cdEntry.setUint32(20, compBytes.length,    true); // compressed size
+    cdEntry.setUint32(24, rawBytes.length,     true); // uncompressed size
+    cdEntry.setUint16(28, fnBytes.length,      true); // filename length
+    cdEntry.setUint16(30, 0,                   true); // extra field length
+    cdEntry.setUint16(32, 0,                   true); // file comment length
+    cdEntry.setUint16(34, 0,                   true); // disk number start
+    cdEntry.setUint16(36, 0,                   true); // internal attrs
+    cdEntry.setUint32(38, 0,                   true); // external attrs
+    cdEntry.setUint32(42, localOffsets[filename], true); // local header offset
+    for (let i = 0; i < fnBytes.length; i++) cdEntry.setUint8(46 + i, fnBytes[i]);
+
+    cdParts.push(new Uint8Array(cdEntry.buffer));
+    cdSize += cdEntry.byteLength;
+  }
+
+  // End of central directory record
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0,  0x06054b50,            true); // EOCD signature
+  eocd.setUint16(4,  0,                     true); // disk number
+  eocd.setUint16(6,  0,                     true); // disk with CD
+  eocd.setUint16(8,  Object.keys(entries).length, true); // entries on this disk
+  eocd.setUint16(10, Object.keys(entries).length, true); // total entries
+  eocd.setUint32(12, cdSize,                true); // CD size
+  eocd.setUint32(16, offset,                true); // CD offset
+  eocd.setUint16(20, 0,                     true); // comment length
+
+  const allParts = [...parts, ...cdParts, new Uint8Array(eocd.buffer)];
+  const totalLen = allParts.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(totalLen);
+  let off = 0;
+  for (const a of allParts) { out.set(a, off); off += a.length; }
+  return out;
+}
+
+await test("compressed XLSX (deflate method 8) — portable-file-reader decodes it", async () => {
+  // Build a real deflate-compressed XLSX in memory.
+  const xlsxBytes = await buildMinimalXlsxBytes();
+
+  // readAttachment must return { kind: "sheets" } — not FileReadError.
+  const result = await readAttachment(
+    xlsxBytes,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "test.xlsx"
+  );
+
+  assert.notEqual(result.kind, "unsupported",
+    "Expected readAttachment to parse a deflate-compressed XLSX, got 'unsupported'");
+
+  // A FileReadError thrown internally would be caught and turned into
+  // { kind: "unsupported" } by readAttachment.  Verify it produced sheets.
+  assert.equal(result.kind, "sheets",
+    `Expected kind="sheets" from XLSX reader but got "${result.kind}"`);
+
+  assert.ok(Array.isArray(result.sheets) && result.sheets.length > 0,
+    "Expected at least one sheet from the XLSX reader");
+});
+
+// ── Test 11: inbound-email handoff — fireProcessAttachment invoked ────────────
+//
+// After attachment-processor.mjs inserts a DB row, it awaits
+// backend.functions.invoke("process-attachment", { body: { attachmentId, organizationId } }).
+// This test exercises that by supplying a mock backend with a functions.invoke
+// recorder and checking the invocation payload.
+
+import { processAttachments } from "../inbound-email/attachment-processor.mjs";
+import { base64ToBytes } from "../inbound-email/attachment-processor.mjs";
+
+await test("inbound-email handoff: process-attachment invoked after DB insert", async () => {
+  const invokedCalls = [];
+  let insertedId = "att-inserted-1";
+
+  // Minimal mock Supabase-like backend:
+  //   - storage.from().upload() succeeds
+  //   - from("inbound_attachments").select().maybeSingle() → null (no existing row)
+  //   - from("inbound_attachments").insert().select("id").single() → { id: insertedId }
+  //   - functions.invoke() records call
+  const mockBackend = {
+    from(table) {
+      return {
+        select() { return this; },
+        insert(payload) {
+          return {
+            select() { return this; },
+            single() {
+              return Promise.resolve({ data: { id: insertedId }, error: null });
+            },
+          };
+        },
+        eq()         { return this; },
+        maybeSingle(){ return Promise.resolve({ data: null, error: null }); },
+      };
+    },
+    storage: {
+      from() {
+        return {
+          upload() { return Promise.resolve({ error: null }); },
+        };
+      },
+    },
+    functions: {
+      invoke(fnName, opts) {
+        invokedCalls.push({ fnName, body: opts?.body });
+        return Promise.resolve({ data: { outcome: "auto_imported" }, error: null });
+      },
+    },
+  };
+
+  // Build a minimal valid attachment: 1-byte content, base64-encoded.
+  const content = btoa(String.fromCharCode(65)); // "A"
+  const attachments = [{
+    Name:          "prices.csv",
+    ContentType:   "text/csv",
+    ContentLength: 1,
+    Content:       content,
+  }];
+
+  await processAttachments(mockBackend, "org-1", "msg-1", attachments);
+
+  // process-attachment must have been invoked exactly once
+  assert.equal(invokedCalls.length, 1,
+    `Expected functions.invoke to be called once but was called ${invokedCalls.length} times`);
+
+  const call = invokedCalls[0];
+  assert.equal(call.fnName, "process-attachment",
+    `Expected invoke target 'process-attachment' but got '${call.fnName}'`);
+  assert.equal(call.body?.attachmentId, insertedId,
+    `Expected attachmentId="${insertedId}" in invoke body but got "${call.body?.attachmentId}"`);
+  assert.equal(call.body?.organizationId, "org-1",
+    `Expected organizationId="org-1" in invoke body but got "${call.body?.organizationId}"`);
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────
