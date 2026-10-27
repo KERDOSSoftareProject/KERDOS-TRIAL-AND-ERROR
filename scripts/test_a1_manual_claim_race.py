@@ -69,13 +69,13 @@ def cleanup(url, ids):
     conn = connection(url)
     try:
         with conn.cursor() as cursor:
-            cursor.execute("DELETE FROM public.inbound_attachments WHERE id = ANY(%s)", (ids["ids"],))
+            cursor.execute("DELETE FROM public.inbound_attachments WHERE id = ANY(%s::uuid[])", (ids["ids"],))
             cursor.execute("DELETE FROM public.inbound_messages WHERE id = %s", (ids["message"],))
             cursor.execute("DELETE FROM public.email_routing_addresses WHERE id = %s", (ids["route"],))
         conn.commit()
         with conn.cursor() as cursor:
             checks = (
-                ("inbound_attachments", "id = ANY(%s)", (ids["ids"],)),
+                ("inbound_attachments", "id = ANY(%s::uuid[])", (ids["ids"],)),
                 ("inbound_messages", "id = %s", (ids["message"],)),
                 ("email_routing_addresses", "id = %s", (ids["route"],)),
             )
