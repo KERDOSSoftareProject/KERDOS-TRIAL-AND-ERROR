@@ -1,10 +1,9 @@
-# Test environment only. Scheduled runs start only after this workflow is
-# merged into the default branch and the test-only secret is configured.
+# Test environment only. Runs manually after the function is deployed and
+# KERDOS_TEST_RECOVERY_SWEEP_SECRET is configured. Do not add a schedule
+# until the live check passes.
 name: A1.2.f Test Recovery Sweep
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
 
 jobs:
   sweep-kerdos-test:
