@@ -74,6 +74,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
   const [label,setLabel]=useState("");
   const [forwardTo,setForwardTo]=useState("");
   const [vendorId,setVendorId]=useState("");
+  const [documentType,setDocumentType]=useState("");
   const [saving,setSaving]=useState(false);
   const [deactivating,setDeactivating]=useState(null);
   const [updatingVendor,setUpdatingVendor]=useState(null);
@@ -99,8 +100,9 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
         label:label.trim()||null,
         forwardTo:forwardTo.trim()||null,
         vendorId:vendorId||null,
+        documentType:documentType||null,
       });
-      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");
+      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");setDocumentType("");
       await load();
       onUpdated?.();
     }catch(e){setError(e.message);}
@@ -152,7 +154,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
               {testInboundAddress
                 ? `For this test app, use the assigned Postmark address: ${testInboundAddress}`
-                : "Must be a full address on the inbound.kerdos.com domain."}
+                : "Use a full email address on your configured inbound domain (e.g. client.vendor@your-inbound-domain.com)."}
               {" "}Postmark will route emails to your inbox below.
             </p>
           </div>
@@ -173,6 +175,18 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
             </select>
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
               Attachments awaiting processing use the current vendor assignment.
+            </p>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Document type</label>
+            <select style={{...inp,fontSize:13}} value={documentType} onChange={e=>setDocumentType(e.target.value)}>
+              <option value="">Not specified (manual review)</option>
+              <option value="pricelist">Price Sheet</option>
+              <option value="invoice">Invoice</option>
+            </select>
+            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
+              Established once at registration. Incoming emails to this address are
+              automatically classified as the selected type — no re-selection needed.
             </p>
           </div>
           <div style={{marginBottom:14}}>
@@ -228,6 +242,15 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
                         {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
                       </select>
                     </label>
+                    {a.document_type&&(
+                      <div style={{fontSize:11,color:"#555",marginTop:4}}>
+                        <span style={{background:a.document_type==="invoice"?"#FFF8E1":"#E8F5E9",
+                          color:a.document_type==="invoice"?"#E65100":"#2E7D32",
+                          borderRadius:4,padding:"1px 6px",fontWeight:600}}>
+                          {a.document_type==="invoice"?"Invoice":"Price Sheet"}
+                        </span>
+                      </div>
+                    )}
                     {a.forward_to&&(
                       <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
                     )}

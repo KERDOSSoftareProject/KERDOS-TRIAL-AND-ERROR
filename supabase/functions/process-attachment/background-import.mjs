@@ -64,8 +64,14 @@ function makeFingerprint(attachment) {
  * @param {object} options
  * @param {string} options.organizationId
  * @param {string} options.vendorId
+ * @param {string|null} [options.documentType]  — 'pricelist' | 'invoice' | null
+ *   Captured at receipt time from the routing address registration. When present
+ *   it is used as the authoritative document classification and parseDocument's
+ *   content-based guess is ignored. When null (address had no document_type when
+ *   the message arrived) we fall back to content detection and send to review if
+ *   the content-detected kind is not clearly a pricelist.
  */
-export async function processAttachmentInBackground(backend, attachment, { organizationId, vendorId }) {
+export async function processAttachmentInBackground(backend, attachment, { organizationId, vendorId, documentType = null }) {
   // Defense-in-depth: index.ts validates vendorId at the HTTP layer, but this
   // function must not silently process unrouted attachments if called directly.
   if (!vendorId) {
@@ -144,17 +150,47 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // parseDocument returns { rows, documentKind, quoteValidUntil, ... }.
   // Wrap into the single-group shape the import loop below expects.
-  const { rows: parsedRows = [], documentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
-  const isInvoice = documentKind === "invoice";
+  const { rows: parsedRows = [], documentKind: contentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
+
+  // ── Step 4: classify document using registration intent ──────────────────
+  //
+  // documentType is the value captured at receipt time from the routing address
+  // registration — the single authoritative source for what this address receives.
+  // Content-based detection (contentKind from parseDocument) is the fallback only
+  // when the address had no document_type when the message arrived.
+  //
+  // Decision matrix:
+  //   documentType = 'invoice'    → needs_review (human must verify totals)
+  //   documentType = 'pricelist'  → continue to auto-import (content guess ignored)
+  //   documentType = null         → use contentKind:
+  //       contentKind = 'invoice'   → needs_review
+  //       contentKind = 'pricelist' → continue to auto-import
+  //       contentKind = null/other  → needs_review (ambiguous, registration missing)
+
+  let isInvoice: boolean;
+  if (documentType !== null) {
+    isInvoice = documentType === "invoice";
+  } else {
+    // Fallback: content-based detection. Ambiguous content without a registration
+    // goes to review rather than silently auto-importing the wrong document type.
+    if (contentKind !== "pricelist" && contentKind !== "invoice") {
+      await backend.attachments.setStatus(attachmentId, "needs_review",
+        "Document type could not be determined — no routing registration and content detection was inconclusive. Set document_type on the routing address and reprocess.");
+      return { outcome: "needs_review", reason: "Ambiguous document type — registration missing" };
+    }
+    isInvoice = contentKind === "invoice";
+  }
+
   const groups = parsedRows.length > 0
     ? [{ rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
     : [];
 
-  // ── Step 4: decide whether auto-import is safe ────────────────────────────
   // Invoices always go to review (human must confirm quantities and totals).
   if (isInvoice) {
-    await backend.attachments.setStatus(attachmentId, "needs_review",
-      "Document appears to be an invoice — human review required");
+    const reason = documentType === "invoice"
+      ? "Routing address is registered for invoices — human review required"
+      : "Document content appears to be an invoice — human review required";
+    await backend.attachments.setStatus(attachmentId, "needs_review", reason);
     return { outcome: "needs_review", reason: "Invoice document" };
   }
 

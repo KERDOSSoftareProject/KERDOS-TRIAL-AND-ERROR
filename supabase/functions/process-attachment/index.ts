@@ -33,6 +33,7 @@ import { createServiceBackend } from "./service-backend.mjs";
 import { processAttachmentInBackground } from "./background-import.mjs";
 import { authorizedServiceRequest } from "./request-auth.mjs";
 import { receiptVendorId } from "./receipt-vendor.mjs";
+import { receiptDocumentType } from "./receipt-document-type.mjs";
 
 // ── CORS headers (inbound-email is a peer function, not a browser) ─────────
 // We still emit JSON content-type so any tooling parsing the response is happy.
@@ -89,6 +90,7 @@ serve(async (req: Request) => {
   // historical vendor safely.
   let attachment: Record<string, unknown>;
   let vendorId: string | null;
+  let documentType: string | null;
 
   try {
     const { data, error } = await supabase
@@ -96,7 +98,7 @@ serve(async (req: Request) => {
       .select(`
         id, organization_id, filename, content_type, file_size_bytes,
         storage_path, processing_status,
-        inbound_messages ( receipt_vendor_id, vendor_snapshot_at )
+        inbound_messages ( receipt_vendor_id, receipt_document_type, vendor_snapshot_at )
       `)
       .eq("id", attachmentId)
       .eq("organization_id", organizationId)
@@ -115,7 +117,8 @@ serve(async (req: Request) => {
 
     // Drill into the nested join result (Supabase returns array for 1:many,
     // object for many:1).
-    vendorId = receiptVendorId((data as any).inbound_messages);
+    vendorId     = receiptVendorId((data as any).inbound_messages);
+    documentType = receiptDocumentType((data as any).inbound_messages);
   } catch (e: any) {
     console.error("[process-attachment] routing lookup error:", e?.message);
     return new Response(
@@ -184,7 +187,7 @@ serve(async (req: Request) => {
     const result = await processAttachmentInBackground(
       backend,
       attachment,
-      { organizationId, vendorId }
+      { organizationId, vendorId, documentType }
     );
     backend.attachments.assertLease();
     return new Response(JSON.stringify(result), { status: 200, headers: HEADERS });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { receiptVendorId } from "../supabase/functions/process-attachment/receipt-vendor.mjs";
+import { receiptDocumentType } from "../supabase/functions/process-attachment/receipt-document-type.mjs";
 
 const source = path => readFileSync(new URL(path, import.meta.url), "utf8");
 let passed = 0;
@@ -19,15 +20,34 @@ check("legacy message cannot borrow today's routing assignment", () => {
   assert.equal(receiptVendorId({ receipt_vendor_id: null, vendor_snapshot_at: null }), null);
   assert.equal(receiptVendorId([]), null);
 });
+check("receiptDocumentType respects snapshot guard — same contract as receiptVendorId", () => {
+  const withSnapshot   = { receipt_document_type: "pricelist", vendor_snapshot_at: "2026-10-27T00:00:00Z" };
+  const noSnapshot     = { receipt_document_type: "pricelist", vendor_snapshot_at: null };
+  const invoiceSnap    = { receipt_document_type: "invoice",   vendor_snapshot_at: "2026-10-27T00:00:00Z" };
+  const nullDocSnap    = { receipt_document_type: null,        vendor_snapshot_at: "2026-10-27T00:00:00Z" };
+  assert.equal(receiptDocumentType(withSnapshot),   "pricelist");
+  assert.equal(receiptDocumentType(noSnapshot),     null);  // no snapshot → do not infer
+  assert.equal(receiptDocumentType(invoiceSnap),    "invoice");
+  assert.equal(receiptDocumentType(nullDocSnap),    null);
+  assert.equal(receiptDocumentType([withSnapshot]), "pricelist"); // array form
+  assert.equal(receiptDocumentType([]),             null);
+});
 check("webhook records the snapshot on the message, including unassigned routes", () => {
   const webhook = source("../supabase/functions/inbound-email/index.ts");
-  assert.match(webhook, /\.select\("id, organization_id, vendor_id, forward_to"\)/);
+  // Routing row must fetch document_type alongside vendor_id
+  assert.match(webhook, /\.select\("id, organization_id, vendor_id, document_type, forward_to"\)/);
   assert.match(webhook, /receipt_vendor_id:\s*receiptVendorId \?\? null/);
+  assert.match(webhook, /receipt_document_type:\s*documentType \?\? null/);
   assert.match(webhook, /vendor_snapshot_at:\s*new Date\(\)\.toISOString\(\)/);
 });
 check("processor consumes receipt snapshot rather than mutable route", () => {
   const processor = source("../supabase/functions/process-attachment/index.ts");
-  assert.match(processor, /vendorId = receiptVendorId\(/);
+  assert.match(processor, /vendorId\s*=\s*receiptVendorId\(/);
+  assert.match(processor, /documentType\s*=\s*receiptDocumentType\(/);
+  // document_type must be selected from the message join
+  assert.match(processor, /receipt_document_type/);
+  // documentType must be forwarded to the background importer
+  assert.match(processor, /documentType\s*\}/);
   assert.doesNotMatch(processor, /email_routing_addresses \( vendor_id \)/);
 });
 check("database validation uses receipt vendor and protects its immutability", () => {
@@ -35,6 +55,54 @@ check("database validation uses receipt vendor and protects its immutability", (
   assert.match(migration, /im\.receipt_vendor_id, im\.vendor_snapshot_at/);
   assert.match(migration, /inbound_messages_vendor_snapshot_immutable/);
   assert.match(migration, /receipt-time vendor snapshot cannot be changed/);
+});
+check("migration_039 extends snapshot trigger to cover receipt_document_type", () => {
+  const migration = source("../knowledge/migration_039_routing_document_type.sql");
+  // Domain constraint removed
+  assert.match(migration, /DROP CONSTRAINT IF EXISTS email_routing_addresses_inbound_domain/);
+  // document_type column on routing addresses
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS document_type text/);
+  assert.match(migration, /CHECK \(document_type IN \('pricelist', 'invoice'\)\)/);
+  // receipt_document_type column on messages
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS receipt_document_type text/);
+  // Trigger extended to cover receipt_document_type
+  assert.match(migration, /receipt_document_type IS DISTINCT FROM OLD\.receipt_document_type/);
+  assert.match(migration, /receipt-time vendor\/document snapshot cannot be changed/);
+});
+check("background-import uses registration document_type, not content guess", () => {
+  const bg = source("../supabase/functions/process-attachment/background-import.mjs");
+  // documentType parameter in signature
+  assert.match(bg, /documentType = null/);
+  // registration-based branch: when documentType is non-null use it
+  assert.match(bg, /documentType !== null/);
+  // content fallback is still present for unregistered addresses
+  assert.match(bg, /contentKind/);
+  // invoice detection uses the registration value when available
+  assert.match(bg, /isInvoice = documentType === "invoice"/);
+  // hardcoded content-guess assignment removed from primary path
+  assert.doesNotMatch(bg, /const isInvoice = documentKind === "invoice"/);
+});
+check("email-routing service exposes documentType and removes hardcoded domain", () => {
+  const svc = source("../src/services/email-routing.js");
+  // createRoutingAddress accepts documentType
+  assert.match(svc, /documentType.*\}/);
+  assert.match(svc, /document_type:\s*documentType \|\| null/);
+  // listRoutingAddresses fetches document_type
+  assert.match(svc, /vendor_id, document_type, is_active/);
+  // hardcoded domain check removed
+  assert.doesNotMatch(svc, /@inbound\.kerdos\.com/);
+});
+check("inbox UI exposes document_type selector and badge", () => {
+  const inbox = source("../src/pages/EmailInboxPanel.jsx");
+  // documentType state
+  assert.match(inbox, /documentType,setDocumentType.*useState/);
+  // form passes documentType to createRoutingAddress
+  assert.match(inbox, /documentType:documentType\|\|null/);
+  // selector options
+  assert.match(inbox, /value="pricelist"/);
+  assert.match(inbox, /value="invoice"/);
+  // display badge in list
+  assert.match(inbox, /a\.document_type/);
 });
 check("closing preview cannot reserve the attachment", () => {
   const inbox = source("../src/pages/EmailInboxPanel.jsx");

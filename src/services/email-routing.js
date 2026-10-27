@@ -39,12 +39,18 @@ export const testInboundAddress = import.meta.env?.VITE_TEST_INBOUND_ADDRESS?.tr
 
 export function routingAddressError(address, assignedTestAddress = testInboundAddress) {
   const normalized = address?.trim().toLowerCase() || "";
+  if (!normalized) return "Routing address is required";
   if (assignedTestAddress) {
     return normalized === assignedTestAddress.toLowerCase()
       ? null : `Routing address must be ${assignedTestAddress}`;
   }
-  return normalized.endsWith("@inbound.kerdos.com")
-    ? null : "Routing address must end in @inbound.kerdos.com";
+  // Domain is configured outside KERDOS — any well-formed email address is valid.
+  // The constraint is that it must look like a real email address (local@domain).
+  const atIndex = normalized.indexOf("@");
+  if (atIndex < 1 || atIndex === normalized.length - 1) {
+    return "Routing address must be a valid email address (local@domain)";
+  }
+  return null;
 }
 
 /**
@@ -52,14 +58,18 @@ export function routingAddressError(address, assignedTestAddress = testInboundAd
  *
  * @param {object} backend  — the Supabase client from src/backend/index.js
  * @param {string} organizationId
- * @param {{ routingAddress: string, label?: string, forwardTo?: string, vendorId?: string|null }} opts
+ * @param {{ routingAddress: string, label?: string, forwardTo?: string, vendorId?: string|null, documentType?: 'pricelist'|'invoice'|null }} opts
  * @returns {Promise<object>} the created row
  */
-export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo, vendorId }) {
+export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo, vendorId, documentType }) {
   if (!routingAddress) throw new Error("routingAddress is required");
   const normalized = routingAddress.toLowerCase().trim();
   const addressError = routingAddressError(normalized);
   if (addressError) throw new Error(addressError);
+  if (documentType !== undefined && documentType !== null
+      && documentType !== "pricelist" && documentType !== "invoice") {
+    throw new Error('documentType must be "pricelist", "invoice", or null');
+  }
   return run(
     backend
       .from("email_routing_addresses")
@@ -69,6 +79,7 @@ export async function createRoutingAddress(backend, organizationId, { routingAdd
         label: label ?? null,
         forward_to: forwardTo ?? null,
         vendor_id: vendorId || null,
+        document_type: documentType || null,
       })
       .select()
       .single(),
@@ -87,7 +98,7 @@ export async function listRoutingAddresses(backend, organizationId) {
   return run(
     backend
       .from("email_routing_addresses")
-      .select("id, routing_address, label, forward_to, vendor_id, is_active, created_at")
+      .select("id, routing_address, label, forward_to, vendor_id, document_type, is_active, created_at")
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .order("created_at", { ascending: false }),
