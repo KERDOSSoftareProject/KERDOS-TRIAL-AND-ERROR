@@ -301,6 +301,7 @@ import { isDispatchable, isTerminal, VALID_OUTCOMES } from "../../supabase/funct
 
 import {
   createRoutingAddress,
+  routingAddressError,
   listRoutingAddresses,
   setRoutingAddressVendor,
   deactivateRoutingAddress,
@@ -852,6 +853,9 @@ console.log("\n── B. Service layer ─────────────�
   t("B1: routing address lowercased", row.routing_address, "acme-pricing@inbound.kerdos.com");
   t("B1: organization_id stored", row.organization_id, "org-1");
   t("B1: no selected vendor means manual review", row.vendor_id, null);
+  t("B1: default production address allowed", routingAddressError("a@inbound.kerdos.com"), null);
+  t("B1: test stream accepts its assigned address", routingAddressError("HASH@inbound.postmarkapp.com", "hash@inbound.postmarkapp.com"), null);
+  t("B1: test stream rejects another Postmark address", routingAddressError("other@inbound.postmarkapp.com", "hash@inbound.postmarkapp.com"), "Routing address must be hash@inbound.postmarkapp.com");
 }
 
 {

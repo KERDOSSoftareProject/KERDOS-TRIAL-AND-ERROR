@@ -24,6 +24,7 @@ import {useEffect,useState,useCallback} from "react";
 import {backend} from "../backend/index.js";
 import {
   createRoutingAddress,
+  testInboundAddress,
   listRoutingAddresses,
   setRoutingAddressVendor,
   deactivateRoutingAddress,
@@ -143,14 +144,16 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
             </label>
             <input
               style={{...inp,fontSize:13}}
-              placeholder="acme-pricing@inbound.kerdos.com"
+              placeholder={testInboundAddress||"acme-pricing@inbound.kerdos.com"}
               value={address}
               onChange={e=>setAddress(e.target.value)}
               autoFocus
             />
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              Must be a full address on the inbound.kerdos.com domain. Postmark will route
-              emails to this address to your inbox below.
+              {testInboundAddress
+                ? `For this test app, use the assigned Postmark address: ${testInboundAddress}`
+                : "Must be a full address on the inbound.kerdos.com domain."}
+              {" "}Postmark will route emails to your inbox below.
             </p>
           </div>
           <div style={{marginBottom:10}}>

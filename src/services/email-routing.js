@@ -30,6 +30,21 @@ async function run(promise, context) {
 
 // ── routing addresses ──────────────────────────────────────────────────────
 
+// The isolated test app may use the exact address Postmark assigns to its
+// separate inbound stream. This is a public receiving address, not a secret.
+// Production builds retain the branded inbound domain by default.
+export const testInboundAddress = import.meta.env?.VITE_TEST_INBOUND_ADDRESS?.trim().toLowerCase() || null;
+
+export function routingAddressError(address, assignedTestAddress = testInboundAddress) {
+  const normalized = address?.trim().toLowerCase() || "";
+  if (assignedTestAddress) {
+    return normalized === assignedTestAddress.toLowerCase()
+      ? null : `Routing address must be ${assignedTestAddress}`;
+  }
+  return normalized.endsWith("@inbound.kerdos.com")
+    ? null : "Routing address must end in @inbound.kerdos.com";
+}
+
 /**
  * Create a new routing address for an organization.
  *
@@ -41,9 +56,8 @@ async function run(promise, context) {
 export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo, vendorId }) {
   if (!routingAddress) throw new Error("routingAddress is required");
   const normalized = routingAddress.toLowerCase().trim();
-  if (!normalized.endsWith("@inbound.kerdos.com")) {
-    throw new Error("Routing address must end in @inbound.kerdos.com");
-  }
+  const addressError = routingAddressError(normalized);
+  if (addressError) throw new Error(addressError);
   return run(
     backend
       .from("email_routing_addresses")
