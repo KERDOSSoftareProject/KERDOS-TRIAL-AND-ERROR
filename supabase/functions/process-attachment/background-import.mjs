@@ -26,6 +26,7 @@ import { createCatalogService } from "../../../src/services/catalog.js";
 import { importPriceRow } from "../../../src/core/import-price-row.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
+import { prepareAutomaticInvoice } from "../../../src/core/automatic-invoice.js";
 import { parseDocument } from "../../../src/ingestion.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,6 +83,9 @@ function makeFingerprint(attachment) {
  */
 export function classifyDocument(documentType, contentKind) {
   // Registration is authoritative: use it when present.
+  if ((documentType === "pricelist" && ["invoice","mixed"].includes(contentKind)) ||
+      (documentType === "invoice" && ["pricelist","mixed"].includes(contentKind)))
+    return {isInvoice:null,earlyExit:{status:"needs_review",reason:"Document content conflicts with the registered receiving address type."}};
   if (documentType === "pricelist") return { isInvoice: false, earlyExit: null };
   if (documentType === "invoice")   return { isInvoice: true,  earlyExit: null };
 
@@ -160,9 +164,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // For "sheets" (CSV/XLSX): convert the first sheet's string[][] back to CSV text.
 
   let parsed;
+  let rawText;
   try {
     if (readResult.kind === "lines") {
-      parsed = parseDocument(readResult.lines.join("\n"));
+      rawText = readResult.lines.join("\n");
+      parsed = parseDocument(rawText);
     } else {
       // kind === "sheets": use the first non-empty sheet
       const firstSheet = readResult.sheets.find(s => s.rows.length > 0);
@@ -181,7 +187,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           return s;
         }).join(",")
       ).join("\n");
-      parsed = parseDocument(csvText);
+      rawText = csvText;
+      parsed = parseDocument(rawText);
     }
   } catch (err) {
     await backend.attachments.setStatus(attachmentId, "needs_review",
@@ -215,48 +222,19 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     ? [{ rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
     : [];
 
-  // ── A1.2.g: invoice auto-import ──────────────────────────────────────────
-  //
-  // Reached only when documentType === 'invoice' (classifyDocument returns
-  // earlyExit for all other cases where isInvoice could be ambiguous).
-  // Registration establishes the address as an invoice receiver; no further
-  // content validation is needed. Full invoice line-item processing is Module 7.
+  // Invoice header, lines, original link and terminal status commit together.
+  // A worker crash before commit writes nothing; after commit replay is idempotent.
   if (isInvoice) {
-    const _invoiceService = createImportService(backend);
-    const invoiceFingerprint = makeFingerprint(attachment);
-
-    let existingInvoiceDoc;
-    try {
-      existingInvoiceDoc = await _invoiceService.findInvoiceDocument({
-        organizationId, vendorId, fingerprint: invoiceFingerprint,
-      });
-    } catch (err) {
-      throw new Error(`Could not check for duplicate invoice: ${err.message}`);
+    const service = createImportService(backend);
+    const vendorItems = await service.vendorItems(organizationId, vendorId);
+    const prepared = prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems});
+    if (prepared.reason) {
+      await backend.attachments.setStatus(attachmentId, "needs_review", prepared.reason);
+      return {outcome:"needs_review",reason:prepared.reason};
     }
-
-    if (existingInvoiceDoc?.status === "complete") {
-      // Duplicate Postmark delivery — already stored.
-      await backend.attachments.setStatus(attachmentId, "auto_imported", null, existingInvoiceDoc.id);
-      return { outcome: "auto_imported" };
-    }
-
-    let invoiceDoc;
-    try {
-      invoiceDoc = await _invoiceService.createPriceDocument({
-        organization_id: organizationId,
-        vendor_id:       vendorId,
-        document_kind:   "invoice",
-        fingerprint:     invoiceFingerprint,
-        file_name:       filename,
-        file_path:       storagePath,
-        status:          "complete",
-      });
-    } catch (err) {
-      throw new Error(`Could not record invoice document: ${err.message}`);
-    }
-
-    await backend.attachments.setStatus(attachmentId, "auto_imported", null, invoiceDoc.id);
-    return { outcome: "auto_imported" };
+    await backend.invoices.recordAutomatic({attachmentId,fingerprint:makeFingerprint(attachment),
+      header:{...prepared.header,file_name:filename,file_path:storagePath},lines:prepared.lines});
+    return {outcome:"auto_imported"};
   }
 
   if (groups.length === 0) {

@@ -216,6 +216,7 @@ export function createServiceBackend({
     kind: "service",
     records,
     pricing,
+    invoices: {recordAutomatic: payload => lease.recordInvoice(payload)},
     catalog,
     orgSettings,
     attachments,

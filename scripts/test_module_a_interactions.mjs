@@ -80,8 +80,9 @@ check("background-import uses registration document_type, not content guess", ()
   assert.match(bg, /documentType === "pricelist"/);
   // content fallback is still present for unregistered addresses
   assert.match(bg, /contentKind/);
-  // A1.2.g: registered invoices are auto-imported via findInvoiceDocument
-  assert.match(bg, /findInvoiceDocument/);
+  // A1.2.g: validated invoice lines go through the fenced atomic writer.
+  assert.match(bg, /prepareAutomaticInvoice/);
+  assert.match(bg, /invoices\.recordAutomatic/);
   // TypeScript variable declaration removed (file is .mjs, not .ts)
   assert.doesNotMatch(bg, /\blet isInvoice: boolean/);
   // hardcoded content-guess assignment removed from primary path

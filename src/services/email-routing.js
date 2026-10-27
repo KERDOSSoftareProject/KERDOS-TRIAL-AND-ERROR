@@ -44,10 +44,8 @@ export function routingAddressError(address, assignedTestAddress = testInboundAd
     return normalized === assignedTestAddress.toLowerCase()
       ? null : `Routing address must be ${assignedTestAddress}`;
   }
-  // Domain is configured outside KERDOS — any well-formed email address is valid.
-  // The constraint is that it must look like a real email address (local@domain).
-  const atIndex = normalized.indexOf("@");
-  if (atIndex < 1 || atIndex === normalized.length - 1) {
+  // Validate syntax, without hardcoding a company name or domain extension.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
     return "Routing address must be a valid email address (local@domain)";
   }
   return null;
@@ -119,6 +117,14 @@ export async function setRoutingAddressVendor(backend, organizationId, addressId
       .single(),
     "setRoutingAddressVendor"
   );
+}
+
+/** Change the registration for future receipts; existing snapshots stay immutable. */
+export async function setRoutingAddressDocumentType(backend,organizationId,addressId,documentType){
+  if(!["pricelist","invoice"].includes(documentType))throw new Error("Select Price Sheet or Invoice");
+  return run(backend.from("email_routing_addresses").update({document_type:documentType})
+    .eq("id",addressId).eq("organization_id",organizationId).select("id, document_type").single(),
+    "setRoutingAddressDocumentType");
 }
 
 /**

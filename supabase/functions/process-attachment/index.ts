@@ -197,7 +197,7 @@ serve(async (req: Request) => {
     // only fires if it throws before completing that update.
     console.error("[process-attachment] pipeline error:", e?.message, e?.stack);
     // Keep operational failures retryable; never overwrite a recovered worker.
-    if (!String(e?.message).includes("LEASE_LOST")) {
+    if (!String(e?.message).includes("LEASE_LOST") && !String(e?.message).includes("INVOICE_COMMIT_UNCONFIRMED")) {
       try {
         await backend.attachments.setStatus(attachmentId, "needs_review", e?.message ?? "pipeline error");
       } catch (_) { /* the lease may already have been revoked */ }

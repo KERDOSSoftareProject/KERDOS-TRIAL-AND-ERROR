@@ -27,6 +27,7 @@ import {
   testInboundAddress,
   listRoutingAddresses,
   setRoutingAddressVendor,
+  setRoutingAddressDocumentType,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
@@ -78,6 +79,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
   const [saving,setSaving]=useState(false);
   const [deactivating,setDeactivating]=useState(null);
   const [updatingVendor,setUpdatingVendor]=useState(null);
+  const [updatingType,setUpdatingType]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);setError("");
@@ -119,6 +121,16 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
     setUpdatingVendor(null);
   }
 
+  async function handleTypeChange(id,nextType){
+    if(!nextType)return;
+    setUpdatingType(id);setError("");
+    try{
+      await setRoutingAddressDocumentType(backend,orgId,id,nextType);
+      await load();onUpdated?.();
+    }catch(e){setError(e.message);}
+    setUpdatingType(null);
+  }
+
   async function handleDeactivate(id){
     if(!window.confirm("Remove this routing address? Emails sent to it will no longer be received.")) return;
     setDeactivating(id);setError("");
@@ -146,7 +158,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
             </label>
             <input
               style={{...inp,fontSize:13}}
-              placeholder={testInboundAddress||"acme-pricing@inbound.kerdos.com"}
+              placeholder={testInboundAddress||"client.vendor@configured-domain"}
               value={address}
               onChange={e=>setAddress(e.target.value)}
               autoFocus
@@ -174,13 +186,13 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
               {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              Attachments awaiting processing use the current vendor assignment.
+              New messages capture this vendor at receipt. Changing it does not reassign earlier messages.
             </p>
           </div>
           <div style={{marginBottom:10}}>
             <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Document type</label>
             <select style={{...inp,fontSize:13}} value={documentType} onChange={e=>setDocumentType(e.target.value)}>
-              <option value="">Not specified (detected from content)</option>
+              <option value="">Not specified (price-sheet detection only)</option>
               <option value="pricelist">Price Sheet</option>
               <option value="invoice">Invoice</option>
             </select>
@@ -242,15 +254,16 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
                         {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
                       </select>
                     </label>
-                    {a.document_type&&(
-                      <div style={{fontSize:11,color:"#555",marginTop:4}}>
-                        <span style={{background:a.document_type==="invoice"?"#FFF8E1":"#E8F5E9",
-                          color:a.document_type==="invoice"?"#E65100":"#2E7D32",
-                          borderRadius:4,padding:"1px 6px",fontWeight:600}}>
-                          {a.document_type==="invoice"?"Invoice":"Price Sheet"}
-                        </span>
-                      </div>
-                    )}
+                    <label style={{fontSize:11,color:"#555",display:"block",marginTop:6}}>
+                      Document type
+                      <select style={{...inp,fontSize:12,marginTop:3}} value={a.document_type||""}
+                        disabled={updatingType===a.id} onChange={e=>handleTypeChange(a.id,e.target.value)}>
+                        <option value="" disabled>Select document type</option>
+                        <option value="pricelist">Price Sheet</option>
+                        <option value="invoice">Invoice</option>
+                      </select>
+                    </label>
+                    <div style={{fontSize:11,color:"#666",marginTop:3}}>Registration changes apply to new messages.</div>
                     {a.forward_to&&(
                       <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
                     )}

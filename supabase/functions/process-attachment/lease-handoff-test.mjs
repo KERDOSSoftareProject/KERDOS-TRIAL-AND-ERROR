@@ -296,4 +296,17 @@ await check("existing ingest_error row is NOT re-dispatched", async () => {
   assert.equal(invocations, 0, "ingest_error row must not be re-dispatched");
 });
 
+await check("invoice write carries the current database lease and rejects wrong attachment",async()=>{
+  const client=rpcClient({claim_attachment:{data:"lease-token",error:null},kerdos_auto_record_invoice:{data:"invoice-id",error:null}});
+  const lease=createLeaseBindings(client);await lease.claim("a1");
+  assert.equal(await lease.recordInvoice({attachmentId:"a1",fingerprint:"fp",header:{},lines:[]}),"invoice-id");
+  const call=client.calls.at(-1);assert.equal(call.args.p_lease_token,"lease-token");assert.equal(call.args.p_attachment_id,"a1");
+  await assert.rejects(()=>lease.recordInvoice({attachmentId:"other",header:{},lines:[]}),/LEASE_LOST/);
+});
+await check("unconfirmed invoice RPC remains distinguishable from a validation exception",async()=>{
+  const client=rpcClient({claim_attachment:{data:"lease-token",error:null},kerdos_auto_record_invoice:{data:null,error:{message:"network interrupted"}}});
+  const lease=createLeaseBindings(client);await lease.claim("a1");
+  await assert.rejects(()=>lease.recordInvoice({attachmentId:"a1",header:{},lines:[]}),/INVOICE_COMMIT_UNCONFIRMED/);
+});
+
 console.log(`\n${passed} lease/handoff tests passed`);

@@ -30,7 +30,7 @@
 --   4. Extend protect_inbound_vendor_snapshot() to cover receipt_document_type.
 --      The trigger already exists; replacing the function body is sufficient.
 --
--- Apply to kerdos-test ONLY. Review before applying to production.
+-- DRAFT: not yet applied. Apply to kerdos-test after review and verification.
 
 -- ── 1. Remove hardcoded domain constraint ─────────────────────────────────
 
@@ -55,6 +55,10 @@ ALTER TABLE public.inbound_messages
   ADD COLUMN IF NOT EXISTS receipt_document_type text
     CONSTRAINT inbound_messages_receipt_document_type_check
       CHECK (receipt_document_type IN ('pricelist', 'invoice'));
+
+ALTER TABLE public.inbound_messages
+  ADD CONSTRAINT inbound_messages_receipt_type_requires_snapshot
+    CHECK (receipt_document_type IS NULL OR vendor_snapshot_at IS NOT NULL);
 
 -- ── 4. Extend the immutable snapshot trigger ──────────────────────────────
 --
