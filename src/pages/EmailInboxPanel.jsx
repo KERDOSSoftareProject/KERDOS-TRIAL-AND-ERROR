@@ -172,7 +172,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
               {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              Attachments awaiting processing use the current vendor assignment.
+              This assignment applies to future emails. Received emails keep their original vendor assignment.
             </p>
           </div>
           <div style={{marginBottom:14}}>

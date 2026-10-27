@@ -13,6 +13,7 @@ const execute=async spec=>{
   const matches=row=>spec.filters.every(({operator,column,value})=>{
     const actual=row[column];
     if(operator==="eq")return actual===value;
+    if(operator==="is")return value===null?actual==null:actual===value;
     if(operator==="in")return value.includes(actual);
     if(operator==="ilike")return String(actual||"").toLowerCase()===String(value).toLowerCase();
     if(operator==="lte")return actual<=value;
@@ -49,6 +50,7 @@ const provider=assertBackendContract({
   kind:"in-memory-test",
   session:{get:fn,subscribe:()=>()=>{},signIn:fn,signUp:fn,signOut:fn},
   workspace:{memberships:fn,snapshot:fn},
+  inbox:{beginManualReview:fn,markAttachmentIngested:fn},
   documents:{upload:fn,signedUrl:fn,remove:fn,deletePriceSheet:fn,deleteInvoiceRecord:fn},
   realtime:{subscribeToOrganization:()=>()=>{}},
   pricing:{applyQuote:fn},catalog:{saveRow:fn},invoices:{record:fn},team:{acceptInvite:fn},

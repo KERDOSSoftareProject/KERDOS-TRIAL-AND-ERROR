@@ -112,6 +112,7 @@ function createInMemoryBackend() {
     kind:'in-memory-audit',
     session:{get:fn,subscribe:noop,signIn:fn,signUp:fn,signOut:fn},
     workspace:{memberships:fn,snapshot:fn},
+    inbox:{beginManualReview:fn,markAttachmentIngested:fn},
     documents:{upload:fn,signedUrl:fn,remove:fn,deletePriceSheet:fn,deleteInvoiceRecord:fn},
     realtime:{subscribeToOrganization:noop},
     pricing:{applyQuote},

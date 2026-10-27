@@ -110,6 +110,7 @@ function createFreshBackend() {
     kind:       'in-memory-pc-test',
     session:    {get: fn, subscribe: () => () => {}, signIn: fn, signUp: fn, signOut: fn},
     workspace:  {memberships: fn, snapshot: fn},
+    inbox: {beginManualReview:fn,markAttachmentIngested:fn},
     documents:  {upload: fn, signedUrl: fn, remove: fn, deletePriceSheet: fn, deleteInvoiceRecord: fn},
     realtime:   {subscribeToOrganization: () => () => {}},
     pricing:    {applyQuote},

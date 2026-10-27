@@ -26,5 +26,10 @@ await records.query("item_mappings").update({confidence_score:100}).eq("id","m1"
 assert.deepEqual(calls,[
   ["from","item_mappings"],["update",{confidence_score:100}],["eq","id","m1"],
 ]);
+calls.length=0;
+await records.query("inbound_attachments").select("id").is("import_document_id",null).in("processing_status",["pending","needs_review"]);
+assert.deepEqual(calls,[
+  ["from","inbound_attachments"],["select","id"],["is","import_document_id",null],["in","processing_status",["pending","needs_review"]],
+]);
 await assert.rejects(Promise.resolve(records.query("catalog_items")),/needs an action/);
 console.log("KERDOS records adapter translation tests passed");
