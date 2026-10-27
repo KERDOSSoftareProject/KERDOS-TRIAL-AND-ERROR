@@ -1475,8 +1475,6 @@ const singleAtt = [{ Name: "prices.csv", ContentType: "text/csv", Content: btoa(
     },
     get _insertedError() { return insertedError; },
   };
-  // Use a backend that returns no error on insert
-  const b2 = makeProcessBackend({});
   // Override maybeSingle to return null (fresh row), and insert to capture payload
   const capturedInserts = [];
   const testBackend = {
@@ -1636,6 +1634,7 @@ const singleAtt = [{ Name: "prices.csv", ContentType: "text/csv", Content: btoa(
     },
   };
   await processAttachments(orphanBackend, "org-1", "msg-1", singleAtt);
+  t("F13: orphan rechecks after Storage 409", lookupCount, 2);
   t("F13: orphan recovery dispatches process-attachment", recoveryInvocations.length, 1);
   t("F13: recovery uses recovered row id", recoveryInvocations[0].attachmentId, "att-recovered");
 }
@@ -1675,6 +1674,7 @@ const singleAtt = [{ Name: "prices.csv", ContentType: "text/csv", Content: btoa(
     },
   };
   await processAttachments(concurrentBackend, "org-1", "msg-1", singleAtt);
+  t("F14: concurrent insert attempted once", insertAttempts, 1);
   t("F14: concurrent insert dispatches to winner", concurrentInvocations.length, 1);
   t("F14: winner id used", concurrentInvocations[0].attachmentId, "att-concurrent-winner");
 }

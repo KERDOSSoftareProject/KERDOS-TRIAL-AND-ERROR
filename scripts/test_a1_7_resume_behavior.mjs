@@ -44,7 +44,6 @@
  *     E6 ON DELETE SET NULL on FK confirms delete unlinks attachment → inbox shows "Review & Import"
  */
 
-import { createRequire } from "module";
 import { pathToFileURL } from "url";
 import path from "path";
 import fs from "fs";

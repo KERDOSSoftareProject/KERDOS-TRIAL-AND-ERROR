@@ -34,6 +34,7 @@ import {
 } from "../services/email-routing.js";
 import {btn,inp} from "../ui/styles.js";
 import {formatDate} from "../localization.js";
+import {attachmentRenderOutcome,attachmentActionBlocked} from "../utils/attachment-state.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -227,16 +228,10 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
   const [pendingFinalStatus,setPendingFinalStatus]=useState(null);
   const [auditError,setAuditError]=useState("");
 
-  // A1.7.a/c: an attachment is fully ingested only when import_document_id is
-  // set AND processing_status is NOT 'needs_review'.  When the background worker
-  // created a partial and set processing_status='needs_review', import_document_id
-  // is already linked but the user still has to complete the review — showing
-  // "✓ Imported" in that state would hide the actionable item.
-  const alreadyIngested=!!(att.import_document_id && att.processing_status !== "needs_review");
-  const isBackgroundPartial=att.processing_status==="needs_review"&&!!att.import_document_id;
+  const renderOutcome=attachmentRenderOutcome(att,status);
 
   async function handleReviewAndImport(){
-    if(alreadyIngested||status==="loading") return;
+    if(attachmentActionBlocked(att,status)) return;
     setStatus("loading");setError("");
     let file;
     try{
@@ -296,7 +291,7 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
   const sizeKB=att.file_size_bytes?`${Math.round(att.file_size_bytes/1024)} KB`:"";
 
   // Gap 2: permanently failed attachment — show error state, no import button
-  if(att.ingest_error){
+  if(renderOutcome==="failed"){
     return(
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderTop:"1px solid #F0F0F0"}}>
         <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
@@ -322,14 +317,14 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           </div>
           {sizeKB&&<div style={{fontSize:11,color:"#888"}}>{sizeKB}</div>}
         </div>
-        {alreadyIngested||status==="ingested"
+        {renderOutcome==="imported"
           ? <span style={{fontSize:11,color:"#388e3c",fontWeight:700,whiteSpace:"nowrap"}}>✓ Imported</span>
           : <button
               disabled={status==="loading"}
               onClick={handleReviewAndImport}
-              style={{...btn(isBackgroundPartial?"#E65100":"#003584","white",{fontSize:11,padding:"5px 10px",whiteSpace:"nowrap",
+              style={{...btn(renderOutcome==="partial"?"#E65100":"#003584","white",{fontSize:11,padding:"5px 10px",whiteSpace:"nowrap",
                 opacity:status==="loading"?0.6:1,flexShrink:0})}}>
-              {status==="loading"?"Loading…":isBackgroundPartial?"Complete Import":"Review & Import"}
+              {status==="loading"?"Loading…":renderOutcome==="partial"?"Complete Import":"Review & Import"}
             </button>
         }
       </div>
