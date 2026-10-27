@@ -1,0 +1,25 @@
+# Test environment only. Scheduled runs start only after this workflow is
+# merged into the default branch and the test-only secret is configured.
+name: A1.2.f Test Recovery Sweep
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  sweep-kerdos-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Recover stale and retry pending test attachments
+        env:
+          RECOVERY_SWEEP_SECRET: ${{ secrets.KERDOS_TEST_RECOVERY_SWEEP_SECRET }}
+        run: |
+          if [ -z "$RECOVERY_SWEEP_SECRET" ]; then
+            echo 'The test recovery sweep secret is not configured.' >&2
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -X POST \
+            -H "Authorization: Bearer $RECOVERY_SWEEP_SECRET" \
+            'https://gwtnaudjfoxjermhvhpx.supabase.co/functions/v1/recovery-sweep'

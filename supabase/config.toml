@@ -1,0 +1,9 @@
+# The recovery-sweep endpoint has its own shared-secret check before any DB
+# access. Scheduled callers do not have a Supabase user JWT.
+[functions.recovery-sweep]
+verify_jwt = false
+
+# process-attachment retains the gateway JWT check and additionally requires
+# the exact service-role bearer value in its handler.
+[functions.process-attachment]
+verify_jwt = true
