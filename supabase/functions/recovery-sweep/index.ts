@@ -17,7 +17,10 @@ serve(async (req: Request) => {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if (!url || !key) return new Response("Service unavailable", { status: 503 });
 
-  const client = createClient(url, key, { auth: { persistSession: false } });
+  const client = createClient(url, key, {
+    auth: { persistSession: false },
+    global: { headers: { Authorization: `Bearer ${key}` } },
+  });
   try {
     const result = await sweepAttachments(client, {
       invoke: (name, options) => client.functions.invoke(name, options),

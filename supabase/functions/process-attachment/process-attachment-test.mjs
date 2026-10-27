@@ -265,6 +265,10 @@ await test("auto-import: clean CSV price list → auto_imported with rows saved"
   // An import_document row was created
   assert.ok(backend._createdDocs.length > 0, "Expected an import_document to be created");
   assert.equal(backend._createdDocs[0].status, "processing"); // created with 'processing'
+  assert.equal(backend._createdDocs[0].file_name, attachment.filename);
+  assert.equal(backend._createdDocs[0].file_path, attachment.storage_path);
+  assert.ok(!("filename" in backend._createdDocs[0]) && !("source_path" in backend._createdDocs[0]),
+    "document writes must use the database source-file columns");
 
   // import_document_id was linked in the status call
   assert.ok(statusEntry.docId, "Expected auto_imported status to carry docId");

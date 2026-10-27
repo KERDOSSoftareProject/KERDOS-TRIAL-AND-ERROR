@@ -230,7 +230,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    { auth: { persistSession: false } }
+    {
+      auth: { persistSession: false },
+      // Peer functions require the exact service bearer, not implicit SDK auth.
+      global: { headers: { Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}` } },
+    }
   );
 
   // 5. Look up organization by routing address (case-insensitive)

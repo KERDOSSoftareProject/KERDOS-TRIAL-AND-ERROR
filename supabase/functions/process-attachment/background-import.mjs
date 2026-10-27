@@ -200,8 +200,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       vendor_id:        vendorId,
       document_kind:    "pricelist",
       fingerprint,
-      filename:         filename,
-      source_path:      storagePath,
+      file_name:        filename,
+      file_path:        storagePath,
       status:           "processing",
     });
     documentId = newDoc.id;
