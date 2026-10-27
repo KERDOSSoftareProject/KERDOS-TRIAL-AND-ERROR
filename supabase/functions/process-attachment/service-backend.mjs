@@ -9,15 +9,14 @@
  *   {
  *     kind: "service",
  *     records,              // createRecords(execute) — KERDOS query vocabulary
- *     pricing,              // { applyQuote(quote) }
+ *     pricing,              // { applyQuote(quote) }, with mandatory DB lease
  *     catalog,              // { matchOrCreate() } — stubs for browser-only ops
  *     orgSettings,          // { vendorLayouts(organizationId) }
- *     attachments,          // { download, claim, setStatus }
+ *     attachments,          // { download, claim, renewLease, setStatus }
  *   }
  *
- * Uses the Supabase service-role key (bypasses RLS).  The calling index.ts
- * has already validated the organization via the routing address before this
- * factory is called, so service-role access here is intentional and bounded.
+ * Uses the Supabase service-role key (bypasses RLS). index.ts authenticates the
+ * peer caller and validates its organization and routing address first.
  *
  * Environment variables (injected by Supabase; set no additional secrets here):
  *   SUPABASE_URL              — project URL
@@ -26,6 +25,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createRecords } from "../../../src/backend/records.js";
+import { createLeaseBindings } from "./lease-bindings.mjs";
 
 // ── Supabase record query executor ────────────────────────────────────────────
 //
@@ -74,8 +74,13 @@ export function createServiceBackend({
     auth: { persistSession: false },
   });
 
+  const lease = createLeaseBindings(supabase);
+
   // ── records ──────────────────────────────────────────────────────────────
-  const records = createRecords(spec => executeSupabaseRecordQuery(supabase, spec));
+  const records = createRecords(spec => {
+    if (spec.action !== "select") lease.assertLease();
+    return executeSupabaseRecordQuery(supabase, spec);
+  });
 
   // ── pricing ──────────────────────────────────────────────────────────────
   //
@@ -85,8 +90,7 @@ export function createServiceBackend({
   // role has no user JWT.  Added in migration_033_auto_processing.sql.
   const pricing = {
     applyQuote(quote) {
-      return supabase
-        .rpc("kerdos_auto_apply_price_quote", {
+      return lease.applyPrice({
           p_vendor_item_id:     quote.vendorItemId      || null,
           p_organization_id:    quote.organizationId,
           p_vendor_id:          quote.vendorId,
@@ -108,10 +112,6 @@ export function createServiceBackend({
           p_import_row:         quote.importRow         || null,
           p_field_resolutions:  quote.fieldResolutions  || null,
           p_brand:              quote.brand             || null,
-        })
-        .then(({ data, error }) => {
-          if (error) throw new Error(`kerdos_auto_apply_price_quote: ${error.message}`);
-          return data;
         });
     },
   };
@@ -149,6 +149,12 @@ export function createServiceBackend({
   // ── attachments ──────────────────────────────────────────────────────────
 
   const attachments = {
+    async markNeedsReviewIfPending(attachmentId, reason) {
+      const { error } = await supabase.from("inbound_attachments")
+        .update({ processing_status: "needs_review", processing_error: reason })
+        .eq("id", attachmentId).eq("processing_status", "pending");
+      if (error) throw new Error(`attachments.markNeedsReviewIfPending: ${error.message}`);
+    },
     /**
      * Download raw bytes for an inbound attachment from the "documents" bucket.
      *
@@ -167,34 +173,32 @@ export function createServiceBackend({
     /**
      * Atomically claim the attachment for processing.
      *
-     * Transitions processing_status from 'pending' or 'needs_review' to
-     * 'processing'.  Returns true if the claim succeeded, false if another
-     * worker already holds it (concurrent invocation).
-     *
-     * The condition `processing_status IN ('pending','needs_review')` lets
-     * index.ts re-process a 'needs_review' attachment when explicitly retried
-     * (e.g. after a vendor is assigned to the routing address).
+     * claim_attachment mints a token while changing pending → processing.
+     * Returns the token or null if another worker already claimed the row.
      *
      * @param {string} attachmentId
-     * @returns {Promise<boolean>}
+     * @returns {Promise<string|null>}
      */
     async claim(attachmentId) {
-      const { data, error } = await supabase
-        .from("inbound_attachments")
-        .update({ processing_status: "processing" })
-        .eq("id", attachmentId)
-        .in("processing_status", ["pending", "needs_review"])
-        .select("id")
-        .maybeSingle();
-      if (error) throw new Error(`attachments.claim: ${error.message}`);
-      return data !== null;
+      return lease.claim(attachmentId);
+    },
+
+    async renewLease() {
+      return lease.renewLease();
+    },
+
+    assertLease() {
+      lease.assertLease();
+    },
+
+    loseLease() {
+      lease.loseLease();
     },
 
     /**
      * Record the outcome of processing for an attachment.
      *
-     * Calls set_attachment_processing_status() — the SECURITY DEFINER
-     * service-role function from migration_033_auto_processing.sql.
+     * Calls set_attachment_status_fenced() with the current lease token.
      * When docId is supplied (auto_imported or needs_review), the attachment
      * is linked to the import document in the same DB transaction.
      *
@@ -204,13 +208,7 @@ export function createServiceBackend({
      * @param {string|null} [docId]       — import_document id to link
      */
     async setStatus(attachmentId, status, reason = null, docId = null) {
-      const { error } = await supabase.rpc("set_attachment_processing_status", {
-        p_attachment_id:      attachmentId,
-        p_status:             status,
-        p_error:              reason ?? null,
-        p_import_document_id: docId   ?? null,
-      });
-      if (error) throw new Error(`attachments.setStatus: ${error.message}`);
+      return lease.setStatus(attachmentId, status, reason, docId);
     },
   };
 

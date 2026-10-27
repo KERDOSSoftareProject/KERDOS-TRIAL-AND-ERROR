@@ -828,7 +828,7 @@ await test("compressed XLSX (deflate method 8) — portable-file-reader decodes 
 
 // ── Test 11: inbound-email handoff — fireProcessAttachment invoked ────────────
 //
-// After attachment-processor.mjs inserts a DB row, it must fire-and-forget
+// After attachment-processor.mjs inserts a DB row, it awaits
 // backend.functions.invoke("process-attachment", { body: { attachmentId, organizationId } }).
 // This test exercises that by supplying a mock backend with a functions.invoke
 // recorder and checking the invocation payload.
@@ -871,7 +871,7 @@ await test("inbound-email handoff: process-attachment invoked after DB insert", 
     functions: {
       invoke(fnName, opts) {
         invokedCalls.push({ fnName, body: opts?.body });
-        return Promise.resolve({ data: null, error: null });
+        return Promise.resolve({ data: { outcome: "auto_imported" }, error: null });
       },
     },
   };

@@ -249,6 +249,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   for (const group of groups) {
     for (const sourceRow of group.rows) {
+      backend.attachments.assertLease?.();
       const completedKey = `row:${globalRowIndex}`;
       globalRowIndex++;
       if (completedRows.has(completedKey)) continue; // already saved (resume)
@@ -289,6 +290,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           workingMappings,
           applySelectedCategory: null,
         });
+        backend.attachments.assertLease?.();
 
         if (result.needsBasis) {
           // Row requires human input — entire document goes to review.
@@ -305,6 +307,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
         }
 
       } catch (err) {
+        if (String(err?.message).includes("LEASE_LOST")) throw err;
         // Any single-row save failure prevents a "complete" result — silently
         // omitting products from a background import is worse than surfacing the
         // document for human review.

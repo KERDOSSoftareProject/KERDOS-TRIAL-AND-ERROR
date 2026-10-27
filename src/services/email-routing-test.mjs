@@ -256,6 +256,9 @@ function makeMockBackend(seed = {}) {
     from(tableName) { return buildQuery(tableName); },
     rpc,
     storage: storageApi,
+    functions: {
+      async invoke() { return { data: { outcome: "auto_imported" }, error: null }; },
+    },
     _tables: tables,
     _storage: storage,
     // Allow tests to inject a forced upload error on the next call
@@ -798,7 +801,8 @@ console.log("\n── A. Edge Function logic ───────────�
       q.insert = function(payload) {
         insertCallCount++;
         if (insertCallCount === 1) {
-          // Return a fake 23505 error
+          // Another request won: its row must be visible on the winner lookup.
+          backend._tables.inbound_attachments.push({ id: "att-winner-a17", ...payload });
           q.then = function(resolve) {
             return Promise.resolve().then(() =>
               resolve({ data: null, error: { code: "23505", message: "duplicate key value" } })
