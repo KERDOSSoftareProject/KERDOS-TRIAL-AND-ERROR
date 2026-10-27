@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {suggestedAlternativeGroups} from "../core/alternative-groups.js";
 import {useMemo,useState} from "react";
 import {backend} from "../backend/index.js";
@@ -51,7 +52,7 @@ export function AssociateAlternatives({orgId,selectedVendorIds,vendorItems,catal
  {!suggestions.length&&<p>No uncertain associations found.</p>}
  {error&&!open&&<p role="alert" style={{color:"#B42318"}}>{error}</p>}
  </div>}
- {open&&<div role="dialog" aria-modal="true" aria-label="Associate alternatives" style={{position:"fixed",inset:0,background:"#0006",zIndex:1100,display:"grid",placeItems:"center"}}><div style={{background:"white",padding:24,borderRadius:10,maxWidth:680,width:"90vw",maxHeight:"85vh",overflowY:"auto"}}>
+ {open&&<MovableDialog label="Associate alternatives" maxWidth={728} zIndex={1100}><div style={{background:"white",padding:24,borderRadius:10,maxWidth:680,width:"90vw",maxHeight:"85vh",overflowY:"auto"}}>
  <p>Approve these products as acceptable alternatives. They will share the selected KERDOS number and keep each vendor's brand, description and pack. Missing pricing details still need completion.</p>
  {selected.map(v=>{const cost=calculatedUnitCost(v);return <div key={v.id} style={{padding:7,borderBottom:"1px solid #ddd"}}>{vendors.find(x=>x.id===v.vendor_id)?.name} · {v.description} · {v.brand||"Brand not stated"} · {v.pack_size||"Pack missing"} · {cost?`${formatMoney(cost.price)} / ${unitLabel(cost.unit)}`:"Unit cost incomplete"}</div>;})}
  <label style={{display:"block",marginTop:12}}>Shared KERDOS item<select style={inp} value={target} onChange={e=>setTarget(e.target.value)}>{choices.map(i=><option key={i.id} value={i.id}>#{i.master_item_number} {i.name}</option>)}</select></label>
@@ -59,5 +60,5 @@ export function AssociateAlternatives({orgId,selectedVendorIds,vendorItems,catal
  <label style={{display:"block",marginTop:12}}>Preferred brand (optional)<select style={inp} value={preferred} onChange={e=>setPreferred(e.target.value)}><option value="">No preference</option>{brands.map(b=><option key={b} value={b}>{b}</option>)}</select></label>
  {error&&<p role="alert" style={{color:"#B42318"}}>{error}</p>}
  <button disabled={busy} onClick={apply} style={btn("#003584","white",{marginTop:16})}>{busy?"Associating…":"Approve alternatives"}</button><button disabled={busy} onClick={()=>{setOpen(false);setSuggestionIds(null);}} style={{marginLeft:12}}>Cancel</button>
- </div></div>}</>;
+ </div></MovableDialog>}</>;
 }

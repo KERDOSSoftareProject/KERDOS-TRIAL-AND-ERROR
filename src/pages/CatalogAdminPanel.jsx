@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useMemo,useState} from "react";
 import {backend,backendInfo} from "../backend/index.js";
 import {createCategoryService,holdingPen} from "../services/categories.js";
@@ -277,7 +278,7 @@ export function CatalogPanel({orgId,orgIndustry,categories,catalogItems,vocabula
       })}
 
       {adding&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <MovableDialog label="Catalog settings" maxWidth={428} zIndex={1000}>
           <div style={{background:"white",borderRadius:12,padding:24,width:"100%",maxWidth:380}}>
             <h3 style={{margin:"0 0 14px",fontSize:16}}>New category</h3>
             <input style={{...inp,width:"100%",marginBottom:10,boxSizing:"border-box"}} placeholder="Category name" value={newName} onChange={e=>setNewName(e.target.value)} />
@@ -288,7 +289,7 @@ export function CatalogPanel({orgId,orgIndustry,categories,catalogItems,vocabula
               <button onClick={addCategory} style={{...btn("#003584"),flex:2}}>Add</button>
             </div>
           </div>
-        </div>
+        </MovableDialog>
       )}
     </div>
   );

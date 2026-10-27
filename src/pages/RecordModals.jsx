@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useState} from "react";
 import {backend} from "../backend/index.js";
 import {createOperationsService} from "../services/operations.js";
@@ -25,7 +26,7 @@ export function InvoiceEditModal({invoice,vendors,onClose,onDone}) {
   }
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <MovableDialog label="Edit invoice" maxWidth={448} zIndex={1000}>
       <div style={{background:"white",borderRadius:12,padding:24,width:"100%",maxWidth:400}}>
         <h3 style={{margin:"0 0 16px",fontSize:16}}>Edit invoice</h3>
         <div style={{marginBottom:10}}>
@@ -54,7 +55,7 @@ export function InvoiceEditModal({invoice,vendors,onClose,onDone}) {
           <button onClick={save} disabled={saving} style={{...btn("#003584"),flex:2}}>{saving?"Saving...":"Save changes"}</button>
         </div>
       </div>
-    </div>
+    </MovableDialog>
   );
 }
 
@@ -76,7 +77,7 @@ export function AddVendorModal({orgId,onClose,onDone}) {
   }
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <MovableDialog label="Add a vendor" maxWidth={448} zIndex={1000}>
       <div style={{background:"white",borderRadius:12,padding:24,width:"100%",maxWidth:400}}>
         <h3 style={{margin:"0 0 16px",fontSize:16}}>Add a vendor</h3>
         <div style={{marginBottom:10}}>
@@ -103,7 +104,7 @@ export function AddVendorModal({orgId,onClose,onDone}) {
           <button onClick={save} disabled={saving||!name.trim()} style={{...btn("#003584"),flex:2}}>{saving?"Adding...":"Add vendor"}</button>
         </div>
       </div>
-    </div>
+    </MovableDialog>
   );
 }
 

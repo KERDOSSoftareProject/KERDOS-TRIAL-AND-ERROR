@@ -1,3 +1,4 @@
+import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
 import {fileToText} from "../document-reader.js";
@@ -750,7 +751,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   },[mode,step,autoSaveStarted,loading,allRows.length,unsafeDocuments.length,missingInvoiceDates.length,needsReview.length,invoiceLoad,invoiceConflicts.length]);
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+    <MovableDialog label="Import document" maxWidth={mode==="pricelist"&&step===2?1450:600} zIndex={1000}>
       <div style={{background:"white",borderRadius:"16px 16px 0 0",padding:20,width:"100%",maxWidth:mode==="pricelist"&&step===2?1450:600,maxHeight:"90vh",overflowY:"auto"}} aria-live="polite">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <h3 style={{margin:0,fontSize:16}}>{mode==="pricelist"?"📋 Import Price Sheet":"🧾 Record Invoice"}</h3>
@@ -1003,7 +1004,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           </div>
         )}
       </div>
-    </div>
+    </MovableDialog>
   );
 }
 
