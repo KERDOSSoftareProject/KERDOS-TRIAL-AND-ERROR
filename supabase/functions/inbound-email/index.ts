@@ -1,7 +1,7 @@
 /**
  * inbound-email  —  Supabase Edge Function
  *
- * Receives Postmark inbound webhooks and queues attachments for review.
+ * Receives Postmark inbound webhooks and hands stored attachments to the processor.
  *
  * Security model
  * ──────────────
@@ -29,12 +29,11 @@
  *      {orgId}/inbound/{messageId}/{attachmentIndex}
  *      (the original filename is kept in the DB row; omitted from the key)
  *   3. Writes an inbound_attachments row with import_document_id = null
+ *   4. Awaits process-attachment dispatch; operational failures return 500
+ *      so Postmark can retry the handoff.
  *
- * The browser UI then shows a "Review & Import" button. Clicking it fetches
- * the file from Storage, creates a File object, and opens PasteModal with
- * the file pre-loaded. fileToText() runs in the browser during that
- * interaction — vendor selection is still required — preserving the full
- * Interpret → Compare → Decide flow.
+ * Attachments needing human review appear in the inbox and can be completed
+ * through PasteModal's existing review flow.
  *
  * Retry / transient error handling
  * ─────────────────────────────────
@@ -56,6 +55,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { processAttachments } from "./attachment-processor.mjs";
+import { finishFreshMessage } from "./fresh-message-handoff.mjs";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -84,9 +84,9 @@ interface PostmarkPayload {
 //   • Text body only — attachments and HTML body are NOT forwarded.
 //   • Forwarding is best-effort: a failure is logged but never surfaces as an
 //     HTTP 500, so Postmark does not retry the webhook on forward errors.
-//   • We only forward on the FIRST successful processing (the fresh-message
-//     path). Idempotent retries that land on the existing-message path skip
-//     forwarding to avoid duplicate copies.
+//   • We attempt forwarding once on the fresh-message path, even when the
+//     attachment handoff fails and Postmark will retry it. Existing-message
+//     retries skip forwarding to avoid duplicate copies.
 //
 // Required env vars (set in Supabase Dashboard → Secrets):
 //   POSTMARK_SERVER_TOKEN   — Postmark API token for sending
@@ -146,6 +146,7 @@ async function forwardEmail(params: ForwardParams): Promise<void> {
 
   const res = await fetch("https://api.postmarkapp.com/email", {
     method:  "POST",
+    signal:  AbortSignal.timeout(10_000),
     headers: {
       "Accept":                  "application/json",
       "Content-Type":            "application/json",
@@ -229,14 +230,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    { auth: { persistSession: false } }
+    {
+      auth: { persistSession: false },
+      // Peer functions require the exact service bearer, not implicit SDK auth.
+      global: { headers: { Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}` } },
+    }
   );
 
   // 5. Look up organization by routing address (case-insensitive)
   const normalizedAddress = originalRecipient.toLowerCase().trim();
   const { data: routingRow, error: routingErr } = await supabase
     .from("email_routing_addresses")
-    .select("id, organization_id, forward_to")
+    .select("id, organization_id, vendor_id, forward_to")
     .eq("routing_address", normalizedAddress)
     .eq("is_active", true)
     .single();
@@ -247,7 +252,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response("OK", { status: 200 });
   }
 
-  const { id: routingAddressId, organization_id: organizationId, forward_to: forwardTo } = routingRow;
+  const { id: routingAddressId, organization_id: organizationId,
+    vendor_id: receiptVendorId, forward_to: forwardTo } = routingRow;
 
   // 6. Idempotency check — if the message was already recorded, resume
   //    attachment processing in case a prior attempt crashed mid-way.
@@ -274,6 +280,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .insert({
       organization_id: organizationId,
       routing_address_id: routingAddressId,
+      // Immutable receipt-time decision. Retries reuse this message row, even
+      // if the routing address has since been assigned to another vendor.
+      receipt_vendor_id: receiptVendorId ?? null,
+      vendor_snapshot_at: new Date().toISOString(),
       postmark_message_id: postmarkMessageId,
       sender_email: FromFull.Email,
       sender_name: FromFull.Name ?? null,
@@ -318,24 +328,26 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response("Internal Server Error", { status: 500 });
   }
 
-  // 8. Process attachments for a freshly-inserted message
+  // 8. Process attachments and attempt optional forwarding for this fresh
+  // message. A handoff failure still returns 500 for retry, but does not
+  // suppress the one forwarding attempt. Wait for the bounded best-effort
+  // attempt before acknowledging the webhook.
   try {
-    await processAttachments(supabase, organizationId, messageRow.id, attachments);
+    await finishFreshMessage(
+      () => processAttachments(supabase, organizationId, messageRow.id, attachments),
+      forwardTo ? () => forwardEmail({
+        forwardTo,
+        originalFrom:  FromFull.Email,
+        originalName:  FromFull.Name,
+        subject,
+        bodyText,
+        originalTo:    normalizedAddress,
+      }) : null,
+      e => console.error("inbound-email: forward threw unexpectedly", e),
+    );
   } catch (e) {
     console.error("inbound-email: attachment processing failed (new message)", e);
     return new Response("Internal Server Error", { status: 500 });
-  }
-
-  // 9. Optional forwarding — best-effort; never fails the webhook
-  if (forwardTo) {
-    forwardEmail({
-      forwardTo,
-      originalFrom:  FromFull.Email,
-      originalName:  FromFull.Name,
-      subject,
-      bodyText,
-      originalTo:    normalizedAddress,
-    }).catch(e => console.error("inbound-email: forward threw unexpectedly", e));
   }
 
   return new Response("OK", { status: 200 });

@@ -6,6 +6,10 @@ export function createImportService(backend){
   const table=backend.records.query;
   return {
     findPriceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status,completed_keys").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").eq("fingerprint",fingerprint).maybeSingle(),"Could not verify whether the file was already imported");},
+    // Resume a partial import document by its known ID (A1.7.a).
+    // Validates organization_id and vendor_id ownership so a stale or spoofed
+    // ID from the inbox cannot resume a document belonging to another org or vendor.
+    findPriceDocumentById({organizationId,vendorId,documentId}){return run(table("import_documents").select("id,status,completed_keys").eq("id",documentId).eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").maybeSingle(),"Could not load the partial import document");},
     createPriceDocument(row){return run(table("import_documents").insert(row).select("id").single(),"Could not preserve the source document");},
     async resumeSources(organizationId,vendorId,documentId){
       const quotes=[];

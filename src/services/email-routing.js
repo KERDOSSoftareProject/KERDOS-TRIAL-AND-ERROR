@@ -20,6 +20,8 @@
  * needs it.
  */
 
+import { attachmentActionBlocked } from "../utils/attachment-state.js";
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 async function run(promise, context) {
@@ -30,20 +32,34 @@ async function run(promise, context) {
 
 // ── routing addresses ──────────────────────────────────────────────────────
 
+// The isolated test app may use the exact address Postmark assigns to its
+// separate inbound stream. This is a public receiving address, not a secret.
+// Production builds retain the branded inbound domain by default.
+export const testInboundAddress = import.meta.env?.VITE_TEST_INBOUND_ADDRESS?.trim().toLowerCase() || null;
+
+export function routingAddressError(address, assignedTestAddress = testInboundAddress) {
+  const normalized = address?.trim().toLowerCase() || "";
+  if (assignedTestAddress) {
+    return normalized === assignedTestAddress.toLowerCase()
+      ? null : `Routing address must be ${assignedTestAddress}`;
+  }
+  return normalized.endsWith("@inbound.kerdos.com")
+    ? null : "Routing address must end in @inbound.kerdos.com";
+}
+
 /**
  * Create a new routing address for an organization.
  *
  * @param {object} backend  — the Supabase client from src/backend/index.js
  * @param {string} organizationId
- * @param {{ routingAddress: string, label?: string, forwardTo?: string }} opts
+ * @param {{ routingAddress: string, label?: string, forwardTo?: string, vendorId?: string|null }} opts
  * @returns {Promise<object>} the created row
  */
-export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo }) {
+export async function createRoutingAddress(backend, organizationId, { routingAddress, label, forwardTo, vendorId }) {
   if (!routingAddress) throw new Error("routingAddress is required");
   const normalized = routingAddress.toLowerCase().trim();
-  if (!normalized.endsWith("@inbound.kerdos.com")) {
-    throw new Error("Routing address must end in @inbound.kerdos.com");
-  }
+  const addressError = routingAddressError(normalized);
+  if (addressError) throw new Error(addressError);
   return run(
     backend
       .from("email_routing_addresses")
@@ -52,6 +68,7 @@ export async function createRoutingAddress(backend, organizationId, { routingAdd
         routing_address: normalized,
         label: label ?? null,
         forward_to: forwardTo ?? null,
+        vendor_id: vendorId || null,
       })
       .select()
       .single(),
@@ -70,11 +87,26 @@ export async function listRoutingAddresses(backend, organizationId) {
   return run(
     backend
       .from("email_routing_addresses")
-      .select("id, routing_address, label, forward_to, is_active, created_at")
+      .select("id, routing_address, label, forward_to, vendor_id, is_active, created_at")
       .eq("organization_id", organizationId)
       .eq("is_active", true)
       .order("created_at", { ascending: false }),
     "listRoutingAddresses"
+  );
+}
+
+/** Change an address's current vendor mapping. Pending attachments use this mapping at processing time. */
+export async function setRoutingAddressVendor(backend, organizationId, addressId, vendorId) {
+  if (!addressId) throw new Error("addressId is required");
+  return run(
+    backend
+      .from("email_routing_addresses")
+      .update({ vendor_id: vendorId || null })
+      .eq("id", addressId)
+      .eq("organization_id", organizationId)
+      .select("id, vendor_id")
+      .single(),
+    "setRoutingAddressVendor"
   );
 }
 
@@ -116,7 +148,7 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
       .select(`
         id, routing_address_id, postmark_message_id,
         sender_email, sender_name, subject, received_at,
-        inbound_attachments ( id, filename, content_type, import_document_id, ingest_error )
+        inbound_attachments ( id, filename, content_type, import_document_id, ingest_error, processing_status )
       `)
       .eq("organization_id", organizationId)
       .order("received_at", { ascending: false })
@@ -130,9 +162,10 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
     return {
       ...msg,
       attachment_count: atts.length,
-      // Failed attachments (ingest_error set) are permanently unimportable;
-      // exclude them from the pending count so the badge reflects actionable items.
-      pending_count: atts.filter((a) => a.import_document_id === null && !a.ingest_error).length,
+      // Count the same attachments for which AttachmentRow offers a manual
+      // action. Processing and imported rows are not yet actionable; a linked
+      // partial remains actionable after recovery resets its status to pending.
+      pending_count: atts.filter((a) => !attachmentActionBlocked(a)).length,
     };
   });
 }
@@ -154,7 +187,7 @@ export async function getMessage(backend, organizationId, messageId) {
         sender_email, sender_name, subject, body_text, received_at,
         inbound_attachments (
           id, filename, content_type, file_size_bytes,
-          storage_path, import_document_id, ingest_error, created_at
+          storage_path, import_document_id, ingest_error, processing_status, created_at
         )
       `)
       .eq("organization_id", organizationId)
@@ -174,19 +207,24 @@ export async function getMessage(backend, organizationId, messageId) {
  * @returns {Promise<object[]>}
  */
 export async function listPendingAttachments(backend, organizationId) {
-  return run(
+  // Query a superset, then use the same action decision as AttachmentRow.
+  // A recovered partial can be linked to a document while its status is
+  // pending; filtering only on a null document or needs_review hides it.
+  const rows = await run(
     backend
       .from("inbound_attachments")
       .select(`
         id, message_id, filename, content_type, file_size_bytes,
-        storage_path, created_at,
+        storage_path, ingest_error, created_at,
+        import_document_id, processing_status,
         inbound_messages ( sender_email, sender_name, subject, received_at )
       `)
       .eq("organization_id", organizationId)
-      .is("import_document_id", null)
+      .or("import_document_id.is.null,processing_status.eq.needs_review,processing_status.eq.pending,processing_status.eq.failed")
       .order("created_at", { ascending: false }),
     "listPendingAttachments"
   );
+  return (rows ?? []).filter((a) => !attachmentActionBlocked(a));
 }
 
 // ── attachment handoff to PasteModal ──────────────────────────────────────
@@ -265,12 +303,34 @@ export async function getAttachmentFile(backend, organizationId, attachmentId) {
  * @param {string} importDocumentId
  * @returns {Promise<void>}
  */
-export async function markAttachmentIngested(backend, organizationId, attachmentId, importDocumentId) {
+/**
+ * @param {string|null} [finalStatus]  — optional terminal processing_status to set atomically
+ *   with the import_document_id link.  Accepted values: 'auto_imported', 'needs_review', null.
+ *   Pass 'auto_imported' when the user successfully completed a PasteModal review so the
+ *   attachment clears from the pending queue.  Omit (or pass null) to leave processing_status
+ *   unchanged — used by the audit-retry path which only needs to re-link the document id.
+ */
+export async function markAttachmentIngested(backend, organizationId, attachmentId, importDocumentId, finalStatus = null) {
   await run(
     backend.rpc("mark_attachment_ingested", {
       p_attachment_id:      attachmentId,
       p_import_document_id: importDocumentId,
+      p_final_status:       finalStatus,
     }),
     "markAttachmentIngested"
+  );
+}
+
+/** Atomically reserve an attachment for manual review before opening PasteModal.
+ * A pending automatic worker and the user compete for the same database row lock.
+ * Only one can change the state; a running worker returns false.
+ */
+export async function beginManualAttachmentReview(backend, organizationId, attachmentId) {
+  return run(
+    backend.rpc("begin_manual_attachment_review", {
+      p_organization_id: organizationId,
+      p_attachment_id: attachmentId,
+    }),
+    "beginManualAttachmentReview"
   );
 }

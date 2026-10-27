@@ -97,6 +97,24 @@ function makeMockBackend(seed = {}) {
         rows = rows.filter(r => r[field] === value || (value === null && r[field] == null));
         return q;
       },
+      or(filterStr) {
+        // Minimal PostgREST `.or()` parser for the subset used in tests.
+        // Handles "col.is.null" and "col.eq.value" clauses joined by commas.
+        // Example: "import_document_id.is.null,processing_status.eq.needs_review"
+        const clauses = filterStr.split(",").map(s => s.trim());
+        rows = rows.filter(row => clauses.some(clause => {
+          const parts = clause.split(".");
+          const col = parts[0];
+          const op  = parts[1];
+          const val = parts.slice(2).join(".");
+          if (op === "is" && val === "null")  return row[col] == null;
+          if (op === "is" && val === "notnull") return row[col] != null;
+          if (op === "eq") return String(row[col]) === val;
+          if (op === "neq") return String(row[col]) !== val;
+          return false;
+        }));
+        return q;
+      },
       order(field, { ascending = true } = {}) {
         rows.sort((a, b) => {
           if (a[field] < b[field]) return ascending ? -1 : 1;
@@ -134,7 +152,11 @@ function makeMockBackend(seed = {}) {
             tables[tableName].forEach((r, i) => {
               if (ids.has(r.id)) tables[tableName][i] = { ...r, ...updatePayload };
             });
-            return resolve({ data: null, error: null });
+            const updated = tables[tableName].filter(r => ids.has(r.id));
+            if (singleMode && updated.length !== 1) {
+              return resolve({ data: null, error: { message: "expected exactly one row" } });
+            }
+            return resolve({ data: singleMode ? updated[0] : null, error: null });
           }
 
           let resultRows = rows;
@@ -238,6 +260,9 @@ function makeMockBackend(seed = {}) {
     from(tableName) { return buildQuery(tableName); },
     rpc,
     storage: storageApi,
+    functions: {
+      async invoke() { return { data: { outcome: "auto_imported" }, error: null }; },
+    },
     _tables: tables,
     _storage: storage,
     // Allow tests to inject a forced upload error on the next call
@@ -272,9 +297,13 @@ function makeMockBackendWithUploadError(seed = {}, errorPath = null) {
 
 // ── Import the service under test ──────────────────────────────────────────
 
+import { isDispatchable, isTerminal, VALID_OUTCOMES } from "../../supabase/functions/inbound-email/attachment-state.mjs";
+
 import {
   createRoutingAddress,
+  routingAddressError,
   listRoutingAddresses,
+  setRoutingAddressVendor,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
@@ -780,7 +809,8 @@ console.log("\n── A. Edge Function logic ───────────�
       q.insert = function(payload) {
         insertCallCount++;
         if (insertCallCount === 1) {
-          // Return a fake 23505 error
+          // Another request won: its row must be visible on the winner lookup.
+          backend._tables.inbound_attachments.push({ id: "att-winner-a17", ...payload });
           q.then = function(resolve) {
             return Promise.resolve().then(() =>
               resolve({ data: null, error: { code: "23505", message: "duplicate key value" } })
@@ -822,6 +852,33 @@ console.log("\n── B. Service layer ─────────────�
   });
   t("B1: routing address lowercased", row.routing_address, "acme-pricing@inbound.kerdos.com");
   t("B1: organization_id stored", row.organization_id, "org-1");
+  t("B1: no selected vendor means manual review", row.vendor_id, null);
+  t("B1: default production address allowed", routingAddressError("a@inbound.kerdos.com"), null);
+  t("B1: test stream accepts its assigned address", routingAddressError("HASH@inbound.postmarkapp.com", "hash@inbound.postmarkapp.com"), null);
+  t("B1: test stream rejects another Postmark address", routingAddressError("other@inbound.postmarkapp.com", "hash@inbound.postmarkapp.com"), "Routing address must be hash@inbound.postmarkapp.com");
+}
+
+{
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-own", organization_id: "org-1", vendor_id: null, is_active: true },
+      { id: "ra-other", organization_id: "org-2", vendor_id: null, is_active: true },
+    ],
+  });
+  const created = await createRoutingAddress(backend, "org-1", {
+    routingAddress: "vendor@inbound.kerdos.com", vendorId: "vendor-1",
+  });
+  t("B1: selected vendor is stored on new address", created.vendor_id, "vendor-1");
+  const assigned = await setRoutingAddressVendor(backend, "org-1", "ra-own", "vendor-1");
+  t("B1: existing address gets selected vendor", assigned.vendor_id, "vendor-1");
+  const listed = await listRoutingAddresses(backend, "org-1");
+  t("B1: address list includes vendor assignment", listed.find(a => a.id === "ra-own").vendor_id, "vendor-1");
+  await setRoutingAddressVendor(backend, "org-1", "ra-own", null);
+  t("B1: clearing vendor restores manual review", backend._tables.email_routing_addresses[0].vendor_id, null);
+  await rejects("B1: another organization's address cannot be changed", async () => {
+    await setRoutingAddressVendor(backend, "org-1", "ra-other", "vendor-1");
+  });
+  t("B1: other organization remains unchanged", backend._tables.email_routing_addresses[1].vendor_id, null);
 }
 
 {
@@ -885,6 +942,23 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
+  // Cross-task: recovery can leave a linked partial pending, while an active
+  // worker is processing another attachment. The badge must agree with the
+  // actions actually offered in AttachmentRow.
+  const backend = makeMockBackend({
+    inbound_messages: [{ id: "m-states", organization_id: "org-1", received_at: new Date().toISOString() }],
+    inbound_attachments: [
+      { id: "recovering", message_id: "m-states", import_document_id: "doc-1", processing_status: "pending" },
+      { id: "working", message_id: "m-states", import_document_id: null, processing_status: "processing" },
+      { id: "done", message_id: "m-states", import_document_id: "doc-2", processing_status: "auto_imported" },
+      { id: "decode", message_id: "m-states", import_document_id: null, processing_status: "pending", ingest_error: "bad base64" },
+    ],
+  });
+  const [message] = await listMessages(backend, "org-1");
+  t("B5 cross-task: only recovered partial counts as actionable", message.pending_count, 1);
+}
+
+{
   // B6. listMessages: org isolation — only own messages
   const backend = makeMockBackend({
     inbound_messages: [
@@ -920,7 +994,11 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
-  // B8. listPendingAttachments only returns null import_document_id
+  // B8. listPendingAttachments returns unprocessed AND background-partial attachments.
+  // Fixed: old filter (.is("import_document_id", null)) excluded background partials
+  // where import_document_id IS NOT NULL but processing_status = 'needs_review'.
+  // Recovered linked pending rows are actionable too; processing rows and
+  // decode-error rows must not appear as manual actions.
   const backend = makeMockBackend({
     inbound_messages: [
       { id: "m1", organization_id: "org-1", routing_address_id: "ra-1",
@@ -928,18 +1006,47 @@ console.log("\n── B. Service layer ─────────────�
         subject: "Prices", received_at: new Date().toISOString() },
     ],
     inbound_attachments: [
+      // a1: not yet processed — should appear
       { id: "a1", organization_id: "org-1", message_id: "m1",
         filename: "pending.pdf", storage_path: "org-1/inbound/m1/0-pending.pdf",
-        import_document_id: null, created_at: new Date().toISOString() },
+        import_document_id: null, processing_status: "pending",
+        created_at: new Date().toISOString() },
+      // a2: fully auto-imported — should NOT appear
       { id: "a2", organization_id: "org-1", message_id: "m1",
         filename: "done.pdf", storage_path: "org-1/inbound/m1/1-done.pdf",
-        import_document_id: "doc-99", created_at: new Date().toISOString() },
+        import_document_id: "doc-99", processing_status: "auto_imported",
+        created_at: new Date().toISOString() },
+      // a3: background partial that needs human review — should appear (Gap 5 fix)
+      { id: "a3", organization_id: "org-1", message_id: "m1",
+        filename: "partial.csv", storage_path: "org-1/inbound/m1/2-partial.csv",
+        import_document_id: "doc-partial", processing_status: "needs_review",
+        created_at: new Date().toISOString() },
+      { id: "a4", organization_id: "org-1", message_id: "m1",
+        filename: "recovered.csv", storage_path: "org-1/inbound/m1/3-recovered.csv",
+        import_document_id: "doc-recovered", processing_status: "pending",
+        created_at: new Date().toISOString() },
+      { id: "a5", organization_id: "org-1", message_id: "m1",
+        filename: "active.csv", storage_path: "org-1/inbound/m1/4-active.csv",
+        import_document_id: null, processing_status: "processing",
+        created_at: new Date().toISOString() },
+      { id: "a6", organization_id: "org-1", message_id: "m1",
+        filename: "broken.csv", storage_path: null, ingest_error: "bad base64",
+        import_document_id: null, processing_status: "pending",
+        created_at: new Date().toISOString() },
     ],
   });
 
   const pending = await listPendingAttachments(backend, "org-1");
-  t("B8: only pending attachments returned", pending.length, 1);
-  t("B8: correct attachment", pending[0].filename, "pending.pdf");
+  t("B8: pending + background + recovered partial attachments returned", pending.length, 3);
+  const ids = pending.map(a => a.id).sort();
+  t("B8: unprocessed attachment included", ids.includes("a1"), true);
+  t("B8: background partial (needs_review) included", ids.includes("a3"), true);
+  t("B8: recovered linked partial included", ids.includes("a4"), true);
+  t("B8: active worker excluded", ids.includes("a5"), false);
+  t("B8: decode error excluded", ids.includes("a6"), false);
+  t("B8: auto_imported attachment excluded", ids.includes("a2"), false);
+  t("B8: import_document_id present in result", pending.find(a => a.id === "a3").import_document_id, "doc-partial");
+  t("B8: processing_status present in result", pending.find(a => a.id === "a3").processing_status, "needs_review");
 }
 
 {
@@ -1241,6 +1348,645 @@ console.log("\n── D. Organization isolation ──────────�
     .single();
 
   t("D3: routing lookup returns org-1 not org-2", found?.organization_id, "org-1");
+}
+
+// ── Section E: attachment-state predicates ────────────────────────────────
+// These tests establish the dispatch rules that attachment-processor.mjs
+// relies on via attachment-state.mjs.  They must live here (not only in the
+// lease-handoff-test) so the full email-routing module review can verify
+// the state machine without importing process-attachment internals.
+
+{
+  // E1. VALID_OUTCOMES is complete and stable
+  ok("E1: VALID_OUTCOMES contains auto_imported", VALID_OUTCOMES.includes("auto_imported"));
+  ok("E1: VALID_OUTCOMES contains needs_review", VALID_OUTCOMES.includes("needs_review"));
+  ok("E1: VALID_OUTCOMES contains skipped", VALID_OUTCOMES.includes("skipped"));
+  t("E1: VALID_OUTCOMES has exactly 3 members", VALID_OUTCOMES.length, 3);
+}
+
+{
+  // E2. isDispatchable: pending + storage_path + no error → dispatchable
+  const row = { processing_status: "pending", ingest_error: null, storage_path: "org/inbound/msg/0" };
+  ok("E2: pending row with storage_path is dispatchable", isDispatchable(row));
+}
+
+{
+  // E3. isDispatchable: needs_review is NOT dispatchable (terminal, awaits human)
+  const row = { processing_status: "needs_review", ingest_error: null, storage_path: "org/path" };
+  ok("E3: needs_review row is not dispatchable", !isDispatchable(row));
+}
+
+{
+  // E4. isDispatchable: pending without storage_path → not dispatchable (error row)
+  const row = { processing_status: "pending", ingest_error: null, storage_path: null };
+  ok("E4: pending row without storage_path is not dispatchable", !isDispatchable(row));
+}
+
+{
+  // E5. isDispatchable: pending with ingest_error → not dispatchable (permanent failure)
+  const row = { processing_status: "pending", ingest_error: "bad base64", storage_path: "org/path" };
+  ok("E5: pending row with ingest_error is not dispatchable", !isDispatchable(row));
+}
+
+{
+  // E6. isDispatchable: processing row (another worker holds lease) → not dispatchable
+  const row = { processing_status: "processing", ingest_error: null, storage_path: "org/path" };
+  ok("E6: processing row is not dispatchable", !isDispatchable(row));
+}
+
+{
+  // E7. isDispatchable: auto_imported row → not dispatchable (already done)
+  const row = { processing_status: "auto_imported", ingest_error: null, storage_path: "org/path" };
+  ok("E7: auto_imported row is not dispatchable", !isDispatchable(row));
+}
+
+{
+  // E8. isDispatchable: null input → false (safe for missing DB rows)
+  ok("E8: null is not dispatchable", !isDispatchable(null));
+}
+
+{
+  // E9. isTerminal: both terminal statuses are recognised
+  ok("E9: auto_imported is terminal", isTerminal("auto_imported"));
+  ok("E9: needs_review is terminal", isTerminal("needs_review"));
+  ok("E9: pending is not terminal", !isTerminal("pending"));
+  ok("E9: processing is not terminal", !isTerminal("processing"));
+  ok("E9: skipped is not terminal", !isTerminal("skipped"));
+}
+
+// ── Section F: attachment-processor edge cases via email-routing mock ─────
+// These tests exercise paths in attachment-processor.mjs end-to-end through
+// the inbound-email surface — the same surface that production uses.
+
+function makeProcessBackend({
+  existingRow = null,
+  uploadError = null,
+  insertError = null,
+  invocationResult = { data: { outcome: "auto_imported" }, error: null },
+  raceRow = null,         // row fetched in 409 re-check
+  recoveredRow = null,    // row returned by recovery insert
+  recoveryInsertError = null,
+} = {}) {
+  const insertedRows = [];
+  const invocations = [];
+  return {
+    get insertedRows() { return insertedRows; },
+    get invocations() { return invocations; },
+    from(table) {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        single() {
+          if (recoveredRow) return Promise.resolve({ data: recoveredRow, error: recoveryInsertError });
+          if (insertError) return Promise.resolve({ data: null, error: insertError });
+          const row = { id: "att-new", processing_status: "pending", storage_path: "org/path" };
+          insertedRows.push(row);
+          return Promise.resolve({ data: row, error: null });
+        },
+        maybeSingle() {
+          if (raceRow !== undefined && insertedRows.length > 0) return Promise.resolve({ data: raceRow, error: null });
+          return Promise.resolve({ data: existingRow, error: null });
+        },
+        insert(payload) {
+          insertedRows.push(payload);
+          return this;
+        },
+      };
+    },
+    storage: {
+      from() {
+        return {
+          upload() {
+            return Promise.resolve({ error: uploadError });
+          },
+        };
+      },
+    },
+    functions: {
+      invoke(fn, opts) {
+        invocations.push({ fn, body: opts?.body });
+        return Promise.resolve(invocationResult);
+      },
+    },
+  };
+}
+
+const singleAtt = [{ Name: "prices.csv", ContentType: "text/csv", Content: btoa("hello"), ContentLength: 5 }];
+
+{
+  // F1. Fresh attachment: upload succeeds → DB row inserted → process invoked
+  const b = makeProcessBackend();
+  await processAttachments(b, "org-1", "msg-1", singleAtt);
+  ok("F1: process-attachment invoked once", b.invocations.length === 1);
+  t("F1: invoked with correct attachmentId", b.invocations[0].body.attachmentId, "att-new");
+  t("F1: invoked with correct organizationId", b.invocations[0].body.organizationId, "org-1");
+}
+
+{
+  // F2. Existing pending row with storage_path → re-dispatched (retry of stranded handoff)
+  const existing = { id: "att-old", processing_status: "pending", ingest_error: null, storage_path: "org-1/inbound/msg-1/0" };
+  const b = makeProcessBackend({ existingRow: existing });
+  await processAttachments(b, "org-1", "msg-1", singleAtt);
+  ok("F2: existing pending row triggers dispatch", b.invocations.length === 1);
+  t("F2: dispatched with existing row id", b.invocations[0].body.attachmentId, "att-old");
+}
+
+{
+  // F3. Existing auto_imported row → skipped entirely (no dispatch)
+  const existing = { id: "att-done", processing_status: "auto_imported", ingest_error: null, storage_path: "org/path" };
+  const b = makeProcessBackend({ existingRow: existing });
+  await processAttachments(b, "org-1", "msg-1", singleAtt);
+  t("F3: auto_imported row causes no dispatch", b.invocations.length, 0);
+}
+
+{
+  // F4. Existing needs_review row → skipped (human action required)
+  const existing = { id: "att-review", processing_status: "needs_review", ingest_error: null, storage_path: "org/path" };
+  const b = makeProcessBackend({ existingRow: existing });
+  await processAttachments(b, "org-1", "msg-1", singleAtt);
+  t("F4: needs_review row causes no dispatch", b.invocations.length, 0);
+}
+
+{
+  // F5. Existing ingest_error row → skipped (permanent failure, no retry)
+  const existing = { id: "att-err", processing_status: "pending", ingest_error: "decode failed", storage_path: null };
+  const b = makeProcessBackend({ existingRow: existing });
+  await processAttachments(b, "org-1", "msg-1", singleAtt);
+  t("F5: ingest_error row causes no dispatch", b.invocations.length, 0);
+}
+
+{
+  // F6. Storage upload returns non-409 error → throws (Postmark retry)
+  const b = makeProcessBackend({ uploadError: { message: "Storage service unavailable", statusCode: 503 } });
+  await rejects("F6: transient storage error throws", () => processAttachments(b, "org-1", "msg-1", singleAtt));
+}
+
+{
+  // F7. Malformed base64 → ingest_error row inserted, no throw, no dispatch
+  const badAtt = [{ Name: "bad.pdf", ContentType: "application/pdf", Content: "!!!!not-base64!!!!", ContentLength: 0 }];
+  let insertedError = null;
+  const b = {
+    insertedRows: [],
+    invocations: [],
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert(payload) {
+          b.insertedRows.push(payload);
+          return { then: () => {}, catch: () => {}, finally: () => {}, error: null };
+        },
+      };
+    },
+    get _insertedError() { return insertedError; },
+  };
+  // Override maybeSingle to return null (fresh row), and insert to capture payload
+  const capturedInserts = [];
+  const testBackend = {
+    invocations: [],
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert(payload) {
+          capturedInserts.push(payload);
+          return { select() { return this; }, single() { return Promise.resolve({ data: null, error: { code: "23505" } }); } };
+        },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  let threw = false;
+  try { await processAttachments(testBackend, "org-1", "msg-1", badAtt); } catch { threw = true; }
+  ok("F7: malformed base64 does not throw", !threw);
+  ok("F7: ingest_error row attempted", capturedInserts.length >= 1);
+  ok("F7: ingest_error field set", capturedInserts[0]?.ingest_error?.includes("base64") ?? false);
+  t("F7: no process-attachment invoked", testBackend.invocations.length, 0);
+}
+
+{
+  // F8. Multi-attachment: both attachments processed in sequence
+  const twoAtts = [
+    { Name: "a.csv", ContentType: "text/csv", Content: btoa("A"), ContentLength: 1 },
+    { Name: "b.csv", ContentType: "text/csv", Content: btoa("B"), ContentLength: 1 },
+  ];
+  let insertCount = 0;
+  const invocations = [];
+  const multiBackend = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert() {
+          insertCount++;
+          const id = `att-${insertCount}`;
+          return { select() { return this; }, single() { return Promise.resolve({ data: { id }, error: null }); } };
+        },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke(fn, opts) { invocations.push(opts.body); return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(multiBackend, "org-1", "msg-1", twoAtts);
+  t("F8: two rows inserted", insertCount, 2);
+  t("F8: process-attachment invoked twice", invocations.length, 2);
+  t("F8: first attachment index used", invocations[0].attachmentId, "att-1");
+  t("F8: second attachment index used", invocations[1].attachmentId, "att-2");
+}
+
+{
+  // F9. Storage 409 + existing DB row (concurrent delivery winner) → dispatch to winner
+  let lookupCount = 0;
+  const existingWinner = { id: "att-winner", processing_status: "pending", ingest_error: null, storage_path: "org/path" };
+  const raceBackend = {
+    invocations: [],
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() {
+          lookupCount++;
+          // First lookup (idempotency check) returns null; second (after 409) returns winner
+          return Promise.resolve({ data: lookupCount === 1 ? null : existingWinner, error: null });
+        },
+        insert() { return this; },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: { statusCode: 409, message: "The resource already exists" } }); } }; } },
+    functions: { invoke(fn, opts) { raceBackend.invocations.push(opts.body); return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(raceBackend, "org-1", "msg-1", singleAtt);
+  t("F9: dispatch goes to storage race winner", raceBackend.invocations.length, 1);
+  t("F9: winner id used for dispatch", raceBackend.invocations[0].attachmentId, "att-winner");
+}
+
+{
+  // F10. Process-attachment returns an unrecognised outcome → throws for Postmark retry
+  const badOutcomeBackend = makeProcessBackend({
+    invocationResult: { data: { outcome: "unknown_status" }, error: null },
+  });
+  await rejects("F10: unrecognised outcome throws", () =>
+    processAttachments(badOutcomeBackend, "org-1", "msg-1", singleAtt)
+  );
+}
+
+{
+  // F11. Process-attachment returns error → throws (edge function error path)
+  const errBackend = makeProcessBackend({
+    invocationResult: { data: null, error: { message: "Function timeout" } },
+  });
+  await rejects("F11: invocation error throws", () =>
+    processAttachments(errBackend, "org-1", "msg-1", singleAtt)
+  );
+}
+
+{
+  // F12. functions.invoke unavailable → throws immediately (guard check)
+  const noFnBackend = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert() { return { select() { return this; }, single() { return Promise.resolve({ data: { id: "x" }, error: null }); } }; },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke: "not-a-function" },
+  };
+  await rejects("F12: missing invoke guard throws", () =>
+    processAttachments(noFnBackend, "org-1", "msg-1", singleAtt)
+  );
+}
+
+{
+  // F13. Storage 409 + no DB row (orphan recovery) → recovery insert → dispatch
+  let lookupCount = 0;
+  const recoveryInvocations = [];
+  const orphanBackend = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() {
+          lookupCount++;
+          // Both lookups return null: initial check and after-409 re-check
+          return Promise.resolve({ data: null, error: null });
+        },
+        insert() {
+          return {
+            select() { return this; },
+            single() {
+              return Promise.resolve({ data: { id: "att-recovered" }, error: null });
+            },
+          };
+        },
+      };
+    },
+    storage: {
+      from() {
+        return { upload() { return Promise.resolve({ error: { statusCode: 409, message: "already exists" } }); } };
+      },
+    },
+    functions: {
+      invoke(fn, opts) {
+        recoveryInvocations.push(opts.body);
+        return Promise.resolve({ data: { outcome: "auto_imported" }, error: null });
+      },
+    },
+  };
+  await processAttachments(orphanBackend, "org-1", "msg-1", singleAtt);
+  t("F13: orphan rechecks after Storage 409", lookupCount, 2);
+  t("F13: orphan recovery dispatches process-attachment", recoveryInvocations.length, 1);
+  t("F13: recovery uses recovered row id", recoveryInvocations[0].attachmentId, "att-recovered");
+}
+
+{
+  // F14. Concurrent insert 23505 at step 4 → winner fetch → dispatch
+  let insertAttempts = 0;
+  let winnerLookups = 0;
+  const concurrentInvocations = [];
+  const winner = { id: "att-concurrent-winner" };
+  const concurrentBackend = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() {
+          winnerLookups++;
+          return Promise.resolve({ data: winnerLookups === 1 ? null : winner, error: null });
+        },
+        insert() {
+          insertAttempts++;
+          return {
+            select() { return this; },
+            single() {
+              return Promise.resolve({ data: null, error: { code: "23505" } });
+            },
+          };
+        },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: {
+      invoke(fn, opts) {
+        concurrentInvocations.push(opts.body);
+        return Promise.resolve({ data: { outcome: "auto_imported" }, error: null });
+      },
+    },
+  };
+  await processAttachments(concurrentBackend, "org-1", "msg-1", singleAtt);
+  t("F14: concurrent insert attempted once", insertAttempts, 1);
+  t("F14: concurrent insert dispatches to winner", concurrentInvocations.length, 1);
+  t("F14: winner id used", concurrentInvocations[0].attachmentId, "att-concurrent-winner");
+}
+
+{
+  // F15. attachmentIndex is used in storage path, not filename
+  const indexPathInvocations = [];
+  const twoAtts = [
+    { Name: "invoice.pdf", ContentType: "application/pdf", Content: btoa("X"), ContentLength: 1 },
+    { Name: "invoice.pdf", ContentType: "application/pdf", Content: btoa("Y"), ContentLength: 1 },
+  ];
+  let insertCount = 0;
+  const indexBackend = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert(payload) {
+          insertCount++;
+          // Verify storage_path uses index (0 or 1), not filename
+          ok(`F15: attachment ${insertCount - 1} path uses index`, payload?.storage_path?.endsWith(`/${insertCount - 1}`) ?? false);
+          return {
+            select() { return this; },
+            single() { return Promise.resolve({ data: { id: `att-${insertCount}` }, error: null }); },
+          };
+        },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: {
+      invoke(fn, opts) {
+        indexPathInvocations.push(opts.body);
+        return Promise.resolve({ data: { outcome: "auto_imported" }, error: null });
+      },
+    },
+  };
+  await processAttachments(indexBackend, "org-1", "msg-1", twoAtts);
+  t("F15: two same-name attachments both processed", indexPathInvocations.length, 2);
+}
+
+{
+  // F16. Empty attachments array → no-op
+  const emptyBackend = makeProcessBackend();
+  await processAttachments(emptyBackend, "org-1", "msg-1", []);
+  t("F16: empty attachments array causes no inserts or invocations", emptyBackend.invocations.length, 0);
+}
+
+{
+  // F17. DB existence-check error → throws
+  const existsErrBackend = {
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: { message: "DB connection lost" } }); },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await rejects("F17: DB existence-check error throws", () =>
+    processAttachments(existsErrBackend, "org-1", "msg-1", singleAtt)
+  );
+}
+
+{
+  // F18. Existing pending row without storage_path (decode-error row) → not dispatched
+  const decodeErrRow = {
+    id: "att-decode-err",
+    processing_status: "pending",
+    ingest_error: "base64 decode failed: invalid char",
+    storage_path: null,
+  };
+  const decodeErrBackend = {
+    invocations: [],
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: decodeErrRow, error: null }); },
+      };
+    },
+    functions: { invoke() { decodeErrBackend.invocations.push(1); return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(decodeErrBackend, "org-1", "msg-1", singleAtt);
+  t("F18: decode-error row with null storage_path not dispatched", decodeErrBackend.invocations.length, 0);
+}
+
+// ── Section G: processAttachments integration — base64 and storage paths ─────
+
+{
+  // G1. Whitespace in base64 Content is stripped before decode
+  const wsAtts = [{ Name: "doc.txt", ContentType: "text/plain", Content: "SGVs\nbG8=", ContentLength: 5 }];
+  let uploadedBytes = null;
+  const wsBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert() { return { select() { return this; }, single() { return Promise.resolve({ data: { id: "att-ws" }, error: null }); } }; },
+      };
+    },
+    storage: { from() { return { upload(path, bytes) { uploadedBytes = bytes; return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(wsBackend, "org-1", "msg-1", wsAtts);
+  t("G1: whitespace stripped from base64 before decode", uploadedBytes != null && uploadedBytes.length > 0, true);
+}
+
+{
+  // G2. Storage path format: {orgId}/inbound/{messageId}/{index}
+  let capturedPath = null;
+  const pathBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert() { return { select() { return this; }, single() { return Promise.resolve({ data: { id: "att-p" }, error: null }); } }; },
+      };
+    },
+    storage: { from() { return { upload(path) { capturedPath = path; return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "skipped" }, error: null }); } },
+  };
+  await processAttachments(pathBackend, "org-abc", "msg-xyz", [{ Name: "a.pdf", ContentType: "application/pdf", Content: btoa("X"), ContentLength: 1 }]);
+  t("G2: storage path uses orgId/inbound/messageId/index format", capturedPath, "org-abc/inbound/msg-xyz/0");
+}
+
+{
+  // G3. Filename falls back to "attachment" when att.Name is empty
+  let dbPayload = null;
+  const noNameBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert(payload) {
+          dbPayload = payload;
+          return { select() { return this; }, single() { return Promise.resolve({ data: { id: "att-nn" }, error: null }); } };
+        },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(noNameBackend, "org-1", "msg-1", [{ Name: "", ContentType: "application/pdf", Content: btoa("X"), ContentLength: 1 }]);
+  t("G3: empty Name falls back to 'attachment' in DB row", dbPayload?.filename, "attachment");
+}
+
+{
+  // G4. ContentType falls back to null when missing
+  let dbPayload2 = null;
+  const noCtBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert(payload) {
+          dbPayload2 = payload;
+          return { select() { return this; }, single() { return Promise.resolve({ data: { id: "att-ct" }, error: null }); } };
+        },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(noCtBackend, "org-1", "msg-1", [{ Name: "x.bin", ContentType: undefined, Content: btoa("X"), ContentLength: 1 }]);
+  t("G4: undefined ContentType becomes null in DB row", dbPayload2?.content_type, null);
+}
+
+{
+  // G5. Transient DB insert failure (non-23505) → throws for Postmark retry
+  const transientInsertBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert() { return { select() { return this; }, single() { return Promise.resolve({ data: null, error: { code: "08006", message: "connection dropped" } }); } }; },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke() { return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await rejects("G5: non-23505 insert error throws for retry", () =>
+    processAttachments(transientInsertBackend, "org-1", "msg-1", singleAtt)
+  );
+}
+
+{
+  // G6. process-attachment invoked with correct body: attachmentId and organizationId
+  const invocationBodies = [];
+  const bodyCheckBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        insert() { return { select() { return this; }, single() { return Promise.resolve({ data: { id: "att-body" }, error: null }); } }; },
+      };
+    },
+    storage: { from() { return { upload() { return Promise.resolve({ error: null }); } }; } },
+    functions: { invoke(fn, opts) { invocationBodies.push({ fn, body: opts.body }); return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(bodyCheckBackend, "org-99", "msg-42", [{ Name: "invoice.pdf", ContentType: "application/pdf", Content: btoa("Z"), ContentLength: 1 }]);
+  t("G6: invoked function name is 'process-attachment'", invocationBodies[0]?.fn, "process-attachment");
+  t("G6: body includes correct attachmentId", invocationBodies[0]?.body?.attachmentId, "att-body");
+  t("G6: body includes correct organizationId", invocationBodies[0]?.body?.organizationId, "org-99");
+}
+
+{
+  // G7. Processing-status row (lease held by other worker) → not re-dispatched
+  const processingRow = { id: "att-proc", processing_status: "processing", ingest_error: null, storage_path: "org/path" };
+  let procInvocations = 0;
+  const processingBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: processingRow, error: null }); },
+      };
+    },
+    functions: { invoke() { procInvocations++; return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(processingBackend, "org-1", "msg-1", singleAtt);
+  t("G7: processing-status row is not re-dispatched", procInvocations, 0);
+}
+
+{
+  // G8. auto_imported row (terminal) → not re-dispatched
+  const autoRow = { id: "att-auto", processing_status: "auto_imported", ingest_error: null, storage_path: "org/path" };
+  let autoInvocations = 0;
+  const autoBackend = {
+    from() {
+      return {
+        select() { return this; }, eq() { return this; },
+        maybeSingle() { return Promise.resolve({ data: autoRow, error: null }); },
+      };
+    },
+    functions: { invoke() { autoInvocations++; return Promise.resolve({ data: { outcome: "auto_imported" }, error: null }); } },
+  };
+  await processAttachments(autoBackend, "org-1", "msg-1", singleAtt);
+  t("G8: auto_imported row is not re-dispatched", autoInvocations, 0);
+}
+
+{
+  // G9. VALID_OUTCOMES does not include unexpected values
+  t("G9: 'processing' is not a valid outcome", VALID_OUTCOMES.includes("processing"), false);
+  t("G9: 'failed' is not a valid outcome", VALID_OUTCOMES.includes("failed"), false);
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────

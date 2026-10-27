@@ -1,0 +1,19 @@
+name: A1 Manual Claim Race Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-kerdos-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "psycopg2-binary==2.9.9"
+      - name: Test manual and worker claim overlap on kerdos-test
+        env:
+          KERDOS_TEST_DATABASE_URL: ${{ secrets.KERDOS_TEST_DATABASE_URL }}
+        run: python scripts/test_a1_manual_claim_race.py

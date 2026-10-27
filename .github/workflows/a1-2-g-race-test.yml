@@ -41,3 +41,8 @@ jobs:
         env:
           KERDOS_TEST_DATABASE_URL: ${{ secrets.KERDOS_TEST_DATABASE_URL }}
         run: python scripts/test_a1_2_g_race.py
+
+      - name: Run A1 manual and worker claim race
+        env:
+          KERDOS_TEST_DATABASE_URL: ${{ secrets.KERDOS_TEST_DATABASE_URL }}
+        run: python scripts/test_a1_manual_claim_race.py

@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
 import {fileToText} from "../document-reader.js";
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
@@ -15,6 +15,7 @@ import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
 import {importPriceRow} from "../core/import-price-row.js";
 import {verifyResumeRows} from "../core/import-resume.js";
+import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
 import {enrichFromInvoices,invoiceEvidence} from "../core/invoice-evidence.js";
 import {btn,inp} from "../ui/styles.js";
@@ -26,7 +27,13 @@ const documents=createDocumentService(backend);
 const importService=createImportService(backend);
 const r2=value=>Math.round(value*100)/100;
 
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,initialVendorId,initialMode,initialFiles}) {
+// A1.7.a: inboxImportDocumentId is the import_documents.id that the background
+// worker linked via set_attachment_processing_status when it produced a partial
+// (needs_review) result.  When supplied, the save loop looks up the existing
+// document by ID + ownership instead of re-fingerprinting — ensuring the user's
+// PasteModal session resumes the SAME partial document the worker created rather
+// than creating a duplicate under the content fingerprint.
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,inboxImportDocumentId=null}) {
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
   // be dropped in until a vendor is chosen, so a sheet can't land under
@@ -46,6 +53,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const [parsedGroups,setParsedGroups]=useState([]); // after Parse: fileGroups (+pasted text) each with rows/skipped attached
   const [step,setStep]=useState(1);
   const [loading,setLoading]=useState(false);
+  const saveInFlight=useRef(false);
   const [result,setResult]=useState(null);
   const [dragOver,setDragOver]=useState(false);
   const [fileBusy,setFileBusy]=useState(false);
@@ -320,11 +328,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   function approveIssue(groupId,index){setAcceptedIssues(prev=>new Set([...prev,`${groupId}:${index}`]));}
 
   async function doSave(){
+    // Reservation is asynchronous. Block a second click immediately, before
+    // React's loading state or the first reservation response can arrive.
+    if(saveInFlight.current)return;
+    saveInFlight.current=true;
     try { await saveImport(); }
     catch(error){
       setSaveReview(`Import stopped: ${error.message||String(error)}. Items already saved remain in your catalog; check the import history before retrying.`);
       setLoading(false);
     }
+    finally{saveInFlight.current=false;}
   }
 
   async function saveImport(){
@@ -332,6 +345,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     if(missingInvoiceDates.length){setSaveReview("Confirm the invoice date for each document before recording invoice charges.");return;}
     if(unsafeDocuments.length){setSaveReview("This file identifies itself as an invoice and/or a price update inconsistent with the selected import mode. Split mixed documents, or select the correct mode before saving.");return;}
     if(mode==="invoice"&&needsReview.length){setSaveReview(`${needsReview.length} ambiguous row(s) still need a deliberate correction or approval. No unreviewed amount will change a current vendor quote.`);return;}
+    // Inbox preview does not reserve the attachment. The same row lock used by
+    // the worker is acquired here, immediately before any save-side effects.
+    // A closed preview therefore leaves pending work available to the worker.
+    if(onBeforeSave){
+      const allowed=await onBeforeSave();
+      if(!allowed)throw new Error("Automatic processing claimed this attachment. Refresh the inbox before importing.");
+    }
     setSaveReview("");setLoading(true);
     const vendor=vendors.find(v=>v.id===vendorId);
     let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0;
@@ -356,6 +376,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         workingCatalogItems[index]={...current,category_id:categoryId,master_item_number:number};
       }
 
+      // A1.7: inbox resume must target exactly one group.
+      // Guard is in src/core/inbox-group-guard.js (pure, importable by tests).
+      {
+        const guard=checkInboxGroupGuard(inboxImportDocumentId,parsedGroups);
+        if(guard.blocked){
+          setSaveReview(guard.message);
+          setLoading(false);
+          return;
+        }
+      }
       let failedRows=0;
       for(const group of parsedGroups){
         if(!group.rows.length)continue;
@@ -365,14 +395,54 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(group.text));
         const fingerprint=Array.from(new Uint8Array(digest)).map(n=>n.toString(16).padStart(2,"0")).join("");
         let existingDoc;
-        try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
-        catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+        // A1.7.a: when the inbox passes a linked partial-document ID, look it up
+        // directly (validates org+vendor ownership) instead of re-fingerprinting.
+        // This ensures the user's review session resumes the exact document the
+        // background worker created rather than creating a duplicate.
+        // If the linked document cannot be verified, fail immediately — do NOT fall
+        // back to fingerprint.  A fallback could select or create a different document
+        // while the attachment remains linked to the original, producing split history.
+        if(inboxImportDocumentId){
+          try{existingDoc=await importService.findPriceDocumentById({organizationId:orgId,vendorId,documentId:inboxImportDocumentId});}
+          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+          if(!existingDoc){
+            // Document not found or belongs to a different org/vendor — fail safely.
+            failedRows+=group.rows.length;
+            saveError=(saveError?saveError+" ":"")+`${group.name}: linked import document could not be verified — it may have been deleted or re-assigned to a different vendor.`;
+            continue;
+          }
+        } else {
+          try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
+          catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
+        }
         // A file that finished is not re-run (use Delete & re-import). A
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
         // is safe to repeat.
         if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
+        // A1.7.b: old partial documents (before the row:N fix) have non-standard keys
+        // in completed_keys.  verifyResumeRows uses saved.key to index into the row array
+        // (rows[N] from row:N) so old-format saved rows cause it to throw before the
+        // completedKeys check is even reached.  Block resumption explicitly rather than
+        // silently discarding the saved-row evidence — the user needs to know the
+        // partial cannot be resumed safely, and they have a clear path (delete and
+        // re-import).  On CONFLICT DO NOTHING would not protect against duplicates either
+        // because old-format rows were stored under different source_row_key values.
+        if(inboxImportDocumentId){
+          const validRowKey=/^row:\d+$/;
+          const badKeys=[...completedKeys].filter(k=>!validRowKey.test(k));
+          if(badKeys.length>0){
+            failedRows+=group.rows.length;
+            // Explain the delete path precisely:
+            // kerdos_delete_price_sheet deletes the import_documents row;
+            // the FK on inbound_attachments.import_document_id is ON DELETE SET NULL,
+            // so the attachment's link is cleared automatically.  The inbox then
+            // shows "Review & Import" for a fresh import — no manual unlinking needed.
+            saveError=(saveError?saveError+" ":"")+`${group.name}: this partial import was saved with an older format and cannot be resumed — the saved row evidence uses a different key scheme. Use "Delete & re-import" in Price Sheets; the attachment will reappear in the inbox ready for a fresh import.`;
+            continue;
+          }
+        }
         if(existingDoc){
           try{verifyResumeRows(group.rows,[...completedKeys],await importService.resumeSources(orgId,vendorId,existingDoc.id));}
           catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
@@ -390,12 +460,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           sourceDocumentId=storedDoc.id;
         }
-        // The original file fingerprint fixes row order. The ordinal is
-        // unique even when a vendor repeats an item code or description.
-        const progressKey=index=>`row:${index}`;
+        // row:N uses the per-group ordinal (rowIndex from entries()).  For manual
+        // imports each group has its own document, so per-group keys are unique
+        // within that document and verifyResumeRows can safely index rows[N].
+        // For inbox resume (inboxImportDocumentId set), the background worker
+        // always produces exactly one group from one file, so per-group index
+        // equals the global index — the keys align with what the background
+        // worker stored without needing a separate global counter.
         const failuresBeforeGroup=failedRows;
       for(const [rowIndex,sourceRow] of group.rows.entries()){
-        const completedKey=progressKey(rowIndex);
+        const completedKey=`row:${rowIndex}`;
         if(completedKeys.has(completedKey))continue;
         let row=enrichFromInvoices(sourceRow,invoiceSources);
         // A price sheet never waits on a person. A row with parser issues or
@@ -662,6 +736,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   // Start saving as soon as the parsed rows and invoice cross-reference are
   // ready. A person is needed only when the source contradicts prior evidence.
   useEffect(()=>{
+    // The inbox path waits for an explicit Save so closing a preview cannot
+    // reserve pending work or race with the automatic processor.
+    if(onBeforeSave)return;
     if(step!==2||autoSaveStarted||loading||!allRows.length) return;
     if(unsafeDocuments.length) return;
     // Price sheets save automatically with issues attached to their rows.
@@ -886,7 +963,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           {saveReview&&<div style={{color:"#B71C1C",fontSize:12,marginBottom:8}}>{saveReview}</div>}
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>setStep(1)} style={{...btn("#EEE","#555"),flex:1}}>← Back</button>
-            {(saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>Continue after resolving issues</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
+            {(onBeforeSave||saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>{onBeforeSave&&!saveReview?"Save Import":"Continue after resolving issues"}</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
           </div>
         </>}
 

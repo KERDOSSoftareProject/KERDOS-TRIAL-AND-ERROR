@@ -24,16 +24,20 @@ import {useEffect,useState,useCallback} from "react";
 import {backend} from "../backend/index.js";
 import {
   createRoutingAddress,
+  testInboundAddress,
   listRoutingAddresses,
+  setRoutingAddressVendor,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
   listPendingAttachments as _listPendingAttachments,
   markAttachmentIngested,
+  beginManualAttachmentReview,
   getAttachmentFile,
 } from "../services/email-routing.js";
 import {btn,inp} from "../ui/styles.js";
 import {formatDate} from "../localization.js";
+import {attachmentRenderOutcome,attachmentActionBlocked} from "../utils/attachment-state.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -61,7 +65,7 @@ function Badge({n,color="#003584"}){
 
 // ── RoutingAddressPanel ────────────────────────────────────────────────────
 
-export function RoutingAddressPanel({orgId,onUpdated}){
+export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
   const [addresses,setAddresses]=useState([]);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -69,8 +73,10 @@ export function RoutingAddressPanel({orgId,onUpdated}){
   const [address,setAddress]=useState("");
   const [label,setLabel]=useState("");
   const [forwardTo,setForwardTo]=useState("");
+  const [vendorId,setVendorId]=useState("");
   const [saving,setSaving]=useState(false);
   const [deactivating,setDeactivating]=useState(null);
+  const [updatingVendor,setUpdatingVendor]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);setError("");
@@ -92,12 +98,23 @@ export function RoutingAddressPanel({orgId,onUpdated}){
         routingAddress:address.trim(),
         label:label.trim()||null,
         forwardTo:forwardTo.trim()||null,
+        vendorId:vendorId||null,
       });
-      setShowForm(false);setAddress("");setLabel("");setForwardTo("");
+      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");
       await load();
       onUpdated?.();
     }catch(e){setError(e.message);}
     setSaving(false);
+  }
+
+  async function handleVendorChange(id,nextVendorId){
+    setUpdatingVendor(id);setError("");
+    try{
+      await setRoutingAddressVendor(backend,orgId,id,nextVendorId||null);
+      await load();
+      onUpdated?.();
+    }catch(e){setError(e.message);}
+    setUpdatingVendor(null);
   }
 
   async function handleDeactivate(id){
@@ -127,14 +144,16 @@ export function RoutingAddressPanel({orgId,onUpdated}){
             </label>
             <input
               style={{...inp,fontSize:13}}
-              placeholder="acme-pricing@inbound.kerdos.com"
+              placeholder={testInboundAddress||"acme-pricing@inbound.kerdos.com"}
               value={address}
               onChange={e=>setAddress(e.target.value)}
               autoFocus
             />
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              Must be a full address on the inbound.kerdos.com domain. Postmark will route
-              emails to this address to your inbox below.
+              {testInboundAddress
+                ? `For this test app, use the assigned Postmark address: ${testInboundAddress}`
+                : "Must be a full address on the inbound.kerdos.com domain."}
+              {" "}Postmark will route emails to your inbox below.
             </p>
           </div>
           <div style={{marginBottom:10}}>
@@ -145,6 +164,16 @@ export function RoutingAddressPanel({orgId,onUpdated}){
               value={label}
               onChange={e=>setLabel(e.target.value)}
             />
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Import vendor</label>
+            <select style={{...inp,fontSize:13}} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
+              <option value="">Manual review (no automatic import)</option>
+              {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
+              Attachments awaiting processing use the current vendor assignment.
+            </p>
           </div>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>
@@ -190,6 +219,15 @@ export function RoutingAddressPanel({orgId,onUpdated}){
                   <div>
                     <div style={{fontWeight:700,fontSize:13,fontFamily:"monospace"}}>{a.routing_address}</div>
                     {a.label&&<div style={{fontSize:12,color:"#555",marginTop:2}}>{a.label}</div>}
+                    <label style={{fontSize:11,color:"#555",display:"block",marginTop:6}}>
+                      Import vendor
+                      <select style={{...inp,fontSize:12,marginTop:3}} value={a.vendor_id||""}
+                        disabled={updatingVendor===a.id}
+                        onChange={e=>handleVendorChange(a.id,e.target.value)}>
+                        <option value="">Manual review (no automatic import)</option>
+                        {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </label>
                     {a.forward_to&&(
                       <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
                     )}
@@ -221,15 +259,21 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
   const [pendingFile,setPendingFile]=useState(null);
   // Gap 3: track import doc id when markAttachmentIngested fails after import success
   const [pendingImportDocumentId,setPendingImportDocumentId]=useState(null);
+  // A1.7.c: also preserve the final status so the retry can set processing_status
+  // atomically — without it a retry after a transient failure leaves the attachment
+  // in 'needs_review' even after the import_document_id link succeeds.
+  const [pendingFinalStatus,setPendingFinalStatus]=useState(null);
   const [auditError,setAuditError]=useState("");
 
-  const alreadyIngested=!!att.import_document_id;
+  const renderOutcome=attachmentRenderOutcome(att,status);
 
   async function handleReviewAndImport(){
-    if(alreadyIngested||status==="loading") return;
+    if(attachmentActionBlocked(att,status)) return;
     setStatus("loading");setError("");
     let file;
     try{
+      // Preview does not reserve the row. PasteModal reserves at save time,
+      // after parsing and user review but before any import write.
       file=await getAttachmentFile(backend,orgId,att.id);
     }catch(e){
       setError(e.message||"Could not fetch attachment.");
@@ -246,7 +290,10 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
     setPendingFile(null);
     if(importDocumentId){
       try{
-        await markAttachmentIngested(backend,orgId,att.id,importDocumentId);
+        // A1.7.c: pass 'auto_imported' so processing_status is updated atomically
+        // with the import_document_id link — the attachment clears from the
+        // pending queue without a separate status-update round-trip.
+        await markAttachmentIngested(backend,orgId,att.id,importDocumentId,"auto_imported");
         setStatus("ingested");
         onDone?.();
       }catch(e){
@@ -254,6 +301,7 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
         // Preserve the importDocumentId so the user can retry the link
         // without re-importing the file.
         setPendingImportDocumentId(importDocumentId);
+        setPendingFinalStatus("auto_imported");
         setAuditError(`Import saved, but the audit link failed: ${e.message}. Click Retry to re-link.`);
       }
     }else{
@@ -265,8 +313,12 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
     if(!pendingImportDocumentId) return;
     setAuditError("");
     try{
-      await markAttachmentIngested(backend,orgId,att.id,pendingImportDocumentId);
+      // A1.7.c: pass the preserved final status so processing_status is updated
+      // atomically on retry — mark_attachment_ingested's idempotency path applies it
+      // even when the import_document_id link already exists from the first attempt.
+      await markAttachmentIngested(backend,orgId,att.id,pendingImportDocumentId,pendingFinalStatus);
       setPendingImportDocumentId(null);
+      setPendingFinalStatus(null);
       setStatus("ingested");
       onDone?.();
     }catch(e){
@@ -278,7 +330,7 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
   const sizeKB=att.file_size_bytes?`${Math.round(att.file_size_bytes/1024)} KB`:"";
 
   // Gap 2: permanently failed attachment — show error state, no import button
-  if(att.ingest_error){
+  if(renderOutcome==="failed"){
     return(
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderTop:"1px solid #F0F0F0"}}>
         <span style={{fontSize:16,flexShrink:0}}>⚠️</span>
@@ -304,14 +356,16 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           </div>
           {sizeKB&&<div style={{fontSize:11,color:"#888"}}>{sizeKB}</div>}
         </div>
-        {alreadyIngested||status==="ingested"
+        {renderOutcome==="processing"
+          ? <span style={{fontSize:11,color:"#666",fontWeight:700,whiteSpace:"nowrap"}}>Processing…</span>
+          : renderOutcome==="imported"
           ? <span style={{fontSize:11,color:"#388e3c",fontWeight:700,whiteSpace:"nowrap"}}>✓ Imported</span>
           : <button
               disabled={status==="loading"}
               onClick={handleReviewAndImport}
-              style={{...btn("#003584","white",{fontSize:11,padding:"5px 10px",whiteSpace:"nowrap",
+              style={{...btn(renderOutcome==="partial"?"#E65100":"#003584","white",{fontSize:11,padding:"5px 10px",whiteSpace:"nowrap",
                 opacity:status==="loading"?0.6:1,flexShrink:0})}}>
-              {status==="loading"?"Loading…":"Review & Import"}
+              {status==="loading"?"Loading…":renderOutcome==="partial"?"Complete Import":"Review & Import"}
             </button>
         }
       </div>
@@ -345,6 +399,8 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           onClose={()=>setPendingFile(null)}
           onDone={()=>{}}
           onFinished={handleImportFinished}
+          onBeforeSave={()=>beginManualAttachmentReview(backend,orgId,att.id)}
+          inboxImportDocumentId={att.import_document_id||null}
         />
       )}
     </>
