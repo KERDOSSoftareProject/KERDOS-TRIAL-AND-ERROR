@@ -54,6 +54,8 @@
  * entire webhook and gets another chance to record the failure row.
  */
 
+import { isDispatchable, VALID_OUTCOMES } from "./attachment-state.mjs";
+
 // ── base64 decode ──────────────────────────────────────────────────────────
 
 export function base64ToBytes(b64) {
@@ -111,8 +113,8 @@ export async function processAttachments(backend, organizationId, messageId, att
     }
     if (existingAtt) {
       // A prior delivery may have stored the row but failed to launch the
-      // processor. Retrying a pending row must complete that handoff.
-      if (existingAtt.processing_status === "pending" && !existingAtt.ingest_error && existingAtt.storage_path) {
+      // processor. Retrying a dispatchable pending row must complete that handoff.
+      if (isDispatchable(existingAtt)) {
         await triggerProcessAttachment(backend, organizationId, existingAtt.id, filename, attachmentIndex);
       }
       continue;
@@ -282,7 +284,7 @@ async function triggerProcessAttachment(backend, organizationId, attachmentId, f
   const { data, error } = await invoke.call(backend.functions, "process-attachment", {
     body: { attachmentId, organizationId },
   });
-  if (error || !["auto_imported", "needs_review", "skipped"].includes(data?.outcome)) {
+  if (error || !VALID_OUTCOMES.includes(data?.outcome)) {
     // A failed dispatch must not be acknowledged as a successful delivery.
     // Postmark retries, and the existing-row path above will retry the handoff.
     throw new Error(`process-attachment failed for ${attachmentIndex} (${filename}): ${error?.message ?? data?.reason ?? "unknown"}`);
