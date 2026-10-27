@@ -1383,7 +1383,7 @@ export default function App() {
         {/* DOCUMENT PAGES — kept outside App.jsx so each workflow has one clear home */}
         {tab==="invoices"&&(
           <InvoicesPage
-            vendors={vendors} invoices={invoices} vendorFilter={recordsVendorFilter} setVendorFilter={setRecordsVendorFilter}
+            orgId={org.id} vendors={vendors} invoices={invoices} vendorFilter={recordsVendorFilter} setVendorFilter={setRecordsVendorFilter}
             vendorColors={vendorColors} formatDate={formatDate} formatMoney={formatMoney}
             attentionCount={flaggedInvoiceLines.length+invoiceDerivedItems.length} role={org.role}
             onImport={vendorId=>{setSelectedVendorId(vendorId);setImportMode("invoice");setShowPaste(true);}}
@@ -1395,7 +1395,7 @@ export default function App() {
 
         {tab==="priceSheets"&&(
           <PriceSheetsPage
-            vendors={vendors} importDocuments={importDocuments}
+            orgId={org.id} vendors={vendors} importDocuments={importDocuments}
             vendorFilter={priceSheetVendorFilter} setVendorFilter={setPriceSheetVendorFilter} vendorColors={vendorColors}
             formatDate={formatDate} role={org.role}
             onImport={vendorId=>{setSelectedVendorId(vendorId);setImportMode("pricelist");setShowPaste(true);}}

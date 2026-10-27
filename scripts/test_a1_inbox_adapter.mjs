@@ -43,9 +43,10 @@ globalThis.__inboxAdapter=backend;
 let tree;
 await act(async()=>{tree=Renderer.create(React.createElement(React.Fragment,null,React.createElement(RoutingAddressPanel,{orgId:"org-1"}),React.createElement(EmailInboxPanel,{orgId:"org-1"})))});
 const rendered=JSON.stringify(tree.toJSON());
-assert.ok(rendered.includes("No active routing addresses"));
+assert.ok(rendered.includes("No client setup is required"));
 assert.ok(rendered.includes("No emails received yet"));
 assert.ok(!rendered.includes("is not a function"));
+assert.ok(calls.every(call=>call.action===undefined||call.action==="select"),"mounting Inbox must never configure routing");
 for(const table of ["email_routing_addresses","inbound_messages"]){assert.ok(calls.some(c=>c.table===table&&c.filters.some(f=>f[1]==="organization_id"&&f[2]==="org-1")));}
 await act(async()=>tree.unmount());
 console.log("PASS both mounted Inbox sections load through the production KERDOS adapter");

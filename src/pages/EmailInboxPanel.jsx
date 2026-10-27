@@ -4,7 +4,7 @@
  * Module A · Pre-Ingestion · Task 1 · Email Routing
  *
  * Two panels exported:
- *   RoutingAddressPanel — create / list / deactivate routing addresses
+ *   RoutingAddressPanel — read-only automatic receiving addresses
  *   EmailInboxPanel     — inbox of inbound messages with "Review & Import"
  *
  * "Review & Import" flow:
@@ -17,18 +17,12 @@
  *
  * Optional forwarding: each routing address has a forward_to field.
  * The Edge Function reads it and can forward a copy to that address.
- * The UI surfaces it as an optional "Forward email text to" input on create.
+ * Optional forwarding remains an operator-owned delivery setting.
  */
 
 import {useEffect,useState,useCallback} from "react";
 import {backend} from "../backend/index.js";
 import {
-  createRoutingAddress,
-  testInboundAddress,
-  listRoutingAddresses,
-  setRoutingAddressVendor,
-  setRoutingAddressDocumentType,
-  deactivateRoutingAddress,
   listMessages,
   getMessage,
   listPendingAttachments as _listPendingAttachments,
@@ -36,7 +30,7 @@ import {
   beginManualAttachmentReview,
   getAttachmentFile,
 } from "../services/email-routing.js";
-import {btn,inp} from "../ui/styles.js";
+import {btn} from "../ui/styles.js";
 import {formatDate} from "../localization.js";
 import {attachmentRenderOutcome,attachmentActionBlocked} from "../utils/attachment-state.js";
 
@@ -64,225 +58,8 @@ function Badge({n,color="#003584"}){
   );
 }
 
-// ── RoutingAddressPanel ────────────────────────────────────────────────────
-
-export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
-  const [addresses,setAddresses]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [error,setError]=useState("");
-  const [showForm,setShowForm]=useState(false);
-  const [address,setAddress]=useState("");
-  const [label,setLabel]=useState("");
-  const [forwardTo,setForwardTo]=useState("");
-  const [vendorId,setVendorId]=useState("");
-  const [documentType,setDocumentType]=useState("");
-  const [saving,setSaving]=useState(false);
-  const [deactivating,setDeactivating]=useState(null);
-  const [updatingVendor,setUpdatingVendor]=useState(null);
-  const [updatingType,setUpdatingType]=useState(null);
-
-  const load=useCallback(async()=>{
-    setLoading(true);setError("");
-    try{
-      const rows=await listRoutingAddresses(backend,orgId);
-      setAddresses(rows);
-    }catch(e){setError(e.message);}
-    setLoading(false);
-  },[orgId]);
-
-  useEffect(()=>{load();},[load]);
-
-  async function handleCreate(e){
-    e.preventDefault();
-    if(!address.trim()){setError("Routing address is required.");return;}
-    setSaving(true);setError("");
-    try{
-      await createRoutingAddress(backend,orgId,{
-        routingAddress:address.trim(),
-        label:label.trim()||null,
-        forwardTo:forwardTo.trim()||null,
-        vendorId:vendorId||null,
-        documentType:documentType||null,
-      });
-      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");setDocumentType("");
-      await load();
-      onUpdated?.();
-    }catch(e){setError(e.message);}
-    setSaving(false);
-  }
-
-  async function handleVendorChange(id,nextVendorId){
-    setUpdatingVendor(id);setError("");
-    try{
-      await setRoutingAddressVendor(backend,orgId,id,nextVendorId||null);
-      await load();
-      onUpdated?.();
-    }catch(e){setError(e.message);}
-    setUpdatingVendor(null);
-  }
-
-  async function handleTypeChange(id,nextType){
-    if(!nextType)return;
-    setUpdatingType(id);setError("");
-    try{
-      await setRoutingAddressDocumentType(backend,orgId,id,nextType);
-      await load();onUpdated?.();
-    }catch(e){setError(e.message);}
-    setUpdatingType(null);
-  }
-
-  async function handleDeactivate(id){
-    if(!window.confirm("Remove this routing address? Emails sent to it will no longer be received.")) return;
-    setDeactivating(id);setError("");
-    try{
-      await deactivateRoutingAddress(backend,orgId,id);
-      await load();
-      onUpdated?.();
-    }catch(e){setError(e.message);}
-    setDeactivating(null);
-  }
-
-  return(
-    <Section
-      title="📧 Email Routing Addresses"
-      action={!showForm&&<button onClick={()=>setShowForm(true)}
-        style={{...btn("#003584","white",{fontSize:12,padding:"6px 12px"})}}>+ Add Address</button>}>
-
-      {error&&<p style={{color:"#c62828",fontSize:13,margin:"0 0 10px"}}>{error}</p>}
-
-      {showForm&&(
-        <form onSubmit={handleCreate} style={{background:"#F8F9FE",borderRadius:8,padding:14,marginBottom:14}}>
-          <div style={{marginBottom:10}}>
-            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>
-              Routing address <span style={{color:"#c62828"}}>*</span>
-            </label>
-            <input
-              style={{...inp,fontSize:13}}
-              placeholder={testInboundAddress||"client.vendor@configured-domain"}
-              value={address}
-              onChange={e=>setAddress(e.target.value)}
-              autoFocus
-            />
-            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              {testInboundAddress
-                ? `For this test app, use the assigned Postmark address: ${testInboundAddress}`
-                : "Use a full email address on your configured inbound domain (e.g. client.vendor@your-inbound-domain.com)."}
-              {" "}Postmark will route emails to your inbox below.
-            </p>
-          </div>
-          <div style={{marginBottom:10}}>
-            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Label (optional)</label>
-            <input
-              style={{...inp,fontSize:13}}
-              placeholder="Pricing sheet inbox"
-              value={label}
-              onChange={e=>setLabel(e.target.value)}
-            />
-          </div>
-          <div style={{marginBottom:10}}>
-            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Import vendor</label>
-            <select style={{...inp,fontSize:13}} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
-              <option value="">Manual review (no automatic import)</option>
-              {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
-            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              New messages capture this vendor at receipt. Changing it does not reassign earlier messages.
-            </p>
-          </div>
-          <div style={{marginBottom:10}}>
-            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Document type</label>
-            <select style={{...inp,fontSize:13}} value={documentType} onChange={e=>setDocumentType(e.target.value)}>
-              <option value="">Not specified (price-sheet detection only)</option>
-              <option value="pricelist">Price Sheet</option>
-              <option value="invoice">Invoice</option>
-            </select>
-            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              Established once at registration. Incoming emails to this address are
-              automatically classified as the selected type — no re-selection needed.
-            </p>
-          </div>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>
-              Forward email text to (optional)
-            </label>
-            <input
-              style={{...inp,fontSize:13}}
-              placeholder="you@yourcompany.com"
-              value={forwardTo}
-              onChange={e=>setForwardTo(e.target.value)}
-            />
-            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              If set, the Edge Function will forward a plain-text copy of each received email
-              to this address. Attachments and HTML are not included in the forwarded copy.
-              Requires POSTMARK_FORWARD_FROM to be set to a verified Postmark sender address
-              in Supabase Secrets.
-            </p>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            <button type="submit" disabled={saving}
-              style={{...btn("#003584","white",{fontSize:12,padding:"7px 14px",opacity:saving?0.6:1})}}>
-              {saving?"Saving…":"Save address"}
-            </button>
-            <button type="button" onClick={()=>{setShowForm(false);setError("");}}
-              style={{...btn("#EEE","#333",{fontSize:12,padding:"7px 14px"})}}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {loading
-        ? <p style={{fontSize:13,color:"#888",margin:0}}>Loading…</p>
-        : addresses.length===0
-          ? <p style={{fontSize:13,color:"#888",margin:0}}>
-              No active routing addresses. Add one above so vendors can email price sheets directly to KERDOS.
-            </p>
-          : (
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {addresses.map(a=>(
-                <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",
-                  background:"#F8F9FE",borderRadius:8,padding:"10px 14px"}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:13,fontFamily:"monospace"}}>{a.routing_address}</div>
-                    {a.label&&<div style={{fontSize:12,color:"#555",marginTop:2}}>{a.label}</div>}
-                    <label style={{fontSize:11,color:"#555",display:"block",marginTop:6}}>
-                      Import vendor
-                      <select style={{...inp,fontSize:12,marginTop:3}} value={a.vendor_id||""}
-                        disabled={updatingVendor===a.id}
-                        onChange={e=>handleVendorChange(a.id,e.target.value)}>
-                        <option value="">Manual review (no automatic import)</option>
-                        {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-                      </select>
-                    </label>
-                    <label style={{fontSize:11,color:"#555",display:"block",marginTop:6}}>
-                      Document type
-                      <select style={{...inp,fontSize:12,marginTop:3}} value={a.document_type||""}
-                        disabled={updatingType===a.id} onChange={e=>handleTypeChange(a.id,e.target.value)}>
-                        <option value="" disabled>Select document type</option>
-                        <option value="pricelist">Price Sheet</option>
-                        <option value="invoice">Invoice</option>
-                      </select>
-                    </label>
-                    <div style={{fontSize:11,color:"#666",marginTop:3}}>Registration changes apply to new messages.</div>
-                    {a.forward_to&&(
-                      <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
-                    )}
-                  </div>
-                  <button
-                    disabled={deactivating===a.id}
-                    onClick={()=>handleDeactivate(a.id)}
-                    style={{...btn("#FFF3E0","#E65100",{fontSize:11,padding:"5px 10px",
-                      border:"1px solid #FFCC80",opacity:deactivating===a.id?0.5:1,flexShrink:0,marginLeft:8})}}>
-                    {deactivating===a.id?"Removing…":"Remove"}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )
-      }
-    </Section>
-  );
-}
+// Read-only overview; all registration writes happen automatically on the server.
+export {ReceivingAddressesPanel as RoutingAddressPanel} from './ReceivingAddresses.jsx';
 
 // ── AttachmentRow ──────────────────────────────────────────────────────────
 // One row inside a message's attachment list. Handles the fetch → PasteModal
