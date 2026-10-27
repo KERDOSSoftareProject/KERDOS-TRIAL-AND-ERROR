@@ -1057,8 +1057,8 @@ function findDate(text) {
 function findInvoiceNumber(text) {
   const lines = text.split("\n").slice(0, 20);
   const patterns = [
-    /\binvoice[\.\-]?\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{2,14})\b/i,
-    /\binv(?!oice)[\.\-]?\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{2,14})\b/i,
+    /\binvoice[\.\-]?\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9._/\-]*[A-Z0-9])\b/i,
+    /\binv(?!oice)[\.\-]?\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9._/\-]*[A-Z0-9])\b/i,
   ];
   const nonAnswers = /^(date|no|number|for|the|price|amount|list)$/i;
 

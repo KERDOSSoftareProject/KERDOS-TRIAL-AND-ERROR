@@ -241,7 +241,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const normalizedAddress = originalRecipient.toLowerCase().trim();
   const { data: routingRow, error: routingErr } = await supabase
     .from("email_routing_addresses")
-    .select("id, organization_id, vendor_id, forward_to")
+    .select("id, organization_id, vendor_id, document_type, forward_to")
     .eq("routing_address", normalizedAddress)
     .eq("is_active", true)
     .single();
@@ -253,7 +253,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const { id: routingAddressId, organization_id: organizationId,
-    vendor_id: receiptVendorId, forward_to: forwardTo } = routingRow;
+    vendor_id: receiptVendorId, document_type: documentType,
+    forward_to: forwardTo } = routingRow;
 
   // 6. Idempotency check — if the message was already recorded, resume
   //    attachment processing in case a prior attempt crashed mid-way.
@@ -280,9 +281,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .insert({
       organization_id: organizationId,
       routing_address_id: routingAddressId,
-      // Immutable receipt-time decision. Retries reuse this message row, even
-      // if the routing address has since been assigned to another vendor.
+      // Immutable receipt-time snapshot. Retries reuse this message row, even
+      // if the routing address has since been reassigned to another vendor or
+      // document type.
       receipt_vendor_id: receiptVendorId ?? null,
+      receipt_document_type: documentType ?? null,
       vendor_snapshot_at: new Date().toISOString(),
       postmark_message_id: postmarkMessageId,
       sender_email: FromFull.Email,

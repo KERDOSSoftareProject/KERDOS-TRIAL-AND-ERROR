@@ -247,6 +247,7 @@ await test("auto-import: clean CSV price list → auto_imported with rows saved"
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   // Must be auto_imported (no human review required for clean data)
@@ -294,6 +295,7 @@ await test("needs_review: unsupported MIME type", async () => {
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   assert.equal(result.outcome, "needs_review");
@@ -311,6 +313,7 @@ await test("needs_review: empty CSV (no rows parsed)", async () => {
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   assert.equal(result.outcome, "needs_review");
@@ -368,6 +371,7 @@ await test("needs_review: row requires human basis decision (Decide gate)", asyn
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   // The Decide gate must not auto-import a row whose basis is unresolvable.
@@ -421,6 +425,7 @@ await test("duplicate delivery: returns auto_imported without re-importing", asy
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   assert.equal(result.outcome, "auto_imported");
@@ -454,6 +459,7 @@ await test("storage download failure throws (Postmark retry)", async () => {
     () => processAttachmentInBackground(backend, attachment, {
       organizationId: "org-1",
       vendorId:       "vendor-1",
+    documentType:   "pricelist",
     }),
     /Storage unavailable/,
     "Expected a throw on storage failure, not a needs_review outcome"
@@ -542,6 +548,7 @@ await test("row-save failure: needs_review immediately, no further rows processe
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   // Single row failure must escalate the whole document — no partial success.
@@ -604,6 +611,7 @@ await test("needs_review status carries import_document id (Fix 4 — document m
   const result = await processAttachmentInBackground(backend, attachment, {
     organizationId: "org-1",
     vendorId:       "vendor-1",
+    documentType:   "pricelist",
   });
 
   assert.equal(result.outcome, "needs_review",

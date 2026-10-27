@@ -42,6 +42,17 @@ export function createLeaseBindings(client) {
       }
       return data;
     },
+    async recordInvoice({attachmentId,fingerprint,header,lines}) {
+      const active=assertLease();
+      if(active.attachmentId!==attachmentId)throw new Error("LEASE_LOST: attachment mismatch");
+      const {data,error}=await client.rpc("kerdos_auto_record_invoice",{
+        p_attachment_id:attachmentId,p_lease_token:active.token,
+        p_fingerprint:fingerprint,p_header:header,p_lines:lines,
+      });
+      if(error)throw new Error(`${error.code === "P0001" ? "kerdos_auto_record_invoice" : "INVOICE_COMMIT_UNCONFIRMED"}: ${error.message}`);
+      if(!data){lost=true;throw new Error("LEASE_LOST: invoice write rejected by database fence");}
+      return data;
+    },
     async setStatus(attachmentId, status, reason = null, docId = null) {
       const { token } = assertLease();
       if (lease.attachmentId !== attachmentId) throw new Error("LEASE_LOST: attachment mismatch");

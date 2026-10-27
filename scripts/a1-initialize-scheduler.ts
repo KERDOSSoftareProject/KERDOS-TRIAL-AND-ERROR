@@ -28,4 +28,3 @@ Deno.serve(async req => {
   if(error)return Response.json({error:error.message},{status:500});
   return Response.json({configured:true,jobId:data,schedule:"*/5 * * * *",project:"kerdos-test"});
 });
-

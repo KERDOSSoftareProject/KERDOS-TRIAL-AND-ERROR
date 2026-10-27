@@ -313,6 +313,7 @@ import {
   routingAddressError,
   listRoutingAddresses,
   setRoutingAddressVendor,
+  setRoutingAddressDocumentType,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
@@ -1110,10 +1111,10 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
-  // B12. createRoutingAddress rejects an address outside @inbound.kerdos.com
-  await rejects("B12: address outside @inbound.kerdos.com throws", async () => {
+  // B12. Syntax is enforced without requiring a particular company domain.
+  await rejects("B12: malformed address throws", async () => {
     await createRoutingAddress(makeMockBackend(), "org-1", {
-      routingAddress: "acme@otherdomain.com",
+      routingAddress: "acme@@otherdomain.com",
     });
   });
 
@@ -1996,6 +1997,23 @@ const singleAtt = [{ Name: "prices.csv", ContentType: "text/csv", Content: btoa(
   // G9. VALID_OUTCOMES does not include unexpected values
   t("G9: 'processing' is not a valid outcome", VALID_OUTCOMES.includes("processing"), false);
   t("G9: 'failed' is not a valid outcome", VALID_OUTCOMES.includes("failed"), false);
+}
+
+{
+  const backend=makeMockBackend({email_routing_addresses:[
+    {id:"type-own",organization_id:"org-1",document_type:null,is_active:true},
+    {id:"type-other",organization_id:"org-2",document_type:null,is_active:true},
+  ]});
+  await setRoutingAddressDocumentType(backend,"org-1","type-own","invoice");
+  t("Type registration: updates own route",backend._tables.email_routing_addresses[0].document_type,"invoice");
+  try{await setRoutingAddressDocumentType(backend,"org-1","type-other","pricelist");}catch{/* scoped update returns no row */}
+  t("Type registration: foreign route unchanged",backend._tables.email_routing_addresses[1].document_type,null);
+  let rejected=false;try{await setRoutingAddressDocumentType(backend,"org-1","type-own","other");}catch{rejected=true;}
+  t("Type registration: invalid type rejected",rejected,true);
+  for(const domain of ["pricing.example.com","invoices.example.us","custom.example.co"])
+    t("Universal address: "+domain,routingAddressError("client.vendor@"+domain,null),null);
+  for(const invalid of ["a@@example.com","a b@example.com","missing-at","a@"])
+    t("Invalid address rejected: "+invalid,!!routingAddressError(invalid,null),true);
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────

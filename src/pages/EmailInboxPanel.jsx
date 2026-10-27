@@ -27,6 +27,7 @@ import {
   testInboundAddress,
   listRoutingAddresses,
   setRoutingAddressVendor,
+  setRoutingAddressDocumentType,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
@@ -74,9 +75,11 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
   const [label,setLabel]=useState("");
   const [forwardTo,setForwardTo]=useState("");
   const [vendorId,setVendorId]=useState("");
+  const [documentType,setDocumentType]=useState("");
   const [saving,setSaving]=useState(false);
   const [deactivating,setDeactivating]=useState(null);
   const [updatingVendor,setUpdatingVendor]=useState(null);
+  const [updatingType,setUpdatingType]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);setError("");
@@ -99,8 +102,9 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
         label:label.trim()||null,
         forwardTo:forwardTo.trim()||null,
         vendorId:vendorId||null,
+        documentType:documentType||null,
       });
-      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");
+      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");setDocumentType("");
       await load();
       onUpdated?.();
     }catch(e){setError(e.message);}
@@ -115,6 +119,16 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
       onUpdated?.();
     }catch(e){setError(e.message);}
     setUpdatingVendor(null);
+  }
+
+  async function handleTypeChange(id,nextType){
+    if(!nextType)return;
+    setUpdatingType(id);setError("");
+    try{
+      await setRoutingAddressDocumentType(backend,orgId,id,nextType);
+      await load();onUpdated?.();
+    }catch(e){setError(e.message);}
+    setUpdatingType(null);
   }
 
   async function handleDeactivate(id){
@@ -144,7 +158,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
             </label>
             <input
               style={{...inp,fontSize:13}}
-              placeholder={testInboundAddress||"acme-pricing@inbound.kerdos.com"}
+              placeholder={testInboundAddress||"client.vendor@configured-domain"}
               value={address}
               onChange={e=>setAddress(e.target.value)}
               autoFocus
@@ -152,7 +166,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
               {testInboundAddress
                 ? `For this test app, use the assigned Postmark address: ${testInboundAddress}`
-                : "Must be a full address on the inbound.kerdos.com domain."}
+                : "Use a full email address on your configured inbound domain (e.g. client.vendor@your-inbound-domain.com)."}
               {" "}Postmark will route emails to your inbox below.
             </p>
           </div>
@@ -172,7 +186,19 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
               {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
             <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
-              This assignment applies to future emails. Received emails keep their original vendor assignment.
+              New messages capture this vendor at receipt. Changing it does not reassign earlier messages.
+            </p>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Document type</label>
+            <select style={{...inp,fontSize:13}} value={documentType} onChange={e=>setDocumentType(e.target.value)}>
+              <option value="">Not specified (price-sheet detection only)</option>
+              <option value="pricelist">Price Sheet</option>
+              <option value="invoice">Invoice</option>
+            </select>
+            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
+              Established once at registration. Incoming emails to this address are
+              automatically classified as the selected type — no re-selection needed.
             </p>
           </div>
           <div style={{marginBottom:14}}>
@@ -228,6 +254,16 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
                         {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
                       </select>
                     </label>
+                    <label style={{fontSize:11,color:"#555",display:"block",marginTop:6}}>
+                      Document type
+                      <select style={{...inp,fontSize:12,marginTop:3}} value={a.document_type||""}
+                        disabled={updatingType===a.id} onChange={e=>handleTypeChange(a.id,e.target.value)}>
+                        <option value="" disabled>Select document type</option>
+                        <option value="pricelist">Price Sheet</option>
+                        <option value="invoice">Invoice</option>
+                      </select>
+                    </label>
+                    <div style={{fontSize:11,color:"#666",marginTop:3}}>Registration changes apply to new messages.</div>
                     {a.forward_to&&(
                       <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
                     )}

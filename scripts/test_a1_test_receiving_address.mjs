@@ -18,6 +18,6 @@ try {
   assert.equal((await db.query("select count(*)::int as n from public.email_routing_addresses")).rows[0].n,3);
   assert.equal(routingAddressError(address,address),null);
   assert.ok(routingAddressError("another@inbound.postmarkapp.com",address));
-  assert.ok(routingAddressError(address,null),"production validation still rejects the test-only receiving domain");
+  assert.equal(routingAddressError(address,null),null,"universal registration accepts a syntactically valid configured domain when no exact test override is set");
   console.log("PASS exact assigned Postmark receiver allowed; other receivers rejected; branded addresses and lowercase rule preserved; migration repeat safe");
 }finally{await db.close();}

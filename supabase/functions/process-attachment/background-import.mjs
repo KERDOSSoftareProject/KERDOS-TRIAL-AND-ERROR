@@ -26,6 +26,7 @@ import { createCatalogService } from "../../../src/services/catalog.js";
 import { importPriceRow } from "../../../src/core/import-price-row.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
+import { prepareAutomaticInvoice } from "../../../src/core/automatic-invoice.js";
 import { parseDocument } from "../../../src/ingestion.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -56,6 +57,50 @@ function makeFingerprint(attachment) {
   return `${attachment.storage_path}:${attachment.file_size_bytes}`;
 }
 
+// ── Document classification ──────────────────────────────────────────────────
+
+/**
+ * Classify a document as pricelist or invoice based on routing registration
+ * intent and content detection. Pure — no I/O. Exported for unit tests.
+ *
+ * Registration (documentType) is authoritative when present. Content detection
+ * (contentKind from parseDocument) is the fallback only for unregistered
+ * addresses. Unregistered invoice content goes to review rather than
+ * auto-importing, because the routing address owner has not confirmed vendor
+ * and type — a content guess alone is not sufficient authority for ingestion.
+ *
+ * Decision matrix:
+ *   documentType = 'pricelist'  → { isInvoice: false, earlyExit: null }
+ *   documentType = 'invoice'    → { isInvoice: true,  earlyExit: null }  (A1.2.g)
+ *   documentType = null, contentKind = 'pricelist' → { isInvoice: false, earlyExit: null }
+ *   documentType = null, contentKind = 'invoice'   → earlyExit needs_review
+ *   documentType = null, contentKind = other/null  → earlyExit needs_review
+ *
+ * @param {string|null} documentType  — receipt_document_type from routing registration
+ * @param {string|null} contentKind   — documentKind returned by parseDocument
+ * @returns {{ isInvoice: boolean, earlyExit: null }
+ *          | { isInvoice: null, earlyExit: { status: string, reason: string } }}
+ */
+export function classifyDocument(documentType, contentKind) {
+  // Registration is authoritative: use it when present.
+  if ((documentType === "pricelist" && ["invoice","mixed"].includes(contentKind)) ||
+      (documentType === "invoice" && ["pricelist","mixed"].includes(contentKind)))
+    return {isInvoice:null,earlyExit:{status:"needs_review",reason:"Document content conflicts with the registered receiving address type."}};
+  if (documentType === "pricelist") return { isInvoice: false, earlyExit: null };
+  if (documentType === "invoice")   return { isInvoice: true,  earlyExit: null };
+
+  // No registration — fall back to content detection.
+  if (contentKind === "pricelist") return { isInvoice: false, earlyExit: null };
+
+  // Unregistered invoice or ambiguous content → manual review.
+  // Automatic invoice ingestion (A1.2.g) requires a registered address;
+  // unregistered invoices need a human to confirm vendor and document type.
+  const reason = contentKind === "invoice"
+    ? "Document content appears to be an invoice but the routing address has no document_type registration — manual review required to confirm vendor and document type. Set document_type on the routing address for automatic ingestion."
+    : "Document type could not be determined — no routing registration and content detection was inconclusive. Set document_type on the routing address and reprocess.";
+  return { isInvoice: null, earlyExit: { status: "needs_review", reason } };
+}
+
 // ── Main export ──────────────────────────────────────────────────────────────
 
 /**
@@ -64,8 +109,14 @@ function makeFingerprint(attachment) {
  * @param {object} options
  * @param {string} options.organizationId
  * @param {string} options.vendorId
+ * @param {string|null} [options.documentType]  — 'pricelist' | 'invoice' | null
+ *   Captured at receipt time from the routing address registration. When present
+ *   it is used as the authoritative document classification and parseDocument's
+ *   content-based guess is ignored. When null (address had no document_type when
+ *   the message arrived) we fall back to content detection and send to review if
+ *   the content-detected kind is not clearly a pricelist.
  */
-export async function processAttachmentInBackground(backend, attachment, { organizationId, vendorId }) {
+export async function processAttachmentInBackground(backend, attachment, { organizationId, vendorId, documentType = null }) {
   // Defense-in-depth: index.ts validates vendorId at the HTTP layer, but this
   // function must not silently process unrouted attachments if called directly.
   if (!vendorId) {
@@ -113,9 +164,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // For "sheets" (CSV/XLSX): convert the first sheet's string[][] back to CSV text.
 
   let parsed;
+  let rawText;
   try {
     if (readResult.kind === "lines") {
-      parsed = parseDocument(readResult.lines.join("\n"));
+      rawText = readResult.lines.join("\n");
+      parsed = parseDocument(rawText);
     } else {
       // kind === "sheets": use the first non-empty sheet
       const firstSheet = readResult.sheets.find(s => s.rows.length > 0);
@@ -134,7 +187,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           return s;
         }).join(",")
       ).join("\n");
-      parsed = parseDocument(csvText);
+      rawText = csvText;
+      parsed = parseDocument(rawText);
     }
   } catch (err) {
     await backend.attachments.setStatus(attachmentId, "needs_review",
@@ -144,18 +198,43 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // parseDocument returns { rows, documentKind, quoteValidUntil, ... }.
   // Wrap into the single-group shape the import loop below expects.
-  const { rows: parsedRows = [], documentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
-  const isInvoice = documentKind === "invoice";
+  const { rows: parsedRows = [], documentKind: contentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
+
+  // ── Step 4: classify document using registration intent ──────────────────
+  //
+  // documentType is the value captured at receipt time from the routing address
+  // registration — the single authoritative source for what this address receives.
+  // Content-based detection (contentKind from parseDocument) is the fallback only
+  // when the address had no document_type when the message arrived.
+  //
+  // When isInvoice is true after classifyDocument, documentType === 'invoice'
+  // (the registration was explicit). Content-detected invoices from unregistered
+  // addresses produce earlyExit=needs_review to protect against mis-classification.
+
+  const { isInvoice, earlyExit } = classifyDocument(documentType, contentKind);
+
+  if (earlyExit) {
+    await backend.attachments.setStatus(attachmentId, earlyExit.status, earlyExit.reason);
+    return { outcome: earlyExit.status, reason: earlyExit.reason };
+  }
+
   const groups = parsedRows.length > 0
     ? [{ rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
     : [];
 
-  // ── Step 4: decide whether auto-import is safe ────────────────────────────
-  // Invoices always go to review (human must confirm quantities and totals).
+  // Invoice header, lines, original link and terminal status commit together.
+  // A worker crash before commit writes nothing; after commit replay is idempotent.
   if (isInvoice) {
-    await backend.attachments.setStatus(attachmentId, "needs_review",
-      "Document appears to be an invoice — human review required");
-    return { outcome: "needs_review", reason: "Invoice document" };
+    const service = createImportService(backend);
+    const vendorItems = await service.vendorItems(organizationId, vendorId);
+    const prepared = prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems});
+    if (prepared.reason) {
+      await backend.attachments.setStatus(attachmentId, "needs_review", prepared.reason);
+      return {outcome:"needs_review",reason:prepared.reason};
+    }
+    await backend.invoices.recordAutomatic({attachmentId,fingerprint:makeFingerprint(attachment),
+      header:{...prepared.header,file_name:filename,file_path:storagePath},lines:prepared.lines});
+    return {outcome:"auto_imported"};
   }
 
   if (groups.length === 0) {
