@@ -1,4 +1,7 @@
--- DRAFT: not applied. Requires explicit approval of the persistent scheduler design.
+-- Applied to kerdos-test with explicit user approval on October 27, 2026.
+-- Migration: a1_test_recovery_scheduler. Initializer removed afterward.
+-- First automatic job run: 2026-10-27 14:00 UTC; recovery endpoint HTTP 200.
+-- Stop future runs without removing credentials: SELECT cron.unschedule('kerdos-test-a1-recovery');
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 CREATE SCHEMA IF NOT EXISTS kerdos_private;
