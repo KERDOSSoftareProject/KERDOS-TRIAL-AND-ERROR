@@ -17,6 +17,7 @@ function unconfigured(reason){
     catalog:{saveRow:fail},
     invoices:{record:fail},
     team:{acceptInvite:fail},
+    inbox:{beginManualReview:fail,markAttachmentIngested:fail},
     records:{query:()=>{throw new Error(reason);}},
   };
 }

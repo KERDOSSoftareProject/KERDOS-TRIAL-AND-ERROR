@@ -30,7 +30,7 @@
 --   4. Extend protect_inbound_vendor_snapshot() to cover receipt_document_type.
 --      The trigger already exists; replacing the function body is sufficient.
 --
--- DRAFT: not yet applied. Apply to kerdos-test after review and verification.
+-- Applied to kerdos-test as 20261027212428 on October 27, 2026.
 
 -- ── 1. Remove hardcoded domain constraint ─────────────────────────────────
 

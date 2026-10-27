@@ -15,7 +15,7 @@
  *   • After a successful save, the UI calls markAttachmentIngested() to set
  *     inbound_attachments.import_document_id, completing the audit trail.
  *
- * All reads use the anon/authenticated Supabase client (RLS enforced).
+ * All reads use the KERDOS records adapter with authenticated access (RLS enforced).
  * The Edge Function uses the service role key for writes; this module never
  * needs it.
  */
@@ -54,7 +54,7 @@ export function routingAddressError(address, assignedTestAddress = testInboundAd
 /**
  * Create a new routing address for an organization.
  *
- * @param {object} backend  — the Supabase client from src/backend/index.js
+ * @param {object} backend  — the KERDOS backend from src/backend/index.js
  * @param {string} organizationId
  * @param {{ routingAddress: string, label?: string, forwardTo?: string, vendorId?: string|null, documentType?: 'pricelist'|'invoice'|null }} opts
  * @returns {Promise<object>} the created row
@@ -69,8 +69,8 @@ export async function createRoutingAddress(backend, organizationId, { routingAdd
     throw new Error('documentType must be "pricelist", "invoice", or null');
   }
   return run(
-    backend
-      .from("email_routing_addresses")
+    backend.records
+      .query("email_routing_addresses")
       .insert({
         organization_id: organizationId,
         routing_address: normalized,
@@ -94,8 +94,8 @@ export async function createRoutingAddress(backend, organizationId, { routingAdd
  */
 export async function listRoutingAddresses(backend, organizationId) {
   return run(
-    backend
-      .from("email_routing_addresses")
+    backend.records
+      .query("email_routing_addresses")
       .select("id, routing_address, label, forward_to, vendor_id, document_type, is_active, created_at")
       .eq("organization_id", organizationId)
       .eq("is_active", true)
@@ -104,12 +104,12 @@ export async function listRoutingAddresses(backend, organizationId) {
   );
 }
 
-/** Change an address's current vendor mapping. Pending attachments use this mapping at processing time. */
+/** Change the vendor for future receipts; existing messages retain their receipt-time snapshot. */
 export async function setRoutingAddressVendor(backend, organizationId, addressId, vendorId) {
   if (!addressId) throw new Error("addressId is required");
   return run(
-    backend
-      .from("email_routing_addresses")
+    backend.records
+      .query("email_routing_addresses")
       .update({ vendor_id: vendorId || null })
       .eq("id", addressId)
       .eq("organization_id", organizationId)
@@ -122,7 +122,7 @@ export async function setRoutingAddressVendor(backend, organizationId, addressId
 /** Change the registration for future receipts; existing snapshots stay immutable. */
 export async function setRoutingAddressDocumentType(backend,organizationId,addressId,documentType){
   if(!["pricelist","invoice"].includes(documentType))throw new Error("Select Price Sheet or Invoice");
-  return run(backend.from("email_routing_addresses").update({document_type:documentType})
+  return run(backend.records.query("email_routing_addresses").update({document_type:documentType})
     .eq("id",addressId).eq("organization_id",organizationId).select("id, document_type").single(),
     "setRoutingAddressDocumentType");
 }
@@ -137,8 +137,8 @@ export async function setRoutingAddressDocumentType(backend,organizationId,addre
  */
 export async function deactivateRoutingAddress(backend, organizationId, addressId) {
   await run(
-    backend
-      .from("email_routing_addresses")
+    backend.records
+      .query("email_routing_addresses")
       .update({ is_active: false })
       .eq("id", addressId)
       .eq("organization_id", organizationId),
@@ -160,8 +160,8 @@ export async function deactivateRoutingAddress(backend, organizationId, addressI
 export async function listMessages(backend, organizationId, { limit = 50, offset = 0 } = {}) {
   // Fetch messages
   const messages = await run(
-    backend
-      .from("inbound_messages")
+    backend.records
+      .query("inbound_messages")
       .select(`
         id, routing_address_id, postmark_message_id,
         sender_email, sender_name, subject, received_at,
@@ -197,8 +197,8 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
  */
 export async function getMessage(backend, organizationId, messageId) {
   const row = await run(
-    backend
-      .from("inbound_messages")
+    backend.records
+      .query("inbound_messages")
       .select(`
         id, routing_address_id, postmark_message_id,
         sender_email, sender_name, subject, body_text, received_at,
@@ -227,9 +227,7 @@ export async function listPendingAttachments(backend, organizationId) {
   // Query a superset, then use the same action decision as AttachmentRow.
   // A recovered partial can be linked to a document while its status is
   // pending; filtering only on a null document or needs_review hides it.
-  const rows = await run(
-    backend
-      .from("inbound_attachments")
+  const query = () => backend.records.query("inbound_attachments")
       .select(`
         id, message_id, filename, content_type, file_size_bytes,
         storage_path, ingest_error, created_at,
@@ -237,11 +235,14 @@ export async function listPendingAttachments(backend, organizationId) {
         inbound_messages ( sender_email, sender_name, subject, received_at )
       `)
       .eq("organization_id", organizationId)
-      .or("import_document_id.is.null,processing_status.eq.needs_review,processing_status.eq.pending,processing_status.eq.failed")
-      .order("created_at", { ascending: false }),
-    "listPendingAttachments"
-  );
-  return (rows ?? []).filter((a) => !attachmentActionBlocked(a));
+      .order("created_at", { ascending: false });
+  const [unlinked, reviewable] = await Promise.all([
+    run(query().is("import_document_id", null), "listPendingAttachments/unlinked"),
+    run(query().in("processing_status", ["needs_review", "pending", "failed"]), "listPendingAttachments/reviewable"),
+  ]);
+  const rows = [...new Map([...(unlinked ?? []), ...(reviewable ?? [])].map(row => [row.id, row])).values()];
+  return rows.filter((a) => !attachmentActionBlocked(a))
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 }
 
 // ── attachment handoff to PasteModal ──────────────────────────────────────
@@ -253,7 +254,7 @@ export async function listPendingAttachments(backend, organizationId) {
  * The caller opens PasteModal with initialFiles={[file]}. fileToText() runs
  * in the browser during the interaction; vendor selection is still required.
  *
- * @param {object} backend          — Supabase client
+ * @param {object} backend          — KERDOS backend
  * @param {string} organizationId
  * @param {string} attachmentId
  * @returns {Promise<File>}
@@ -261,8 +262,8 @@ export async function listPendingAttachments(backend, organizationId) {
 export async function getAttachmentFile(backend, organizationId, attachmentId) {
   // 1. Load the attachment row to get storage_path and filename
   const att = await run(
-    backend
-      .from("inbound_attachments")
+    backend.records
+      .query("inbound_attachments")
       .select("filename, content_type, storage_path, ingest_error")
       .eq("organization_id", organizationId)
       .eq("id", attachmentId)
@@ -279,16 +280,7 @@ export async function getAttachmentFile(backend, organizationId, attachmentId) {
   }
 
   // 2. Create a signed URL valid for 60 seconds
-  const { data: signed, error: signErr } = await backend.storage
-    .from("documents")
-    .createSignedUrl(att.storage_path, 60);
-
-  if (signErr) {
-    throw Object.assign(
-      new Error(`email-routing getAttachmentFile/sign: ${signErr.message}`),
-      { cause: signErr }
-    );
-  }
+  const signed = await backend.documents.signedUrl(att.storage_path, 60);
 
   // 3. Fetch the raw bytes
   const response = await fetch(signed.signedUrl);
@@ -328,26 +320,13 @@ export async function getAttachmentFile(backend, organizationId, attachmentId) {
  *   unchanged — used by the audit-retry path which only needs to re-link the document id.
  */
 export async function markAttachmentIngested(backend, organizationId, attachmentId, importDocumentId, finalStatus = null) {
-  await run(
-    backend.rpc("mark_attachment_ingested", {
-      p_attachment_id:      attachmentId,
-      p_import_document_id: importDocumentId,
-      p_final_status:       finalStatus,
-    }),
-    "markAttachmentIngested"
-  );
+  await backend.inbox.markAttachmentIngested(organizationId, attachmentId, importDocumentId, finalStatus);
 }
 
-/** Atomically reserve an attachment for manual review before opening PasteModal.
+/** Atomically reserve an attachment at Save, before the modal writes anything.
  * A pending automatic worker and the user compete for the same database row lock.
  * Only one can change the state; a running worker returns false.
  */
 export async function beginManualAttachmentReview(backend, organizationId, attachmentId) {
-  return run(
-    backend.rpc("begin_manual_attachment_review", {
-      p_organization_id: organizationId,
-      p_attachment_id: attachmentId,
-    }),
-    "beginManualAttachmentReview"
-  );
+  return backend.inbox.beginManualReview(organizationId, attachmentId);
 }

@@ -1,4 +1,5 @@
--- DRAFT: requires migration_039_routing_document_type.sql first.
+-- Applied to kerdos-test as 20261027212432 on October 27, 2026.
+-- Requires migration_039_routing_document_type.sql first.
 -- Service-only atomic invoice ingestion. Existing interactive RPC is unchanged.
 -- No new table or RLS policy; caller is the worker service role.
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS source_document_id uuid REFERENCES public.import_documents(id);

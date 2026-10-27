@@ -11,6 +11,7 @@ export function createRecords(execute) {
       upsert(value){spec.action="upsert";spec.value=value;return chain;},
       delete(){spec.action="delete";return chain;},
       eq(column,value){spec.filters.push({operator:"eq",column,value});return chain;},
+      is(column,value){spec.filters.push({operator:"is",column,value});return chain;},
       in(column,value){spec.filters.push({operator:"in",column,value});return chain;},
       ilike(column,value){spec.filters.push({operator:"ilike",column,value});return chain;},
       lte(column,value){spec.filters.push({operator:"lte",column,value});return chain;},

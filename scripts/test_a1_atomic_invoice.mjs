@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {createRecords} from '../src/backend/records.js';
-import {parseDocument} from '../src/ingestion.js';
+import {parseDocument,findInvoiceNumber} from '../src/ingestion.js';
 import {prepareAutomaticInvoice} from '../src/core/automatic-invoice.js';
 import {processAttachmentInBackground,classifyDocument} from '../supabase/functions/process-attachment/background-import.mjs';
 
@@ -15,6 +15,11 @@ const rows=parseDocument(text).rows;
 const prepare=overrides=>prepareAutomaticInvoice({text,rows,organizationId:org,vendorId:vendor,vendorItems:[listing],...overrides});
 let passed=0;
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
+await check('invoice numbers retain long suffixes and punctuation without prefix collisions',()=>{
+  assert.equal(findInvoiceNumber('INVOICE A1-20261027-LIVE'),'A1-20261027-LIVE');
+  assert.equal(findInvoiceNumber('INVOICE A1-20261027-OTHER'),'A1-20261027-OTHER');
+  assert.equal(findInvoiceNumber('Invoice #AB/2026.000001'),'AB/2026.000001');
+});
 await check('registered type conflicts are reviewed, including mixed documents',()=>{
   for(const [a,b] of [['invoice','pricelist'],['pricelist','invoice'],['invoice','mixed'],['pricelist','mixed']])
     assert.equal(classifyDocument(a,b).earlyExit.status,'needs_review');

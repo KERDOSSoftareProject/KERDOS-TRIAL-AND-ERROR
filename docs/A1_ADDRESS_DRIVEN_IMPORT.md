@@ -84,3 +84,28 @@ has not been added by this change. Task 1 and its interaction gate stay open.
 
 The approved five-minute recovery scheduler is existing deployed behavior;
 this change neither recreates it nor asks for another approval.
+
+## Test rollout update — October 27, 2026
+
+Migration 039 applied to kerdos-test as 20261027212428; atomic invoice migration
+applied as 20261027212432. Processor and webhook deployed ACTIVE v6 with
+unchanged authentication. Recovery remains ACTIVE v5 and the approved cron
+job remains active. Six unauthenticated rejection probes passed.
+
+The existing scheduled recovery worker processed synthetic Storage-backed
+fixtures in organization ab0f7ada-83ad-43eb-a513-6a8c5bd43a09. The invoice saved
+quantity 2, unit price 10, line/header total 20, CASE unit and billing evidence,
+and a complete linked source document. The price sheet saved one price of 10.
+A second invoice attachment reused the same invoice and document. Incorrect
+arithmetic produced needs_review with no document. This exercises deployed
+processing/recovery; it does not establish actual Postmark delivery.
+Three synthetic CSV files remain in test Storage for this verification workflow.
+No user pricing data was modified by the fixture tests.
+
+That deployed check exposed truncation of long alphanumeric invoice numbers
+by the shared parser. The parser now preserves complete numbers, including
+slashes/dots, with a regression distinguishing matching prefixes. Local invoice
+checks now total 29. Integration with the latest Trial and Error main preserves
+its Inbox adapter, test receiving-address configuration and movable dialogs.
+Combined npm test/lint and build passed. Frontend deployment and verification
+of the parser update against deployed fixtures follow this source checkpoint.

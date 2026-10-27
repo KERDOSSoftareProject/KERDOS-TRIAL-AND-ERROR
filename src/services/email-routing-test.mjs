@@ -20,6 +20,10 @@
  * attachment-processor.mjs so changes to that logic are automatically covered.
  */
 
+import {createRecords} from "../backend/records.js";
+import {executeSupabaseRecordQuery, createSupabaseInbox} from "../backend/supabase.js";
+import {providerResult} from "../backend/contract.js";
+
 import { processAttachments, base64ToBytes as processorBase64 } from
   "../../supabase/functions/inbound-email/attachment-processor.mjs";
 
@@ -93,6 +97,7 @@ function makeMockBackend(seed = {}) {
         return q;
       },
       eq(field, value)  { rows = rows.filter(r => r[field] === value); return q; },
+      in(field, values) { rows = rows.filter(r => values.includes(r[field])); return q; },
       is(field, value)  {
         rows = rows.filter(r => r[field] === value || (value === null && r[field] == null));
         return q;
@@ -256,7 +261,7 @@ function makeMockBackend(seed = {}) {
     return Promise.resolve({ data: null, error: { message: `unknown function: ${funcName}` } });
   }
 
-  return {
+  const backend = {
     from(tableName) { return buildQuery(tableName); },
     rpc,
     storage: storageApi,
@@ -268,6 +273,10 @@ function makeMockBackend(seed = {}) {
     // Allow tests to inject a forced upload error on the next call
     _nextUploadError: null,
   };
+  backend.records=createRecords(spec=>executeSupabaseRecordQuery(backend,spec));
+  backend.documents={signedUrl:(path,seconds)=>providerResult(backend.storage.from("documents").createSignedUrl(path,seconds),"Open document")};
+  backend.inbox=createSupabaseInbox(backend);
+  return backend;
 }
 
 // Variant: backend with a forced transient upload error for one path
