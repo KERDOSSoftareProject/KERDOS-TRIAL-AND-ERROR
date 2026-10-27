@@ -24,7 +24,8 @@
 --   3. inbound_messages.receipt_document_type ('pricelist' | 'invoice')
 --      Captured from document_type at receipt time alongside receipt_vendor_id.
 --      NULL means the routing address had no document_type when the message
---      arrived — treat as unclassified (goes to manual review).
+--      arrived. Content-detected pricelists are auto-imported;
+--      content-detected invoices and ambiguous documents go to manual review.
 --
 --   4. Extend protect_inbound_vendor_snapshot() to cover receipt_document_type.
 --      The trigger already exists; replacing the function body is sufficient.

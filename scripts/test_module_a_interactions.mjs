@@ -71,14 +71,19 @@ check("migration_039 extends snapshot trigger to cover receipt_document_type", (
 });
 check("background-import uses registration document_type, not content guess", () => {
   const bg = source("../supabase/functions/process-attachment/background-import.mjs");
-  // documentType parameter in signature
+  // documentType parameter in signature (default null)
   assert.match(bg, /documentType = null/);
-  // registration-based branch: when documentType is non-null use it
-  assert.match(bg, /documentType !== null/);
+  // classifyDocument is exported as a named export for direct unit testing
+  assert.match(bg, /export function classifyDocument/);
+  // registration-based classification is present in classifyDocument
+  assert.match(bg, /documentType === "invoice"/);
+  assert.match(bg, /documentType === "pricelist"/);
   // content fallback is still present for unregistered addresses
   assert.match(bg, /contentKind/);
-  // invoice detection uses the registration value when available
-  assert.match(bg, /isInvoice = documentType === "invoice"/);
+  // A1.2.g: registered invoices are auto-imported via findInvoiceDocument
+  assert.match(bg, /findInvoiceDocument/);
+  // TypeScript variable declaration removed (file is .mjs, not .ts)
+  assert.doesNotMatch(bg, /\blet isInvoice: boolean/);
   // hardcoded content-guess assignment removed from primary path
   assert.doesNotMatch(bg, /const isInvoice = documentKind === "invoice"/);
 });

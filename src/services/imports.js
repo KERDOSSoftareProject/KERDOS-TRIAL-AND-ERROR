@@ -10,6 +10,8 @@ export function createImportService(backend){
     // Validates organization_id and vendor_id ownership so a stale or spoofed
     // ID from the inbox cannot resume a document belonging to another org or vendor.
     findPriceDocumentById({organizationId,vendorId,documentId}){return run(table("import_documents").select("id,status,completed_keys").eq("id",documentId).eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").maybeSingle(),"Could not load the partial import document");},
+    // A1.2.g: check for a previously stored invoice document (duplicate Postmark delivery guard).
+    findInvoiceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","invoice").eq("fingerprint",fingerprint).maybeSingle(),"Could not check for duplicate invoice");},
     createPriceDocument(row){return run(table("import_documents").insert(row).select("id").single(),"Could not preserve the source document");},
     async resumeSources(organizationId,vendorId,documentId){
       const quotes=[];

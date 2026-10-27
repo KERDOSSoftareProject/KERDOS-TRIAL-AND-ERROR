@@ -180,7 +180,7 @@ export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
           <div style={{marginBottom:10}}>
             <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Document type</label>
             <select style={{...inp,fontSize:13}} value={documentType} onChange={e=>setDocumentType(e.target.value)}>
-              <option value="">Not specified (manual review)</option>
+              <option value="">Not specified (detected from content)</option>
               <option value="pricelist">Price Sheet</option>
               <option value="invoice">Invoice</option>
             </select>

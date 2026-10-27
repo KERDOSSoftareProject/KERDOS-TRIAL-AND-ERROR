@@ -56,6 +56,47 @@ function makeFingerprint(attachment) {
   return `${attachment.storage_path}:${attachment.file_size_bytes}`;
 }
 
+// ── Document classification ──────────────────────────────────────────────────
+
+/**
+ * Classify a document as pricelist or invoice based on routing registration
+ * intent and content detection. Pure — no I/O. Exported for unit tests.
+ *
+ * Registration (documentType) is authoritative when present. Content detection
+ * (contentKind from parseDocument) is the fallback only for unregistered
+ * addresses. Unregistered invoice content goes to review rather than
+ * auto-importing, because the routing address owner has not confirmed vendor
+ * and type — a content guess alone is not sufficient authority for ingestion.
+ *
+ * Decision matrix:
+ *   documentType = 'pricelist'  → { isInvoice: false, earlyExit: null }
+ *   documentType = 'invoice'    → { isInvoice: true,  earlyExit: null }  (A1.2.g)
+ *   documentType = null, contentKind = 'pricelist' → { isInvoice: false, earlyExit: null }
+ *   documentType = null, contentKind = 'invoice'   → earlyExit needs_review
+ *   documentType = null, contentKind = other/null  → earlyExit needs_review
+ *
+ * @param {string|null} documentType  — receipt_document_type from routing registration
+ * @param {string|null} contentKind   — documentKind returned by parseDocument
+ * @returns {{ isInvoice: boolean, earlyExit: null }
+ *          | { isInvoice: null, earlyExit: { status: string, reason: string } }}
+ */
+export function classifyDocument(documentType, contentKind) {
+  // Registration is authoritative: use it when present.
+  if (documentType === "pricelist") return { isInvoice: false, earlyExit: null };
+  if (documentType === "invoice")   return { isInvoice: true,  earlyExit: null };
+
+  // No registration — fall back to content detection.
+  if (contentKind === "pricelist") return { isInvoice: false, earlyExit: null };
+
+  // Unregistered invoice or ambiguous content → manual review.
+  // Automatic invoice ingestion (A1.2.g) requires a registered address;
+  // unregistered invoices need a human to confirm vendor and document type.
+  const reason = contentKind === "invoice"
+    ? "Document content appears to be an invoice but the routing address has no document_type registration — manual review required to confirm vendor and document type. Set document_type on the routing address for automatic ingestion."
+    : "Document type could not be determined — no routing registration and content detection was inconclusive. Set document_type on the routing address and reprocess.";
+  return { isInvoice: null, earlyExit: { status: "needs_review", reason } };
+}
+
 // ── Main export ──────────────────────────────────────────────────────────────
 
 /**
@@ -159,39 +200,63 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // Content-based detection (contentKind from parseDocument) is the fallback only
   // when the address had no document_type when the message arrived.
   //
-  // Decision matrix:
-  //   documentType = 'invoice'    → needs_review (human must verify totals)
-  //   documentType = 'pricelist'  → continue to auto-import (content guess ignored)
-  //   documentType = null         → use contentKind:
-  //       contentKind = 'invoice'   → needs_review
-  //       contentKind = 'pricelist' → continue to auto-import
-  //       contentKind = null/other  → needs_review (ambiguous, registration missing)
+  // When isInvoice is true after classifyDocument, documentType === 'invoice'
+  // (the registration was explicit). Content-detected invoices from unregistered
+  // addresses produce earlyExit=needs_review to protect against mis-classification.
 
-  let isInvoice: boolean;
-  if (documentType !== null) {
-    isInvoice = documentType === "invoice";
-  } else {
-    // Fallback: content-based detection. Ambiguous content without a registration
-    // goes to review rather than silently auto-importing the wrong document type.
-    if (contentKind !== "pricelist" && contentKind !== "invoice") {
-      await backend.attachments.setStatus(attachmentId, "needs_review",
-        "Document type could not be determined — no routing registration and content detection was inconclusive. Set document_type on the routing address and reprocess.");
-      return { outcome: "needs_review", reason: "Ambiguous document type — registration missing" };
-    }
-    isInvoice = contentKind === "invoice";
+  const { isInvoice, earlyExit } = classifyDocument(documentType, contentKind);
+
+  if (earlyExit) {
+    await backend.attachments.setStatus(attachmentId, earlyExit.status, earlyExit.reason);
+    return { outcome: earlyExit.status, reason: earlyExit.reason };
   }
 
   const groups = parsedRows.length > 0
     ? [{ rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
     : [];
 
-  // Invoices always go to review (human must confirm quantities and totals).
+  // ── A1.2.g: invoice auto-import ──────────────────────────────────────────
+  //
+  // Reached only when documentType === 'invoice' (classifyDocument returns
+  // earlyExit for all other cases where isInvoice could be ambiguous).
+  // Registration establishes the address as an invoice receiver; no further
+  // content validation is needed. Full invoice line-item processing is Module 7.
   if (isInvoice) {
-    const reason = documentType === "invoice"
-      ? "Routing address is registered for invoices — human review required"
-      : "Document content appears to be an invoice — human review required";
-    await backend.attachments.setStatus(attachmentId, "needs_review", reason);
-    return { outcome: "needs_review", reason: "Invoice document" };
+    const _invoiceService = createImportService(backend);
+    const invoiceFingerprint = makeFingerprint(attachment);
+
+    let existingInvoiceDoc;
+    try {
+      existingInvoiceDoc = await _invoiceService.findInvoiceDocument({
+        organizationId, vendorId, fingerprint: invoiceFingerprint,
+      });
+    } catch (err) {
+      throw new Error(`Could not check for duplicate invoice: ${err.message}`);
+    }
+
+    if (existingInvoiceDoc?.status === "complete") {
+      // Duplicate Postmark delivery — already stored.
+      await backend.attachments.setStatus(attachmentId, "auto_imported", null, existingInvoiceDoc.id);
+      return { outcome: "auto_imported" };
+    }
+
+    let invoiceDoc;
+    try {
+      invoiceDoc = await _invoiceService.createPriceDocument({
+        organization_id: organizationId,
+        vendor_id:       vendorId,
+        document_kind:   "invoice",
+        fingerprint:     invoiceFingerprint,
+        file_name:       filename,
+        file_path:       storagePath,
+        status:          "complete",
+      });
+    } catch (err) {
+      throw new Error(`Could not record invoice document: ${err.message}`);
+    }
+
+    await backend.attachments.setStatus(attachmentId, "auto_imported", null, invoiceDoc.id);
+    return { outcome: "auto_imported" };
   }
 
   if (groups.length === 0) {
