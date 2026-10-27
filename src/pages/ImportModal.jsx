@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from "react";
+import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
 import {fileToText} from "../document-reader.js";
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
@@ -53,6 +53,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const [parsedGroups,setParsedGroups]=useState([]); // after Parse: fileGroups (+pasted text) each with rows/skipped attached
   const [step,setStep]=useState(1);
   const [loading,setLoading]=useState(false);
+  const saveInFlight=useRef(false);
   const [result,setResult]=useState(null);
   const [dragOver,setDragOver]=useState(false);
   const [fileBusy,setFileBusy]=useState(false);
@@ -327,11 +328,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   function approveIssue(groupId,index){setAcceptedIssues(prev=>new Set([...prev,`${groupId}:${index}`]));}
 
   async function doSave(){
+    // Reservation is asynchronous. Block a second click immediately, before
+    // React's loading state or the first reservation response can arrive.
+    if(saveInFlight.current)return;
+    saveInFlight.current=true;
     try { await saveImport(); }
     catch(error){
       setSaveReview(`Import stopped: ${error.message||String(error)}. Items already saved remain in your catalog; check the import history before retrying.`);
       setLoading(false);
     }
+    finally{saveInFlight.current=false;}
   }
 
   async function saveImport(){
