@@ -942,6 +942,23 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
+  // Cross-task: recovery can leave a linked partial pending, while an active
+  // worker is processing another attachment. The badge must agree with the
+  // actions actually offered in AttachmentRow.
+  const backend = makeMockBackend({
+    inbound_messages: [{ id: "m-states", organization_id: "org-1", received_at: new Date().toISOString() }],
+    inbound_attachments: [
+      { id: "recovering", message_id: "m-states", import_document_id: "doc-1", processing_status: "pending" },
+      { id: "working", message_id: "m-states", import_document_id: null, processing_status: "processing" },
+      { id: "done", message_id: "m-states", import_document_id: "doc-2", processing_status: "auto_imported" },
+      { id: "decode", message_id: "m-states", import_document_id: null, processing_status: "pending", ingest_error: "bad base64" },
+    ],
+  });
+  const [message] = await listMessages(backend, "org-1");
+  t("B5 cross-task: only recovered partial counts as actionable", message.pending_count, 1);
+}
+
+{
   // B6. listMessages: org isolation — only own messages
   const backend = makeMockBackend({
     inbound_messages: [
@@ -980,7 +997,8 @@ console.log("\n── B. Service layer ─────────────�
   // B8. listPendingAttachments returns unprocessed AND background-partial attachments.
   // Fixed: old filter (.is("import_document_id", null)) excluded background partials
   // where import_document_id IS NOT NULL but processing_status = 'needs_review'.
-  // New filter: import_document_id IS NULL OR processing_status = 'needs_review'.
+  // Recovered linked pending rows are actionable too; processing rows and
+  // decode-error rows must not appear as manual actions.
   const backend = makeMockBackend({
     inbound_messages: [
       { id: "m1", organization_id: "org-1", routing_address_id: "ra-1",
@@ -1003,14 +1021,29 @@ console.log("\n── B. Service layer ─────────────�
         filename: "partial.csv", storage_path: "org-1/inbound/m1/2-partial.csv",
         import_document_id: "doc-partial", processing_status: "needs_review",
         created_at: new Date().toISOString() },
+      { id: "a4", organization_id: "org-1", message_id: "m1",
+        filename: "recovered.csv", storage_path: "org-1/inbound/m1/3-recovered.csv",
+        import_document_id: "doc-recovered", processing_status: "pending",
+        created_at: new Date().toISOString() },
+      { id: "a5", organization_id: "org-1", message_id: "m1",
+        filename: "active.csv", storage_path: "org-1/inbound/m1/4-active.csv",
+        import_document_id: null, processing_status: "processing",
+        created_at: new Date().toISOString() },
+      { id: "a6", organization_id: "org-1", message_id: "m1",
+        filename: "broken.csv", storage_path: null, ingest_error: "bad base64",
+        import_document_id: null, processing_status: "pending",
+        created_at: new Date().toISOString() },
     ],
   });
 
   const pending = await listPendingAttachments(backend, "org-1");
-  t("B8: pending + background-partial attachments returned", pending.length, 2);
+  t("B8: pending + background + recovered partial attachments returned", pending.length, 3);
   const ids = pending.map(a => a.id).sort();
   t("B8: unprocessed attachment included", ids.includes("a1"), true);
   t("B8: background partial (needs_review) included", ids.includes("a3"), true);
+  t("B8: recovered linked partial included", ids.includes("a4"), true);
+  t("B8: active worker excluded", ids.includes("a5"), false);
+  t("B8: decode error excluded", ids.includes("a6"), false);
   t("B8: auto_imported attachment excluded", ids.includes("a2"), false);
   t("B8: import_document_id present in result", pending.find(a => a.id === "a3").import_document_id, "doc-partial");
   t("B8: processing_status present in result", pending.find(a => a.id === "a3").processing_status, "needs_review");

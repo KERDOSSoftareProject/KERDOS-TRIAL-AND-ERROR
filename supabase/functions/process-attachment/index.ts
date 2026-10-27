@@ -14,8 +14,7 @@
  *
  * The function:
  *   1. Validates the request body.
- *   2. Resolves vendorId by joining inbound_attachments → inbound_messages →
- *      email_routing_addresses.  If the routing address has no vendor_id the
+ *   2. Reads the vendor captured on inbound_messages at receipt. If it had no vendor the
  *      attachment goes straight to needs_review.
  *   3. Claims the attachment via claim_attachment (pending → processing,
  *      issuing a lease token). Returns "skipped" if already handled.
@@ -33,6 +32,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createServiceBackend } from "./service-backend.mjs";
 import { processAttachmentInBackground } from "./background-import.mjs";
 import { authorizedServiceRequest } from "./request-auth.mjs";
+import { receiptVendorId } from "./receipt-vendor.mjs";
 
 // ── CORS headers (inbound-email is a peer function, not a browser) ─────────
 // We still emit JSON content-type so any tooling parsing the response is happy.
@@ -82,11 +82,11 @@ serve(async (req: Request) => {
 
   // ── Resolve vendorId ───────────────────────────────────────────────────────
   //
-  // Join: inbound_attachments → inbound_messages → email_routing_addresses
+  // Join: inbound_attachments → inbound_messages (immutable receipt snapshot).
   //
-  // email_routing_addresses.vendor_id (nullable) was added in
-  // migration_033_auto_processing.sql.  When NULL the routing address has no
-  // vendor mapping; we cannot run the import pipeline without one.
+  // Existing messages predating the snapshot have vendor_snapshot_at=NULL and
+  // must go to manual review; today's routing assignment cannot identify their
+  // historical vendor safely.
   let attachment: Record<string, unknown>;
   let vendorId: string | null;
 
@@ -96,9 +96,7 @@ serve(async (req: Request) => {
       .select(`
         id, organization_id, filename, content_type, file_size_bytes,
         storage_path, processing_status,
-        inbound_messages (
-          email_routing_addresses ( vendor_id )
-        )
+        inbound_messages ( receipt_vendor_id, vendor_snapshot_at )
       `)
       .eq("id", attachmentId)
       .eq("organization_id", organizationId)
@@ -117,9 +115,7 @@ serve(async (req: Request) => {
 
     // Drill into the nested join result (Supabase returns array for 1:many,
     // object for many:1).
-    const msg = (data as any).inbound_messages;
-    const era = msg?.email_routing_addresses;
-    vendorId = era?.vendor_id ?? null;
+    vendorId = receiptVendorId((data as any).inbound_messages);
   } catch (e: any) {
     console.error("[process-attachment] routing lookup error:", e?.message);
     return new Response(
@@ -137,7 +133,7 @@ serve(async (req: Request) => {
     try {
       await backend.attachments.markNeedsReviewIfPending(
         attachmentId,
-        "Routing address has no vendor assigned — manual review required."
+        "No vendor was captured when this message arrived — manual review required."
       );
     } catch (e: any) {
       console.error("[process-attachment] setStatus(needs_review) failed:", e?.message);
@@ -145,7 +141,7 @@ serve(async (req: Request) => {
         { status: 500, headers: HEADERS });
     }
     return new Response(
-      JSON.stringify({ outcome: "needs_review", reason: "no vendor on routing address" }),
+      JSON.stringify({ outcome: "needs_review", reason: "no receipt-time vendor" }),
       { status: 200, headers: HEADERS }
     );
   }

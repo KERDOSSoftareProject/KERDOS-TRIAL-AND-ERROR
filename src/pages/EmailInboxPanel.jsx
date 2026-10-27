@@ -272,13 +272,8 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
     setStatus("loading");setError("");
     let file;
     try{
-      const reserved=await beginManualAttachmentReview(backend,orgId,att.id);
-      if(!reserved){
-        setError("Automatic processing is still running or this attachment is already complete. Refresh the inbox and try again.");
-        setStatus("idle");
-        onDone?.();
-        return;
-      }
+      // Preview does not reserve the row. PasteModal reserves at save time,
+      // after parsing and user review but before any import write.
       file=await getAttachmentFile(backend,orgId,att.id);
     }catch(e){
       setError(e.message||"Could not fetch attachment.");
@@ -404,6 +399,7 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           onClose={()=>setPendingFile(null)}
           onDone={()=>{}}
           onFinished={handleImportFinished}
+          onBeforeSave={()=>beginManualAttachmentReview(backend,orgId,att.id)}
           inboxImportDocumentId={att.import_document_id||null}
         />
       )}

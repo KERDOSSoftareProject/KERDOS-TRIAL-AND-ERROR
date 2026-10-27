@@ -33,7 +33,7 @@ const r2=value=>Math.round(value*100)/100;
 // document by ID + ownership instead of re-fingerprinting — ensuring the user's
 // PasteModal session resumes the SAME partial document the worker created rather
 // than creating a duplicate under the content fingerprint.
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,initialVendorId,initialMode,initialFiles,inboxImportDocumentId=null}) {
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,inboxImportDocumentId=null}) {
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
   // be dropped in until a vendor is chosen, so a sheet can't land under
@@ -339,6 +339,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     if(missingInvoiceDates.length){setSaveReview("Confirm the invoice date for each document before recording invoice charges.");return;}
     if(unsafeDocuments.length){setSaveReview("This file identifies itself as an invoice and/or a price update inconsistent with the selected import mode. Split mixed documents, or select the correct mode before saving.");return;}
     if(mode==="invoice"&&needsReview.length){setSaveReview(`${needsReview.length} ambiguous row(s) still need a deliberate correction or approval. No unreviewed amount will change a current vendor quote.`);return;}
+    // Inbox preview does not reserve the attachment. The same row lock used by
+    // the worker is acquired here, immediately before any save-side effects.
+    // A closed preview therefore leaves pending work available to the worker.
+    if(onBeforeSave){
+      const allowed=await onBeforeSave();
+      if(!allowed)throw new Error("Automatic processing claimed this attachment. Refresh the inbox before importing.");
+    }
     setSaveReview("");setLoading(true);
     const vendor=vendors.find(v=>v.id===vendorId);
     let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0;
@@ -723,6 +730,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   // Start saving as soon as the parsed rows and invoice cross-reference are
   // ready. A person is needed only when the source contradicts prior evidence.
   useEffect(()=>{
+    // The inbox path waits for an explicit Save so closing a preview cannot
+    // reserve pending work or race with the automatic processor.
+    if(onBeforeSave)return;
     if(step!==2||autoSaveStarted||loading||!allRows.length) return;
     if(unsafeDocuments.length) return;
     // Price sheets save automatically with issues attached to their rows.
@@ -947,7 +957,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           {saveReview&&<div style={{color:"#B71C1C",fontSize:12,marginBottom:8}}>{saveReview}</div>}
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>setStep(1)} style={{...btn("#EEE","#555"),flex:1}}>← Back</button>
-            {(saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>Continue after resolving issues</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
+            {(onBeforeSave||saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>{onBeforeSave&&!saveReview?"Save Import":"Continue after resolving issues"}</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
           </div>
         </>}
 

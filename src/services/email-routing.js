@@ -20,6 +20,8 @@
  * needs it.
  */
 
+import { attachmentActionBlocked } from "../utils/attachment-state.js";
+
 // ── helpers ────────────────────────────────────────────────────────────────
 
 async function run(promise, context) {
@@ -160,13 +162,10 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
     return {
       ...msg,
       attachment_count: atts.length,
-      // Failed attachments (ingest_error set) are permanently unimportable;
-      // exclude them from the pending count so the badge reflects actionable items.
-      // A background partial (processing_status='needs_review') is still actionable
-      // even though import_document_id is set — the user must complete the review.
-      pending_count: atts.filter(
-        (a) => !a.ingest_error && (a.import_document_id === null || a.processing_status === "needs_review")
-      ).length,
+      // Count the same attachments for which AttachmentRow offers a manual
+      // action. Processing and imported rows are not yet actionable; a linked
+      // partial remains actionable after recovery resets its status to pending.
+      pending_count: atts.filter((a) => !attachmentActionBlocked(a)).length,
     };
   });
 }
@@ -208,26 +207,24 @@ export async function getMessage(backend, organizationId, messageId) {
  * @returns {Promise<object[]>}
  */
 export async function listPendingAttachments(backend, organizationId) {
-  // Include both unprocessed attachments (import_document_id IS NULL) and
-  // background partial imports that need human review
-  // (import_document_id IS NOT NULL AND processing_status = 'needs_review').
-  // The old filter `.is("import_document_id", null)` excluded the latter,
-  // making background-processed documents invisible in the queue view.
-  // Fixed: A1.2.e/f reconciliation (Gap 5).
-  return run(
+  // Query a superset, then use the same action decision as AttachmentRow.
+  // A recovered partial can be linked to a document while its status is
+  // pending; filtering only on a null document or needs_review hides it.
+  const rows = await run(
     backend
       .from("inbound_attachments")
       .select(`
         id, message_id, filename, content_type, file_size_bytes,
-        storage_path, created_at,
+        storage_path, ingest_error, created_at,
         import_document_id, processing_status,
         inbound_messages ( sender_email, sender_name, subject, received_at )
       `)
       .eq("organization_id", organizationId)
-      .or("import_document_id.is.null,processing_status.eq.needs_review")
+      .or("import_document_id.is.null,processing_status.eq.needs_review,processing_status.eq.pending,processing_status.eq.failed")
       .order("created_at", { ascending: false }),
     "listPendingAttachments"
   );
+  return (rows ?? []).filter((a) => !attachmentActionBlocked(a));
 }
 
 // ── attachment handoff to PasteModal ──────────────────────────────────────
