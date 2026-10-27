@@ -25,6 +25,7 @@ import {backend} from "../backend/index.js";
 import {
   createRoutingAddress,
   listRoutingAddresses,
+  setRoutingAddressVendor,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
@@ -63,7 +64,7 @@ function Badge({n,color="#003584"}){
 
 // ── RoutingAddressPanel ────────────────────────────────────────────────────
 
-export function RoutingAddressPanel({orgId,onUpdated}){
+export function RoutingAddressPanel({orgId,vendors=[],onUpdated}){
   const [addresses,setAddresses]=useState([]);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
@@ -71,8 +72,10 @@ export function RoutingAddressPanel({orgId,onUpdated}){
   const [address,setAddress]=useState("");
   const [label,setLabel]=useState("");
   const [forwardTo,setForwardTo]=useState("");
+  const [vendorId,setVendorId]=useState("");
   const [saving,setSaving]=useState(false);
   const [deactivating,setDeactivating]=useState(null);
+  const [updatingVendor,setUpdatingVendor]=useState(null);
 
   const load=useCallback(async()=>{
     setLoading(true);setError("");
@@ -94,12 +97,23 @@ export function RoutingAddressPanel({orgId,onUpdated}){
         routingAddress:address.trim(),
         label:label.trim()||null,
         forwardTo:forwardTo.trim()||null,
+        vendorId:vendorId||null,
       });
-      setShowForm(false);setAddress("");setLabel("");setForwardTo("");
+      setShowForm(false);setAddress("");setLabel("");setForwardTo("");setVendorId("");
       await load();
       onUpdated?.();
     }catch(e){setError(e.message);}
     setSaving(false);
+  }
+
+  async function handleVendorChange(id,nextVendorId){
+    setUpdatingVendor(id);setError("");
+    try{
+      await setRoutingAddressVendor(backend,orgId,id,nextVendorId||null);
+      await load();
+      onUpdated?.();
+    }catch(e){setError(e.message);}
+    setUpdatingVendor(null);
   }
 
   async function handleDeactivate(id){
@@ -148,6 +162,16 @@ export function RoutingAddressPanel({orgId,onUpdated}){
               onChange={e=>setLabel(e.target.value)}
             />
           </div>
+          <div style={{marginBottom:10}}>
+            <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>Import vendor</label>
+            <select style={{...inp,fontSize:13}} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
+              <option value="">Manual review (no automatic import)</option>
+              {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+            <p style={{fontSize:11,color:"#888",margin:"4px 0 0"}}>
+              Attachments awaiting processing use the current vendor assignment.
+            </p>
+          </div>
           <div style={{marginBottom:14}}>
             <label style={{fontSize:12,fontWeight:600,display:"block",marginBottom:4}}>
               Forward email text to (optional)
@@ -192,6 +216,15 @@ export function RoutingAddressPanel({orgId,onUpdated}){
                   <div>
                     <div style={{fontWeight:700,fontSize:13,fontFamily:"monospace"}}>{a.routing_address}</div>
                     {a.label&&<div style={{fontSize:12,color:"#555",marginTop:2}}>{a.label}</div>}
+                    <label style={{fontSize:11,color:"#555",display:"block",marginTop:6}}>
+                      Import vendor
+                      <select style={{...inp,fontSize:12,marginTop:3}} value={a.vendor_id||""}
+                        disabled={updatingVendor===a.id}
+                        onChange={e=>handleVendorChange(a.id,e.target.value)}>
+                        <option value="">Manual review (no automatic import)</option>
+                        {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                      </select>
+                    </label>
                     {a.forward_to&&(
                       <div style={{fontSize:11,color:"#888",marginTop:2}}>↪ text forwarded to {a.forward_to}</div>
                     )}

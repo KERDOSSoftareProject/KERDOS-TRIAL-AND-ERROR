@@ -1,7 +1,7 @@
 /**
  * inbound-email  —  Supabase Edge Function
  *
- * Receives Postmark inbound webhooks and queues attachments for review.
+ * Receives Postmark inbound webhooks and hands stored attachments to the processor.
  *
  * Security model
  * ──────────────
@@ -29,12 +29,11 @@
  *      {orgId}/inbound/{messageId}/{attachmentIndex}
  *      (the original filename is kept in the DB row; omitted from the key)
  *   3. Writes an inbound_attachments row with import_document_id = null
+ *   4. Awaits process-attachment dispatch; operational failures return 500
+ *      so Postmark can retry the handoff.
  *
- * The browser UI then shows a "Review & Import" button. Clicking it fetches
- * the file from Storage, creates a File object, and opens PasteModal with
- * the file pre-loaded. fileToText() runs in the browser during that
- * interaction — vendor selection is still required — preserving the full
- * Interpret → Compare → Decide flow.
+ * Attachments needing human review appear in the inbox and can be completed
+ * through PasteModal's existing review flow.
  *
  * Retry / transient error handling
  * ─────────────────────────────────

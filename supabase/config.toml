@@ -7,3 +7,8 @@ verify_jwt = false
 # the exact service-role bearer value in its handler.
 [functions.process-attachment]
 verify_jwt = true
+
+# Postmark sends an HTTP Basic credential, not a Supabase JWT. The handler
+# verifies that credential before reading or writing any email data.
+[functions.inbound-email]
+verify_jwt = false

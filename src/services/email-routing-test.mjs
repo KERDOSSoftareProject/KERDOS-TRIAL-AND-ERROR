@@ -152,7 +152,11 @@ function makeMockBackend(seed = {}) {
             tables[tableName].forEach((r, i) => {
               if (ids.has(r.id)) tables[tableName][i] = { ...r, ...updatePayload };
             });
-            return resolve({ data: null, error: null });
+            const updated = tables[tableName].filter(r => ids.has(r.id));
+            if (singleMode && updated.length !== 1) {
+              return resolve({ data: null, error: { message: "expected exactly one row" } });
+            }
+            return resolve({ data: singleMode ? updated[0] : null, error: null });
           }
 
           let resultRows = rows;
@@ -298,6 +302,7 @@ import { isDispatchable, isTerminal, VALID_OUTCOMES } from "../../supabase/funct
 import {
   createRoutingAddress,
   listRoutingAddresses,
+  setRoutingAddressVendor,
   deactivateRoutingAddress,
   listMessages,
   getMessage,
@@ -846,6 +851,30 @@ console.log("\n── B. Service layer ─────────────�
   });
   t("B1: routing address lowercased", row.routing_address, "acme-pricing@inbound.kerdos.com");
   t("B1: organization_id stored", row.organization_id, "org-1");
+  t("B1: no selected vendor means manual review", row.vendor_id, null);
+}
+
+{
+  const backend = makeMockBackend({
+    email_routing_addresses: [
+      { id: "ra-own", organization_id: "org-1", vendor_id: null, is_active: true },
+      { id: "ra-other", organization_id: "org-2", vendor_id: null, is_active: true },
+    ],
+  });
+  const created = await createRoutingAddress(backend, "org-1", {
+    routingAddress: "vendor@inbound.kerdos.com", vendorId: "vendor-1",
+  });
+  t("B1: selected vendor is stored on new address", created.vendor_id, "vendor-1");
+  const assigned = await setRoutingAddressVendor(backend, "org-1", "ra-own", "vendor-1");
+  t("B1: existing address gets selected vendor", assigned.vendor_id, "vendor-1");
+  const listed = await listRoutingAddresses(backend, "org-1");
+  t("B1: address list includes vendor assignment", listed.find(a => a.id === "ra-own").vendor_id, "vendor-1");
+  await setRoutingAddressVendor(backend, "org-1", "ra-own", null);
+  t("B1: clearing vendor restores manual review", backend._tables.email_routing_addresses[0].vendor_id, null);
+  await rejects("B1: another organization's address cannot be changed", async () => {
+    await setRoutingAddressVendor(backend, "org-1", "ra-other", "vendor-1");
+  });
+  t("B1: other organization remains unchanged", backend._tables.email_routing_addresses[1].vendor_id, null);
 }
 
 {
