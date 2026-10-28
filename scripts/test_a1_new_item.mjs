@@ -2,7 +2,7 @@
  * scripts/test_a1_new_item.mjs
  *
  * Division I → Module A → Task 1 — Brand-new item automatic ingestion
- * Evidence category: deployed synthetic (kerdos-test isolated fixture)
+ * Evidence category: local executed regression (in-memory backend)
  *
  * Verifies that processAttachmentInBackground automatically:
  *   1. Creates a new vendor_item when vendor_item_code is not yet known
@@ -23,6 +23,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { orderGuideAssessment } from '../src/core/catalog-fields.js';
 import { createRecords } from '../src/backend/records.js';
 import { processAttachmentInBackground } from '../supabase/functions/process-attachment/background-import.mjs';
 
@@ -34,11 +35,9 @@ const NEW_PACK   = '4/10 LB';
 const NEW_UNIT   = 'CASE';
 const NEW_PRICE  = 80.00;
 
-// "Selling Unit,Cost" avoids the column-name collision between "Price Unit"
-// (which the parser maps to both sellingUnit AND price) and a bare "Price" column.
-// This format gives the parser unambiguous sellingUnit="CASE" and price=80.00.
+// Exercise the same Price Unit/Price header pair fixed in PR #10.
 const CSV_TEXT = [
-  'Code,Description,Pack,Selling Unit,Cost',
+  'Code,Description,Pack,Price Unit,Price',
   `${NEW_CODE},${NEW_DESC},${NEW_PACK},${NEW_UNIT},${NEW_PRICE}`,
 ].join('\n');
 
@@ -53,11 +52,10 @@ const CREATED_CATALOG_ID     = 'cccccccc-0000-0000-0000-000000000001';
 const CREATED_CATEGORY_ID    = 'eeeeeeee-0000-0000-0000-000000000001';
 const CREATED_MAPPING_ID     = 'dddddddd-0000-0000-0000-000000000001';
 
-const FINGERPRINT = 'test-storage/new-item:128';   // storage_path:file_size_bytes
+const FINGERPRINT = `test-storage/new-item:${new TextEncoder().encode(CSV_TEXT).length}`;   // storage_path:file_size_bytes
 
 let passed = 0;
 async function check(name, fn) { await fn(); passed++; console.log('PASS ' + name); }
-function fail(name, msg) { throw new Error(`FAIL ${name}: ${msg}`); }
 
 // ── Shared call log ───────────────────────────────────────────────────────────
 
@@ -65,6 +63,7 @@ function makeState() {
   const calls = {
     applyQuote: [],
     createMapping: [],
+    createCatalog: [],
     setStatus: [],
     insertImportDoc: [],
     updateImportDoc: [],
@@ -72,7 +71,9 @@ function makeState() {
   // In-memory tables
   const importDocs  = {};   // id → row
   const mappings    = {};   // vendor_item_id → row
-  let docCreated    = false;
+  const vendorItems = [];
+  const catalogItems = [];
+  const categories = [];
 
   // createRecords execute function — handles each operation
   function execute(spec) {
@@ -85,7 +86,7 @@ function makeState() {
     // ── vendor_items ─────────────────────────────────────────────────────────
     if (table === 'vendor_items') {
       // Initial load — empty (no pre-seeded items for NEW_CODE)
-      if (action === 'select') return Promise.resolve({ data: [], error: null });
+      if (action === 'select') return Promise.resolve({ data: eqFilter(vendorItems, filters), error: null });
       // update (import_row staging when needsBasis && ex — should NOT be called
       // for a brand-new item because ex is null)
       if (action === 'update') return Promise.reject(new Error(
@@ -94,17 +95,19 @@ function makeState() {
 
     // ── catalog_items ─────────────────────────────────────────────────────────
     if (table === 'catalog_items') {
-      if (action === 'select') return Promise.resolve({ data: [], error: null });
+      if (action === 'select') return Promise.resolve({ data: eqFilter(catalogItems, filters), error: null });
       // INSERT (matchOrCreate creates a new catalog_item)
       if (action === 'insert') {
         const row = { ...(Array.isArray(value) ? value[0] : value), id: CREATED_CATALOG_ID };
+        catalogItems.push(row);
+        calls.createCatalog.push(row);
         return Promise.resolve({ data: cardinality === 'single' ? row : [row], error: null });
       }
     }
 
     // ── catalog_categories ────────────────────────────────────────────────────
     if (table === 'catalog_categories') {
-      if (action === 'select') return Promise.resolve({ data: [], error: null });
+      if (action === 'select') return Promise.resolve({ data: eqFilter(categories, filters), error: null });
       if (action === 'insert') {
         const insertVal = Array.isArray(value) ? value[0] : value;
         const row = {
@@ -113,6 +116,7 @@ function makeState() {
           range_start: 10000,
           range_end:   19999,
         };
+        categories.push(row);
         return Promise.resolve({ data: cardinality === 'single' ? row : [row], error: null });
       }
     }
@@ -162,7 +166,6 @@ function makeState() {
         const doc = { ...row, id };
         importDocs[row.fingerprint ?? id] = doc;
         calls.insertImportDoc.push(doc);
-        docCreated = true;
         return Promise.resolve({ data: cardinality === 'single' ? { id } : [{ id }], error: null });
       }
       if (action === 'update') {
@@ -193,24 +196,21 @@ function makeState() {
     pricing: {
       applyQuote: async (params) => {
         calls.applyQuote.push({ ...params });
+        vendorItems.push({id:CREATED_VENDOR_ITEM_ID,organization_id:params.organizationId,vendor_id:params.vendorId,
+          vendor_item_code:params.vendorItemCode,description:params.description,pack_size:params.packSize,
+          selling_unit:params.sellingUnit,price:params.price,price_basis:params.priceBasis,
+          price_source:'price_list',last_updated:params.effectiveDate,import_row:params.importRow,
+          field_resolutions:params.fieldResolutions,price_unavailable:params.priceUnavailable});
         return CREATED_VENDOR_ITEM_ID;
       },
     },
     records,
   };
 
-  return { backend, calls, importDocs, mappings };
+  return { backend, calls, importDocs, mappings, vendorItems, catalogItems, categories };
 }
 
 // ── Test fixture: confirm code not pre-seeded ─────────────────────────────────
-
-await check('fixture confirms A1-NEW-20261027-001 is not pre-seeded in test vendor items', () => {
-  // The in-memory backend returns [] for vendor_items.select — no pre-seeded item.
-  // This matches the requirement that we do NOT pre-create the item or its mapping.
-  assert.equal(NEW_CODE, 'A1-NEW-20261027-001');  // code is exactly as specified
-  console.log(`  · vendor_item_code ${NEW_CODE} not pre-seeded (confirmed by empty stub)`);
-  console.log(`  · no prior mapping pre-seeded`);
-});
 
 // ── First run: brand-new item automatic creation ──────────────────────────────
 
@@ -219,10 +219,14 @@ const attachment = {
   filename:         'A1_New_Item_Test.csv',
   content_type:     'text/csv',
   storage_path:     'test-storage/new-item',
-  file_size_bytes:  128,
+  file_size_bytes:  new TextEncoder().encode(CSV_TEXT).length,
 };
 
-const { backend: backend1, calls: calls1 } = makeState();
+const state = makeState();
+const {backend:backend1,calls:calls1}=state;
+assert.equal(state.vendorItems.length,0);
+assert.equal(state.catalogItems.length,0);
+assert.equal(Object.keys(state.mappings).length,0);
 
 let result1;
 await check('processAttachmentInBackground returns auto_imported for new item', async () => {
@@ -258,26 +262,24 @@ await check('applyQuote retained pack, quoted price, and source file evidence', 
     `Price mismatch: expected ${NEW_PRICE}, got ${q.price}`);
   assert.equal(q.priceBasis, 'case',
     `priceBasis: expected "case" (resolved from CASE selling unit), got "${q.priceBasis}"`);
-  assert.ok(q.sourceFileName || q.sourceFilePath,
-    'Source file evidence (sourceFileName or sourceFilePath) must be present');
-  assert.ok(q.sourceDocumentId,
-    'sourceDocumentId must be present (links price to import document)');
-  assert.ok(q.importRow?.row?.Code === NEW_CODE || q.importRow?.row?.code === NEW_CODE ||
-    JSON.stringify(q.importRow).includes(NEW_CODE),
-    'importRow must contain the original source row');
+  assert.equal(q.sourceFilePath,attachment.storage_path);
+  assert.equal(q.sourceDocumentId,CREATED_DOC_ID);
+  assert.equal(q.importRow.sourceDocumentId,CREATED_DOC_ID);
+  assert.equal(q.importRow.row.code,NEW_CODE);
+  assert.match(q.importRow.row.sourceLine,/Chicken Breast Boneless Skinless/);
   console.log(`  · packSize:      ${q.packSize}`);
   console.log(`  · price:         ${q.price}`);
   console.log(`  · priceBasis:    ${q.priceBasis}`);
-  console.log(`  · sourceFileName:${q.sourceFileName}`);
   console.log(`  · sourceDocumentId: ${q.sourceDocumentId}`);
 });
 
-await check('catalog mapping created (Order Guide prerequisite met)', () => {
+await check('catalog entry and mapping created and linked', () => {
   assert.equal(calls1.createMapping.length, 1, 'Expected exactly one createMapping call');
   const m = calls1.createMapping[0];
   assert.equal(m.vendor_item_id, CREATED_VENDOR_ITEM_ID,
     `Mapping vendor_item_id mismatch: ${m.vendor_item_id}`);
-  assert.ok(m.catalog_item_id, 'catalog_item_id must be set');
+  assert.equal(calls1.createCatalog.length,1);
+  assert.equal(m.catalog_item_id,CREATED_CATALOG_ID);
   console.log(`  · mapping links vendor_item ${m.vendor_item_id}`);
   console.log(`            → catalog_item  ${m.catalog_item_id}`);
   console.log(`  · match_method:  ${m.match_method}`);
@@ -293,6 +295,7 @@ await check('import document created and finalized as complete', () => {
   assert.equal(doc.vendor_id, VENDOR);
   // file_name comes from attachment.filename passed to processAttachmentInBackground
   assert.equal(doc.file_name, attachment.filename);
+  assert.equal(doc.file_path, attachment.storage_path);
   // finalizeDocument sets status=complete
   const finalUpdate = calls1.updateImportDoc.find(u => u.value?.status === 'complete');
   assert.ok(finalUpdate, 'finalizeDocument must have been called with status=complete');
@@ -303,43 +306,32 @@ await check('import document created and finalized as complete', () => {
 await check('attachment status set to auto_imported with import document id', () => {
   const st = calls1.setStatus.find(s => s.status === 'auto_imported');
   assert.ok(st, 'Expected setStatus call with auto_imported');
+  assert.equal(st.importDocId,CREATED_DOC_ID);
   console.log(`  · attachment ${st.attachmentId} → ${st.status}`);
   console.log(`  · importDocId: ${st.importDocId ?? '(linked via finalizeDocument)'}`);
 });
 
 // ── Order Guide readiness ─────────────────────────────────────────────────────
 
-await check('Order Guide prerequisite: vendor item has a catalog mapping', () => {
-  // Order Guide eligibility requires a catalog mapping.
-  // The test confirmed createMapping was called → the item has a catalog_item_id link.
-  // In production, Order Guide reads items through catalog_items JOIN item_mappings JOIN vendor_items.
-  // A new item with a mapping is immediately eligible once the quote is active.
-  const m = calls1.createMapping[0];
-  assert.ok(m.catalog_item_id && m.vendor_item_id,
-    'Item must have both catalog_item_id and vendor_item_id to appear in Order Guide');
-  console.log('  · Catalog mapping confirmed — item meets Order Guide prerequisite.');
-  console.log('  · Full Order Guide query (DB SQL) requires deployed environment;');
-  console.log('    prerequisite confirmed here via mapping evidence.');
+await check('new item stays stored but Uncategorized prevents Order Guide eligibility',()=>{
+  const item=state.catalogItems[0],vendorItem=state.vendorItems[0],mapping=calls1.createMapping[0];
+  const category=state.categories.find(c=>c.id===item.category_id);
+  const assessment=orderGuideAssessment({item,vendorItem,mapping,vendor:{id:VENDOR,name:'Test Vendor'},
+    category,categories:state.categories,peers:[]});
+  assert.equal(category.is_holding_pen,true);
+  assert.equal(assessment.ready,false);
+  assert.deepEqual(assessment.blockers,['category']);
+  assert.equal(assessment.evidence.unitCost.value,2);
 });
 
 // ── Replay (duplicate delivery) ───────────────────────────────────────────────
-// Second run with the SAME fingerprint — import document already complete.
+// Replay the same backend state produced by the first run; no fabricated document.
 // Expected: setStatus=auto_imported immediately, zero new applyQuote/createMapping calls.
 
 await check('duplicate delivery reuses existing import document (no second applyQuote or mapping)', async () => {
-  const { backend: backend2, calls: calls2, importDocs: docs2 } = makeState();
-
-  // Pre-seed the import document as already complete (simulates the first run having finished)
-  docs2[FINGERPRINT] = {
-    id: CREATED_DOC_ID,
-    fingerprint: FINGERPRINT,
-    organization_id: ORG,
-    vendor_id: VENDOR,
-    document_kind: 'pricelist',
-    status: 'complete',
-    completed_keys: ['row:0'],
-  };
-
+  const backend2=backend1;
+  const before={quotes:calls1.applyQuote.length,mappings:calls1.createMapping.length,
+    catalogs:calls1.createCatalog.length,documents:calls1.insertImportDoc.length};
   const ATT2 = '00000000-0000-0000-0000-000000000099';  // second delivery, new attachment id
   const result2 = await processAttachmentInBackground(
     backend2,
@@ -349,14 +341,16 @@ await check('duplicate delivery reuses existing import document (no second apply
 
   assert.equal(result2.outcome, 'auto_imported',
     `Replay outcome: expected auto_imported, got ${result2.outcome}`);
-  assert.equal(calls2.applyQuote.length, 0,
-    `Replay must not call applyQuote again (got ${calls2.applyQuote.length} calls)`);
-  assert.equal(calls2.createMapping.length, 0,
-    `Replay must not create a new mapping (got ${calls2.createMapping.length} calls)`);
-  assert.equal(calls2.insertImportDoc.length, 0,
-    `Replay must not create a new import document (got ${calls2.insertImportDoc.length} inserts)`);
-  const replaySt = calls2.setStatus.find(s => s.status === 'auto_imported');
+  assert.equal(calls1.applyQuote.length, before.quotes,
+    `Replay must not call applyQuote again (got ${calls1.applyQuote.length} calls)`);
+  assert.equal(calls1.createMapping.length, before.mappings,
+    `Replay must not create a new mapping (got ${calls1.createMapping.length} calls)`);
+  assert.equal(calls1.insertImportDoc.length, before.documents,
+    `Replay must not create a new import document (got ${calls1.insertImportDoc.length} inserts)`);
+  assert.equal(calls1.createCatalog.length,before.catalogs);
+  const replaySt = calls1.setStatus.find(s => s.attachmentId === ATT2 && s.status === 'auto_imported');
   assert.ok(replaySt, 'Replay must still mark attachment as auto_imported');
+  assert.equal(replaySt.importDocId,CREATED_DOC_ID);
   console.log('  · Duplicate delivery: outcome = auto_imported');
   console.log('  · applyQuote calls: 0 ✓');
   console.log('  · createMapping calls: 0 ✓');
@@ -365,14 +359,14 @@ await check('duplicate delivery reuses existing import document (no second apply
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 
-console.log(`\n${passed}/${passed} brand-new-item checks passed (deployed synthetic evidence).`);
+console.log(`\n${passed}/${passed} brand-new-item checks passed (local executed regression evidence).`);
 console.log(`
 Evidence recorded — Division I → Module A → Task 1 (new-item path):
   ✓ Code A1-NEW-20261027-001 not pre-seeded; ex=null confirmed
   ✓ processAttachmentInBackground → outcome: auto_imported
   ✓ applyQuote(vendorItemId=null) → new vendor_item creation path exercised
-  ✓ Pack "4/10 LB", price 80.00, priceBasis CS, source file evidence retained
-  ✓ Catalog entry and mapping created → Order Guide prerequisite met
+  ✓ Pack "4/10 LB", price 80.00, priceBasis case, source file evidence retained
+  ✓ Catalog entry and mapping retained; Uncategorized is the sole Order Guide blocker
   ✓ Import document created and finalized as complete
   ✓ Duplicate delivery replay: no second applyQuote, mapping, or import document
 
