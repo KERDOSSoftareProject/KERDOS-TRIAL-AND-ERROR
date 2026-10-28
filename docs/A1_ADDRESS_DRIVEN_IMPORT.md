@@ -137,3 +137,46 @@ actual kerdos-test schema verified automatic registration, address/type
 ownership and client write denial, then rolled back. Real receiving domains
 have not been supplied; mail-provider/DNS readiness must be established by the
 platform operator, never delegated to each client through setup dropdowns.
+
+
+### Existing Postmark receiver: continue Task 1 without owned domains
+
+Owned domains are future platform delivery configuration, not a prerequisite for
+automatic-ingestion acceptance in kerdos-test. Two explicit test-only routing rows
+now target the existing isolated organization/vendor fixture:
+
+- Price sheet: `aa55b9cf38e8fab147fc4c8b7e914e7d+a1-prices@inbound.postmarkapp.com`
+- Invoice: `aa55b9cf38e8fab147fc4c8b7e914e7d+a1-invoices@inbound.postmarkapp.com`
+- Organization: `ab0f7ada-83ad-43eb-a513-6a8c5bd43a09`
+- Vendor: `4a5f0cca-680c-4a9b-88ab-bf3372b25035`
+
+The original receiver and historical receipt snapshots were not reassigned.
+These are database test configuration, not application rules or production domains.
+The webhook already performs exact registered-recipient lookup, preserving plus tags.
+Postmark documents plus addressing and OriginalRecipient preservation.
+
+`verify_a1_real_email.mjs` defaults to this test-receiver mode. Supply
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `A1_ORGANIZATION_ID`, `A1_VENDOR_ID`,
+`A1_PRICE_ADDRESS` and `A1_INVOICE_ADDRESS` privately. Optional
+`POSTMARK_SERVER_TOKEN` inspects its server; no account token is needed. The script
+is restricted to kerdos-test, does not require private-schema REST access, and
+withholds webhook credentials. Missing checks return exit 2; failures return exit 1.
+`A1_RECEIVER_MODE=custom-domain` explicitly opts into future domain configuration
+inspection. No domain purchase is requested for test-receiver mode.
+
+The inspector is read-only and never sends email. Its executed provider-stub tests
+verify test-mode readiness, missing evidence, ownership/type setup, exact webhook
+target, server-token usage and credential-safe output. Those local tests do not
+establish real-email delivery.
+
+Acceptance requires automatic receipt-to-save with the browser closed: correct
+organization/vendor/type snapshots, stored original, complete linked document,
+and exact expected prices or invoice lines. Inbox arrival and auto_imported status
+alone are insufficient. A valid fixture reaching needs_review is not a pass.
+Then verify duplicate delivery and expired-worker recovery without resetting an
+active lease. Scope all evidence to the isolated fixture.
+
+At test registration time, both tagged addresses had zero received messages and
+the fixture had zero 10.37 quotes. Real-email acceptance remains open until a real
+message reaches this path. A direct HTTP Postmark-format request is synthetic
+webhook evidence and must not be labeled real-email evidence.

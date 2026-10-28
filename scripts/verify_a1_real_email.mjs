@@ -7,7 +7,8 @@
  *   node scripts/verify_a1_real_email.mjs
  *
  * This script does NOT send email or modify any data.
- * It exits 0 when all checks pass, 1 when any check fails.
+ * Exits 1 on failure, 2 while acceptance remains unverified. Never claims a live pass.
+ * Default: test receiver. A1_RECEIVER_MODE=custom-domain inspects future domain setup.
  *
  * Required:
  *   SUPABASE_URL              — kerdos-test project URL
@@ -33,6 +34,12 @@ const postmarkToken  = process.env.POSTMARK_SERVER_TOKEN   ?? "";
 // ── helpers ──────────────────────────────────────────────────────────────
 
 let failures = 0;
+let unverified = 0;
+const testMode = process.env.A1_RECEIVER_MODE !== "custom-domain";
+const organizationId = process.env.A1_ORGANIZATION_ID;
+const vendorId = process.env.A1_VENDOR_ID;
+const testAddresses = [process.env.A1_PRICE_ADDRESS, process.env.A1_INVOICE_ADDRESS];
+function pending(label) { unverified++; info(`UNVERIFIED: ${label}`); }
 
 function pass(label) { console.log(`  ✓ ${label}`); }
 function fail(label) { failures++; console.log(`  ✗ ${label}`); }
@@ -43,6 +50,12 @@ function section(title) { console.log(`\n── ${title} ──`); }
 
 section("Environment");
 
+if (supabaseUrl !== "https://gwtnaudjfoxjermhvhpx.supabase.co") {
+  fail("This inspector is restricted to kerdos-test."); process.exit(1);
+}
+if (testMode && (!organizationId || !vendorId || testAddresses.some(a => !a))) {
+  fail("Set A1_ORGANIZATION_ID, A1_VENDOR_ID, A1_PRICE_ADDRESS and A1_INVOICE_ADDRESS for the isolated test."); process.exit(1);
+}
 if (supabaseUrl && serviceRoleKey) {
   pass(`SUPABASE_URL set (${supabaseUrl.slice(0, 45)}…)`);
   pass("SUPABASE_SERVICE_ROLE_KEY set");
@@ -51,7 +64,9 @@ if (supabaseUrl && serviceRoleKey) {
   process.exit(1);
 }
 
-if (databaseUrl) {
+if (testMode) {
+  info("Existing Postmark receiver mode: owned domains and delivery_ready are not prerequisites.");
+} else if (databaseUrl) {
   pass("DATABASE_URL set — will query kerdos_private.receiving_domains via postgres");
 } else {
   info("DATABASE_URL not set — will print SQL to run manually in the Supabase SQL editor");
@@ -71,6 +86,7 @@ if (postmarkToken) {
 //   b) A SECURITY DEFINER function in the public schema (none exists yet)
 //   c) Manual SQL in the Supabase dashboard
 
+if (!testMode) {
 section("Platform domain configuration (kerdos_private.receiving_domains)");
 
 if (databaseUrl) {
@@ -79,11 +95,11 @@ if (databaseUrl) {
   let sql;
   try {
     const { default: postgres } = await import("postgres");
-    sql = postgres(databaseUrl, { max: 1, ssl: { rejectUnauthorized: false } });
+    sql = postgres(databaseUrl, { max: 1, ssl: "require" });
   } catch {
     try {
       const { Pool } = await import("pg");
-      const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+      const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: true } });
       sql = { query: (q) => pool.query(q), end: () => pool.end() };
     } catch {
       sql = null;
@@ -129,8 +145,8 @@ if (databaseUrl) {
           info("Set delivery_ready = true only after DNS and Postmark are verified.");
         }
       }
-    } catch (err) {
-      fail(`postgres query failed: ${err.message}`);
+    } catch {
+      fail("postgres query failed; inspect connection details privately.");
       info("Check that DATABASE_URL is correct and the database is reachable.");
     }
   }
@@ -138,40 +154,46 @@ if (databaseUrl) {
   info("Run the following in the Supabase SQL editor to check domain configuration:");
   info("  SELECT price_sheet_domain, invoice_domain, delivery_ready");
   info("  FROM kerdos_private.receiving_domains;");
-  info("Expected: one row with delivery_ready = true and real domain values.");
+  pending("Domain configuration has not been queried. Expected: one delivery-ready row.");
   info("If the table is empty, platform domains have not been configured yet.");
+}
+
 }
 
 // ── 3. Automatic receiving addresses ─────────────────────────────────────
 // email_routing_addresses is in the public schema; service role bypasses RLS.
 
-section("Automatic receiving addresses (email_routing_addresses)");
+section(testMode ? "Isolated test receiving registrations" : "Automatic receiving addresses");
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
 
-const { data: autoAddrs, error: autoErr } = await supabase
+let routeQuery = supabase
   .from("email_routing_addresses")
   .select("routing_address, document_type, vendor_id, organization_id, is_active")
-  .eq("is_automatic", true)
   .order("routing_address");
+routeQuery = testMode
+  ? routeQuery.eq("organization_id", organizationId).eq("vendor_id", vendorId).in("routing_address", testAddresses)
+  : routeQuery.eq("is_automatic", true);
+const { data: autoAddrs, error: autoErr } = await routeQuery;
 
 if (autoErr) {
-  fail(`Cannot read email_routing_addresses: ${autoErr.message}`);
+  fail("Cannot read receiving registrations.");
 } else if (!autoAddrs || autoAddrs.length === 0) {
-  fail("No automatic receiving addresses found");
+  fail("No matching receiving registrations found");
   info("Addresses are provisioned when delivery_ready = true and vendors are active.");
   info("If delivery_ready is already true, check that vendors exist and are active.");
 } else {
   const active   = autoAddrs.filter(a => a.is_active);
   const inactive = autoAddrs.filter(a => !a.is_active);
   if (active.length > 0) {
-    pass(`${active.length} active automatic address(es)`);
+    pass(`${active.length} active receiving registration(s)`);
     for (const a of active) {
       info(`  ${a.routing_address}  [${a.document_type ?? "untyped"}]  vendor=${a.vendor_id?.slice(0, 8)}`);
     }
   } else {
     fail("Automatic addresses exist but none are active");
   }
+  if (testMode && !["pricelist", "invoice"].every((type, i) => active.some(a => a.document_type === type && a.routing_address === testAddresses[i]))) fail("Both test addresses must have their expected document type.");
   if (inactive.length) info(`${inactive.length} inactive (vendor deactivated or domain changed)`);
 }
 
@@ -186,7 +208,7 @@ const { data: manualAddrs, error: manualErr } = await supabase
   .order("routing_address");
 
 if (manualErr) {
-  fail(`Cannot read manual addresses: ${manualErr.message}`);
+  fail("Cannot read test/manual addresses.");
 } else if (!manualAddrs || manualAddrs.length === 0) {
   info("No manual routing addresses found");
 } else {
@@ -230,40 +252,44 @@ if (postmarkToken) {
       if (inboundDomain) {
         pass(`InboundDomain: ${inboundDomain}`);
       } else {
-        fail("InboundDomain is not set — add one in the Postmark dashboard for each receiving domain");
+        if (!testMode) fail("InboundDomain is not set for custom-domain mode.");
+        else info("Custom InboundDomain is not needed for the Postmark test receiver.");
       }
 
       if (inboundAddress) {
         info(`InboundAddress (test stream): ${inboundAddress}`);
+        if (testMode && testAddresses.some(a => a.replace(/\+[^@]+@/, "@") !== inboundAddress)) fail("Test aliases do not match this Postmark receiver.");
       }
 
       if (inboundHookUrl) {
-        pass(`InboundHookUrl: ${inboundHookUrl}`);
-        if (!inboundHookUrl.includes("/functions/v1/inbound-email")) {
+        const hook = new URL(inboundHookUrl);
+        info("Webhook URL credentials are withheld.");
+        if (hook.origin !== supabaseUrl || hook.pathname !== "/functions/v1/inbound-email" || hook.search || hook.hash) {
           fail("InboundHookUrl does not look like the inbound-email Edge Function — verify it");
         }
       } else {
         fail("InboundHookUrl is not set — webhook must point to the inbound-email Edge Function");
       }
     }
-  } catch (err) {
-    fail(`Postmark API call failed: ${err.message}`);
+  } catch {
+    fail("Postmark API inspection failed; error details withheld to protect credentials.");
   }
 } else {
   section("Postmark server inbound configuration");
-  info("Set POSTMARK_SERVER_TOKEN to inspect live Postmark configuration.");
-  info("Required before real-email verification:");
-  info("  · InboundDomain registered for each receiving domain (price-sheet + invoice)");
-  info("  · MX record for each domain → inbound.postmarkapp.com  priority 10");
+  pending("Postmark configuration not inspected; server token is unavailable.");
+  info(testMode ? "Test receiver requires a working authenticated webhook; owned domains are unnecessary." : "Custom-domain requirements:");
+  if (!testMode) info("  · InboundDomain registered for each receiving domain (price-sheet + invoice)");
+  if (!testMode) info("  · MX record for each domain → inbound.postmarkapp.com  priority 10");
   info("  · InboundHookUrl → https://<ref>.supabase.co/functions/v1/inbound-email");
   info("  · Webhook Basic auth matching POSTMARK_WEBHOOK_USERNAME / POSTMARK_WEBHOOK_PASSWORD");
 }
 
 // ── 6. Pre-flight checklist ───────────────────────────────────────────────
 
-section("Pre-flight checklist (must all pass before delivery_ready = true)");
+if (!testMode) {
+section("Custom-domain checklist (future platform setup)");
 console.log(`
-  [ ] Domain ownership: Dino supplies the actual domains (or subdomains).
+  [ ] Future domain ownership: configure when actual domains are acquired.
   [ ] DNS MX records: each receiving domain → inbound.postmarkapp.com  priority 10
         dig MX <domain>   or   nslookup -type=MX <domain>
   [ ] Postmark InboundDomain registered for each receiving domain.
@@ -273,20 +299,22 @@ console.log(`
   [ ] inbound-email Edge Function deployed and ACTIVE on kerdos-test.
 `);
 
+}
+
 // ── 7. Real-email verification steps ─────────────────────────────────────
 
-section("Real-email verification steps (run AFTER delivery_ready = true and addresses provisioned)");
+section("Real-email verification steps (registered Postmark test aliases are sufficient)");
 console.log(`
   Step 1 — Price sheet:
     Send a real CSV price list to the provisioned price-sheet address for the test vendor.
-    Pass: inbound_attachments.processing_status = 'auto_imported'
+    Pass: auto_imported plus stored original and a linked complete document containing the expected 10.37 price.
     SQL:  SELECT processing_status, import_document_id
           FROM inbound_attachments ORDER BY created_at DESC LIMIT 5;
           SELECT COUNT(*) FROM price_history WHERE source_document_id = <import_document_id>;
 
   Step 2 — Invoice with valid lines:
     Send a real invoice CSV to the provisioned invoice address.
-    Pass: processing_status = 'auto_imported'; invoice row and lines saved.
+    Pass: auto_imported plus stored original, correct receipt ownership/type, and exact expected invoice header/lines/qty/price/total.
     SQL:  SELECT h.invoice_date, h.total_amount, COUNT(l.*) AS lines
           FROM invoices h JOIN invoice_lines l ON l.invoice_id = h.id
           GROUP BY h.id ORDER BY h.created_at DESC LIMIT 1;
@@ -297,25 +325,33 @@ console.log(`
     SQL:  Confirm COUNT(*) of invoices and import_documents unchanged.
 
   Step 4 — Partial recovery:
-    Force an attachment into 'processing' state, then invoke the recovery-sweep endpoint.
-    Pass: attachment resolves to 'auto_imported' or 'needs_review' — never permanently stuck.
+    Use only an isolated expired-worker fixture; never reset an active lease or client attachment.
+    Observe the approved recovery-sweep schedule dispatching it.
+    Pass for a valid fixture: auto_imported with the expected saved values and no duplicate rows.
+    needs_review is an exception result to investigate, not a successful valid-file automation pass.
 
   Step 5 — Needs-review path:
     Send an invoice with an arithmetic mismatch (qty * unit_price ≠ line_total).
     Pass: processing_status = 'needs_review'; attachment visible in Inbox.
 
+  Scope every SQL query to A1_ORGANIZATION_ID and the exact fixture message/document.
+  Global latest-row queries above are illustrative only, never acceptance evidence.
   Evidence categories must be recorded separately:
     local evidence       — already confirmed (passing unit/PGlite tests)
     deployed evidence    — deployed synthetic tests (confirmed via Supabase deployment #60)
     real-email evidence  — Steps 1–5 above; Task 1 stays open until this is complete.
 `);
 
+pending("Real-email saved originals, exact line/price values, duplicate delivery and recovery must be observed separately; Inbox arrival/status alone is not a pass.");
+
 // ── exit ─────────────────────────────────────────────────────────────────
 
 if (failures > 0) {
   console.log(`\n  ${failures} check(s) failed — resolve them before proceeding.\n`);
   process.exit(1);
+} else if (unverified > 0) {
+  console.log(`\n  ${unverified} check(s) remain unverified; Task 1 stays open.\n`);
+  process.exit(2);
 } else {
-  console.log("\n  All checks passed.\n");
   process.exit(0);
 }
