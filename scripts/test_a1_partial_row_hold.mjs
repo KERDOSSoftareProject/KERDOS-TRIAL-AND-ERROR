@@ -1,43 +1,9 @@
-/**
- * scripts/test_a1_partial_row_hold.mjs
- *
- * Division I → Module A → Task 1 — Partial-row-hold behaviour
- * Evidence category: local executed regression (in-memory backend)
- *
- * Verifies the "process every row, hold only the uncertain ones" contract:
- *   1. uncertain-first   — row 0 needsBasis; rows 1–2 auto-import; doc partial
- *   2. uncertain-middle  — row 1 needsBasis; rows 0,2 auto-import; doc partial
- *   3. all-uncertain     — all rows needsBasis; zero auto-imports; doc partial
- *   4. retry/resume      — pre-seed completed_keys with row:0 + held:row:1;
- *                          both are skipped on re-run; row 2 (new) processes;
- *                          doc stays partial (held:row:1 still outstanding)
- *
- * Design constraints tested:
- *   · One unclear item does not block valid items from importing automatically
- *   · Unresolved rows remain identifiable (held:row:N keys in completed_keys)
- *   · Completion status is honest (partial, not complete, while held rows exist)
- *   · Retry cannot duplicate rows already saved (row:N skipped) or re-hold
- *     rows already held (held:row:N skipped on automatic re-run)
- *
- * How uncertain rows are triggered (no CSV/parser patching needed):
- *   Pre-seed the uncertain row's vendor item in the DB so ex≠null.
- *   CSV column "Price Unit" is EMPTY for that row's code.
- *   preparePriceImport sets requiresReview=true (no sellingUnit resolution).
- *   import-price-row.js line 72: needsBasis && ex → vendor_items UPDATE only;
- *   applyQuote is NOT called.  importPriceRow returns {needsBasis:true}.
- *   background-import.mjs: result.needsBasis → heldKeys.push("held:row:N").
- *
- * How certain rows are triggered:
- *   NOT pre-seeded in vendor_items (ex=null); Price Unit="CASE" in CSV.
- *   preparePriceImport resolves sellingUnit; requiresReview=false; needsBasis=false.
- *   importPriceRow calls applyQuote → new vendor item created → auto-import.
- *
- * Implementation under test:
- *   supabase/functions/process-attachment/background-import.mjs (Steps 6 + 7)
- *   Branch: codex/a1-partial-row-hold
+/** Local executed checks for independent row processing and A1.7 resume compatibility.
+ * completed_keys holds saved row:N only; unresolved row metadata is separate.
  */
-
 import assert from 'node:assert/strict';
+import {parseDocument} from '../src/ingestion.js';
+import {verifyResumeRows} from '../src/core/import-resume.js';
 import { createRecords } from '../src/backend/records.js';
 import { processAttachmentInBackground } from '../supabase/functions/process-attachment/background-import.mjs';
 
@@ -273,9 +239,8 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
     pricing: {
       applyQuote: async (params) => {
         calls.applyQuote.push({ ...params });
-        vendorCounter++;
-        const newId = `vi-new-${vendorCounter}`;
-        vendorItems.push({
+        const newId = params.vendorItemId || `vi-new-${++vendorCounter}`;
+        const saved = {
           id:               newId,
           organization_id:  params.organizationId,
           vendor_id:        params.vendorId,
@@ -285,7 +250,11 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
           selling_unit:     params.sellingUnit,
           price:            params.price,
           price_basis:      params.priceBasis,
-        });
+          import_row:       params.importRow,
+          price_unavailable:params.priceUnavailable,
+        };
+        const existing=vendorItems.find(item=>item.id===newId);
+        if(existing)Object.assign(existing,saved);else vendorItems.push(saved);
         return newId;
       },
     },
@@ -302,357 +271,79 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
 
   const options = { organizationId: ORG, vendorId: VENDOR, documentType: 'pricelist' };
 
-  return { backend, calls, importDocs, attachment, options, fingerprint };
+  return { backend, calls, importDocs, attachment, options, fingerprint, vendorItems, mappingsArr, catalogItems };
 }
 
-// ── Test runner ───────────────────────────────────────────────────────────────
 
-let passed = 0;
-async function check(name, fn) {
-  try {
-    await fn();
-    passed++;
-    console.log('PASS ' + name);
-  } catch (err) {
-    console.error('FAIL ' + name + '\n  ' + err.message);
-    throw err;
-  }
-}
-
-// Helper: get the document from importDocs
-function getDoc(importDocs) {
-  return Object.values(importDocs).find(d => d.id === DOC_ID);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 1 — uncertain-first
-//
-// Row 0 (A1-HOLD-001): empty Price Unit + pre-seeded as existing → needsBasis=true → held
-// Row 1 (A1-HOLD-002): "CASE" Price Unit + new (ex=null) → applyQuote → auto-import
-// Row 2 (A1-HOLD-003): "CASE" Price Unit + new (ex=null) → applyQuote → auto-import
-//
-// Expected: outcome=needs_review, heldKeys=['held:row:0'], savedCount=2
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log('\n── Test 1: uncertain-first ──────────────────────────────────────────────────\n');
-
-{
-  const csv = buildCsv([
-    { code: CODES[0], priceUnit: '' },      // row 0: uncertain (pre-seeded)
-    { code: CODES[1], priceUnit: 'CASE' },  // row 1: certain (new)
-    { code: CODES[2], priceUnit: 'CASE' },  // row 2: certain (new)
-  ]);
-
-  const { backend, calls, importDocs, attachment, options } = makeBackend({
-    uncertainIndexes: [0],   // pre-seed A1-HOLD-001 as existing vendor item + mapping
-    csv,
+let passed=0;
+async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
+const docFor=state=>Object.values(state.importDocs).find(doc=>doc.id===DOC_ID);
+function savedSources(state){return [
+  ...state.calls.applyQuote.map(q=>({key:q.importRow.rowKey,sourceLine:q.sourceLine})),
+  ...state.vendorItems.filter(v=>v.import_row).map(v=>({key:v.import_row.rowKey,sourceLine:v.import_row.row.sourceLine})),
+];}
+const run=state=>processAttachmentInBackground(state.backend,state.attachment,state.options);
+for(const [name,uncertain] of [['uncertain-first',[0]],['uncertain-middle',[1]],['all-uncertain',[0,1,2]]]){
+  const csv=buildCsv(CODES.map((code,i)=>({code,priceUnit:uncertain.includes(i)?'':'CASE'})));
+  const state=makeBackend({uncertainIndexes:uncertain,csv});let result;
+  const held=uncertain.map(i=>`row:${i}`),saved=CODES.map((_,i)=>`row:${i}`).filter(key=>!held.includes(key));
+  await check(name+': valid rows save despite held rows',async()=>{
+    result=await run(state);assert.equal(result.outcome,'needs_review');
+    assert.deepEqual(result.heldKeys,held);assert.equal(state.calls.applyQuote.length,saved.length);
+    assert.deepEqual(state.calls.applyQuote.map(q=>q.importRow.rowKey),saved);
   });
-
-  let result;
-
-  await check('uncertain-first → outcome is needs_review', async () => {
-    result = await processAttachmentInBackground(backend, attachment, options);
-    assert.equal(result.outcome, 'needs_review',
-      `Expected needs_review, got ${result.outcome}: ${result.reason ?? ''}`);
+  await check(name+': completion keys contain only saved rows',()=>{
+    assert.equal(docFor(state).status,'partial');assert.deepEqual(docFor(state).completed_keys,saved);
+    assert.deepEqual(result.heldRows.map(row=>row.key),held);
+    assert.ok(result.heldRows.every(row=>row.reasons.length>0));
   });
-
-  await check('uncertain-first → heldKeys = ["held:row:0"]', () => {
-    assert.deepEqual(result.heldKeys, ['held:row:0'],
-      `heldKeys: ${JSON.stringify(result.heldKeys)}`);
+  await check(name+': unresolved source and reasons persist',()=>{
+    for(const i of uncertain){const item=state.vendorItems.find(v=>v.vendor_item_code===CODES[i]);
+      assert.equal(item.import_row.reviewRequired,true);assert.ok(item.import_row.row.sourceLine);
+      assert.ok(item.import_row.conflicts.length>0);assert.equal(item.import_row.sourceDocumentId,DOC_ID);
+    }
+    assert.ok(state.calls.setStatus.at(-1).reason.includes('row:'));
   });
-
-  await check('uncertain-first → savedCount = 2 (rows 1 and 2)', () => {
-    assert.equal(result.savedCount, 2,
-      `savedCount: expected 2, got ${result.savedCount}`);
+  await check(name+': unchanged manual resume verifier accepts saved keys',()=>{
+    verifyResumeRows(parseDocument(csv).rows,docFor(state).completed_keys,savedSources(state));
+    assert.ok(docFor(state).completed_keys.every(key=>/^row:\d+$/.test(key)));
   });
-
-  await check('uncertain-first → applyQuote called for rows 1 and 2 only (not row 0)', () => {
-    // Uncertain row (row 0) uses vendor_items UPDATE path — no applyQuote.
-    assert.equal(calls.applyQuote.length, 2,
-      `applyQuote count: expected 2, got ${calls.applyQuote.length}`);
-    const codes = calls.applyQuote.map(q => q.vendorItemCode);
-    assert.ok(codes.includes(CODES[1]), `${CODES[1]} (row 1) must be auto-imported`);
-    assert.ok(codes.includes(CODES[2]), `${CODES[2]} (row 2) must be auto-imported`);
-    assert.ok(!codes.includes(CODES[0]), `${CODES[0]} (row 0) must NOT be auto-imported (held)`);
+  await check(name+': retry skips saved rows and reassesses unresolved rows without duplicate writes',async()=>{
+    const quotes=state.calls.applyQuote.length,mappings=state.mappingsArr.length,catalogs=state.catalogItems.length;
+    const updates=state.calls.vendorItemUpdate.length;
+    const retry=await run(state);assert.equal(retry.outcome,'needs_review');assert.deepEqual(retry.heldKeys,held);
+    assert.equal(state.calls.applyQuote.length,quotes);assert.equal(state.mappingsArr.length,mappings);
+    assert.equal(state.catalogItems.length,catalogs);assert.equal(state.calls.vendorItemUpdate.length-updates,held.length);
+    assert.deepEqual(docFor(state).completed_keys,saved);
   });
-
-  await check('uncertain-first → vendor_items UPDATE called for held row', () => {
-    // The needsBasis && ex path writes the incoming quote to vendor_items.import_row
-    // for reviewer visibility; applyQuote is not called.
-    assert.equal(calls.vendorItemUpdate.length, 1,
-      `vendor_items UPDATE count: expected 1, got ${calls.vendorItemUpdate.length}`);
-  });
-
-  await check('uncertain-first → import document finalized as partial', () => {
-    const doc = getDoc(importDocs);
-    assert.ok(doc, 'import document must exist');
-    assert.equal(doc.status, 'partial', `status: expected partial, got ${doc.status}`);
-  });
-
-  await check('uncertain-first → completed_keys contains held:row:0, row:1, row:2 (no raw row:0)', () => {
-    const doc = getDoc(importDocs);
-    const keys = doc.completed_keys ?? [];
-    assert.ok(keys.includes('held:row:0'), `held:row:0 missing from ${JSON.stringify(keys)}`);
-    assert.ok(keys.includes('row:1'),      `row:1 missing from ${JSON.stringify(keys)}`);
-    assert.ok(keys.includes('row:2'),      `row:2 missing from ${JSON.stringify(keys)}`);
-    assert.ok(!keys.includes('row:0'),     `raw row:0 must NOT appear: ${JSON.stringify(keys)}`);
-    console.log(`  · completed_keys: ${JSON.stringify(keys)}`);
-  });
-
-  await check('uncertain-first → attachment status set to needs_review with document id', () => {
-    const st = calls.setStatus.find(s => s.status === 'needs_review');
-    assert.ok(st, 'Expected needs_review setStatus call');
-    assert.equal(st.importDocId, DOC_ID,
-      `importDocId: expected ${DOC_ID}, got ${st.importDocId}`);
-    console.log(`  · reason: ${st.reason}`);
+  await check(name+': trusted resolution can finish the same document without duplicating saved rows',async()=>{
+    const before=state.calls.applyQuote.length,ids=state.vendorItems.map(item=>item.id);
+    // Simulate the accepted vendor-specific basis produced by a separate review.
+    // No inferred value is silently approved by the importer.
+    for(const i of uncertain){const item=state.vendorItems.find(v=>v.vendor_item_code===CODES[i]);
+      item.price_basis='case';item.selling_unit='CASE';item.price_source='price_list';
+      item.import_row={...item.import_row,reviewRequired:false};
+    }
+    const done=await run(state);assert.equal(done.outcome,'auto_imported');
+    assert.equal(docFor(state).id,DOC_ID);assert.equal(docFor(state).status,'complete');
+    assert.deepEqual(new Set(docFor(state).completed_keys),new Set(['row:0','row:1','row:2']));
+    assert.equal(state.calls.applyQuote.length-before,held.length);
+    assert.deepEqual(state.vendorItems.map(item=>item.id),ids);
+    verifyResumeRows(parseDocument(csv).rows,docFor(state).completed_keys,savedSources(state));
   });
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 2 — uncertain-middle
-//
-// Row 0 (A1-HOLD-001): "CASE" Price Unit + new → auto-import
-// Row 1 (A1-HOLD-002): empty Price Unit + pre-seeded as existing → held
-// Row 2 (A1-HOLD-003): "CASE" Price Unit + new → auto-import
-//
-// Expected: outcome=needs_review, heldKeys=['held:row:1'], savedCount=2
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log('\n── Test 2: uncertain-middle ─────────────────────────────────────────────────\n');
-
-{
-  const csv = buildCsv([
-    { code: CODES[0], priceUnit: 'CASE' },  // row 0: certain (new)
-    { code: CODES[1], priceUnit: '' },      // row 1: uncertain (pre-seeded)
-    { code: CODES[2], priceUnit: 'CASE' },  // row 2: certain (new)
-  ]);
-
-  const { backend, calls, importDocs, attachment, options } = makeBackend({
-    uncertainIndexes: [1],   // pre-seed A1-HOLD-002 as existing
-    csv,
-  });
-
-  let result;
-
-  await check('uncertain-middle → outcome is needs_review', async () => {
-    result = await processAttachmentInBackground(backend, attachment, options);
-    assert.equal(result.outcome, 'needs_review',
-      `Expected needs_review, got ${result.outcome}`);
-  });
-
-  await check('uncertain-middle → heldKeys = ["held:row:1"]', () => {
-    assert.deepEqual(result.heldKeys, ['held:row:1'],
-      `heldKeys: ${JSON.stringify(result.heldKeys)}`);
-  });
-
-  await check('uncertain-middle → savedCount = 2 (rows 0 and 2)', () => {
-    assert.equal(result.savedCount, 2);
-  });
-
-  await check('uncertain-middle → rows 0 and 2 auto-imported; row 1 held', () => {
-    const codes = calls.applyQuote.map(q => q.vendorItemCode);
-    assert.ok(codes.includes(CODES[0]), `${CODES[0]} (row 0) must be auto-imported`);
-    assert.ok(codes.includes(CODES[2]), `${CODES[2]} (row 2) must be auto-imported`);
-    assert.ok(!codes.includes(CODES[1]), `${CODES[1]} (row 1) must be held, not auto-imported`);
-  });
-
-  await check('uncertain-middle → completed_keys: row:0, held:row:1, row:2', () => {
-    const doc = getDoc(importDocs);
-    const keys = doc.completed_keys ?? [];
-    assert.ok(keys.includes('row:0'),      `row:0 missing: ${JSON.stringify(keys)}`);
-    assert.ok(keys.includes('held:row:1'), `held:row:1 missing: ${JSON.stringify(keys)}`);
-    assert.ok(keys.includes('row:2'),      `row:2 missing: ${JSON.stringify(keys)}`);
-    assert.ok(!keys.includes('row:1'),     `raw row:1 must not appear: ${JSON.stringify(keys)}`);
-    console.log(`  · completed_keys: ${JSON.stringify(keys)}`);
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 3 — all-uncertain
-//
-// All three rows: empty Price Unit + pre-seeded as existing → all held
-//
-// Expected: outcome=needs_review, heldKeys=['held:row:0','held:row:1','held:row:2'],
-//           savedCount=0, applyQuote never called, doc=partial
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log('\n── Test 3: all-uncertain ────────────────────────────────────────────────────\n');
-
-{
-  const csv = buildCsv([
-    { code: CODES[0], priceUnit: '' },   // row 0: uncertain
-    { code: CODES[1], priceUnit: '' },   // row 1: uncertain
-    { code: CODES[2], priceUnit: '' },   // row 2: uncertain
-  ]);
-
-  const { backend, calls, importDocs, attachment, options } = makeBackend({
-    uncertainIndexes: [0, 1, 2],   // all three pre-seeded
-    csv,
-  });
-
-  let result;
-
-  await check('all-uncertain → outcome is needs_review', async () => {
-    result = await processAttachmentInBackground(backend, attachment, options);
-    assert.equal(result.outcome, 'needs_review',
-      `Expected needs_review, got ${result.outcome}`);
-  });
-
-  await check('all-uncertain → heldKeys has all three rows in order', () => {
-    assert.deepEqual(result.heldKeys, ['held:row:0', 'held:row:1', 'held:row:2'],
-      `heldKeys: ${JSON.stringify(result.heldKeys)}`);
-  });
-
-  await check('all-uncertain → savedCount = 0', () => {
-    assert.equal(result.savedCount, 0,
-      `savedCount: expected 0, got ${result.savedCount}`);
-  });
-
-  await check('all-uncertain → applyQuote never called', () => {
-    // needsBasis && ex path: all rows take vendor_items UPDATE, not applyQuote.
-    assert.equal(calls.applyQuote.length, 0,
-      `applyQuote must not be called; got ${calls.applyQuote.length} call(s)`);
-  });
-
-  await check('all-uncertain → import document finalized as partial', () => {
-    const doc = getDoc(importDocs);
-    assert.ok(doc, 'import document must exist');
-    assert.equal(doc.status, 'partial');
-  });
-
-  await check('all-uncertain → completed_keys has all three held keys and no saved keys', () => {
-    const doc = getDoc(importDocs);
-    const keys = doc.completed_keys ?? [];
-    assert.ok(keys.includes('held:row:0'), `held:row:0 missing`);
-    assert.ok(keys.includes('held:row:1'), `held:row:1 missing`);
-    assert.ok(keys.includes('held:row:2'), `held:row:2 missing`);
-    assert.ok(!keys.includes('row:0'), `raw row:0 must not appear`);
-    assert.ok(!keys.includes('row:1'), `raw row:1 must not appear`);
-    assert.ok(!keys.includes('row:2'), `raw row:2 must not appear`);
-    console.log(`  · completed_keys: ${JSON.stringify(keys)}`);
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test 4 — retry/resume
-//
-// Simulates an automatic re-run where the document already has:
-//   completed_keys: ['row:0', 'held:row:1']
-//   status: 'partial'
-//
-// Expectations:
-//   · Row 0 (PHT-A): skipped — row:0 is in completedRows (already saved)
-//   · Row 1 (PHT-B): skipped — held:row:1 is in completedRows (reviewer's action needed)
-//   · Row 2 (PHT-C): new → auto-import
-//
-//   · applyQuote called exactly once (PHT-C only)
-//   · No duplicate row:0 in completed_keys
-//   · held:row:1 appears exactly once (pre-existing, not duplicated)
-//   · Document stays partial (held:row:1 still outstanding)
-//   · outcome = needs_review (completion status is honest)
-// ─────────────────────────────────────────────────────────────────────────────
-
-console.log('\n── Test 4: retry/resume ─────────────────────────────────────────────────────\n');
-
-{
-  // Row 1 (A1-HOLD-002) was held in the prior run; it would still be uncertain if
-  // re-processed (A1-HOLD-002 is pre-seeded as existing, empty Price Unit).
-  // But on the automatic re-run it is SKIPPED (held:row:1 is in completedRows),
-  // so its pre-seeded status doesn't affect this run's behaviour.
-  // We still pre-seed it to correctly represent the system state after the prior run.
-  const csv = buildCsv([
-    { code: CODES[0], priceUnit: 'CASE' },  // row 0: was saved (skipped)
-    { code: CODES[1], priceUnit: '' },      // row 1: was held (skipped)
-    { code: CODES[2], priceUnit: 'CASE' },  // row 2: new → auto-import this run
-  ]);
-
-  const { backend, calls, importDocs, attachment, options } = makeBackend({
-    uncertainIndexes: [1],                        // PHT-B: existing (would be held if retried)
-    preSeededKeys:    ['row:0', 'held:row:1'],    // prior run's completed state
-    csv,
-  });
-
-  let result;
-
-  await check('retry/resume → outcome is needs_review (held:row:1 still outstanding)', async () => {
-    result = await processAttachmentInBackground(backend, attachment, options);
-    assert.equal(result.outcome, 'needs_review',
-      `Expected needs_review (doc stays partial), got ${result.outcome}: ${result.reason ?? ''}`);
-  });
-
-  await check(`retry/resume → applyQuote called exactly once (${CODES[2]} only)`, () => {
-    assert.equal(calls.applyQuote.length, 1,
-      `applyQuote count: expected 1, got ${calls.applyQuote.length}`);
-    assert.equal(calls.applyQuote[0].vendorItemCode, CODES[2],
-      `Expected ${CODES[2]}, got ${calls.applyQuote[0].vendorItemCode}`);
-  });
-
-  await check('retry/resume → heldKeys reports held:row:1 (carried from prior run)', () => {
-    // The re-run found held:row:1 in the pre-existing newCompletedKeys.
-    // It surfaces it as outstanding in the return value.
-    assert.ok(
-      result.heldKeys.includes('held:row:1'),
-      `held:row:1 must appear in heldKeys: ${JSON.stringify(result.heldKeys)}`
-    );
-    // No NEW holds were added this run (row:1 was skipped, not re-held).
-    const newHolds = result.heldKeys.filter(k => !['held:row:1'].includes(k));
-    assert.equal(newHolds.length, 0,
-      `No new held keys expected; got: ${JSON.stringify(newHolds)}`);
-    console.log(`  · heldKeys (outstanding): ${JSON.stringify(result.heldKeys)}`);
-  });
-
-  await check('retry/resume → row:0 appears exactly once (no duplicate save)', () => {
-    const doc = getDoc(importDocs);
-    const keys = doc.completed_keys ?? [];
-    const count = keys.filter(k => k === 'row:0').length;
-    assert.equal(count, 1,
-      `row:0 must appear exactly once; found ${count}: ${JSON.stringify(keys)}`);
-  });
-
-  await check('retry/resume → held:row:1 appears exactly once (not re-added)', () => {
-    const doc = getDoc(importDocs);
-    const keys = doc.completed_keys ?? [];
-    const count = keys.filter(k => k === 'held:row:1').length;
-    assert.equal(count, 1,
-      `held:row:1 must appear exactly once; found ${count}: ${JSON.stringify(keys)}`);
-  });
-
-  await check('retry/resume → final completed_keys has exactly row:0, held:row:1, row:2', () => {
-    const doc = getDoc(importDocs);
-    const keys = new Set(doc.completed_keys ?? []);
-    assert.ok(keys.has('row:0'),      `row:0 missing`);
-    assert.ok(keys.has('held:row:1'), `held:row:1 missing`);
-    assert.ok(keys.has('row:2'),      `row:2 missing`);
-    // Exactly three unique keys — no extras.
-    assert.equal(keys.size, 3,
-      `Expected 3 unique keys, got ${keys.size}: ${JSON.stringify([...keys])}`);
-    console.log(`  · completed_keys: ${JSON.stringify(doc.completed_keys)}`);
-  });
-
-  await check('retry/resume → import document stays partial (not complete)', () => {
-    const doc = getDoc(importDocs);
-    assert.equal(doc.status, 'partial',
-      `status: expected partial (held:row:1 still outstanding), got ${doc.status}`);
-  });
-}
-
-// ── Summary ───────────────────────────────────────────────────────────────────
-
-console.log(`\n${passed}/${passed} partial-row-hold checks passed (local executed regression evidence).`);
-console.log(`
-Evidence recorded — Division I → Module A → Task 1 (partial-row-hold path):
-  ✓ uncertain-first  — row 0 held; rows 1+2 auto-import; doc partial
-  ✓ uncertain-middle — row 1 held; rows 0,2 auto-import; doc partial
-  ✓ all-uncertain    — all rows held; zero auto-imports; doc partial
-  ✓ retry/resume     — row:0 and held:row:1 skipped; row:2 processed;
-                       doc stays partial; no duplicates
-
-Design constraints verified:
-  ✓ One unclear item does not block valid items from importing automatically
-  ✓ Unresolved rows remain identifiable (held:row:N in completed_keys)
-  ✓ Completion status is honest (partial, not complete, while held rows exist)
-  ✓ Retry/resume: saved rows skip; held rows skip; new rows process; no duplicates
-
-Separate evidence still required:
-  · Real-email delivery (Postmark inbound → webhook → Edge Function → database)
-`);
+await check('new uncertain items are retained without being counted as saved quotes',async()=>{
+  const csv=buildCsv(CODES.map(code=>({code,priceUnit:''})));
+  const state=makeBackend({csv});const result=await run(state);
+  assert.equal(result.outcome,'needs_review');assert.equal(state.vendorItems.length,3);
+  assert.deepEqual(docFor(state).completed_keys,[]);assert.equal(result.heldKeys.length,3);
+  assert.ok(state.vendorItems.every(v=>v.price_unavailable&&v.import_row.reviewRequired));
+});
+await check('write failure stays partial without marking the failed or later row complete',async()=>{
+  const state=makeBackend({csv:buildCsv(CODES.map(code=>({code,priceUnit:'CASE'})))});
+  const apply=state.backend.pricing.applyQuote;let calls=0;
+  state.backend.pricing.applyQuote=async q=>{if(++calls===2)throw new Error('simulated write failure');return apply(q);};
+  const result=await run(state);assert.equal(result.outcome,'needs_review');
+  assert.equal(calls,2);assert.equal(docFor(state).status,'partial');assert.deepEqual(docFor(state).completed_keys,['row:0']);
+});
+console.log(`${passed}/${passed} independent-row and resume checks passed (local executed evidence).`);

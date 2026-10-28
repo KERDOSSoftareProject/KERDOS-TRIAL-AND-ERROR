@@ -305,14 +305,12 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // ── Step 6: run the import engine row by row ───────────────────────────────
   const newCompletedKeys = [...completedRows];
-  // Rows that require human input (needsBasis) are held rather than blocking
-  // the rest of the sheet.  Each held row is recorded as "held:row:N" in the
-  // completed_keys array so the reviewer can identify it without a schema
-  // change.  "held:row:N" does not satisfy completedRows.has("row:N"), so
-  // resume correctly retries held rows while skipping already-saved ones.
+  // completed_keys contains only successfully saved row:N keys (A1.7 contract).
+  // Held-row source/reasons remain on the vendor listing and linked original;
+  // report their row keys separately without corrupting resume's saved-row set.
   const heldKeys = [];
+  const heldRows = [];
   let saveError = null;
-  let failedCount = 0;
 
   // A1.7.b: use row:N (0-based across all groups) as the completedKey so the
   // format matches ImportModal's progressKey = index => `row:${index}`.
@@ -333,10 +331,9 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       backend.attachments.assertLease?.();
       const completedKey = `row:${globalRowIndex}`;
       globalRowIndex++;
-      // Skip already-saved rows (resume) and previously-held rows (re-attempt
-      // is the reviewer's action, not an automatic re-run).
+      // Skip only saved rows. Reassess unresolved rows: new trusted evidence can
+      // resolve them, and an unresolved row must never become a permanent skip.
       if (completedRows.has(completedKey)) continue;
-      if (completedRows.has(`held:${completedKey}`)) continue;
 
       // Find existing vendor item for this row's code.
       const ex = workingVendorItems.find(
@@ -379,7 +376,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
         if (result.needsBasis) {
           // Hold this row — continue processing the remaining rows rather than
           // blocking the entire sheet on one uncertain item.
-          heldKeys.push(`held:${completedKey}`);
+          heldKeys.push(completedKey);
+          heldRows.push({key:completedKey,reasons:result.reviewReasons});
           continue;
         }
 
@@ -394,52 +392,24 @@ export async function processAttachmentInBackground(backend, attachment, { organ
         if (String(err?.message).includes("LEASE_LOST")) throw err;
         // A hard save failure is not the same as basis uncertainty — we cannot
         // safely continue because the row's state in the DB is unknown.
-        failedCount++;
-        saveError = `Row save error (row ${failedCount}): ${err.message}`;
+        saveError = `Row save error (${completedKey}): ${err.message}`;
         break outer;
       }
     }
   }
 
   // ── Step 7: finalize ────────────────────────────────────────────────────────
-  // Determine overall outcome:
-  //   · complete     — every row saved automatically (no outstanding held rows)
-  //   · partial      — some rows held for basis review, OR a hard save error
-  //                    (held rows are recorded as "held:row:N" in completed_keys
-  //                     so the reviewer can identify them without a schema change)
-  //   · needs_review — attachment-level status corresponding to 'partial' document
-  //
-  // On a retry/resume run, newCompletedKeys is seeded from the prior document's
-  // completed_keys and may already contain "held:row:N" entries from a previous
-  // pass.  Those rows were skipped on this run (completedRows.has("held:row:N"))
-  // but remain outstanding — the document must stay 'partial', not flip to
-  // 'complete', while any held row is still unresolved.
-
-  // Held rows from prior runs that were skipped on this pass.
-  const priorHeldKeys = newCompletedKeys.filter(k => k.startsWith('held:'));
-
-  // All held rows: prior (skipped this run) + new (held on this run).
-  const allHeldKeys = [...priorHeldKeys, ...heldKeys];
-
-  const hasError = saveError !== null;
-
-  if (allHeldKeys.length > 0 || hasError) {
-    // Reconstruct the canonical completed-keys list:
-    //   · saved rows (excludes the prior-held entries already in newCompletedKeys)
-    //   · all held rows (prior + new), deduplicated via Set
-    const savedKeys = newCompletedKeys.filter(k => !k.startsWith('held:'));
-    const uniqueHeldKeys = [...new Set(allHeldKeys)];
-    const allKeys = [...savedKeys, ...uniqueHeldKeys];
-
+  // Any held row or save error keeps the document partial. Only saved rows
+  // enter completed_keys; the unchanged A1.7 verifier can safely resume it.
+  if (heldKeys.length > 0 || saveError !== null) {
     // Import document status must be 'partial' — the import_documents.status
     // column only accepts ('processing','complete','partial').  'needs_review'
     // is the attachment's status (inbound_attachments.processing_status), not
     // the document's.
-    await importService.finalizeDocument(documentId, "partial", allKeys);
+    await importService.finalizeDocument(documentId, "partial", newCompletedKeys);
 
-    const reviewReason = hasError
-      ? saveError
-      : `${uniqueHeldKeys.length} row(s) require pricing basis confirmation (${uniqueHeldKeys.join(', ')})`;
+    const reviewReason = saveError || `${heldKeys.length} row(s) require basis or source review: ${heldRows.map(row=>
+      `${row.key}: ${row.reasons?.join('; ') || 'Source fields require confirmation'}`).join(' | ')}`;
 
     // Pass documentId so the partially-created import document is linked to the
     // attachment.  Migration 033's set_attachment_processing_status allows
@@ -448,8 +418,9 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return {
       outcome: "needs_review",
       reason: reviewReason,
-      heldKeys: uniqueHeldKeys,
-      savedCount: savedKeys.length,
+      heldKeys,
+      heldRows,
+      savedCount: newCompletedKeys.length,
     };
   }
 
