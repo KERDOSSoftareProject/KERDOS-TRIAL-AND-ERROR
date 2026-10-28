@@ -303,6 +303,9 @@ function mapColumnsFromHeader(headerCells) {
     choices.sort((a,b)=>b.score-a.score);
     const chosen=choices.find(c=>map[c.role]===undefined);
     if(chosen)map[chosen.role]=idx;
+    // Pricing-unit headers describe the billing basis, not a monetary amount.
+    // Otherwise "Price Unit" steals "Price" and CASE is parsed as the price.
+    if(pricingUnitHeader(lower))return;
     // collect price candidates — store full cell text for priority matching
     for(const kw of COLUMN_ROLES.price){
       if(lower===kw||lower.includes(kw)){priceCandidates.push({idx,kw,lower,exact:lower===kw});break;}
