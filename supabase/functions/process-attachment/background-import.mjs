@@ -243,9 +243,6 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return { outcome: "needs_review", reason: "No price rows found" };
   }
 
-  // Any row that preparePriceImport marks requiresReview triggers a full
-  // needs_review outcome; we detect this during the import pass below.
-
   // ── Step 5: create/resume import document ─────────────────────────────────
   const importService = createImportService(backend);
   const catalogService = createCatalogService(backend);
@@ -308,9 +305,12 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // ── Step 6: run the import engine row by row ───────────────────────────────
   const newCompletedKeys = [...completedRows];
-  let needsReview = false;
-  let reviewReason = null;
-  let failedCount = 0;
+  // completed_keys contains only successfully saved row:N keys (A1.7 contract).
+  // Held-row source/reasons remain on the vendor listing and linked original;
+  // report their row keys separately without corrupting resume's saved-row set.
+  const heldKeys = [];
+  const heldRows = [];
+  let saveError = null;
 
   // A1.7.b: use row:N (0-based across all groups) as the completedKey so the
   // format matches ImportModal's progressKey = index => `row:${index}`.
@@ -326,12 +326,14 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   //      inserting a duplicate price_history row.
   let globalRowIndex = 0;
 
-  for (const group of groups) {
+  outer: for (const group of groups) {
     for (const sourceRow of group.rows) {
       backend.attachments.assertLease?.();
       const completedKey = `row:${globalRowIndex}`;
       globalRowIndex++;
-      if (completedRows.has(completedKey)) continue; // already saved (resume)
+      // Skip only saved rows. Reassess unresolved rows: new trusted evidence can
+      // resolve them, and an unresolved row must never become a permanent skip.
+      if (completedRows.has(completedKey)) continue;
 
       // Find existing vendor item for this row's code.
       const ex = workingVendorItems.find(
@@ -342,8 +344,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
         : null;
 
       // preparePriceImport (via importPriceRow) decides requiresReview.
-      // We pass rowNeedsReview=false; if the row needs review the function
-      // returns {needsBasis:true} and we surface the whole document.
+      // We pass rowNeedsReview=false; the engine returns {needsBasis:true}
+      // when the pricing basis cannot be confirmed automatically.
       try {
         const result = await importPriceRow({
           backend,
@@ -372,10 +374,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
         backend.attachments.assertLease?.();
 
         if (result.needsBasis) {
-          // Row requires human input — entire document goes to review.
-          needsReview = true;
-          reviewReason = "One or more rows require human review (basis or conflict)";
-          break;
+          // Hold this row — continue processing the remaining rows rather than
+          // blocking the entire sheet on one uncertain item.
+          heldKeys.push(completedKey);
+          heldRows.push({key:completedKey,reasons:result.reviewReasons});
+          continue;
         }
 
         newCompletedKeys.push(completedKey);
@@ -387,31 +390,38 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
       } catch (err) {
         if (String(err?.message).includes("LEASE_LOST")) throw err;
-        // Any single-row save failure prevents a "complete" result — silently
-        // omitting products from a background import is worse than surfacing the
-        // document for human review.
-        failedCount++;
-        needsReview = true;
-        reviewReason = `Row save error (row ${failedCount}): ${err.message}`;
-        break;
+        // A hard save failure is not the same as basis uncertainty — we cannot
+        // safely continue because the row's state in the DB is unknown.
+        saveError = `Row save error (${completedKey}): ${err.message}`;
+        break outer;
       }
     }
-    if (needsReview) break;
   }
 
   // ── Step 7: finalize ────────────────────────────────────────────────────────
-  if (needsReview) {
+  // Any held row or save error keeps the document partial. Only saved rows
+  // enter completed_keys; the unchanged A1.7 verifier can safely resume it.
+  if (heldKeys.length > 0 || saveError !== null) {
     // Import document status must be 'partial' — the import_documents.status
     // column only accepts ('processing','complete','partial').  'needs_review'
     // is the attachment's status (inbound_attachments.processing_status), not
-    // the document's.  Using 'partial' here means: rows were saved up to the
-    // point of the review trigger; the rest were not processed.
+    // the document's.
     await importService.finalizeDocument(documentId, "partial", newCompletedKeys);
+
+    const reviewReason = saveError || `${heldKeys.length} row(s) require basis or source review: ${heldRows.map(row=>
+      `${row.key}: ${row.reasons?.join('; ') || 'Source fields require confirmation'}`).join(' | ')}`;
+
     // Pass documentId so the partially-created import document is linked to the
     // attachment.  Migration 033's set_attachment_processing_status allows
     // p_import_document_id when p_status = 'needs_review'.
     await backend.attachments.setStatus(attachmentId, "needs_review", reviewReason, documentId);
-    return { outcome: "needs_review", reason: reviewReason };
+    return {
+      outcome: "needs_review",
+      reason: reviewReason,
+      heldKeys,
+      heldRows,
+      savedCount: newCompletedKeys.length,
+    };
   }
 
   await importService.finalizeDocument(documentId, "complete", newCompletedKeys);

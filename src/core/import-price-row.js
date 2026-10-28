@@ -187,5 +187,5 @@ export async function importPriceRow({
   if (!vendorItemId || !await importService.mapping(orgId, vendorItemId))
     throw new Error('The price was saved, but its catalog link is incomplete. This row can be resumed.');
 
-  return {vendorItemId, needsBasis, match, savedMapping};
+  return {vendorItemId, needsBasis, match, savedMapping, reviewReasons:prepared.reasons};
 }
