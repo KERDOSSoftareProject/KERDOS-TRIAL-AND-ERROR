@@ -65,7 +65,7 @@ export {ReceivingAddressesPanel as RoutingAddressPanel} from './ReceivingAddress
 // One row inside a message's attachment list. Handles the fetch → PasteModal
 // open → markAttachmentIngested lifecycle for a single attachment.
 
-function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vocabulary,vendorItems,mappings,industry,onDone}){
+function AttachmentRow({att,receiptVendorId,receiptDocumentType,orgId,vendors,orgSettings,catalogItems,categories,vocabulary,vendorItems,mappings,industry,onDone}){
   const [status,setStatus]=useState("idle"); // idle | loading | error | ingested
   const [error,setError]=useState("");
   // Lifted-state for the PasteModal triggered by this attachment
@@ -213,6 +213,8 @@ function AttachmentRow({att,orgId,vendors,orgSettings,catalogItems,categories,vo
           onDone={()=>{}}
           onFinished={handleImportFinished}
           onBeforeSave={()=>beginManualAttachmentReview(backend,orgId,att.id)}
+          initialVendorId={receiptVendorId||undefined}
+          initialMode={receiptDocumentType==="invoice"?"invoice":"pricelist"}
           inboxImportDocumentId={att.import_document_id||null}
         />
       )}
@@ -318,6 +320,8 @@ function MessageRow({msg,orgId,vendors,orgSettings,catalogItems,categories,vocab
                     <AttachmentRow
                       key={att.id}
                       att={att}
+                      receiptVendorId={detail.receipt_vendor_id}
+                      receiptDocumentType={detail.receipt_document_type}
                       orgId={orgId}
                       vendors={vendors}
                       orgSettings={orgSettings}

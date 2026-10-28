@@ -75,6 +75,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   // Staged groups waiting for unknown-column confirmation before advancing to step 2.
   const [stagedGroups,setStagedGroups]=useState([]);
   const quotedUnits=unitChoices(vocabulary,false,industry);
+  const initialFileParsed=useRef(false);
+  useEffect(()=>{
+    if(!initialFiles?.length||!vendorId||fileGroups.length!==initialFiles.length||initialFileParsed.current)return;
+    initialFileParsed.current=true;
+    void parseSources(fileGroups,"");
+  },[vendorId,fileGroups,initialFiles]);
 
   // When opened from the email inbox, pre-load the supplied File objects so
   // the user lands on the file-ready state rather than an empty drop zone.
@@ -359,6 +365,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const identified=[];
     let saveError=null;
     let lastSourceDocumentId=null;
+    const inboxReview=typeof onBeforeSave==="function";
 
     if(mode==="pricelist"){
       const workingCatalogItems=[...catalogItems];
@@ -521,9 +528,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           mapped++;
           identified.push({description:row.description,packSize:row.packSize||ex?.pack_size||null,price:row.price,track:match.track,confidence:match.score==null?null:Math.round(match.score*100),reason:match.reason||null});
         }
-        // A row is complete only after both the listing and catalog link exist.
-        await importService.recordProgress(sourceDocumentId,[...completedKeys,completedKey]);
-        completedKeys.add(completedKey);
+        // Inbox resolution must preserve the worker's saved-row contract.
+        // Staging an unresolved quote is not completion of that source row.
+        if(!inboxReview||!needsBasis){
+          await importService.recordProgress(sourceDocumentId,[...completedKeys,completedKey]);
+          completedKeys.add(completedKey);
+        }
         const saved={...ex,id:vendorItemId,vendor_id:vendorId,organization_id:orgId,
           vendor_item_code:row.code||ex?.vendor_item_code||null,
           description:needsBasis&&ex?ex.description:row.description,
@@ -722,7 +732,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     // A clean finish closes the import on its own and hands a one-line
     // "Done" to the page behind it. The screen stays open only when
     // something needs to be read: an error, or invoice charges to check.
-    if(!saveError&&mode==="pricelist"){
+    if(!saveError&&mode==="pricelist"&&(!inboxReview||basisReview===0)){
       try{await onDone();}catch{/* the page refresh reports its own failure */}
       setLoading(false);
       onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
