@@ -1004,6 +1004,17 @@ console.log("\n── B. Service layer ─────────────�
 }
 
 {
+  // Project the detail query like PostgREST does: omitted fields must not leak
+  // from the fixture and make a broken receipt-to-review handoff appear to pass.
+  const receipt={id:"receipt",receipt_vendor_id:"receipt-vendor",receipt_document_type:"pricelist",vendor_snapshot_at:"2026-10-28T18:07:00Z"};
+  const projectedBackend={records:createRecords(async spec=>({data:Object.fromEntries(Object.entries(receipt).filter(([key])=>new RegExp(`\\b${key}\\b`).test(spec.columns))),error:null}))};
+  const detail=await getMessage(projectedBackend,"org-1","receipt");
+  t("B7 receipt: review receives stored vendor",detail.receipt_vendor_id,"receipt-vendor");
+  t("B7 receipt: review receives stored type",detail.receipt_document_type,"pricelist");
+  t("B7 receipt: snapshot sentinel retained",detail.vendor_snapshot_at,receipt.vendor_snapshot_at);
+}
+
+{
   // B8. listPendingAttachments returns unprocessed AND background-partial attachments.
   // Fixed: old filter (.is("import_document_id", null)) excluded background partials
   // where import_document_id IS NOT NULL but processing_status = 'needs_review'.

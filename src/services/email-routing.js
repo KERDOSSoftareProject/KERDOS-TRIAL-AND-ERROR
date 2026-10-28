@@ -212,6 +212,7 @@ export async function getMessage(backend, organizationId, messageId) {
       .select(`
         id, routing_address_id, postmark_message_id,
         sender_email, sender_name, subject, body_text, received_at,
+        receipt_vendor_id, receipt_document_type, vendor_snapshot_at,
         inbound_attachments (
           id, filename, content_type, file_size_bytes,
           storage_path, import_document_id, ingest_error, processing_status, created_at
