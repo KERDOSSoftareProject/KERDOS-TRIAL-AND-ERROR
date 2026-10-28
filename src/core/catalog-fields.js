@@ -344,7 +344,7 @@ export function rememberImportRow(row,prior,mapping=null){
     // and field corrections survive changes in document row order.
     const changes=knownItemChanges(row,prior);
     const conflicts=changes.map(change=>change.reason);
-    const learnedUnit=prior.price_source!=="invoice"&&prior.price_basis&&priceBasisFor(prior.selling_unit)?.basis===prior.price_basis?prior.selling_unit:null;
+    const learnedUnit=!prior.import_row?.reviewRequired&&prior.import_row?.evidence?.sellingUnitSource!=="inferred"&&prior.price_source!=="invoice"&&prior.price_basis&&priceBasisFor(prior.selling_unit)?.basis===prior.price_basis?prior.selling_unit:null;
     return {...row,description:prior.description,brand:prior.brand||"",packSize:prior.pack_size,
       sellingUnit:learnedUnit||row.sellingUnit||"",sellingUnitSource:learnedUnit?"remembered":row.sellingUnitSource,
       knownVendorItem:true,priceNeedsReview:conflicts.length>0,conflicts,changes};
