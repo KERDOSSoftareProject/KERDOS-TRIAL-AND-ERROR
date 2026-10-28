@@ -306,6 +306,22 @@ await test("needs_review: unsupported MIME type", async () => {
 
 // ── Test 3: empty CSV → needs_review ──────────────────────────────────────────
 
+for(const lowConfidence of [false,true]){
+  await test(`image importer: ${lowConfidence?'uncertain first row held, later valid row saved':'confirmed OCR rows save automatically'}`,async()=>{
+    const lines=['Code,Description,Pack,Price Unit,Price','12345,Chicken Breast,20 LB,CASE,40.00','12346,Turkey Breast,20 LB,CASE,50.00'];
+    const vendorItems=lines.slice(1).map((line,i)=>({id:`image-vi-${i}`,organization_id:'org-1',vendor_id:'vendor-1',vendor_item_code:String(12345+i),description:i?'Turkey Breast':'Chicken Breast',pack_size:'20 LB',selling_unit:'CASE',price_basis:'case',price_source:'price_list'}));
+    const backend=createInMemoryBackend({vendorItems,mappings:vendorItems.map((v,i)=>({id:`im-${i}`,organization_id:'org-1',vendor_item_id:v.id,catalog_item_id:`ic-${i}`,comparison_track:'exact',confidence_score:100}))});
+    backend.attachments.extractImageText=async()=>({kind:'lines',lines,ocr:{engine:'tesseract-core-7.0.0',confidence:lowConfidence?40:99,lines:lines.map((text,i)=>({text,confidence:lowConfidence&&i===1?40:99}))}});
+    const result=await processAttachmentInBackground(backend,{...ATTACHMENT_BASE,filename:'received.png',content_type:'image/png'},{organizationId:'org-1',vendorId:'vendor-1',documentType:'pricelist'});
+    assert.equal(result.outcome,lowConfidence?'needs_review':'auto_imported');
+    assert.equal(backend._appliedQuotes.length,lowConfidence?1:2);
+    assert.equal(backend._createdDocs[0].original_text,lines.join('\n'));
+    const quote=backend._appliedQuotes.at(-1);assert.equal(quote.vendorItemCode,'12346');assert.equal(quote.price,50);
+    assert.equal(quote.importRow.row.ocr.engine,'tesseract-core-7.0.0');
+    if(lowConfidence){assert.ok(backend._statusLog.at(-1).error.includes('Image text recognition'));assert.ok(!backend._appliedQuotes.some(q=>q.vendorItemCode==='12345'));}
+  });
+}
+
 await test("needs_review: empty CSV (no rows parsed)", async () => {
   const backend = createInMemoryBackend({ bytes: csvBytes("") });
   const attachment = { ...ATTACHMENT_BASE };

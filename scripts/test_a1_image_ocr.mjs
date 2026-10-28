@@ -1,0 +1,43 @@
+// Actual worker-free OCR engine on PNG/JPEG fixtures; no browser or provider API.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {gunzipSync} from 'node:zlib';
+import {createRequire} from 'node:module';
+import UPNG from 'upng-js';
+import jpeg from 'jpeg-js';
+import {createImageRecognizer,validateImage,textLines} from '../supabase/functions/image-text/image-ocr.mjs';
+import {extractImageText} from '../supabase/functions/process-attachment/image-text-client.mjs';
+import {readAttachment,FileReadError} from '../supabase/functions/process-attachment/portable-file-reader.mjs';
+import {parseDocument} from '../src/ingestion.js';
+const require=createRequire(import.meta.url);
+const recognize=createImageRecognizer(()=>require('tesseract.js-core/tesseract-core-simd-lstm.wasm.js')({}),async()=>gunzipSync(readFileSync('public/ocr/eng.traineddata.gz')),async(bytes,size)=>size.mime==='image/png'?new Uint8Array(UPNG.toRGBA8(UPNG.decode(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)))[0]):jpeg.decode(bytes,{useTArray:true,maxResolutionInMP:4,maxMemoryUsageInMB:64}).data,async(p,w,h)=>new Uint8Array(UPNG.encode([p.buffer],w,h,0)));
+let checks=0;
+for(const ext of ['png','jpg']){
+  const bytes=readFileSync(`scripts/fixtures/ocr/pricelist.${ext}`);let renewals=0,requests=0;
+  const result=await readAttachment(bytes,'application/octet-stream',`price.${ext}`,{imageTextReader:b=>extractImageText(b,{renewLease:async()=>{renewals++;},invoke:async({part})=>{requests++;return {ok:true,data:await recognize(bytes,part)};}})});
+  const parsed=parseDocument(result.lines.join('\n'));
+  assert.deepEqual(parsed.rows.map(row=>[row.code,row.price,row.sellingUnit]),[['12345',40,'CASE'],['12346',50,'CASE']]);
+  assert.equal(parsed.rows.length,2,'No row lost or duplicated at band boundary');
+  assert.equal(renewals,requests+1);assert.equal(requests,4);assert.equal(result.ocr.engine,'tesseract-core-7.0.0');
+  assert.ok(result.ocr.lines.every(line=>Number.isFinite(line.confidence)));
+  assert.ok(result.ocr.lines.every(line=>line.confidence>=90),'Clean table fixture must meet the automatic source-confidence threshold');
+  console.log(`PASS actual ${ext.toUpperCase()} OCR → original parser, both rows/units/prices, lease renewal and evidence`);checks++;
+}
+const logo=readFileSync('scripts/fixtures/ocr/non-pricing.png');
+const recognized=await recognize(logo,0);
+assert.equal(parseDocument(recognized.lines.map(line=>line.text).join('\n')).rows.length,0);
+console.log('PASS nonpricing image creates no price rows without filename classification');checks++;
+const png=readFileSync('scripts/fixtures/ocr/pricelist.png');
+let invokes=0;
+await assert.rejects(()=>extractImageText(png,{renewLease:async()=>{throw Error('LEASE_LOST');},invoke:async()=>{invokes++;}}),/LEASE_LOST/);assert.equal(invokes,0);
+console.log('PASS lost lease stops OCR handoff before any invocation');checks++;
+await assert.rejects(()=>extractImageText(png,{renewLease:async()=>{},invoke:async()=>({ok:false,status:503})}),error=>!(error instanceof FileReadError)&&/retry required/.test(error.message));
+await assert.rejects(()=>extractImageText(png,{renewLease:async()=>{},invoke:async()=>({ok:false,status:422,error:'Unreadable image'})}),FileReadError);
+console.log('PASS temporary outage retries; permanent unreadable input becomes a visible exception');checks++;
+await assert.rejects(()=>extractImageText(png,{renewLease:async()=>{},invoke:async()=>({ok:true,data:{part:1,parts:4,width:1800,height:700,lines:[]}})}),/Incomplete/);
+assert.throws(()=>validateImage(new Uint8Array([1,2,3]),0),/valid PNG/);
+const bomb=new Uint8Array(png);new DataView(bomb.buffer).setUint32(16,999999);assert.throws(()=>validateImage(bomb,0),/dimensions/);
+assert.throws(()=>validateImage(png,100),/outside/);
+assert.deepEqual(textLines('level\tpage\tblock\tpara\tline\tword\tx\ty\tw\th\tconf\ttext\n5\t1\t1\t1\t1\t1\t0\t90\t10\t20\t99\tboundary',0,100),[]);
+console.log('PASS incomplete, oversized, malformed and boundary inputs cannot silently become complete');checks++;
+console.log(`${checks}/${checks} executed image OCR checks passed (local runtime evidence).`);

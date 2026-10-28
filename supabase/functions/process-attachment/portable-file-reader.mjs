@@ -57,13 +57,15 @@ const XLSX_MIMES = new Set([
 
 function normaliseMime(mimeType, filename) {
   const m = (mimeType || "").toLowerCase().split(";")[0].trim();
-  if (m) return m;
+  if (m&&m!=="application/octet-stream") return m;
   // Fall back to filename extension when Content-Type is absent or generic.
   const ext = (filename || "").split(".").pop().toLowerCase();
   if (ext === "csv")  return "text/csv";
   if (ext === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (ext === "xls")  return "application/vnd.ms-excel";
   if (ext === "txt")  return "text/plain";
+  if (ext === "png")return 'image/png';
+  if (ext === "jpg"||ext === "jpeg")return 'image/jpeg';
   return m;
 }
 
@@ -434,7 +436,7 @@ function xmlUnescape(s) {
  *          |{ kind: "unsupported", mimeType: string }}
  * @throws {FileReadError} when a supported type fails to decode (corrupt data)
  */
-export async function readAttachment(bytes, mimeType, filename) {
+export async function readAttachment(bytes, mimeType, filename, {imageTextReader}={}) {
   const mime = normaliseMime(mimeType, filename);
 
   if (TEXT_MIMES.has(mime)) {
@@ -443,6 +445,10 @@ export async function readAttachment(bytes, mimeType, filename) {
 
   if (XLSX_MIMES.has(mime)) {
     return readXlsxBytes(bytes);
+  }
+
+  if(['image/png','image/jpeg'].includes(mime)&&imageTextReader){
+    return imageTextReader(bytes);
   }
 
   return { kind: "unsupported", mimeType: mime || mimeType || "unknown" };

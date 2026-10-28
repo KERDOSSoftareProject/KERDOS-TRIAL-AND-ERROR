@@ -138,7 +138,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 2: read file ──────────────────────────────────────────────────────
   let readResult;
   try {
-    readResult = await readAttachment(bytes, mimeType, filename);
+    readResult = await readAttachment(bytes, mimeType, filename,{imageTextReader:backend.attachments.extractImageText});
   } catch (err) {
     if (err instanceof FileReadError) {
       // Permanent: corrupt or unreadable file.
@@ -198,7 +198,15 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // parseDocument returns { rows, documentKind, quoteValidUntil, ... }.
   // Wrap into the single-group shape the import loop below expects.
-  const { rows: parsedRows = [], documentKind: contentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
+  const { rows: rows = [], documentKind: contentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
+  const normalLine=line=>String(line||'').trim().replace(/[,\t]/g,' ').replace(/\s+/g,' ');
+  const ocrHeader=readResult.ocr?.lines.find(line=>/\b(price|cost)\b/i.test(line.text)&&/\b(description|product|item)\b/i.test(line.text));
+  const parsedRows=readResult.ocr?rows.map(row=>{
+    const matchingLines=readResult.ocr.lines.filter(line=>normalLine(line.text)===normalLine(row.sourceLine));
+    const confidence=matchingLines.length?Math.min(...matchingLines.map(line=>line.confidence)):0;
+    return {...row,ocr:{engine:readResult.ocr.engine,confidence:Math.min(ocrHeader?.confidence??0,confidence)}};
+  }):rows;
+  const ocrIssues=row=>row.ocr&&row.ocr.confidence<90?['Image text recognition is below 90% confidence; source fields need clarification']:[];
 
   // ── Step 4: classify document using registration intent ──────────────────
   //
@@ -225,6 +233,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // Invoice header, lines, original link and terminal status commit together.
   // A worker crash before commit writes nothing; after commit replay is idempotent.
   if (isInvoice) {
+    const lowImageEvidence=parsedRows.some(row=>ocrIssues(row).length)||readResult.ocr?.lines.some(line=>line.confidence<90);
+    if(lowImageEvidence){const reason='Invoice image text needs source clarification';await backend.attachments.setStatus(attachmentId,'needs_review',reason);return {outcome:'needs_review',reason};}
     const service = createImportService(backend);
     const vendorItems = await service.vendorItems(organizationId, vendorId);
     const prepared = prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems});
@@ -278,6 +288,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       fingerprint,
       file_name:        filename,
       file_path:        storagePath,
+      original_text:    rawText,
       status:           "processing",
     });
     documentId = newDoc.id;
@@ -355,8 +366,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           row: sourceRow,
           ex,
           priorMapping,
-          rowIssues: [],
-          rowNeedsReview: false,   // let the engine decide
+          rowIssues: ocrIssues(sourceRow),
+          rowNeedsReview: ocrIssues(sourceRow).length>0,
           invoiceSources,
           orgId: organizationId,
           vendorId,
