@@ -28,13 +28,13 @@ async function preview(onBeforeSave){
   const review=tree.root.findAllByType('button').find(x=>text(x)==='Review pasted text');
   assert.ok(review,'pasted rows must be reviewable');
   await act(async()=>{await review.props.onClick();});
-  for(let i=0;i<50&&!tree.root.findAllByType('button').some(x=>text(x).startsWith('Save Import'));i++){
+  for(let i=0;i<50&&!tree.root.findAllByType('button').some(x=>text(x)==='Apply corrections');i++){
     await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
   }
   const previewNext=tree.root.findAllByType('button').find(x=>text(x)==='Save Import →');
-  if(previewNext)await act(async()=>{previewNext.props.onClick();});
-  const save=tree.root.findAllByType('button').find(x=>text(x)==='Save Import');
-  assert.ok(save,'inbox preview must wait for explicit Save Import; controls: '+tree.root.findAllByType('button').map(text).join(' | '));
+  assert.equal(previewNext,undefined,'Inbox must open directly in exception review');
+  const save=tree.root.findAllByType('button').find(x=>text(x)==='Apply corrections');
+  assert.ok(save,'inbox review must wait for explicit corrections; controls: '+tree.root.findAllByType('button').map(text).join(' | '));
   return {tree,save,get closed(){return closed;}};
 }
 let passed=0;
