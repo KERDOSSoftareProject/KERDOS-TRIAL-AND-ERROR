@@ -9,7 +9,7 @@ export function resolveQuoteBasis(row,prior=null){
   const explicit=priceBasisFor(row.sellingUnit);
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
   if(String(row.sellingUnit||"").trim())return null;
-  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired)return null;
+  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||prior.import_row?.evidence?.sellingUnitSource==="inferred")return null;
   const coded=row.code&&String(prior.vendor_item_code)===String(row.code);
   // The caller must resolve one unique NVIM first, within this vendor.
   const uncoded=!row.code&&!prior.vendor_item_code&&!!prior.id&&row.resolvedVendorItemId===prior.id;
