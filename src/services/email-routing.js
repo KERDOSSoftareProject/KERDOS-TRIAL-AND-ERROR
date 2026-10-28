@@ -215,7 +215,7 @@ export async function getMessage(backend, organizationId, messageId) {
         receipt_vendor_id, receipt_document_type, vendor_snapshot_at,
         inbound_attachments (
           id, filename, content_type, file_size_bytes,
-          storage_path, import_document_id, ingest_error, processing_status, created_at
+          storage_path, import_document_id, ingest_error, processing_status, processing_error, created_at
         )
       `)
       .eq("organization_id", organizationId)

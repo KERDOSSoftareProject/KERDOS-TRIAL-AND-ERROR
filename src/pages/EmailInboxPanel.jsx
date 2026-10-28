@@ -5,9 +5,9 @@
  *
  * Two panels exported:
  *   RoutingAddressPanel — read-only automatic receiving addresses
- *   EmailInboxPanel     — inbox of inbound messages with "Review & Import"
+ *   EmailInboxPanel     — automatic receipt status and retained-source audit
  *
- * "Review & Import" flow:
+ * Legacy messages without a receipt snapshot retain their manual audit flow:
  *   1. getAttachmentFile()  → File object from Storage
  *   2. Opens PasteModal with initialFiles={[file]}
  *   3. After PasteModal saves, calls markAttachmentIngested()
@@ -65,7 +65,7 @@ export {ReceivingAddressesPanel as RoutingAddressPanel} from './ReceivingAddress
 // One row inside a message's attachment list. Handles the fetch → PasteModal
 // open → markAttachmentIngested lifecycle for a single attachment.
 
-function AttachmentRow({att,receiptVendorId,receiptDocumentType,orgId,vendors,orgSettings,catalogItems,categories,vocabulary,vendorItems,mappings,industry,onDone}){
+function AttachmentRow({att,automaticIntake=false,receiptVendorId,receiptDocumentType,orgId,vendors,orgSettings,catalogItems,categories,vocabulary,vendorItems,mappings,industry,onDone}){
   const [status,setStatus]=useState("idle"); // idle | loading | error | ingested
   const [error,setError]=useState("");
   // Lifted-state for the PasteModal triggered by this attachment
@@ -81,6 +81,7 @@ function AttachmentRow({att,receiptVendorId,receiptDocumentType,orgId,vendors,or
   const renderOutcome=attachmentRenderOutcome(att,status);
 
   async function handleReviewAndImport(){
+    if(automaticIntake)return;
     if(attachmentActionBlocked(att,status)) return;
     setStatus("loading");setError("");
     let file;
@@ -169,7 +170,15 @@ function AttachmentRow({att,receiptVendorId,receiptDocumentType,orgId,vendors,or
           </div>
           {sizeKB&&<div style={{fontSize:11,color:"#888"}}>{sizeKB}</div>}
         </div>
-        {renderOutcome==="processing"
+        {automaticIntake
+          ? <div style={{fontSize:11,textAlign:"right",maxWidth:400}}>
+              <strong style={{color:renderOutcome==="imported"?"#388e3c":"#875200"}}>
+                {renderOutcome==="imported"?"✓ Imported automatically":att.processing_status==="pending"?"Queued for automatic processing":renderOutcome==="processing"?"Processing automatically…":att.import_document_id?"Processed — clarification flagged":"Received — needs attention"}
+              </strong>
+              {renderOutcome!=="imported"&&att.import_document_id&&receiptDocumentType==="pricelist"&&<div>Stored items and unresolved fields are retained in Item Catalog. No import action is required.</div>}
+              {att.processing_error&&<div style={{marginTop:3,color:"#666"}}>{att.processing_error}</div>}
+            </div>
+          : renderOutcome==="processing"
           ? <span style={{fontSize:11,color:"#666",fontWeight:700,whiteSpace:"nowrap"}}>Processing…</span>
           : renderOutcome==="imported"
           ? <span style={{fontSize:11,color:"#388e3c",fontWeight:700,whiteSpace:"nowrap"}}>✓ Imported</span>
@@ -322,6 +331,7 @@ function MessageRow({msg,orgId,vendors,orgSettings,catalogItems,categories,vocab
                       att={att}
                       receiptVendorId={detail.receipt_vendor_id}
                       receiptDocumentType={detail.receipt_document_type}
+                      automaticIntake={!!detail.vendor_snapshot_at}
                       orgId={orgId}
                       vendors={vendors}
                       orgSettings={orgSettings}

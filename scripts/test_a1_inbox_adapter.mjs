@@ -50,6 +50,30 @@ assert.ok(calls.every(call=>call.action===undefined||call.action==="select"),"mo
 for(const table of ["email_routing_addresses","inbound_messages"]){assert.ok(calls.some(c=>c.table===table&&c.filters.some(f=>f[1]==="organization_id"&&f[2]==="org-1")));}
 await act(async()=>tree.unmount());
 console.log("PASS both mounted Inbox sections load through the production KERDOS adapter");
+// A receipt snapshot identifies automatic intake independently of worker status.
+// Open the actual mounted message: all states must remain status-only, without
+// a manual reservation, retained-file fetch, or import modal.
+const automaticAttachments=[
+ {id:"auto-partial",filename:"mixed.csv",processing_status:"needs_review",import_document_id:"partial-doc",processing_error:"Quoted unit needs clarification"},
+ {id:"auto-pending",filename:"queued.csv",processing_status:"pending"},
+ {id:"auto-processing",filename:"working.csv",processing_status:"processing"},
+ {id:"auto-done",filename:"complete.csv",processing_status:"auto_imported",import_document_id:"complete-doc"},
+ {id:"auto-unsupported",filename:"logo.png",processing_status:"needs_review",processing_error:"Unsupported image/png"},
+];
+data.inbound_messages=[{id:"automatic-message",organization_id:"org-1",subject:"Automatic intake fixture",vendor_snapshot_at:"2026-10-28T18:07:00Z",receipt_vendor_id:"vendor-1",receipt_document_type:"pricelist",inbound_attachments:automaticAttachments}];
+const beforeAutomatic=calls.length;
+await act(async()=>{tree=Renderer.create(React.createElement(EmailInboxPanel,{orgId:"org-1"}));});
+const renderedText=node=>typeof node==="string"?node:node.children.map(renderedText).join("");
+const automaticHeader=tree.root.findAll(node=>node.type==="div"&&typeof node.props.onClick==="function"&&renderedText(node).includes("Automatic intake fixture"))[0];
+assert.ok(automaticHeader);
+await act(async()=>{await automaticHeader.props.onClick();});
+const automaticView=JSON.stringify(tree.toJSON());
+for(const label of ["Processed — clarification flagged","Queued for automatic processing","Processing automatically…","✓ Imported automatically","Received — needs attention","Quoted unit needs clarification","Item Catalog"]){assert.ok(automaticView.includes(label),label);}
+for(const label of ["Complete Import","Review & Import","Apply corrections","Choose Files"]){assert.ok(!automaticView.includes(label),'automatic intake must not offer '+label);}
+assert.ok(calls.slice(beforeAutomatic).every(call=>call.action==="select"),"opening automatic receipt must only read records");
+await act(async()=>tree.unmount());
+data.inbound_messages=[];
+console.log("PASS automatic Inbox states retain source/clarification status with no manual import action or writes");
 await createRoutingAddress(backend,"org-1",{routingAddress:"test@inbound.kerdos.com",vendorId:"vendor-1"});
 assert.equal(calls.at(-1).value.organization_id,"org-1");
 assert.equal(calls.at(-1).value.vendor_id,"vendor-1");
@@ -81,7 +105,7 @@ rpcError=null;rpcData=null;
 await markAttachmentIngested(backend,"org-1","a1","document","auto_imported");
 assert.deepEqual(calls.at(-1),{rpc:"mark_attachment_ingested",params:{p_attachment_id:"a1",p_import_document_id:"document",p_final_status:"auto_imported"}});
 console.log("PASS reservation success, contention, errors and final linkage use Inbox adapter operations");
-console.log("5/5 Inbox adapter integration checks passed");
+console.log("6/6 Inbox adapter integration checks passed");
 process.exit(0);
 `;
 try{
