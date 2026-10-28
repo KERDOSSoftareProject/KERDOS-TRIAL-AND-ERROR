@@ -120,6 +120,7 @@ check("reservation precedes the modal's first save-side effect", () => {
   assert.ok(reserve > start && reserve < firstWrite);
   assert.match(modal.slice(reserve, firstWrite), /if\(!allowed\)throw/);
   assert.match(modal, /if\(onBeforeSave\)return;\s*if\(step!==2/);
-  assert.match(modal, /onBeforeSave&&!saveReview\?"Save Import"/);
+  // The rendered preview/resolution suites verify explicit corrections and
+  // zero writes on open/close; button wording is not the reservation contract.
 });
 console.log(`${passed}/${passed} Module A interaction checks passed`);

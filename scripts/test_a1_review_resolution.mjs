@@ -44,17 +44,20 @@ async function open(){
   catalogItems:catalogs,categories,vendorItems:items,mappings,initialVendorId:vendor,initialMode:'pricelist',
   initialFiles:[new File([csv],'mixed.csv',{type:'text/csv'})],inboxImportDocumentId:doc,onClose:()=>{},onDone:()=>{},
   onBeforeSave:async()=>{reservations++;return true;},onFinished:()=>{finishes++;}}));});
- for(let i=0;i<60&&!tree.root.findAllByType('button').some(button=>text(button)==='Save Import');i++){
+ for(let i=0;i<60&&!tree.root.findAllByType('button').some(button=>text(button)==='Apply corrections');i++){
   await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
  }
  const next=tree.root.findAllByType('button').find(button=>text(button)==='Save Import →');
- if(next)await act(async()=>next.props.onClick());
- const save=()=>tree.root.findAllByType('button').find(button=>text(button)==='Save Import');
+ assert.equal(next,undefined,'Inbox review must not require the upload-preview continuation');
+ const save=()=>tree.root.findAllByType('button').find(button=>text(button)==='Apply corrections');
  assert.ok(save(),'Stored initial attachment must parse without upload/paste; controls: '+tree.root.findAllByType('button').map(text).join(' | '));
  return {tree,save};
 }
 let p=await open();
 assert.equal(reservations,0);assert.equal(calls.length,0);assert.equal(uploads,0);
+assert.ok(text(p.tree.root).includes('Previously saved progress is preserved'));
+assert.ok(!text(p.tree.root).includes('saving automatically'));
+assert.equal(p.tree.root.findAllByType('input').filter(input=>input.props.type==='file').length,0,'Inbox review must not show upload controls');
 console.log('PASS retained attachment opens parsed with no reservation or upload');
 await act(async()=>{await p.save().props.onClick();});
 assert.equal(document.status,'partial');assert.deepEqual(document.completed_keys,['row:0']);

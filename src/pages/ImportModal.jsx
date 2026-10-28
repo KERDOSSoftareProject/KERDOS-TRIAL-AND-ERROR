@@ -35,6 +35,7 @@ const r2=value=>Math.round(value*100)/100;
 // PasteModal session resumes the SAME partial document the worker created rather
 // than creating a duplicate under the content fingerprint.
 export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,inboxImportDocumentId=null}) {
+  const inboxReview=typeof onBeforeSave==="function";
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
   // be dropped in until a vendor is chosen, so a sheet can't land under
@@ -258,7 +259,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const settled=Object.keys(autoAnswers).length?await applyConfirmedAnswers(groups,autoAnswers):groups;
     if(mode==="invoice"&&settled.every(looksLikePriceSheet)){setMode("pricelist");setSwitchedToPriceSheet(true);}
     setParsedGroups(settled);
-    setStep(1.8);
+    setStep(inboxReview?2:1.8);
   }
 
   // Called when the client clicks "Continue" from the step 1.5 panel.
@@ -274,7 +275,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     setStagedGroups([]);setPendingUnknowns([]);
     if(mode==="invoice"&&settled.every(looksLikePriceSheet)){setMode("pricelist");setSwitchedToPriceSheet(true);}
     setParsedGroups(settled);
-    setStep(1.8);
+    setStep(inboxReview?2:1.8);
   }
   async function parseSources(files,text){
     // Every dropped/selected file is parsed on its own — never merged into
@@ -764,7 +765,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     <MovableDialog label="Import document" maxWidth={mode==="pricelist"&&step===2?1450:600} zIndex={1000}>
       <div style={{background:"white",borderRadius:"16px 16px 0 0",padding:20,width:"100%",maxWidth:mode==="pricelist"&&step===2?1450:600,maxHeight:"90vh",overflowY:"auto"}} aria-live="polite">
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <h3 style={{margin:0,fontSize:16}}>{mode==="pricelist"?"📋 Import Price Sheet":"🧾 Record Invoice"}</h3>
+          <h3 style={{margin:0,fontSize:16}}>{inboxReview?"Review unresolved document rows":mode==="pricelist"?"📋 Import Price Sheet":"🧾 Record Invoice"}</h3>
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,cursor:"pointer",color:"#888"}}>×</button>
         </div>
 
@@ -912,7 +913,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
 
         {step===2&&<>
           <div style={{background:"#E8F5E9",padding:"10px 14px",borderRadius:8,marginBottom:14,fontSize:13}}>
-            Found {allRows.length} items across {parsedGroups.length} document{parsedGroups.length===1?"":"s"} — {loading?"saving automatically…":unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length))?"resolve the highlighted issue to finish saving":mode==="pricelist"&&(needsReview.length||invoiceConflicts.length)?`saving automatically; ${needsReview.length+invoiceConflicts.length} row${needsReview.length+invoiceConflicts.length===1?"":"s"} will be marked to finish in Item Catalog`:"saving automatically…"}
+            {inboxReview?<>Reviewing {allRows.length} source rows for {vendors.find(v=>v.id===vendorId)?.name||"the receipt vendor"}. Previously saved progress is preserved. {loading?"Applying corrections…":"Resolve the outstanding fields, then apply corrections. Closing this review leaves unresolved rows available for later."}</>:<>Found {allRows.length} items across {parsedGroups.length} document{parsedGroups.length===1?"":"s"} — {loading?"saving automatically…":unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length))?"resolve the highlighted issue to finish saving":mode==="pricelist"&&(needsReview.length||invoiceConflicts.length)?`saving automatically; ${needsReview.length+invoiceConflicts.length} row${needsReview.length+invoiceConflicts.length===1?"":"s"} will be marked to finish in Item Catalog`:"saving automatically…"}</>}
           </div>
           {mode==="invoice"&&parsedGroups.map(g=><label key={g.id} style={{display:"block",fontSize:12,marginBottom:7}}>
             Invoice date for {g.name}: <input type="date" value={g.invoiceDate||""} onChange={e=>setParsedGroups(groups=>groups.map(x=>x.id===g.id?{...x,invoiceDate:e.target.value}:x))} />
@@ -973,8 +974,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           )}
           {saveReview&&<div style={{color:"#B71C1C",fontSize:12,marginBottom:8}}>{saveReview}</div>}
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>setStep(1)} style={{...btn("#EEE","#555"),flex:1}}>← Back</button>
-            {(onBeforeSave||saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>{onBeforeSave&&!saveReview?"Save Import":"Continue after resolving issues"}</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
+            <button onClick={()=>inboxReview?onClose():setStep(1)} style={{...btn("#EEE","#555"),flex:1}}>{inboxReview?"Close review":"← Back"}</button>
+            {(onBeforeSave||saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>{inboxReview?"Apply corrections": "Continue after resolving issues"}</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
           </div>
         </>}
 
