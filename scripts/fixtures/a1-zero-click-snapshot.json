@@ -1,0 +1,28 @@
+{
+  "evidence": "Application orderGuideAssessment executed locally on actual kerdos-test saved records; not a browser observation",
+  "project": "gwtnaudjfoxjermhvhpx",
+  "documentId": "d530dc83-b0c7-42b6-bfc3-cf8c125d2cad",
+  "results": [
+    {
+      "vendorItemCode": "A1-REVIEW-HOLD-001",
+      "catalogItemId": "20e49ef7-860e-4585-b38e-18168b76f08f",
+      "orderGuideEligible": false,
+      "blockers": [
+        "sellingUnit",
+        "price",
+        "quote",
+        "source"
+      ]
+    },
+    {
+      "vendorItemCode": "A1-REVIEW-CLEAN-001",
+      "catalogItemId": "cfc7b300-5bda-426b-99fd-fb3b551a46d5",
+      "orderGuideEligible": true,
+      "blockers": [],
+      "price": 40,
+      "quotedPer": "CASE",
+      "unitCost": 2,
+      "unitCostPer": "LB"
+    }
+  ]
+}
