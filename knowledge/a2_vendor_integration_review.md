@@ -1,6 +1,6 @@
 # Module A · Task 2 · Vendor Integration
 
-Status: tested implementation draft; schema, function and cron not deployed.
+Status: shared HTTPS-export implementation installed in kerdos-test; controlled hosted acceptance passed. The test source is disabled, its credential removed and its Task 2 schedule removed. Real supplier acceptance remains open. Current evidence: `module_a_interaction_gate.md`, `a2_hosted_pull_results.json` and `a2_hosted_pull_verification.md`. Earlier draft/approval statements below are historical.
 This is the original three-item Task 2, not a new module or renamed task.
 
 ## Implemented
@@ -37,7 +37,7 @@ not claimed. Owned receiving domains are not needed for this pull path.
 
 ## Evidence
 
-- `npm run test:a2`: 22 executed checks, actual Edge entrypoint authentication,
+- `npm run test:a2`: 26 executed checks, actual Edge entrypoint authentication,
   export adapter and PostgreSQL-compatible SQL. SDK transport, DNS/HTTP and Vault
   are simulated locally; this is not hosted portal acceptance.
 - Actual kerdos-test Vault: create disposable synthetic credential, assert stored
@@ -46,7 +46,7 @@ not claimed. Owned receiving domains are not needed for this pull path.
 - Full repository checks include test:a2; lint and production build are required
   before the draft is handed off.
 
-## Deployment sequence and rollback
+## Original staged deployment plan — executed; retained for reference
 
 1. Review `a2_vendor_integration_draft.sql`, then generate a real migration with
    Supabase CLI. The CLI is unavailable in this workspace; no migration-history
@@ -82,8 +82,7 @@ implemented or bypassed. No orders or other vendor-side writes occur.
 Only trusted operators can approve origins/enroll sources. DNS checks are
 defense in depth, not a guarantee against a malicious operator-approved host
 performing DNS rebinding. This is not a general-purpose client URL fetch proxy.
-Reapproval is required for new export origins. No schema/application changes
-have been applied to kerdos-test by this draft.
+Reapproval is required for new export origins. The approved Task 2 migration and function are now installed in kerdos-test; all prior A1 function versions/hashes were preserved.
 
 ## Initial live-test approval rejection — historical, October29
 
@@ -145,5 +144,10 @@ Existing unrelated warnings were present before this change.
 
 `vendor-price-pull` v1 ACTIVE, own bearer authorization, bundle
 SHA256bc0f06f3ba5888416d06da830fe884f6b5cf9ec4b4b455c13a3f4a5440edd533.
-Authentication checks, controlled source intake/replay, scheduled observation
-and cleanup must be recorded separately before claiming hosted acceptance.
+Authentication checks, controlled source intake/replay, scheduled observation and exact approved cleanup subsequently passed; see `a2_hosted_pull_verification.md`. This does not establish real supplier authentication.
+
+## Final available-work review — October 29, 2026
+
+The full `npm test` command, including lint and the 26 executed Task 2 checks, and the production build passed again after the A1.5 browser observation. The checked application/test/schema source matches the merged implementation; intervening PRs #24–#25 update evidence only. This repeat is a local regression check, not another hosted or real-email result.
+
+A1.5 is verified by Dino’s signed-in timestamp screenshot (task list v65). Module A’s remaining required acceptance boundaries are A1.3 exact copying after receiving-domain configuration and Task 2 authorization/download/import against an actual supplier export. No purchased domains, real supplier credentials or endpoint have been supplied. Optional forwarding and manual exception review remain optional. No further implementation is asserted necessary without an observed defect or a supplier-specific requirement; no automatic source or new schedule was enabled by this review.
