@@ -84,3 +84,23 @@ defense in depth, not a guarantee against a malicious operator-approved host
 performing DNS rebinding. This is not a general-purpose client URL fetch proxy.
 Reapproval is required for new export origins. No schema/application changes
 have been applied to kerdos-test by this draft.
+
+## Live schema test approval boundary, October29
+
+The exact proposed test is archived in `a2_live_schema_check_rollback.sql`. It
+creates the draft schema/functions/grants/triggers within one transaction, uses
+only the isolated synthetic organization/vendor, creates a disposable Vault
+credential and three metadata-only source receipts, checks source ownership,
+service/client grants and A→B→A/replay identity, deletes the disposable source,
+then rolls the transaction back. It performs no storage upload, worker dispatch,
+network request, cron enabling or real vendor operation. A three-second lock
+timeout bounds lock acquisition; this does not eliminate lock or transaction
+failure risks.
+
+Automatic approval review rejected that test before execution because explicit
+authorization to apply this draft SQL live was absent and rollback does not
+remove the shared-database risks. No workaround or retry was attempted. Read-only
+checks confirm the draft table and claim RPC are absent. The archived SQL is
+UNEXECUTED and requires explicit approval for kerdos-test only. It is not a
+migration or a hosted pass. Existing disposable Vault encryption-only evidence
+is separate and remains valid.
