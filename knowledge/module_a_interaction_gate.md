@@ -1,13 +1,13 @@
 # Module A — Interaction Gate Results
 
 Application: KERDOS → Division I · Procurement → Module A · Pre-Ingestion  
-Governing task list: v61, October 29, 2026 UTC / October 28 Eastern  
+Governing task list: v62, October 29, 2026 UTC / October 28 Eastern  
 Repository baseline: main through PR #22, merge `5a545ff6dc1b06dc61ae3585e69908276a7e51c9`  
 Environment: kerdos-test `gwtnaudjfoxjermhvhpx`
 
 ## Current decision
 
-Scoped automatic processing evidence remains passing. **Whole Task 1 remains open**: A1.3 live copying depends on a displayed receiver after deferred platform configuration; A1.5 sender/date/clarification/status-only presentation is now observed, but received time was absent. PR #22 is merged/deployed; run75 passed clean install/fulltests/lint/build/Pages and public HTTP200 asset index-BUQ24wMC.js contains the new seconds/timezone formatter and semantic datetime. Signed-in visual time observation remains unverified. **Task 2 is now authorized and has a tested implementation draft in PR #23**, with no real vendor endpoint/credentials or hosted acceptance yet.
+Scoped automatic processing evidence remains passing. **Whole Task 1 remains open**: A1.3 live copying depends on a displayed receiver after deferred platform configuration; A1.5 sender/date/clarification/status-only presentation is now observed, but received time was absent. PR #22 is merged/deployed; run75 passed clean install/fulltests/lint/build/Pages and public HTTP200 asset index-BUQ24wMC.js contains the new seconds/timezone formatter and semantic datetime. Signed-in visual time observation remains unverified. **Task 2 is now authorized and has a tested implementation draft in PR #23**, with approved actual database contract verification recorded below; actual vendor/export/worker acceptance remains open.
 
 This reconciliation preserves the existing A1.1–A1.7 numbering. The original reconciliation changed documentation only. The follow-on code drafts are separately identified below; neither changes the deployed app, schema or workers. A passing code/database checkbox does not certify its separate live browser observation.
 
@@ -87,3 +87,7 @@ PR22 merged/deployed as5a545ff; GitHub run75/40857406527 passed, public asset HT
 Task2 revision ea4747f fixes returning price-sheet A→B→A suppression with atomic source revisions and distinct import fingerprints. Immediate identical replay remains duplicate-safe.22 local checks and full npmtest/lint pass.
 
 A proposed rollback-only live Task2 schema/Vault/replay check was rejected by automatic approval review. Reason: extensive temporary DDL, function/grant/trigger changes and synthetic data/Vault writes in shared kerdos-test still carry lock/side-effect/failure risk; explicit approval for applying the draft SQL live was absent. No SQL ran, no workaround/retry was attempted, and a read-only follow-up confirmed the draft source table/claim RPC remain absent. Explicit approval is needed before that exact live check; no hosted Task2 schema pass is recorded.
+
+## Approved actual Task2 database test — PASS, October29
+
+October29,2026 — APPROVED ACTUAL DATABASE TEST PASS for Task2. Dino explicitly approved rollback-only test with lock_timeout3s,statement_timeout15s,idle_in_transaction_session_timeout10s. First transport attempt returned expiredrequestState; unchanged baseline checked; identical approved retry succeeded. Actual kerdos-test assertions verified source organization/vendor ownership, immutable receipt values/source kind, immediate duplicate identity,A→B→A newrevision,service/client grants,finish and Vault credential cleanup. Full rollback independently verified: draft source table and claim RPC absent,source_kind column absent,isolated message count17/attachmentcount34 unchanged,zero vendor secrets,zero idle transactions,existing recovery cron active. No email/storage/network/worker/cron changes or permanent migration/function deployment. Evidence knowledge/a2_live_schema_check_results.json and exactSQL SHA2567b5a70d42c29ff1c2795519ddd808dbd6a69961d5d4b1fcf0025ba12d0307282. This supersedes the earlier approval rejection only for this approved test. Task2 live export-to-catalog/vendor acceptance remains open; no full-module completion claim.
