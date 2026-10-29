@@ -85,7 +85,7 @@ performing DNS rebinding. This is not a general-purpose client URL fetch proxy.
 Reapproval is required for new export origins. No schema/application changes
 have been applied to kerdos-test by this draft.
 
-## Live schema test approval boundary, October29
+## Initial live-test approval rejection — historical, October29
 
 The exact proposed test is archived in `a2_live_schema_check_rollback.sql`. It
 creates the draft schema/functions/grants/triggers within one transaction, uses
@@ -100,7 +100,27 @@ failure risks.
 Automatic approval review rejected that test before execution because explicit
 authorization to apply this draft SQL live was absent and rollback does not
 remove the shared-database risks. No workaround or retry was attempted. Read-only
-checks confirm the draft table and claim RPC are absent. The archived SQL is
-UNEXECUTED and requires explicit approval for kerdos-test only. It is not a
-migration or a hosted pass. Existing disposable Vault encryption-only evidence
+checks confirm the draft table and claim RPC are absent. The archived SQL was unexecuted at that point. Explicit approval was subsequently
+granted; the successful actual database test is recorded below. It is not a
+permanent migration or a vendor/worker acceptance test. Existing disposable Vault encryption-only evidence
 is separate and remains valid.
+
+## Approved actual database test — PASS, October29
+
+Dino explicitly approved the fixed rollback-only test after adding all three
+timeouts: lock acquisition3s, statement15s and idle transaction10s. The first
+connector attempt returned an expired-requestState error; read-only checks
+showed unchanged baseline. An identical approved retry succeeded.
+
+Actual kerdos-test assertions passed for organization/vendor ownership, exact
+replay identity, A→B→A revisions, source-kind/snapshot constraints, service versus
+client permissions, finishing a pull and deletion of its disposable credential.
+The transaction rolled back. Independent follow-up confirmed Task2 table/RPC
+absent, no source_kind column persisted,17 messages/34 attachments unchanged,
+zero vendor secrets,zero idle transactions and the existing recovery cron active.
+See `a2_live_schema_check_results.json`.
+
+This supersedes the earlier unexecuted/approval-blocked status for this exact
+test. It remains a database-only test: no storage, worker, email, export-host,
+scheduler modification, permanent schema or function deployment. Real vendor
+export-to-catalog acceptance is still open.

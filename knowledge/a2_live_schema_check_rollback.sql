@@ -3,6 +3,8 @@
 -- Sources are operator-enrolled read-only HTTPS exports, not guessed portal APIs.
 BEGIN;
 SET LOCAL lock_timeout='3s';
+SET LOCAL statement_timeout='15s';
+SET LOCAL idle_in_transaction_session_timeout='10s';
 CREATE SCHEMA IF NOT EXISTS kerdos_private;
 REVOKE ALL ON SCHEMA kerdos_private FROM PUBLIC,anon,authenticated;
 
