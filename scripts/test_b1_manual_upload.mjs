@@ -101,7 +101,11 @@ await check('invoice uploads record invoice charges and preserve their original 
  assert.equal(f.invoices[0].header.organization_id,org);assert.equal(f.invoices[0].header.vendor_id,vendor);
  assert.equal(f.invoices[0].header.invoice_number,'B1-INV-001');assert.equal(f.invoices[0].header.file_name,'B1_Invoice.csv');
  assert.equal(f.invoices[0].header.file_path,f.uploads[0].path);assert.equal(f.invoices[0].lines[0].unit_price,41.25);
- assert.equal(f.invoices[0].lines[0].line_total,82.5);p.tree.unmount();
+ assert.equal(f.invoices[0].lines[0].line_total,82.5);
+ assert.equal(f.invoices[0].lines[0].quantity,2);assert.equal(f.invoices[0].lines[0].selling_unit,'CASE');
+ assert.equal(f.invoices[0].lines[0].pack_size,'2/10 LB');assert.ok(f.invoices[0].lines[0].source_line.includes('B1-001'));
+ assert.equal(f.invoices[0].lines[0].billing_unit_evidence.unit,'CASE');
+ assert.equal(f.invoices[0].lines[0].billing_unit_evidence.kind,'pricing-unit-header');p.tree.unmount();
 });
 await check('failed original retention prevents invoice persistence and catalog side effects',async()=>{
  const f=fixture();f.backend.documents.upload=async()=>{throw Error('controlled storage failure');};

@@ -19,6 +19,7 @@ import {verifyResumeRows} from "../core/import-resume.js";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
 import {enrichFromInvoices,invoiceEvidence} from "../core/invoice-evidence.js";
+import {billingUnitEvidence} from "../core/billing-unit-evidence.js";
 import {btn,inp} from "../ui/styles.js";
 import {Drachma} from "../ui/Drachma.jsx";
 
@@ -706,6 +707,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           const variance=comparableQuote!=null?r2(row.price-comparableQuote):null;
           linesToInsert.push({
             vendor_item_id:matched?.id||null, vendor_item_code:row.code, description:row.description,
+            quantity:row.qty??null,selling_unit:row.sellingUnit||null,
+            source_line:row.sourceLine??null,billing_unit_evidence:billingUnitEvidence(row),
             unit_price:row.price, line_total:(row.amount!=null?row.amount:row.price),
             price_variance:variance, match_confidence:confidence, match_method:method,
             create_vendor_item:!matched&&!codeConflict&&method==="created_from_invoice",
