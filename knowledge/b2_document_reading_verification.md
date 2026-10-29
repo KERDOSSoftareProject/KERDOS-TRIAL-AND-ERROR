@@ -46,7 +46,7 @@ The suite is included in `npm test`. B1's nine rendered checks remain unchanged
 and pass. Full tests including lint and production build pass. No hosted/browser
 B2 verification, database mutation or deployment is claimed here.
 
-## Demonstrated B3 gaps — not B2 acceptance passes
+## Initial B3 findings — followed up in this review
 
 The current flattened PDF text feeds a pack weight into the price field on the
 retained `text-prices.pdf` and `side-by-side.pdf` fixtures (20 instead of 40/50).
@@ -54,8 +54,8 @@ Concatenating worksheets with differing column offsets can also cause the parser
 to omit the first sheet's row. The new reader retains the data needed to fix both,
 but does not claim that the existing structuring/parser now handles them.
 
-B3 must consume positioned PDF/OCR records and individual native worksheet cells,
-then prove exact product/pack/unit/price pairings and all-sheet row preservation.
-Until then, B2 is locally verified reading work; broader live acceptance and
-B3–B5 remain open. Native text plus scanned regions on the same PDF page is not
+The B3 follow-up in this same review now consumes positioned PDF/OCR records
+and individual worksheet cells, and locally verifies exact pairings and all-sheet
+row preservation. See `b3_document_structuring_verification.md` for evidence and
+limits. Broader live acceptance and B3–B5 remain open. Native text plus scanned regions on the same PDF page is not
 established by the mixed-page check. No client correction or new Save step is added.

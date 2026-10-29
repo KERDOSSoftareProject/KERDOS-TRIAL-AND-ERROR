@@ -1249,7 +1249,7 @@ function parseDocumentRows(text, options={}) {
   const headerCells=headerFound?grid[headerIndex].cells:[];
   const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
   const answered=applyLayoutAnswers(engineMap,options.layoutAnswers||{});
-  let columnMap = fillMissingRolesFromData(answered, grid, dataStart);
+  let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart);
   // confirmedRoles: columns whose role is supported by explicit header text or client decision.
   // Inferred roles (data-shape guesses from fillMissingRolesFromData) are NOT confirmed.
   // Cell analysis only constrains confirmed columns; inferred roles remain challengeable.
@@ -1281,6 +1281,7 @@ function parseDocumentRows(text, options={}) {
     }
     // Every cell against its column's meaning. A failing cell is flagged
     // on the row with the reason; the row is kept.
+    if(options.includeSourceIndex)row.sourceIndex=i;
     const cellIssues=checkRowCells(cells,columnMap);
     if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
 
@@ -1299,4 +1300,4 @@ function parseDocument(text, options={}){
 }
 
 // Exported for use elsewhere in the app.
-export { parseDocument, findDate, findInvoiceNumber, detectDocumentKind, findQuoteValidity };
+export { parseDocument, findDate, findInvoiceNumber, detectDocumentKind, findQuoteValidity, mapColumnsFromHeader };
