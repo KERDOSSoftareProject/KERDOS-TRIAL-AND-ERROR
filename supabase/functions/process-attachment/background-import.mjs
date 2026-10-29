@@ -138,7 +138,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 2: read file ──────────────────────────────────────────────────────
   let readResult;
   try {
-    readResult = await readAttachment(bytes, mimeType, filename);
+    readResult = await readAttachment(bytes, mimeType, filename,{imageTextReader:backend.attachments.extractImageText});
   } catch (err) {
     if (err instanceof FileReadError) {
       // Permanent: corrupt or unreadable file.
@@ -198,7 +198,16 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // parseDocument returns { rows, documentKind, quoteValidUntil, ... }.
   // Wrap into the single-group shape the import loop below expects.
-  const { rows: parsedRows = [], documentKind: contentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
+  const { rows: rows = [], documentKind: contentKind, quoteValidUntil: parsedQuoteValidUntil } = parsed;
+  const normalLine=line=>String(line||'').trim().replace(/[,\t]/g,' ').replace(/\s+/g,' ');
+  const ocrHeader=readResult.ocr?.lines.find(line=>/\b(price|cost)\b/i.test(line.text)&&/\b(description|product|item)\b/i.test(line.text));
+  const parsedRows=readResult.ocr?rows.map(row=>{
+    const matchingLines=readResult.ocr.lines.filter(line=>normalLine(line.text)===normalLine(row.sourceLine));
+    const confidence=matchingLines.length?Math.min(...matchingLines.map(line=>line.confidence)):0;
+    return {...row,ocr:{engine:readResult.ocr.engine,confidence:Math.min(ocrHeader?.confidence??0,confidence)}};
+  }):rows;
+  const ocrIssues=row=>row.ocr&&row.ocr.confidence<90?['Image text recognition is below 90% confidence; source fields need clarification']:[];
+  const unparsedImageLines=readResult.ocr?.lines.filter(line=>line.confidence<90&&line!==ocrHeader&&!parsedRows.some(row=>normalLine(row.sourceLine)===normalLine(line.text)))||[];
 
   // ── Step 4: classify document using registration intent ──────────────────
   //
@@ -219,12 +228,14 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   }
 
   const groups = parsedRows.length > 0
-    ? [{ rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
+    ? [{ name:filename,rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
     : [];
 
   // Invoice header, lines, original link and terminal status commit together.
   // A worker crash before commit writes nothing; after commit replay is idempotent.
   if (isInvoice) {
+    const lowImageEvidence=parsedRows.some(row=>ocrIssues(row).length)||readResult.ocr?.lines.some(line=>line.confidence<90);
+    if(lowImageEvidence){const reason='Invoice image text needs source clarification';await backend.attachments.setStatus(attachmentId,'needs_review',reason);return {outcome:'needs_review',reason};}
     const service = createImportService(backend);
     const vendorItems = await service.vendorItems(organizationId, vendorId);
     const prepared = prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems});
@@ -278,6 +289,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       fingerprint,
       file_name:        filename,
       file_path:        storagePath,
+      original_text:    rawText,
       status:           "processing",
     });
     documentId = newDoc.id;
@@ -355,8 +367,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           row: sourceRow,
           ex,
           priorMapping,
-          rowIssues: [],
-          rowNeedsReview: false,   // let the engine decide
+          rowIssues: ocrIssues(sourceRow),
+          rowNeedsReview: ocrIssues(sourceRow).length>0,
           invoiceSources,
           orgId: organizationId,
           vendorId,
@@ -401,15 +413,17 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 7: finalize ────────────────────────────────────────────────────────
   // Any held row or save error keeps the document partial. Only saved rows
   // enter completed_keys; the unchanged A1.7 verifier can safely resume it.
-  if (heldKeys.length > 0 || saveError !== null) {
+  if (heldKeys.length > 0 || saveError !== null || unparsedImageLines.length>0) {
     // Import document status must be 'partial' — the import_documents.status
     // column only accepts ('processing','complete','partial').  'needs_review'
     // is the attachment's status (inbound_attachments.processing_status), not
     // the document's.
     await importService.finalizeDocument(documentId, "partial", newCompletedKeys);
 
-    const reviewReason = saveError || `${heldKeys.length} row(s) require basis or source review: ${heldRows.map(row=>
-      `${row.key}: ${row.reasons?.join('; ') || 'Source fields require confirmation'}`).join(' | ')}`;
+    const reviewReason = saveError || [
+      heldKeys.length?`${heldKeys.length} row(s) require basis or source review: ${heldRows.map(row=>`${row.key}: ${row.reasons?.join('; ') || 'Source fields require confirmation'}`).join(' | ')}`:null,
+      unparsedImageLines.length?`Unreadable image source lines retained for clarification: ${unparsedImageLines.map(line=>line.text).join(' | ')}`:null,
+    ].filter(Boolean).join(' | ');
 
     // Pass documentId so the partially-created import document is linked to the
     // attachment.  Migration 033's set_attachment_processing_status allows

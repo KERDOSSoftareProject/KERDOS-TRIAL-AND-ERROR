@@ -12,3 +12,8 @@ verify_jwt = true
 # verifies that credential before reading or writing any email data.
 [functions.inbound-email]
 verify_jwt = false
+
+# Internal OCR uses the same gateway and exact service-role authorization as
+# process-attachment. No customer credentials or client interaction required.
+[functions.image-text]
+verify_jwt = true

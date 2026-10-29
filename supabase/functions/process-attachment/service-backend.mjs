@@ -26,6 +26,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createRecords } from "../../../src/backend/records.js";
 import { createLeaseBindings } from "./lease-bindings.mjs";
+import { extractImageText } from './image-text-client.mjs';
 
 // ── Supabase record query executor ────────────────────────────────────────────
 //
@@ -149,6 +150,13 @@ export function createServiceBackend({
   // ── attachments ──────────────────────────────────────────────────────────
 
   const attachments = {
+    async extractImageText(bytes){
+      return extractImageText(bytes,{renewLease:()=>lease.renewLease(),invoke:async body=>{
+        const response=await fetch(`${url}/functions/v1/image-text`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceRoleKey}`},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});
+        const result=await response.json().catch(()=>({}));
+        return {ok:response.ok,status:response.status,data:result,error:result.error};
+      }});
+    },
     async markNeedsReviewIfPending(attachmentId, reason) {
       const { error } = await supabase.from("inbound_attachments")
         .update({ processing_status: "needs_review", processing_error: reason })
