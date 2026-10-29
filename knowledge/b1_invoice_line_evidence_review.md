@@ -53,3 +53,9 @@ Restore the prior function body from `knowledge/migration_013_invoice_mapping.sq
 with the same bounded timeouts, and redeploy the preceding frontend if necessary.
 Preserve all invoice rows, prices and originals. No historical-data cleanup is
 part of this change.
+
+## Approved kerdos-test application — October 29
+
+Dino explicitly approved the function update and PR #28 deployment. Applied migration `20261029134730_b1_manual_invoice_line_evidence`; its repository filename comes from actual Supabase history. An authenticated-role call to the actual RPC preserved quantity 2, CASE, 2/10 LB, source line and explicit billing-unit evidence. The accepted 41.25 quote and its price-history count stayed unchanged. All verification writes rolled back: zero B1-RPC-ROLLBACK-CHECK rows, the original invoice count remains one, both prior quote IDs/values remain, and Task 1 recovery job 1 remains active every five minutes.
+
+The function remains SECURITY INVOKER. The authenticated grant is retained. An explicit/inherited anonymous EXECUTE privilege was already present before this migration and remains present; this deployment does not claim to remove it. The function still rejects missing authentication and enforces owner/manager organization and vendor checks. The fresh local SQL test’s denied-anonymous-execution result does not describe this pre-existing hosted ACL. Historical invoice rows were not backfilled. Fresh signed-in frontend acceptance remains open.
