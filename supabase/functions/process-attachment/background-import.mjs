@@ -138,7 +138,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 2: read file ──────────────────────────────────────────────────────
   let readResult;
   try {
-    readResult = await readAttachment(bytes, mimeType, filename,{imageTextReader:backend.attachments.extractImageText});
+    readResult = await readAttachment(bytes, mimeType, filename,{imageTextReader:backend.attachments.extractImageText,pdfTextReader:backend.attachments.extractPdfText});
   } catch (err) {
     if (err instanceof FileReadError) {
       // Permanent: corrupt or unreadable file.

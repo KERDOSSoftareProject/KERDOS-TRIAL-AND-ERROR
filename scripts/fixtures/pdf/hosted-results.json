@@ -1,0 +1,517 @@
+{
+  "project": "gwtnaudjfoxjermhvhpx",
+  "pr": 19,
+  "sourceCommit": "20e8d37d42dae5076c9d150ad7b43c348d408c9a",
+  "recordedAt": "2026-10-29T01:03:12.143Z",
+  "category": "Hosted PDF runtime and synthetic webhook/database acceptance; not new real-email PDF delivery or independent browser-closure observation",
+  "stageOrder": {
+    "helperRequest": 446,
+    "helperPassedBeforeWorkerUpdate": true,
+    "helperVersion": 1,
+    "processorVersion": 13,
+    "helperExactSourceFiles": 3,
+    "processorExactSourceFiles": 42
+  },
+  "fixtureOrganization": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09",
+  "fixtureVendor": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+  "httpResponses": [
+    {
+      "id": 446,
+      "status_code": 200,
+      "timed_out": false,
+      "error_msg": null,
+      "content": {
+        "passed": true,
+        "checks": [
+          {
+            "check": "auth-rejection",
+            "status": 401
+          },
+          {
+            "check": "auth-rejection",
+            "status": 401
+          },
+          {
+            "check": "auth-rejection",
+            "status": 401
+          },
+          {
+            "name": "text-prices",
+            "passed": true,
+            "pages": 2,
+            "lines": [
+              {
+                "text": "Code\tDescription\tPack\tPrice Unit\tPrice",
+                "confidence": 100,
+                "page": 0
+              },
+              {
+                "text": "12345\tChicken Breast\t20 LB\tCASE\t40.00",
+                "confidence": 100,
+                "page": 0
+              },
+              {
+                "text": "Code\tDescription\tPack\tPrice Unit\tPrice",
+                "confidence": 100,
+                "page": 1
+              },
+              {
+                "text": "12346\tTurkey Breast\t20 LB\tCASE\t50.00",
+                "confidence": 100,
+                "page": 1
+              }
+            ]
+          },
+          {
+            "name": "side-by-side",
+            "passed": true,
+            "pages": 1,
+            "lines": [
+              {
+                "text": "Product\tPrice",
+                "confidence": 100,
+                "page": 0
+              },
+              {
+                "text": "Chicken Breast 20 LB\t40.00",
+                "confidence": 100,
+                "page": 0
+              },
+              {
+                "text": "Product\tPrice",
+                "confidence": 100,
+                "page": 0
+              },
+              {
+                "text": "Turkey Breast 20 LB\t50.00",
+                "confidence": 100,
+                "page": 0
+              }
+            ]
+          },
+          {
+            "name": "scanned-prices",
+            "passed": true,
+            "pages": 1,
+            "lines": [
+              {
+                "text": "Code\tDescription\tPack\tPrice Unit\tPrice",
+                "confidence": 95.811249,
+                "top": 32,
+                "bottom": 71,
+                "page": 0
+              },
+              {
+                "text": "12345\tChicken Breast\t20 LB\tCASE\t40.00",
+                "confidence": 95.40107,
+                "top": 176,
+                "bottom": 200,
+                "page": 0
+              },
+              {
+                "text": "12346\tTurkey Breast\t20 LB\tCASE\t50.00",
+                "confidence": 95.716896,
+                "top": 376,
+                "bottom": 407,
+                "page": 0
+              }
+            ]
+          },
+          {
+            "name": "scanned-invoice",
+            "passed": true,
+            "pages": 1,
+            "lines": [
+              {
+                "text": "Invoice Number: 123456789",
+                "confidence": 95.009666,
+                "top": 32,
+                "bottom": 59,
+                "page": 0
+              },
+              {
+                "text": "Invoice Date: 2026-10-28",
+                "confidence": 94.695137,
+                "top": 97,
+                "bottom": 124,
+                "page": 0
+              },
+              {
+                "text": "Code\tDescription\tPack\tPrice Unit\tQty\tUnit Price\tAmount",
+                "confidence": 94.958046,
+                "top": 223,
+                "bottom": 265,
+                "page": 0
+              },
+              {
+                "text": "12345\tChicken Breast\t20 LB\tCASE\t2\t40.00\t80.00",
+                "confidence": 91.713722,
+                "top": 347,
+                "bottom": 374,
+                "page": 0
+              },
+              {
+                "text": "Total: 80.00",
+                "confidence": 96.443382,
+                "top": 507,
+                "bottom": 534,
+                "page": 0
+              }
+            ]
+          },
+          {
+            "name": "uncertain-prices",
+            "passed": true,
+            "pages": 1,
+            "lines": [
+              {
+                "text": "Code\tDescription\tPack\tPrice Unit\tPrice",
+                "confidence": 95.811249,
+                "top": 32,
+                "bottom": 71,
+                "page": 0
+              },
+              {
+                "text": "[Unrecognized image content]",
+                "confidence": 0,
+                "top": 175,
+                "bottom": 200,
+                "page": 0
+              },
+              {
+                "text": "12346\tTurkey Breast\t20 LB\tCASE\t50.00",
+                "confidence": 95.716896,
+                "top": 376,
+                "bottom": 407,
+                "page": 0
+              }
+            ]
+          },
+          {
+            "name": "encrypted",
+            "status": 422,
+            "error": "PDF requires a password"
+          },
+          {
+            "name": "corrupt",
+            "status": 422
+          }
+        ]
+      }
+    },
+    {
+      "id": 448,
+      "status_code": 200,
+      "timed_out": false,
+      "error_msg": null,
+      "content": {
+        "synthetic": true,
+        "messageId": "a1-hosted-pdf-prices-20261028-001",
+        "responses": [
+          {
+            "attempt": 0,
+            "status": 200,
+            "body": "OK"
+          },
+          {
+            "attempt": 1,
+            "status": 200,
+            "body": "OK"
+          }
+        ]
+      }
+    },
+    {
+      "id": 449,
+      "status_code": 200,
+      "timed_out": false,
+      "error_msg": null,
+      "content": {
+        "synthetic": true,
+        "messageId": "a1-hosted-pdf-invoices-20261028-001",
+        "responses": [
+          {
+            "attempt": 0,
+            "status": 200,
+            "body": "OK"
+          },
+          {
+            "attempt": 1,
+            "status": 200,
+            "body": "OK"
+          }
+        ]
+      }
+    }
+  ],
+  "database": [
+    {
+      "attachment_id": "a8f6f4e4-5208-45d3-ba1d-91fa8239e731",
+      "filename": "encrypted.pdf",
+      "file_size_bytes": 1946,
+      "processing_status": "needs_review",
+      "processing_error": "File could not be read: PDF requires a password",
+      "import_document_id": null,
+      "document_status": null,
+      "file_name": null,
+      "completed_keys": null,
+      "retained_originals": 1,
+      "quotes": 0,
+      "named_quotes": 0,
+      "prices": null,
+      "invoices": null,
+      "message_id": "52887a6e-f689-4d2b-bfd7-4721c088744f",
+      "postmark_message_id": "a1-hosted-pdf-prices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "pricelist"
+    },
+    {
+      "attachment_id": "917c4b7b-aa1f-4424-a0c6-0ea9114fff96",
+      "filename": "non-pricing.pdf",
+      "file_size_bytes": 4236,
+      "processing_status": "needs_review",
+      "processing_error": "No structured price rows found in document",
+      "import_document_id": null,
+      "document_status": null,
+      "file_name": null,
+      "completed_keys": null,
+      "retained_originals": 1,
+      "quotes": 0,
+      "named_quotes": 0,
+      "prices": null,
+      "invoices": null,
+      "message_id": "52887a6e-f689-4d2b-bfd7-4721c088744f",
+      "postmark_message_id": "a1-hosted-pdf-prices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "pricelist"
+    },
+    {
+      "attachment_id": "1ccda4c1-4e31-4c9a-aa4d-78c504e7cb48",
+      "filename": "scanned-invoice.pdf",
+      "file_size_bytes": 46016,
+      "processing_status": "auto_imported",
+      "processing_error": null,
+      "import_document_id": "0ecc409c-a79c-460c-adec-da5760dc1849",
+      "document_status": "complete",
+      "file_name": "scanned-invoice.pdf",
+      "completed_keys": [
+        "row:0"
+      ],
+      "retained_originals": 1,
+      "quotes": 0,
+      "named_quotes": 0,
+      "prices": null,
+      "invoices": [
+        {
+          "id": "80830c18-2047-4be0-8ec7-36b47d972136",
+          "date": "2026-10-28",
+          "lines": [
+            {
+              "unit": "CASE",
+              "price": 40,
+              "total": 80,
+              "evidence": {
+                "kind": "pricing-unit-header",
+                "unit": "CASE",
+                "header": "Price Unit"
+              },
+              "quantity": 2
+            }
+          ],
+          "total": 80,
+          "number": "123456789"
+        }
+      ],
+      "message_id": "cc914a07-f548-4c36-b210-1a449a2917f7",
+      "postmark_message_id": "a1-hosted-pdf-invoices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "invoice"
+    },
+    {
+      "attachment_id": "91a45ea4-7119-4d68-95c9-da66a577c7be",
+      "filename": "scanned-prices.pdf",
+      "file_size_bytes": 27402,
+      "processing_status": "auto_imported",
+      "processing_error": null,
+      "import_document_id": "836dec51-8684-43ad-8973-b928d87b2ccc",
+      "document_status": "complete",
+      "file_name": "scanned-prices.pdf",
+      "completed_keys": [
+        "row:0",
+        "row:1"
+      ],
+      "retained_originals": 1,
+      "quotes": 2,
+      "named_quotes": 2,
+      "prices": [
+        40,
+        50
+      ],
+      "invoices": null,
+      "message_id": "52887a6e-f689-4d2b-bfd7-4721c088744f",
+      "postmark_message_id": "a1-hosted-pdf-prices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "pricelist"
+    },
+    {
+      "attachment_id": "485db228-3b16-4011-92e4-66fd2abbb324",
+      "filename": "text-invoice.pdf",
+      "file_size_bytes": 1568,
+      "processing_status": "auto_imported",
+      "processing_error": null,
+      "import_document_id": "f0496048-c27c-46c6-8bbe-e4db635efbc1",
+      "document_status": "complete",
+      "file_name": "text-invoice.pdf",
+      "completed_keys": [
+        "row:0"
+      ],
+      "retained_originals": 1,
+      "quotes": 0,
+      "named_quotes": 0,
+      "prices": null,
+      "invoices": [
+        {
+          "id": "c4c75cc0-0a60-4b31-8c3d-e6911cf6ac63",
+          "date": "2026-10-28",
+          "lines": [
+            {
+              "unit": "CASE",
+              "price": 40,
+              "total": 80,
+              "evidence": {
+                "kind": "pricing-unit-header",
+                "unit": "CASE",
+                "header": "Price Unit"
+              },
+              "quantity": 2
+            }
+          ],
+          "total": 80,
+          "number": "PDF-123456789"
+        }
+      ],
+      "message_id": "cc914a07-f548-4c36-b210-1a449a2917f7",
+      "postmark_message_id": "a1-hosted-pdf-invoices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "invoice"
+    },
+    {
+      "attachment_id": "2edc9d58-6bd9-431e-b6a4-3198096a81ad",
+      "filename": "text-prices.pdf",
+      "file_size_bytes": 2005,
+      "processing_status": "auto_imported",
+      "processing_error": null,
+      "import_document_id": "58d9abe5-b14c-40e8-8ca1-d25e4a68f752",
+      "document_status": "complete",
+      "file_name": "text-prices.pdf",
+      "completed_keys": [
+        "row:0",
+        "row:1"
+      ],
+      "retained_originals": 1,
+      "quotes": 2,
+      "named_quotes": 2,
+      "prices": [
+        40,
+        50
+      ],
+      "invoices": null,
+      "message_id": "52887a6e-f689-4d2b-bfd7-4721c088744f",
+      "postmark_message_id": "a1-hosted-pdf-prices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "pricelist"
+    },
+    {
+      "attachment_id": "7adcee66-7767-45d3-80c3-cf1465bf20f5",
+      "filename": "uncertain-prices.pdf",
+      "file_size_bytes": 40037,
+      "processing_status": "needs_review",
+      "processing_error": "Unreadable image source lines retained for clarification: [Unrecognized image content]",
+      "import_document_id": "44c48d6c-7c4d-4358-9d5b-eaaeac24046b",
+      "document_status": "partial",
+      "file_name": "uncertain-prices.pdf",
+      "completed_keys": [
+        "row:0"
+      ],
+      "retained_originals": 1,
+      "quotes": 1,
+      "named_quotes": 1,
+      "prices": [
+        50
+      ],
+      "invoices": null,
+      "message_id": "52887a6e-f689-4d2b-bfd7-4721c088744f",
+      "postmark_message_id": "a1-hosted-pdf-prices-20261028-001",
+      "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+      "receipt_document_type": "pricelist"
+    }
+  ],
+  "recovery": {
+    "recovery": {
+      "id": 450,
+      "content": {
+        "recovered": [],
+        "replayed": [
+          {
+            "id": "7adcee66-7767-45d3-80c3-cf1465bf20f5",
+            "outcome": "needs_review"
+          },
+          {
+            "id": "91a45ea4-7119-4d68-95c9-da66a577c7be",
+            "outcome": "auto_imported"
+          }
+        ],
+        "needsReview": [],
+        "deferred": []
+      },
+      "error_msg": null,
+      "timed_out": false,
+      "status_code": 200
+    },
+    "attachments": [
+      {
+        "id": "91a45ea4-7119-4d68-95c9-da66a577c7be",
+        "quotes": 2,
+        "filename": "scanned-prices.pdf",
+        "completed_keys": [
+          "row:0",
+          "row:1"
+        ],
+        "document_status": "complete",
+        "processing_error": null,
+        "processing_status": "auto_imported",
+        "import_document_id": "836dec51-8684-43ad-8973-b928d87b2ccc"
+      },
+      {
+        "id": "7adcee66-7767-45d3-80c3-cf1465bf20f5",
+        "quotes": 1,
+        "filename": "uncertain-prices.pdf",
+        "completed_keys": [
+          "row:0"
+        ],
+        "document_status": "partial",
+        "processing_error": "Unreadable image source lines retained for clarification: [Unrecognized image content]",
+        "processing_status": "needs_review",
+        "import_document_id": "44c48d6c-7c4d-4358-9d5b-eaaeac24046b"
+      }
+    ]
+  },
+  "cleanup": {
+    "temporaryRunner": "a1-review-fixture-seed",
+    "version": 14,
+    "verifyJwt": true,
+    "status": 410,
+    "dataOrSecretAccess": false,
+    "deleted": false
+  },
+  "localChecks": {
+    "pdf": 16,
+    "worker": 15,
+    "imageOcr": 9,
+    "fullTests": true,
+    "lint": true,
+    "build": true
+  },
+  "newEmailSends": 0,
+  "clientActions": 0
+}

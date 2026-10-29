@@ -306,20 +306,21 @@ await test("needs_review: unsupported MIME type", async () => {
 
 // ── Test 3: empty CSV → needs_review ──────────────────────────────────────────
 
-for(const scenario of ['confirmed','low-row','unreadable']){
+for(const scenario of ['confirmed','low-row','unreadable','pdf']){
   const lowConfidence=scenario==='low-row';
   await test(`image importer: ${scenario}`,async()=>{
     const lines=['Code,Description,Pack,Price Unit,Price','12345,Chicken Breast,20 LB,CASE,40.00','12346,Turkey Breast,20 LB,CASE,50.00'];
     if(scenario==='unreadable')lines.push('blurred source line');
     const vendorItems=lines.slice(1,3).map((line,i)=>({id:`image-vi-${i}`,organization_id:'org-1',vendor_id:'vendor-1',vendor_item_code:String(12345+i),description:i?'Turkey Breast':'Chicken Breast',pack_size:'20 LB',selling_unit:'CASE',price_basis:'case',price_source:'price_list'}));
     const backend=createInMemoryBackend({vendorItems,mappings:vendorItems.map((v,i)=>({id:`im-${i}`,organization_id:'org-1',vendor_item_id:v.id,catalog_item_id:`ic-${i}`,comparison_track:'exact',confidence_score:100}))});
-    backend.attachments.extractImageText=async()=>({kind:'lines',lines,ocr:{engine:'tesseract-core-7.0.0',confidence:lowConfidence?40:99,lines:lines.map((text,i)=>({text,confidence:lowConfidence&&i===1||scenario==='unreadable'&&i===3?40:99}))}});
-    const result=await processAttachmentInBackground(backend,{...ATTACHMENT_BASE,filename:'received.png',content_type:'image/png'},{organizationId:'org-1',vendorId:'vendor-1',documentType:'pricelist'});
-    assert.equal(result.outcome,scenario==='confirmed'?'auto_imported':'needs_review');
+    const pdf=scenario==='pdf',engine=pdf?'pdfium-3.0.0+tesseract-core-7.0.0':'tesseract-core-7.0.0',filename=pdf?'received.pdf':'received.png';
+    backend.attachments[pdf?'extractPdfText':'extractImageText']=async()=>({kind:'lines',lines,ocr:{engine,confidence:lowConfidence?40:99,lines:lines.map((text,i)=>({text,confidence:lowConfidence&&i===1||scenario==='unreadable'&&i===3?40:99}))}});
+    const result=await processAttachmentInBackground(backend,{...ATTACHMENT_BASE,filename,content_type:pdf?'application/pdf':'image/png'},{organizationId:'org-1',vendorId:'vendor-1',documentType:'pricelist'});
+    assert.equal(result.outcome,scenario==='confirmed'||pdf?'auto_imported':'needs_review');
     assert.equal(backend._appliedQuotes.length,lowConfidence?1:2);
     assert.equal(backend._createdDocs[0].original_text,lines.join('\n'));
-    const quote=backend._appliedQuotes.at(-1);assert.equal(quote.vendorItemCode,'12346');assert.equal(quote.price,50);assert.equal(quote.sourceFileName,'received.png');
-    assert.equal(quote.importRow.row.ocr.engine,'tesseract-core-7.0.0');
+    const quote=backend._appliedQuotes.at(-1);assert.equal(quote.vendorItemCode,'12346');assert.equal(quote.price,50);assert.equal(quote.sourceFileName,filename);
+    assert.equal(quote.importRow.row.ocr.engine,engine);
     if(lowConfidence){assert.ok(backend._statusLog.at(-1).error.includes('Image text recognition'));assert.ok(!backend._appliedQuotes.some(q=>q.vendorItemCode==='12345'));}
   });
 }
