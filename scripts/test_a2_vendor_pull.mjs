@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {build} from 'esbuild';
+import {createHash} from 'node:crypto';
+import {createPriceImportFixture} from './fixtures/price-import-backend.mjs';
+import {processAttachmentInBackground} from '../supabase/functions/process-attachment/background-import.mjs';
+import {orderGuideAssessment} from '../src/core/catalog-fields.js';
 import {downloadExport,isPublicAddress,pullVendorSources,sourceUrl,retainExport} from '../supabase/functions/vendor-price-pull/pull.mjs';
 const db=new PGlite();let passed=0;
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
@@ -179,5 +183,57 @@ try{
   assert.equal((await db.query('SELECT count(*) FROM vault.secrets WHERE id=$1',[secret])).rows[0].count,0);
   assert.equal((await db.query('SELECT count(*) FROM inbound_messages')).rows[0].count,3);
  });
- console.log(`${passed}/${passed} A2 executed adapter/SQL checks passed. Vault is simulated locally; no live vendor acceptance is implied.`);
+ // Composed interaction: real source SQL + export adapter + parser/importer.
+ // HTTP, object storage and price/catalog persistence are local test doubles.
+ const chainedSource=(await db.query("SELECT kerdos_private.configure_vendor_price_source($1,$2,'https://exports.vendor.example.com','/prices.csv','prices.csv',$3,1440,true) id",[org,vendor,{kind:'bearer',token:'chain-synthetic'}])).rows[0].id;
+ const state=createPriceImportFixture({text:''});
+ const originals=new Map();let price=80;
+ const csv=()=>`Code,Description,Pack,Price Unit,Price\nA2-CHAIN-001,Chicken Breast Boneless Skinless,4/10 LB,CASE,${price}\n`;
+ state.backend.attachments.download=async path=>{assert.ok(originals.has(path));return originals.get(path);};
+ const recordStatus=state.backend.attachments.setStatus;
+ state.backend.attachments.setStatus=async(...args)=>{await recordStatus(...args);await db.query('UPDATE inbound_attachments SET processing_status=$1 WHERE id=$2',[args[1],args[0]]);};
+ const scalar=async(sql,args)=>(await db.query(sql,args)).rows[0].result;
+ const chain={
+  claim:id=>scalar('SELECT public.kerdos_claim_vendor_pulls($1) result',[id]),
+  async retain(s,path,bytes){assert.equal(s.organization_id,org);if(originals.has(path))assert.deepEqual(originals.get(path),bytes);else originals.set(path,bytes.slice());},
+  stage:(s,a)=>scalar('SELECT public.kerdos_stage_vendor_pull($1,$2,$3,$4,$5,$6) result',[s.id,s.lease_token,a.hash,a.path,a.contentType,a.size]),
+  async dispatch(organizationId,attachmentId){
+   const att=(await db.query('SELECT a.*,m.receipt_vendor_id,m.receipt_document_type FROM inbound_attachments a JOIN inbound_messages m ON m.id=a.message_id WHERE a.id=$1 AND a.organization_id=$2',[attachmentId,organizationId])).rows[0];
+   assert.equal(att.receipt_vendor_id,vendor);assert.equal(att.receipt_document_type,'pricelist');
+   return processAttachmentInBackground(state.backend,att,{organizationId,vendorId:att.receipt_vendor_id,documentType:att.receipt_document_type});
+  },
+  finish:(s,status,reason,attachment)=>scalar('SELECT public.kerdos_finish_vendor_pull($1,$2,$3,$4,$5) result',[s.id,s.lease_token,status,reason,attachment]),
+ };
+ const pull=()=>pullVendorSources(chain,{sourceId:chainedSource,resolveHost:opts.resolveHost,digest:async bytes=>createHash('sha256').update(bytes).digest('hex'),fetchImpl:async(url,options)=>{assert.equal(options.headers.Authorization,'Bearer chain-synthetic');return new Response(csv(),{headers:{'content-type':'text/csv'}});}});
+ await check('composed export → real importer creates item, catalog link and exact automatic price with retained original',async()=>{
+  assert.equal(state.vendorItems.length,0);assert.equal(state.catalogItems.length,0);
+  const result=await pull();assert.equal(result.results[0].status,'received');assert.equal(result.results[0].reason,'auto_imported');
+  assert.equal(state.vendorItems.length,1);assert.equal(state.catalogItems.length,1);assert.equal(Object.keys(state.mappings).length,1);
+  const quote=state.calls.applyQuote[0];assert.equal(quote.price,80);assert.equal(quote.priceBasis,'case');assert.equal(quote.packSize,'4/10 LB');
+  const doc=Object.values(state.importDocs)[0];assert.equal(doc.status,'complete');assert.equal(doc.file_name,'prices.csv');
+  assert.equal(quote.sourceDocumentId,doc.id);assert.equal(quote.sourceFilePath,doc.file_path);
+  assert.equal(new TextDecoder().decode(originals.get(doc.file_path)),csv());
+  const att=(await db.query('SELECT processing_status FROM inbound_attachments WHERE id=$1',[result.results[0].attachmentId])).rows[0];assert.equal(att.processing_status,'auto_imported');
+ });
+ await check('composed identical export replay creates no second quote, document, item or catalog link',async()=>{
+  await pull();assert.equal(state.calls.applyQuote.length,1);assert.equal(Object.keys(state.importDocs).length,1);
+  assert.equal(state.vendorItems.length,1);assert.equal(state.catalogItems.length,1);assert.equal(state.calls.createMapping.length,1);assert.equal(originals.size,1);
+ });
+ await check('composed A → B → A saves all three prices on the same item and keeps every source observation',async()=>{
+  price=90;assert.equal((await pull()).results[0].reason,'auto_imported');
+  price=80;assert.equal((await pull()).results[0].reason,'auto_imported');
+  assert.deepEqual(state.calls.applyQuote.map(q=>q.price),[80,90,80]);
+  assert.equal(state.vendorItems.length,1);assert.equal(state.vendorItems[0].price,80);assert.equal(state.catalogItems.length,1);assert.equal(state.calls.createMapping.length,1);
+  const docs=Object.values(state.importDocs);assert.equal(docs.length,3);assert.ok(docs.every(d=>d.status==='complete'));
+  assert.equal(new Set(docs.map(d=>d.id)).size,3);assert.equal(new Set(docs.map(d=>d.fingerprint)).size,3);assert.equal(originals.size,3);
+  for(const q of state.calls.applyQuote)assert.ok(originals.has(q.sourceFilePath));
+ });
+ await check('composed import retains honest Order Guide qualification and final replay stays duplicate-safe',async()=>{
+  const item=state.catalogItems[0],vendorItem=state.vendorItems[0],mapping=Object.values(state.mappings)[0];
+  const category=state.categories.find(c=>c.id===item.category_id);
+  const assessment=orderGuideAssessment({item,vendorItem,mapping,vendor:{id:vendor,name:'Controlled vendor'},category,categories:state.categories,peers:[]});
+  assert.equal(assessment.evidence.unitCost.value,2);assert.equal(assessment.ready,false);assert.deepEqual(assessment.blockers,['category']);
+  await pull();assert.equal(state.calls.applyQuote.length,3);assert.equal(Object.keys(state.importDocs).length,3);assert.equal(state.calls.createMapping.length,1);
+ });
+ console.log(`${passed}/${passed} A2 executed adapter/SQL/importer checks passed. HTTP/storage/catalog writes and Vault are simulated locally; no hosted or live vendor acceptance is implied.`);
 }finally{await db.close();}
