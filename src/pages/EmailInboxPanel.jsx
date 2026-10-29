@@ -31,7 +31,7 @@ import {
   getAttachmentFile,
 } from "../services/email-routing.js";
 import {btn} from "../ui/styles.js";
-import {formatDate} from "../localization.js";
+import {formatDateTime} from "../localization.js";
 import {attachmentRenderOutcome,attachmentActionBlocked} from "../utils/attachment-state.js";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ function MessageRow({msg,orgId,vendors,orgSettings,catalogItems,categories,vocab
 
   const pendingCount=msg.pending_count||0;
   const totalCount=msg.attachment_count||0;
-  const dateStr=msg.received_at?formatDate(new Date(msg.received_at)):"";
+  const dateStr=formatDateTime(msg.received_at);
 
   return(
     <div style={{borderBottom:"1px solid #F0F0F0"}}>
@@ -298,7 +298,7 @@ function MessageRow({msg,orgId,vendors,orgSettings,catalogItems,categories,vocab
           </div>
         </div>
         <div style={{textAlign:"right",flexShrink:0}}>
-          <div style={{fontSize:11,color:"#888"}}>{dateStr}</div>
+          <time dateTime={msg.received_at||undefined} style={{display:"block",fontSize:11,color:"#888"}}>{dateStr}</time>
           {totalCount>0&&(
             <div style={{fontSize:11,marginTop:2}}>
               📎 {totalCount}

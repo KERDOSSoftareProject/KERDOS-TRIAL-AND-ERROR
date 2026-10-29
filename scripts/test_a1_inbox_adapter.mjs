@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import {createSupabaseBackend} from "./src/backend/supabase.js";
 import {assertBackendContract} from "./src/backend/contract.js";
 import {RoutingAddressPanel,EmailInboxPanel} from "./src/pages/EmailInboxPanel.jsx";
+import {configureLocale,formatDateTime} from "./src/localization.js";
 import {createRoutingAddress,setRoutingAddressVendor,deactivateRoutingAddress,listMessages,getMessage,listPendingAttachments,getAttachmentFile,beginManualAttachmentReview,markAttachmentIngested} from "./src/services/email-routing.js";
 const calls=[];
 let rpcData=true,rpcError=null;
@@ -60,7 +61,7 @@ const automaticAttachments=[
  {id:"auto-done",filename:"complete.csv",processing_status:"auto_imported",import_document_id:"complete-doc"},
  {id:"auto-unsupported",filename:"logo.png",processing_status:"needs_review",processing_error:"Unsupported image/png"},
 ];
-data.inbound_messages=[{id:"automatic-message",organization_id:"org-1",subject:"Automatic intake fixture",vendor_snapshot_at:"2026-10-28T18:07:00Z",receipt_vendor_id:"vendor-1",receipt_document_type:"pricelist",inbound_attachments:automaticAttachments}];
+data.inbound_messages=[{id:"automatic-message",organization_id:"org-1",subject:"Automatic intake fixture",received_at:"2026-10-28T18:07:42Z",vendor_snapshot_at:"2026-10-28T18:07:00Z",receipt_vendor_id:"vendor-1",receipt_document_type:"pricelist",inbound_attachments:automaticAttachments}];
 const beforeAutomatic=calls.length;
 await act(async()=>{tree=Renderer.create(React.createElement(EmailInboxPanel,{orgId:"org-1"}));});
 const renderedText=node=>typeof node==="string"?node:node.children.map(renderedText).join("");
@@ -68,6 +69,15 @@ const automaticHeader=tree.root.findAll(node=>node.type==="div"&&typeof node.pro
 assert.ok(automaticHeader);
 await act(async()=>{await automaticHeader.props.onClick();});
 const automaticView=JSON.stringify(tree.toJSON());
+const receivedTime=tree.root.findByType("time");
+assert.equal(receivedTime.props.dateTime,"2026-10-28T18:07:42Z");
+assert.equal(receivedTime.children.join(""),new Intl.DateTimeFormat("en-US",{year:"numeric",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit",second:"2-digit",timeZoneName:"short"}).format(new Date("2026-10-28T18:07:42Z")));
+configureLocale({locale:"el-GR"});
+assert.equal(formatDateTime("2026-10-28T18:07:42Z"),new Intl.DateTimeFormat("el-GR",{year:"numeric",month:"numeric",day:"numeric",hour:"numeric",minute:"2-digit",second:"2-digit",timeZoneName:"short"}).format(new Date("2026-10-28T18:07:42Z")));
+assert.equal(formatDateTime(null),"");
+assert.equal(formatDateTime("invalid-date"),"invalid-date");
+configureLocale({locale:"en-US"});
+console.log("PASS actual Inbox receipt renders date, time, seconds and timezone while retaining its original timestamp; locale and missing/invalid values handled");
 for(const label of ["Processed — clarification flagged","Queued for automatic processing","Processing automatically…","✓ Imported automatically","Received — needs attention","Quoted unit needs clarification","Item Catalog"]){assert.ok(automaticView.includes(label),label);}
 for(const label of ["Complete Import","Review & Import","Apply corrections","Choose Files"]){assert.ok(!automaticView.includes(label),'automatic intake must not offer '+label);}
 assert.ok(calls.slice(beforeAutomatic).every(call=>call.action==="select"),"opening automatic receipt must only read records");
@@ -105,7 +115,7 @@ rpcError=null;rpcData=null;
 await markAttachmentIngested(backend,"org-1","a1","document","auto_imported");
 assert.deepEqual(calls.at(-1),{rpc:"mark_attachment_ingested",params:{p_attachment_id:"a1",p_import_document_id:"document",p_final_status:"auto_imported"}});
 console.log("PASS reservation success, contention, errors and final linkage use Inbox adapter operations");
-console.log("6/6 Inbox adapter integration checks passed");
+console.log("7/7 Inbox adapter integration checks passed");
 process.exit(0);
 `;
 try{
