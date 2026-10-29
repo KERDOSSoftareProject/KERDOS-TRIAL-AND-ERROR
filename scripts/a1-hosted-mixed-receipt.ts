@@ -35,7 +35,7 @@ const PAYLOAD={
       "ContentLength": 114
     }
   ]
-},EXPIRES="2026-10-29T01:47:26.827170+00:00";
+},EXPIRES="2026-10-29T01:42:39.981Z";
 async function equal(a:string,b:string){if(!a||!b)return false;const h=async(s:string)=>new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s)));const[x,y]=await Promise.all([h(a),h(b)]);let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];return d===0;}
 const digest=async(bytes:Uint8Array)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),b=>b.toString(16).padStart(2,"0")).join("");
 Deno.serve(async req=>{

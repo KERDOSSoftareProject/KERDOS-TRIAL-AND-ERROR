@@ -1,0 +1,296 @@
+{
+  "recordedAt": "2026-10-29T01:24:21.070Z",
+  "project": "gwtnaudjfoxjermhvhpx",
+  "category": "Hosted synthetic mixed receipt; not real-email delivery",
+  "applicationFunctionsUnchanged": true,
+  "applicationBefore": [
+    {
+      "name": "inbound-email",
+      "version": 6,
+      "sha": "0e2ef92942a2be44c75cec613977b86039c93ea6077a43cfab41b9c53bd804f0",
+      "verifyJwt": false
+    },
+    {
+      "name": "process-attachment",
+      "version": 13,
+      "sha": "ba11ad3132615b44a169a058ffa550c2839d2b35961a12b191586174f8bed377",
+      "verifyJwt": true
+    },
+    {
+      "name": "image-text",
+      "version": 3,
+      "sha": "0abb769017b77ab23359d4fa6393a712d499ff047ef6654b9aa2c4a00a2c8416",
+      "verifyJwt": true
+    }
+  ],
+  "applicationAfter": [
+    {
+      "name": "inbound-email",
+      "version": 6,
+      "sha": "0e2ef92942a2be44c75cec613977b86039c93ea6077a43cfab41b9c53bd804f0",
+      "verifyJwt": false
+    },
+    {
+      "name": "process-attachment",
+      "version": 13,
+      "sha": "ba11ad3132615b44a169a058ffa550c2839d2b35961a12b191586174f8bed377",
+      "verifyJwt": true
+    },
+    {
+      "name": "image-text",
+      "version": 3,
+      "sha": "0abb769017b77ab23359d4fa6393a712d499ff047ef6654b9aa2c4a00a2c8416",
+      "verifyJwt": true
+    }
+  ],
+  "runner": {
+    "name": "a1-review-fixture-seed",
+    "executedVersion": 15,
+    "retiredVersion": 16,
+    "retiredStatus": 410,
+    "verifyJwtRestored": true,
+    "dataOrSecretAccess": false,
+    "deleted": false
+  },
+  "emailSends": 0,
+  "clientActions": 0,
+  "request": 455,
+  "httpStatus": 200,
+  "passed": true,
+  "messageId": "a1-mixed-csv-png-20261028-001",
+  "checks": [
+    {
+      "label": "Fresh fixture message absent before delivery",
+      "passed": true
+    },
+    {
+      "label": "One mixed receipt accepted by inbound-email",
+      "passed": true
+    },
+    {
+      "label": "Single receipt has both attachments and exact vendor/type snapshot",
+      "passed": true
+    },
+    {
+      "label": "CSV completed automatically despite the earlier nonpricing PNG",
+      "passed": true
+    },
+    {
+      "label": "Exact two CSV prices and source filenames saved",
+      "passed": true
+    },
+    {
+      "label": "Nonpricing PNG terminal exception creates no document or false price",
+      "passed": true
+    },
+    {
+      "label": "Both retained originals byte-match their fixtures",
+      "passed": true
+    },
+    {
+      "label": "Existing catalog/vendor items reused without duplicate listings",
+      "passed": true
+    },
+    {
+      "label": "Identical mixed receipt replay accepted",
+      "passed": true
+    },
+    {
+      "label": "Replay preserves every receipt/attachment/document/price/item/original ID, value and terminal state",
+      "passed": true
+    }
+  ],
+  "before": {
+    "messages": [],
+    "items": [
+      {
+        "id": "00141102-07b5-4da0-a974-930f8e00af84",
+        "vendor_item_code": "12345",
+        "selling_unit": "CASE",
+        "price_basis": "case"
+      },
+      {
+        "id": "28d37dd4-c70a-4a77-8d75-7d011a5fd7d8",
+        "vendor_item_code": "12346",
+        "selling_unit": "CASE",
+        "price_basis": "case"
+      }
+    ],
+    "attachments": [],
+    "documents": [],
+    "prices": [],
+    "originals": []
+  },
+  "first": {
+    "messages": [
+      {
+        "id": "73904e71-b920-401e-9175-fb332c0ee4f2",
+        "organization_id": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09",
+        "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+        "receipt_document_type": "pricelist"
+      }
+    ],
+    "items": [
+      {
+        "id": "00141102-07b5-4da0-a974-930f8e00af84",
+        "vendor_item_code": "12345",
+        "selling_unit": "CASE",
+        "price_basis": "case"
+      },
+      {
+        "id": "28d37dd4-c70a-4a77-8d75-7d011a5fd7d8",
+        "vendor_item_code": "12346",
+        "selling_unit": "CASE",
+        "price_basis": "case"
+      }
+    ],
+    "attachments": [
+      {
+        "id": "a1f11a55-5d48-4fea-94bd-66fe3212521c",
+        "filename": "incidental.png",
+        "storage_path": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09/inbound/73904e71-b920-401e-9175-fb332c0ee4f2/0",
+        "file_size_bytes": 2905,
+        "processing_status": "needs_review",
+        "processing_error": "No structured price rows found in document",
+        "import_document_id": null
+      },
+      {
+        "id": "b9a37935-0785-448c-8bf8-76e73502b37f",
+        "filename": "mixed-prices.csv",
+        "storage_path": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09/inbound/73904e71-b920-401e-9175-fb332c0ee4f2/1",
+        "file_size_bytes": 114,
+        "processing_status": "auto_imported",
+        "processing_error": null,
+        "import_document_id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12"
+      }
+    ],
+    "documents": [
+      {
+        "id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12",
+        "status": "complete",
+        "file_name": "mixed-prices.csv",
+        "file_path": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09/inbound/73904e71-b920-401e-9175-fb332c0ee4f2/1",
+        "completed_keys": [
+          "row:0",
+          "row:1"
+        ]
+      }
+    ],
+    "prices": [
+      {
+        "id": "5ce05bb6-8a27-484c-ad4e-7fd37ca5a876",
+        "vendor_item_id": "00141102-07b5-4da0-a974-930f8e00af84",
+        "source_document_id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12",
+        "source_file_name": "mixed-prices.csv",
+        "price": 41.25
+      },
+      {
+        "id": "6d8edd55-cc7f-42d7-ae4c-04d134c249a2",
+        "vendor_item_id": "28d37dd4-c70a-4a77-8d75-7d011a5fd7d8",
+        "source_document_id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12",
+        "source_file_name": "mixed-prices.csv",
+        "price": 51.75
+      }
+    ],
+    "originals": [
+      {
+        "filename": "incidental.png",
+        "bytes": 2905,
+        "sha256": "bfa24770147d0908de8497b69061b1b9a2d0a1ed00ebd67ee53ff9b9d2101502",
+        "matchesFixture": true
+      },
+      {
+        "filename": "mixed-prices.csv",
+        "bytes": 114,
+        "sha256": "07853026cdc252914a2ba46b1cf2ac61eab14de77f976c30bcaf0f7e8d9bc2c0",
+        "matchesFixture": true
+      }
+    ]
+  },
+  "replay": {
+    "messages": [
+      {
+        "id": "73904e71-b920-401e-9175-fb332c0ee4f2",
+        "organization_id": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09",
+        "receipt_vendor_id": "110e43fc-5788-47c2-ad9d-21b18a28be80",
+        "receipt_document_type": "pricelist"
+      }
+    ],
+    "items": [
+      {
+        "id": "00141102-07b5-4da0-a974-930f8e00af84",
+        "vendor_item_code": "12345",
+        "selling_unit": "CASE",
+        "price_basis": "case"
+      },
+      {
+        "id": "28d37dd4-c70a-4a77-8d75-7d011a5fd7d8",
+        "vendor_item_code": "12346",
+        "selling_unit": "CASE",
+        "price_basis": "case"
+      }
+    ],
+    "attachments": [
+      {
+        "id": "a1f11a55-5d48-4fea-94bd-66fe3212521c",
+        "filename": "incidental.png",
+        "storage_path": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09/inbound/73904e71-b920-401e-9175-fb332c0ee4f2/0",
+        "file_size_bytes": 2905,
+        "processing_status": "needs_review",
+        "processing_error": "No structured price rows found in document",
+        "import_document_id": null
+      },
+      {
+        "id": "b9a37935-0785-448c-8bf8-76e73502b37f",
+        "filename": "mixed-prices.csv",
+        "storage_path": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09/inbound/73904e71-b920-401e-9175-fb332c0ee4f2/1",
+        "file_size_bytes": 114,
+        "processing_status": "auto_imported",
+        "processing_error": null,
+        "import_document_id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12"
+      }
+    ],
+    "documents": [
+      {
+        "id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12",
+        "status": "complete",
+        "file_name": "mixed-prices.csv",
+        "file_path": "ab0f7ada-83ad-43eb-a513-6a8c5bd43a09/inbound/73904e71-b920-401e-9175-fb332c0ee4f2/1",
+        "completed_keys": [
+          "row:0",
+          "row:1"
+        ]
+      }
+    ],
+    "prices": [
+      {
+        "id": "5ce05bb6-8a27-484c-ad4e-7fd37ca5a876",
+        "vendor_item_id": "00141102-07b5-4da0-a974-930f8e00af84",
+        "source_document_id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12",
+        "source_file_name": "mixed-prices.csv",
+        "price": 41.25
+      },
+      {
+        "id": "6d8edd55-cc7f-42d7-ae4c-04d134c249a2",
+        "vendor_item_id": "28d37dd4-c70a-4a77-8d75-7d011a5fd7d8",
+        "source_document_id": "f9eaf4f7-5f64-4649-b1d2-70c4ec99ea12",
+        "source_file_name": "mixed-prices.csv",
+        "price": 51.75
+      }
+    ],
+    "originals": [
+      {
+        "filename": "incidental.png",
+        "bytes": 2905,
+        "sha256": "bfa24770147d0908de8497b69061b1b9a2d0a1ed00ebd67ee53ff9b9d2101502",
+        "matchesFixture": true
+      },
+      {
+        "filename": "mixed-prices.csv",
+        "bytes": 114,
+        "sha256": "07853026cdc252914a2ba46b1cf2ac61eab14de77f976c30bcaf0f7e8d9bc2c0",
+        "matchesFixture": true
+      }
+    ]
+  }
+}

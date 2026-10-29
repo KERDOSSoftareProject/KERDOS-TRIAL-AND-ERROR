@@ -48,4 +48,4 @@ for(const fault of ['http','query','ownership','pending','price','original','dup
 await assert.rejects(()=>verifyMixedReceipt({env:{...env,SUPABASE_URL:'https://production.invalid'}}),/kerdos-test/);
 await assert.rejects(()=>verifyMixedReceipt({env:{...env,SUPABASE_SERVICE_ROLE_KEY:''}}),/Missing/);
 console.log('PASS wrong environment and missing credentials stop before network access');count++;
-console.log(`${count}/${count} local verifier-quality checks passed; hosted mixed receipt remains unrun.`);
+console.log(`${count}/${count} local verifier-quality checks passed; hosted results are recorded separately.`);
