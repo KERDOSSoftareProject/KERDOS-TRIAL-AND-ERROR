@@ -124,3 +124,26 @@ This supersedes the earlier unexecuted/approval-blocked status for this exact
 test. It remains a database-only test: no storage, worker, email, export-host,
 scheduler modification, permanent schema or function deployment. Real vendor
 export-to-catalog acceptance is still open.
+
+## Approved staged installation — October29
+
+Dino explicitly approved permanent Task2 installation in kerdos-test, PR23
+merge/fixture publication, isolated controlled pulls/replay and one scheduled
+observation, followed by disabling the source, credential removal and Task2
+cron unscheduling. Task1 recovery remains unchanged.
+
+Migration `20261029120659_a2_vendor_price_pull` applied with3s lock/15s statement/
+10s idle-transaction limits; its filename comes from actual migration history.
+After two connector expired-requestState failures, read-only absence checks
+confirmed no partial installation; the same migration with comments/blank lines
+removed succeeded. No SQL operation was weakened.
+
+Schema verification: zero configured/active sources, authenticated claim execute
+denied, service-role execute granted. Advisors show no new Task2 WARN findings;
+three new private tables have intentional RLS/no-client-policy INFO entries.
+Existing unrelated warnings were present before this change.
+
+`vendor-price-pull` v1 ACTIVE, own bearer authorization, bundle
+SHA256bc0f06f3ba5888416d06da830fe884f6b5cf9ec4b4b455c13a3f4a5440edd533.
+Authentication checks, controlled source intake/replay, scheduled observation
+and cleanup must be recorded separately before claiming hosted acceptance.
