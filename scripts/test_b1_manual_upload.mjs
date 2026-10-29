@@ -124,14 +124,49 @@ await check('failed price-sheet original retention also prevents quotes and docu
  assert.ok(text(p.tree.toJSON()).includes('controlled storage failure'));
  assert.equal(writes(f),0);assert.equal(f.calls.createCatalog.length,0);p.tree.unmount();
 });
-console.log(passed+'/9 B1 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('B3 positioned PDF saves the 40 price, not its 20-LB pack, with source geometry',async()=>{
+ const f=fixture(),p=await open();
+ const line=(values,y)=>values.map((value,index)=>({text:value,transform:[1,0,0,12,[30,150,500,650,800][index],y],width:60,height:12}));
+ const raw='Code Description Pack Price Unit Price\nB1-001 Chicken Breast Boneless Skinless 20 LB CASE 40.00';
+ const input={...file('B3_Prices.pdf',raw),reading:{filename:'B3_Prices.pdf',text:raw,worksheets:[],pages:[{number:1,width:900,height:600,source:'embedded-text',items:[...line(['Code','Description','Pack','Price Unit','Price'],550),...line(['B1-001','Chicken Breast Boneless Skinless','20 LB','CASE','40.00'],510)],text:raw}]}};
+ await upload(p,'picker',input);assert.equal(writes(f),0);await save(p);
+ assert.deepEqual(f.calls.applyQuote.map(call=>call.price),[40]);
+ assert.equal(f.calls.applyQuote[0].packSize,'20 LB');
+ assert.equal(f.calls.applyQuote[0].importRow.row.sourceProvenance.page,1);
+ assert.ok(f.calls.applyQuote[0].importRow.row.sourceProvenance.cells[4].words[0].transform);
+ assert.equal(f.uploads.length,1);assert.equal(f.uploads[0].bytes,raw);assert.equal(f.calls.insertImportDoc.length,1);p.tree.unmount();
+});
+await check('B3 offset worksheets save both prices under one original document',async()=>{
+ const f=fixture(),p=await open();
+ const sheet=(name,rows,offset)=>({name,cells:rows.flatMap((row,r)=>row.map((value,c)=>({row:r+1,column:c+offset,address:(c+offset)+':'+(r+1),value})))});
+ const reading={filename:'B3_Sheets.xlsx',pages:[],worksheets:[sheet('A',[['Code','Description','Pack','Price Unit','Price'],['B1-001','Chicken Breast Boneless Skinless','2/10 LB','CASE',41.25]],1),sheet('B',[['Price','Description','Code','Price Unit','Pack'],[51.75,'Turkey Breast Smoked Deli Style','B1-002','CASE','2/10 LB']],3)]};
+ await upload(p,'picker',{...file('B3_Sheets.xlsx','retained workbook bytes'),reading});
+ assert.ok(text(p.tree.toJSON()).includes('2 product rows read'));await save(p);
+ assert.deepEqual(f.calls.applyQuote.map(call=>call.price),[41.25,51.75]);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);
+ assert.equal(f.calls.applyQuote[0].sourceDocumentId,f.calls.applyQuote[1].sourceDocumentId);
+ assert.deepEqual(f.calls.applyQuote.map(call=>call.importRow.row.sourceProvenance.worksheet),['A','B']);p.tree.unmount();
+ const replay=await open();await upload(replay,'picker',{...file('B3_Sheets.xlsx','retained workbook bytes'),reading});await save(replay);
+ assert.equal(f.calls.applyQuote.length,2);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(f.uploads.length,1);replay.tree.unmount();
+});
+await check('B3 remembers and applies unknown headers independently for both worksheet layouts',async()=>{
+ const f=fixture(),p=await open();
+ const sheet=(name,rows)=>({name,cells:rows.flatMap((row,r)=>row.map((value,c)=>({row:r+1,column:c+1,address:c+':'+r,value})))});
+ const reading={filename:'B3_Unknown.xlsx',pages:[],worksheets:[sheet('A',[['Description','Mystery','Price'],['Chicken Breast Boneless Skinless','20 LB',41.25]]),sheet('B',[['Price','Description','Other'],[51.75,'Turkey Breast Smoked Deli Style','10 LB']])]};
+ await upload(p,'picker',{...file('B3_Unknown.xlsx','retained original'),reading});
+ assert.ok(text(p.tree.toJSON()).includes('Mystery'));assert.ok(text(p.tree.toJSON()).includes('Other'));assert.equal(writes(f),0);
+ for(const select of p.tree.root.findAllByType('select'))if(select.findAllByType('option').some(option=>option.props.value==='packSize'))await act(async()=>{select.props.onChange({target:{value:'packSize'}});});
+ await act(async()=>{await button(p,'Continue →').props.onClick();});
+ assert.ok(text(p.tree.toJSON()).includes('2 product rows read'));await save(p);
+ assert.deepEqual(f.calls.applyQuote.map(call=>call.packSize),['20 LB','10 LB']);p.tree.unmount();
+});
+console.log(passed+'/12 B1/B3 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
  const outfile=join(dir,'test.mjs');
  await build({stdin:{contents:source,resolveDir:process.cwd(),loader:'jsx'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},plugins:[{name:'b1-boundaries',setup(b){
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
-  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file){return file.text();}'}));
+  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.reading)onRead?.(file.reading);return file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
   b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});

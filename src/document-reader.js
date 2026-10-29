@@ -1,38 +1,45 @@
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import {pdfTextLines} from "./core/pdf-layout.js";
+import {createDocumentReader} from "./core/document-reading.js";
 
 function localOcrPath(name="") {
   const base=String(import.meta.env.BASE_URL||"/").replace(/\/$/,"");
   return `${base}/ocr${name?`/${name}`:""}`;
 }
 
-async function extractPdfText(file) {
-  const pdfjsLib=await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc=pdfWorkerUrl;
-  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
-  let fullText="";
-  for(let i=1;i<=pdf.numPages;i++){
-    const page=await pdf.getPage(i),content=await page.getTextContent();
-    fullText+=pdfTextLines(content.items).join("\n")+"\n";
-  }
-  if(fullText.trim().length>40)return fullText;
-
-  const {createWorker}=await import("tesseract.js");
+// One OCR worker per read; page recognition remains entirely local.
+export async function readDocument(file){
   let worker;
-  try{
-    worker=await createWorker("eng",1,{workerPath:localOcrPath("worker.min.js"),corePath:localOcrPath("core"),langPath:localOcrPath()});
-  }catch(error){throw new Error(`This scanned PDF could not start local text recognition: ${error.message||String(error)}`);}
-  let ocrText="";
-  try{
-    for(let i=1;i<=pdf.numPages;i++){
-      const page=await pdf.getPage(i),viewport=page.getViewport({scale:2}),canvas=document.createElement("canvas");
+  const reader=createDocumentReader({
+    loadPdf:async data=>{
+      const pdfjsLib=await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc=pdfWorkerUrl;
+      const task=pdfjsLib.getDocument({data});
+      try{return await task.promise;}catch(error){await task.destroy();throw error;}
+    },
+    loadWorkbook:()=>import("xlsx"),
+    recognizePage:async page=>{
+      if(!worker){
+        const {createWorker}=await import("tesseract.js");
+        try{worker=await createWorker("eng",1,{workerPath:localOcrPath("worker.min.js"),corePath:localOcrPath("core"),langPath:localOcrPath()});}
+        catch(error){throw new Error(`This scanned PDF could not start local text recognition: ${error.message||String(error)}`);}
+      }
+      const viewport=page.getViewport({scale:2}),canvas=document.createElement("canvas");
       canvas.width=viewport.width;canvas.height=viewport.height;
       await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;
-      const {data:{text}}=await worker.recognize(canvas);ocrText+=text+"\n";
-    }
-  }finally{await worker.terminate();}
-  return ocrText;
+      const {data}=await worker.recognize(canvas,{}, {text:true,blocks:true});
+      return {...data,coordinateScale:2};
+    },
+    readOther:async source=>{
+      const name=source.name.toLowerCase(),text=await source.text();
+      if(name.endsWith(".eml"))return emailToText(text);
+      if(/\.html?$/.test(name))return htmlToText(text);
+      return text;
+    },
+  });
+  try{return await reader(file);}finally{if(worker)await worker.terminate();}
 }
+
+async function extractPdfText(file){return (await readDocument(file)).text;}
 
 function htmlToText(html){
   const doc=new DOMParser().parseFromString(String(html||""),"text/html");
@@ -79,22 +86,10 @@ function emailToText(raw){
   return headers.split("\n").filter(line=>/^(?:from|subject|date):/i.test(line)).join("\n")+"\n"+body;
 }
 
-export async function fileToText(file){
-  const name=file.name.toLowerCase();
-  if(name.endsWith(".eml"))return emailToText(await file.text());
-  if(name.endsWith(".html")||name.endsWith(".htm"))return htmlToText(await file.text());
-  if(name.endsWith(".xlsx")||name.endsWith(".xls")){
-    const XLSX=await import("xlsx"),workbook=XLSX.read(await file.arrayBuffer(),{type:"array"});
-    // Every worksheet is read, not just the first: vendors often keep one
-    // tab per category. Empty tabs are skipped; each tab keeps its own
-    // header row, which the parser recognises again when it meets it.
-    return workbook.SheetNames
-      .map(name=>XLSX.utils.sheet_to_csv(workbook.Sheets[name]))
-      .filter(csv=>csv.replace(/[\s,]/g,"").length>0)
-      .join("\n");
-  }
-  if(name.endsWith(".pdf"))return extractPdfText(file);
-  return file.text();
+export async function fileToText(file,{onRead}={}){
+  const result=await readDocument(file);
+  onRead?.(result);
+  return result.text;
 }
 
 export {emailToText,htmlToText,extractPdfText};

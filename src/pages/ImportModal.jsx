@@ -2,6 +2,7 @@ import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
 import {fileToText} from "../document-reader.js";
+import {parseStructuredDocument} from "../core/document-structuring.js";
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
 import {findUncodedVendorListing,vendorListingLabel} from "../core/vendor-listing.js";
 import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY,parsePackSize,priceBasisFor,quotePriceOnBasis,brandsMatch} from "../procurement.js";
@@ -92,8 +93,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     let active=true;
     (async()=>{
       const newGroups=await Promise.all(initialFiles.map(async file=>{
-        const text=await fileToText(file);
-        return {id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
+        let reading;
+        const text=await fileToText(file,{onRead:result=>{reading=result;}});
+        return {reading,id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
       }));
       if(active) setFileGroups(newGroups);
     })().catch(err=>setParseError(`Could not read attached file: ${err.message||String(err)}`));
@@ -126,8 +128,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const shownAt=Date.now();
     try{
       const newGroups=await Promise.all(fileArr.map(async file=>{
-        const text=await fileToText(file);
-        return {id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
+        let reading;
+        const text=await fileToText(file,{onRead:result=>{reading=result;}});
+        return {reading,id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
       }));
       const combined=[...fileGroups,...newGroups];
       setFileGroups(combined);
@@ -182,14 +185,18 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   function answersFor(fingerprint){
     return {...rememberedLayout(orgSettings,vendorId,fingerprint),...(layoutAnswers[fingerprint]||{})};
   }
-  function parseWithLayout(text){
-    // Read once to learn the header fingerprint, then again with whatever
-    // answers exist for that layout.
-    const first=parseDocument(text);
-    const fingerprint=first.layout?.fingerprint||"";
-    const answers=fingerprint?answersFor(fingerprint):{};
-    return Object.keys(answers).length?parseDocument(text,{layoutAnswers:answers}):first;
+  function parseWithLayout(text,reading,overrides={}){
+    const parse=(part,options={})=>{
+      const first=parseDocument(part,options);
+      const fingerprint=first.layout?.fingerprint||"";
+      const answers=fingerprint?{...answersFor(fingerprint),...(overrides[fingerprint]||{})}:{};
+      return Object.keys(answers).length?parseDocument(part,{...options,layoutAnswers:answers}):first;
+    };
+    // The inbox's retained partial rows keep the worker's existing ordinal
+    // contract. B3 changes the separate manual-upload path only.
+    return parseStructuredDocument(text,inboxReview?null:reading,parse);
   }
+  const layoutsFor=group=>group.parts?.length?group.parts:[group];
   // Unknown column headers: collect any that the engine couldn't map by
   // name, surface them to the client once, and remember only the
   // confirmed answer for this vendor's layout fingerprint. The engine's
@@ -198,16 +205,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   // remembered answers already cover every unknown.
   function gatherUnknownsForConfirmation(groups){
     const toAsk=[];
-    for(const g of groups){
-      const fp=g.layout?.fingerprint;
-      const unknown=(g.layout?.unknown||[]).filter(h=>h.label);
-      if(!fp||!unknown.length)continue;
+    for(const g of groups)for(const part of layoutsFor(g)){
+      const fp=part.layout?.fingerprint;
+      const unknown=(part.layout?.unknown||[]).filter(h=>h.label);
+      if(!fp||!unknown.length||toAsk.some(entry=>entry.fingerprint===fp))continue;
       const remembered=rememberedLayout(orgSettings,vendorId,fp);
       // If every unknown already has a remembered answer, no need to ask.
       const needsAnswer=unknown.filter(h=>remembered[String(h.index)]===undefined&&remembered[h.index]===undefined);
       if(!needsAnswer.length)continue;
       const unknownHeaders=needsAnswer.map(h=>{
-        const engineGuess=Object.entries(g.columnMap||{}).find(([,i])=>i===h.index)?.[0]||"ignore";
+        const engineGuess=Object.entries(part.columnMap||{}).find(([,i])=>i===h.index)?.[0]||"ignore";
         return {index:h.index,label:h.label,engineGuess};
       });
       toAsk.push({groupId:g.id,fingerprint:fp,unknownHeaders,confirmedAnswers:Object.fromEntries(unknownHeaders.map(h=>[h.index,h.engineGuess]))});
@@ -224,9 +231,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       toRemember.push([fp,answers]);
       setLayoutAnswers(prev=>({...prev,[fp]:answers}));
       settled=settled.map(x=>{
-        if(x.layout?.fingerprint!==fp)return x;
-        const parsed=parseDocument(x.text,{layoutAnswers:{...rememberedLayout(orgSettings,vendorId,fp),...answers}});
-        return {...x,rows:parsed.rows.map(settleRow),skipped:parsed.skipped,layout:parsed.layout,columnMap:parsed.columnMap};
+        if(!layoutsFor(x).some(part=>part.layout?.fingerprint===fp))return x;
+        const parsed=parseWithLayout(x.text,x.reading,confirmedByFingerprint);
+        return {...x,rows:parsed.rows.map(settleRow),skipped:parsed.skipped,layout:parsed.layout,columnMap:parsed.columnMap,parts:parsed.parts,structure:parsed.structure};
       });
     }
     if(toRemember.length){
@@ -251,8 +258,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     // Nothing to ask — apply remembered answers for any known fingerprints
     // and go straight to the review step.
     const autoAnswers={};
-    for(const g of groups){
-      const fp=g.layout?.fingerprint;
+    for(const g of groups)for(const part of layoutsFor(g)){
+      const fp=part.layout?.fingerprint;
       if(!fp)continue;
       const remembered=rememberedLayout(orgSettings,vendorId,fp);
       if(Object.keys(remembered).length)autoAnswers[fp]=remembered;
@@ -294,8 +301,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       const groups=[];
       for(const d of docs){
         try{
-          const parsed=parseWithLayout(d.text);
-          groups.push({...d,rows:parsed.rows.map(settleRow),skipped:parsed.skipped,documentKind:parsed.documentKind,quoteValidUntil:parsed.quoteValidUntil,invoiceDate:findDate(d.text)||"",layout:parsed.layout,columnMap:parsed.columnMap});
+          const parsed=parseWithLayout(d.text,d.reading);
+          groups.push({...d,rows:parsed.rows.map(settleRow),skipped:parsed.skipped,documentKind:parsed.documentKind,quoteValidUntil:parsed.quoteValidUntil,invoiceDate:findDate(d.text)||"",layout:parsed.layout,columnMap:parsed.columnMap,parts:parsed.parts,structure:parsed.structure});
         }catch(error){throw new Error(`${d.name}: ${error.message||String(error)}`);}
         await new Promise(resolve=>setTimeout(resolve,0));
       }
