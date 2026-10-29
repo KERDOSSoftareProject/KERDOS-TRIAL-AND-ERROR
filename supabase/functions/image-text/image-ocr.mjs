@@ -47,8 +47,23 @@ export function textLines(tsv,start,end){
     const top=Math.min(...words.map(w=>w.top)),bottom=Math.max(...words.map(w=>w.top+w.height)),center=(top+bottom)/2;
     if(center<start||center>=end)return [];
     let text='';for(let i=0;i<words.length;i++){const w=words[i],prior=words[i-1];text+=(prior?(w.left-prior.left-prior.width>Math.max(w.height,prior.height)*1.5?'\t':' '):'')+w.text;}
-    return [{text,confidence:Math.min(...words.map(w=>w.confidence)),top}];
+    return [{text,confidence:Math.min(...words.map(w=>w.confidence)),top,bottom}];
   }).sort((a,b)=>a.top-b.top);
+}
+// OCR may return no word at all for a blurred line. Preserve visible, uncovered
+// ink as an explicit source exception instead of silently declaring completion.
+export function unreadImageRegions(pixels,width,start,end,recognized){
+  const regions=[];let begin=null;
+  for(let y=start;y<=end;y++){
+    let ink=0;
+    if(y<end&&!recognized.some(line=>y>=line.top-5&&y<=line.bottom+5)){
+      for(let x=0;x<width;x++){const i=(y*width+x)*4;if(pixels[i+3]>128&&(pixels[i]+pixels[i+1]+pixels[i+2])/3<220)ink++;}
+    }
+    const present=ink>=12&&ink<width*0.8;
+    if(present&&begin==null)begin=y;
+    if(!present&&begin!=null){if(y-begin>=4)regions.push({text:'[Unrecognized image content]',confidence:0,top:begin,bottom:y});begin=null;}
+  }
+  return regions;
 }
 export function createImageRecognizer(loadCore,loadLanguage,decodeImage,encodeBand){
   let engine,tail=Promise.resolve();
@@ -65,7 +80,8 @@ export function createImageRecognizer(loadCore,loadLanguage,decodeImage,encodeBa
       m.FS.writeFile('/input',await encodeBand(band,size.width,bottom-top));
       if(api.SetImageFile(1,0)!==0)throw new ImageInputError('Image decoder rejected the attachment');
       api.Recognize(null);
-      const lines=textLines(api.GetTSVText(0),start-top,end-top).map(line=>({...line,top:line.top+top}));
+      const all=textLines(api.GetTSVText(0),-Infinity,Infinity);
+      const lines=[...all.filter(line=>(line.top+line.bottom)/2>=start-top&&(line.top+line.bottom)/2<end-top),...unreadImageRegions(band,size.width,start-top,end-top,all)].map(line=>({...line,top:line.top+top,bottom:line.bottom+top})).sort((a,b)=>a.top-b.top);
       return {...size,part,lines,engine:'tesseract-core-7.0.0'};
     }finally{api.Clear();try{m.FS.unlink('/input');}catch{/* input may not exist after encoder failure */}}
   }

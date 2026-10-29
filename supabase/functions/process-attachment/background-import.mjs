@@ -207,6 +207,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return {...row,ocr:{engine:readResult.ocr.engine,confidence:Math.min(ocrHeader?.confidence??0,confidence)}};
   }):rows;
   const ocrIssues=row=>row.ocr&&row.ocr.confidence<90?['Image text recognition is below 90% confidence; source fields need clarification']:[];
+  const unparsedImageLines=readResult.ocr?.lines.filter(line=>line.confidence<90&&line!==ocrHeader&&!parsedRows.some(row=>normalLine(row.sourceLine)===normalLine(line.text)))||[];
 
   // ── Step 4: classify document using registration intent ──────────────────
   //
@@ -227,7 +228,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   }
 
   const groups = parsedRows.length > 0
-    ? [{ rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
+    ? [{ name:filename,rows: parsedRows, quoteValidUntil: parsedQuoteValidUntil }]
     : [];
 
   // Invoice header, lines, original link and terminal status commit together.
@@ -412,15 +413,17 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 7: finalize ────────────────────────────────────────────────────────
   // Any held row or save error keeps the document partial. Only saved rows
   // enter completed_keys; the unchanged A1.7 verifier can safely resume it.
-  if (heldKeys.length > 0 || saveError !== null) {
+  if (heldKeys.length > 0 || saveError !== null || unparsedImageLines.length>0) {
     // Import document status must be 'partial' — the import_documents.status
     // column only accepts ('processing','complete','partial').  'needs_review'
     // is the attachment's status (inbound_attachments.processing_status), not
     // the document's.
     await importService.finalizeDocument(documentId, "partial", newCompletedKeys);
 
-    const reviewReason = saveError || `${heldKeys.length} row(s) require basis or source review: ${heldRows.map(row=>
-      `${row.key}: ${row.reasons?.join('; ') || 'Source fields require confirmation'}`).join(' | ')}`;
+    const reviewReason = saveError || [
+      heldKeys.length?`${heldKeys.length} row(s) require basis or source review: ${heldRows.map(row=>`${row.key}: ${row.reasons?.join('; ') || 'Source fields require confirmation'}`).join(' | ')}`:null,
+      unparsedImageLines.length?`Unreadable image source lines retained for clarification: ${unparsedImageLines.map(line=>line.text).join(' | ')}`:null,
+    ].filter(Boolean).join(' | ');
 
     // Pass documentId so the partially-created import document is linked to the
     // attachment.  Migration 033's set_attachment_processing_status allows

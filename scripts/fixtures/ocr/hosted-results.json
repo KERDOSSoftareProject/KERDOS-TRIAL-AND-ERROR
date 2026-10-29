@@ -1,0 +1,130 @@
+{
+  "project": "gwtnaudjfoxjermhvhpx",
+  "pr": 18,
+  "recordedAt": "2026-10-29T00:15:27.859Z",
+  "category": "Deployed synthetic webhook and OCR acceptance; not real-email image delivery or independent browser-closure observation",
+  "functions": {
+    "image-text": {
+      "version": 3,
+      "verifyJwt": true,
+      "sourceFiles": 3,
+      "exactLocalSourceMatch": true
+    },
+    "process-attachment": {
+      "version": 12,
+      "verifyJwt": true,
+      "sourceFiles": 40,
+      "exactLocalSourceMatch": true
+    }
+  },
+  "helperRequests": {
+    "initial": 422,
+    "expanded": 428,
+    "passed": true,
+    "malformedStatus": 422,
+    "missingAuth": {
+      "request": 431,
+      "status": 401
+    },
+    "invalidAuth": {
+      "request": 432,
+      "status": 401
+    }
+  },
+  "priceImport": {
+    "request": 429,
+    "messageId": "a1-hosted-image-import-20261028-002",
+    "exactDeliveryReplayStatuses": [
+      200,
+      200
+    ],
+    "documents": [
+      {
+        "name": "pricelist.png",
+        "id": "9f18b294-c576-4a8b-ae21-fb9f368e1b43",
+        "status": "complete",
+        "quotes": 2,
+        "namedQuotes": 2
+      },
+      {
+        "name": "pricelist.jpg",
+        "id": "a59cc3be-28c0-4eae-afd5-c420eb38d4a9",
+        "status": "complete",
+        "quotes": 2,
+        "namedQuotes": 2
+      },
+      {
+        "name": "uncertain-pricelist.png",
+        "id": "7beb2c0f-4f5d-4f17-96e0-a074bf80dbe7",
+        "status": "partial",
+        "quotes": 1,
+        "namedQuotes": 1,
+        "reason": "Unreadable image source lines retained for clarification"
+      },
+      {
+        "name": "non-pricing.png",
+        "status": "needs_review",
+        "document": null,
+        "quotes": 0
+      }
+    ],
+    "allOriginalsRetained": true
+  },
+  "recovery": {
+    "request": 430,
+    "status": 200,
+    "completePng": "auto_imported",
+    "uncertainPng": "needs_review",
+    "sameDocumentLinksAndQuoteCounts": true
+  },
+  "invoice": {
+    "request": 436,
+    "exactDeliveryReplayStatuses": [
+      200,
+      200
+    ],
+    "id": "db8ab62a-40b7-4127-8b00-7aa1a6def8ad",
+    "documentId": "721faf46-07af-4113-ac58-48ca37f942b6",
+    "number": "123456789",
+    "date": "2026-10-28",
+    "quantity": 2,
+    "unitPrice": 40,
+    "total": 80,
+    "unit": "CASE",
+    "count": 1,
+    "fileName": "invoice.png",
+    "status": "complete"
+  },
+  "lowConfidenceInvoice": {
+    "request": 434,
+    "status": "needs_review",
+    "invoiceWrites": 0,
+    "document": null
+  },
+  "localChecks": {
+    "ocr": 9,
+    "worker": 14,
+    "fullTests": true,
+    "lint": true,
+    "build": true
+  },
+  "temporaryVerifier": {
+    "version": 11,
+    "verifyJwt": true,
+    "handler": "unconditional410; no database or secret access",
+    "deleted": false,
+    "deletionHousekeeping": "No connector delete capability"
+  },
+  "limits": {
+    "language": "English",
+    "formats": [
+      "PNG",
+      "JPEG"
+    ],
+    "scannedPdfIncluded": false,
+    "maxBytes": 5242880,
+    "maxPixels": 4000000,
+    "maxWidth": 2400,
+    "maxHeight": 4000
+  }
+}

@@ -1,8 +1,10 @@
 # A1.2.h automatic image reader — deployment review
 
-Status: implemented and locally tested; NOT deployed. Automatic approval review
-rejected the first kerdos-test deployment because the earlier review-before-deploy
-instruction was still considered active. No existing deployed worker was changed.
+Status: deployed and verified on kerdos-test after Dino explicitly approved staged
+conditional deployment. Hosted reader checks passed before the attachment worker
+was updated. Current versions: image-text v3 and process-attachment v12. The first
+deployment attempt had been rejected by approval review; the subsequent explicit
+approval resolved that blocker. No production project was changed.
 
 ## Behavior
 
@@ -26,7 +28,7 @@ existing identity, unit, arithmetic, price, duplicate and lease checks still app
 
 ## Scope and limits
 
-- English PNG/JPEG, single-frame PNG; no scanned-PDF or HEIC claim.
+- English upright PNG/JPEG, single-frame PNG; no scanned-PDF or HEIC claim.
 - At most 5 MiB compressed, 4 million pixels, 2400 wide, 4000 high.
 - No automatic correction of characters, units, vendors or document types.
 - Pinned Tesseract core 7.0.0, upng-js 2.1.0, jpeg-js 0.4.4; lockfile retained.
@@ -60,7 +62,53 @@ existing identity, unit, arithmetic, price, duplicate and lease checks still app
    controlled retained originals, including uncertain and nonpricing images.
 5. Record local, hosted extraction, and deployed importer evidence separately.
 
-If runtime acceptance fails, retain current deployed worker and keep A1.2.h open.
+The staged hosted acceptance below passed. Other A1.2.h formats and live delivery
+claims remain separate; this does not close all of Task 1.
 Rollback of the importer means redeploying the known-good v10 source; no schema
 rollback is involved. The new helper is never callable using a client user token
 because the handler additionally requires the exact service-role bearer value.
+
+
+## Hosted acceptance (synthetic; not real email)
+
+- Reader request422: actual PNG and JPEG, eight sections, exact codes12345/12346,
+  CASE units,40/50 prices, source confidence above95; malformed input422.
+- Expanded reader request428: PNG/JPEG plus blurred source image,12 sections,
+  all passed. Visible unreadable ink produces explicit zero-confidence source
+  evidence; the later50.00 row remains readable. Timings are wall time, not CPU.
+- Initial import request424 exposed missing quote-history filename; grouping now
+  carries the original name. No historic probe rows were edited to simulate a pass.
+- Final import request429 posted one fixed Postmark-shaped synthetic payload twice.
+  PNG document9f18b294-c576-4a8b-ae21-fb9f368e1b43 and JPEG document
+  a59cc3be-28c0-4eae-afd5-c420eb38d4a9 each completed with exactly2quotes.
+  Every quote retains its filename, original Storage path and row key.
+- Blurred image document7beb2c0f-4f5d-4f17-96e0-a074bf80dbe7 saved the readable
+  turkey row at50.00 and stayed partial with one quote and an explicit unreadable
+  source reason. Unreadable content cannot silently disappear from final status.
+- Nonpricing PNG stayed retained/flagged with no import document and no prices.
+- Exact delivery replay created no extra message, attachment, document or quote.
+- Recovery request430 reprocessed the complete PNG and partial blurred image;
+  same document links and quote counts were preserved, and uncertainty stayed open.
+- Requests431/432 rejected missing/invalid helper authentication with401.
+- Deployed source comparison: all3 helper files and40 processor files matched.
+- Temporary fixed-fixture verifier retired to JWT-protected unconditional410, no
+  database/credential access. Deletion housekeeping is separate (no delete tool).
+- Final local validation:9actual OCR checks,14worker checks,full npm test/lint,
+  production build and Edge entry-point bundling. No new secrets or migration.
+
+Original images and recognized text are retained; no client upload, selection,
+Save or completion action was used. The test was backend synthetic intake; it
+is not fresh real-email delivery or independently observed browser-closed evidence.
+
+
+## Image invoice acceptance
+
+- Request434: low-confidence invoice image correctly stayed needs_review before
+  any invoice/document write. This is a guard pass, not a successful import.
+- Request436: clear one-line invoice image imported automatically and exact
+  delivery replay returned200 without a duplicate. Document
+  721faf46-07af-4113-ac58-48ca37f942b6 is complete. Invoice123456789 dated
+  2026-10-28 has one line2 CASE ×40.00=80.00, retained original invoice.png,
+  explicit pricing-unit-header billing evidence and the same source-document link.
+- The 9 local OCR checks include actual image→invoice preparation, plus the
+  low-confidence invoice fixture; confidence thresholds were not weakened.

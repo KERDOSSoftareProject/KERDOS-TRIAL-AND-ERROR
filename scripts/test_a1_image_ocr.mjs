@@ -9,6 +9,7 @@ import {createImageRecognizer,validateImage,textLines} from '../supabase/functio
 import {extractImageText} from '../supabase/functions/process-attachment/image-text-client.mjs';
 import {readAttachment,FileReadError} from '../supabase/functions/process-attachment/portable-file-reader.mjs';
 import {parseDocument} from '../src/ingestion.js';
+import {prepareAutomaticInvoice} from '../src/core/automatic-invoice.js';
 const require=createRequire(import.meta.url);
 const recognize=createImageRecognizer(()=>require('tesseract.js-core/tesseract-core-simd-lstm.wasm.js')({}),async()=>gunzipSync(readFileSync('public/ocr/eng.traineddata.gz')),async(bytes,size)=>size.mime==='image/png'?new Uint8Array(UPNG.toRGBA8(UPNG.decode(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)))[0]):jpeg.decode(bytes,{useTArray:true,maxResolutionInMP:4,maxMemoryUsageInMB:64}).data,async(p,w,h)=>new Uint8Array(UPNG.encode([p.buffer],w,h,0)));
 let checks=0;
@@ -23,10 +24,28 @@ for(const ext of ['png','jpg']){
   assert.ok(result.ocr.lines.every(line=>line.confidence>=90),'Clean table fixture must meet the automatic source-confidence threshold');
   console.log(`PASS actual ${ext.toUpperCase()} OCR → original parser, both rows/units/prices, lease renewal and evidence`);checks++;
 }
+const clearInvoice=readFileSync('scripts/fixtures/ocr/invoice.png'),clearLines=[];
+for(let part=0;part<validateImage(clearInvoice,0).parts;part++)clearLines.push(...(await recognize(clearInvoice,part)).lines);
+assert.ok(clearLines.every(line=>line.confidence>=90));
+const invoiceText=clearLines.map(line=>line.text).join('\n');
+const preparedInvoice=prepareAutomaticInvoice({text:invoiceText,rows:parseDocument(invoiceText).rows,organizationId:'org',vendorId:'vendor',vendorItems:[{id:'fixture-item',organization_id:'org',vendor_id:'vendor',vendor_item_code:'12345',description:'Chicken Breast',pack_size:'20 LB'}]});
+assert.equal(preparedInvoice.reason,null);assert.equal(preparedInvoice.header.invoice_number,'123456789');assert.equal(preparedInvoice.header.invoice_date,'2026-10-28');assert.equal(preparedInvoice.header.total_amount,80);
+assert.deepEqual(preparedInvoice.lines.map(line=>[line.quantity,line.unit_price,line.line_total]),[[2,40,80]]);
+console.log('PASS actual invoice OCR → existing atomic invoice preparation with date, number, billing unit and 2×40=80');checks++;
 const logo=readFileSync('scripts/fixtures/ocr/non-pricing.png');
 const recognized=await recognize(logo,0);
 assert.equal(parseDocument(recognized.lines.map(line=>line.text).join('\n')).rows.length,0);
 console.log('PASS nonpricing image creates no price rows without filename classification');checks++;
+const blurred=readFileSync('scripts/fixtures/ocr/uncertain-pricelist.png');let blurredLines=[];
+for(let part=0;part<validateImage(blurred,0).parts;part++)blurredLines.push(...(await recognize(blurred,part)).lines);
+assert.ok(blurredLines.some(line=>line.confidence===0&&line.text.includes('Unrecognized image content')),'Unread visible source must be retained even when OCR produces no words');
+assert.deepEqual(parseDocument(blurredLines.map(line=>line.text).join('\n')).rows.map(row=>row.code),['12346']);
+console.log('PASS unreadable image region is flagged while the later valid row still parses');checks++;
+const invoice=readFileSync('scripts/fixtures/ocr/invoice-low-confidence.png');const invoiceLines=[];
+for(let part=0;part<validateImage(invoice,0).parts;part++)invoiceLines.push(...(await recognize(invoice,part)).lines);
+assert.ok(invoiceLines.some(line=>line.confidence<90),'Invoice fixture must exercise source-quality rejection rather than inventing a successful import');
+assert.ok(invoiceLines.some(line=>line.text.includes('2026-10-28')));
+console.log('PASS actual invoice image retains source text and exposes low-confidence evidence for the atomic guard');checks++;
 const png=readFileSync('scripts/fixtures/ocr/pricelist.png');
 let invokes=0;
 await assert.rejects(()=>extractImageText(png,{renewLease:async()=>{throw Error('LEASE_LOST');},invoke:async()=>{invokes++;}}),/LEASE_LOST/);assert.equal(invokes,0);
