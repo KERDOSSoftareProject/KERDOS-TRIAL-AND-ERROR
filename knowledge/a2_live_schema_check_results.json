@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-29",
+  "project": "gwtnaudjfoxjermhvhpx",
+  "evidence_type": "actual database assertions in rolled-back transaction",
+  "approval": "Dino explicitly approved all three timeouts and this rollback-only test",
+  "timeouts": {
+    "lock_timeout": "3s",
+    "statement_timeout": "15s",
+    "idle_in_transaction_session_timeout": "10s"
+  },
+  "baseline": {
+    "task2_schema_absent": true,
+    "task2_claim_absent": true,
+    "isolated_messages": 17,
+    "isolated_attachments": 34,
+    "vendor_secret_count": 0,
+    "source_kind_present": false
+  },
+  "result": {
+    "draft_schema_absent_after_rollback": true,
+    "no_new_vendor_credentials_remain": true,
+    "evidence_scope": "Actual kerdos-test schema/Vault/source snapshots/permissions/A-B-A/replay/cleanup assertions passed inside rolled-back transaction; no storage or worker invocation"
+  },
+  "after": {
+    "task2_schema_absent": true,
+    "task2_claim_absent": true,
+    "isolated_messages": 17,
+    "isolated_attachments": 34,
+    "vendor_secret_count": 0,
+    "source_kind_present": false,
+    "idle_transactions": 0,
+    "existing_recovery_schedule_active": 1
+  },
+  "limits": [
+    "No storage uploads, network requests, worker calls, emails or cron changes",
+    "No permanent Task2 migration/function deployment",
+    "Not a real-vendor portal or export acceptance test"
+  ],
+  "transport_note": "First attempt returned expired requestState without usable test result; read-only baseline remained unchanged; identical approved retry succeeded."
+}

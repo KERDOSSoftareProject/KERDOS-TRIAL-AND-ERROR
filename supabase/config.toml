@@ -21,3 +21,7 @@ verify_jwt = true
 # Internal page extraction/rasterization; service-role-only, no public document URLs.
 [functions.pdf-text]
 verify_jwt = true
+
+# Server-only scheduler or operator; handler validates an exact service/operations bearer.
+[functions.vendor-price-pull]
+verify_jwt = false
