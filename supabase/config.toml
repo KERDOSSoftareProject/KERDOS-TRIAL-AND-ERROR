@@ -17,3 +17,7 @@ verify_jwt = false
 # process-attachment. No customer credentials or client interaction required.
 [functions.image-text]
 verify_jwt = true
+
+# Internal page extraction/rasterization; service-role-only, no public document URLs.
+[functions.pdf-text]
+verify_jwt = true

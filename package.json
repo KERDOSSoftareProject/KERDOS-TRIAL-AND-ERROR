@@ -13,7 +13,7 @@
     "lint": "eslint src scripts vite.config.js",
     "test:a1-ui": "node scripts/test_a1_preview_save.mjs",
     "test:a1-inbox": "node src/services/email-routing-test.mjs && node src/services/email-routing-manual-claim-test.mjs && node scripts/test_a1_inbox_adapter.mjs && node scripts/test_a1_test_receiving_address.mjs",
-    "test:a1": "node src/services/email-routing-test.mjs && node scripts/test_module_a_interactions.mjs && node scripts/test_module_a_importer.mjs && node supabase/functions/process-attachment/process-attachment-test.mjs && node supabase/functions/process-attachment/lease-handoff-test.mjs && node scripts/test_a1_atomic_invoice.mjs && npm run test:a1-ui && node scripts/test_a1_automatic_registration.mjs && node scripts/test_a1_receiving_context.mjs && node scripts/test_a1_real_email_inspector.mjs && node scripts/test_a1_new_item_headers.mjs && node scripts/test_a1_new_item.mjs && node scripts/test_a1_partial_row_hold.mjs && node scripts/test_a1_review_resolution.mjs && node scripts/test_a1_image_ocr.mjs"
+    "test:a1": "node src/services/email-routing-test.mjs && node scripts/test_module_a_interactions.mjs && node scripts/test_module_a_importer.mjs && node supabase/functions/process-attachment/process-attachment-test.mjs && node supabase/functions/process-attachment/lease-handoff-test.mjs && node scripts/test_a1_atomic_invoice.mjs && npm run test:a1-ui && node scripts/test_a1_automatic_registration.mjs && node scripts/test_a1_receiving_context.mjs && node scripts/test_a1_real_email_inspector.mjs && node scripts/test_a1_new_item_headers.mjs && node scripts/test_a1_new_item.mjs && node scripts/test_a1_partial_row_hold.mjs && node scripts/test_a1_review_resolution.mjs && node scripts/test_a1_image_ocr.mjs && node scripts/test_a1_pdf.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.2.17",
+    "@hyzyla/pdfium": "3.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",

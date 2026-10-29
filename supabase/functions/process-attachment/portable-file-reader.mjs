@@ -28,6 +28,10 @@
  * in Deno (Edge Functions) and Node ≥ 18 (tests).
  */
 
+// PNG/JPEG and PDF use optional same-project service readers. Their adapters
+// enforce source bounds and retain evidence; network/runtime failures remain
+// retryable instead of being misclassified as permanent source errors.
+
 // ── FileReadError ─────────────────────────────────────────────────────────────
 
 export class FileReadError extends Error {
@@ -64,6 +68,7 @@ function normaliseMime(mimeType, filename) {
   if (ext === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   if (ext === "xls")  return "application/vnd.ms-excel";
   if (ext === "txt")  return "text/plain";
+  if (ext === "pdf")return 'application/pdf';
   if (ext === "png")return 'image/png';
   if (ext === "jpg"||ext === "jpeg")return 'image/jpeg';
   return m;
@@ -436,7 +441,7 @@ function xmlUnescape(s) {
  *          |{ kind: "unsupported", mimeType: string }}
  * @throws {FileReadError} when a supported type fails to decode (corrupt data)
  */
-export async function readAttachment(bytes, mimeType, filename, {imageTextReader}={}) {
+export async function readAttachment(bytes, mimeType, filename, {imageTextReader,pdfTextReader}={}) {
   const mime = normaliseMime(mimeType, filename);
 
   if (TEXT_MIMES.has(mime)) {
@@ -450,6 +455,8 @@ export async function readAttachment(bytes, mimeType, filename, {imageTextReader
   if(['image/png','image/jpeg'].includes(mime)&&imageTextReader){
     return imageTextReader(bytes);
   }
+
+  if(mime==='application/pdf'&&pdfTextReader)return pdfTextReader(bytes);
 
   return { kind: "unsupported", mimeType: mime || mimeType || "unknown" };
 }

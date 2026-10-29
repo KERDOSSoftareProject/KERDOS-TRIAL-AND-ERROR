@@ -27,6 +27,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { createRecords } from "../../../src/backend/records.js";
 import { createLeaseBindings } from "./lease-bindings.mjs";
 import { extractImageText } from './image-text-client.mjs';
+import { extractPdfText } from './pdf-text-client.mjs';
 
 // ── Supabase record query executor ────────────────────────────────────────────
 //
@@ -150,6 +151,13 @@ export function createServiceBackend({
   // ── attachments ──────────────────────────────────────────────────────────
 
   const attachments = {
+    async extractPdfText(bytes){
+      return extractPdfText(bytes,{renewLease:()=>lease.renewLease(),imageTextReader:b=>attachments.extractImageText(b),invoke:async body=>{
+        const response=await fetch(`${url}/functions/v1/pdf-text`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceRoleKey}`},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});
+        const result=await response.json().catch(()=>({}));
+        return {ok:response.ok,status:response.status,data:result,error:result.error};
+      }});
+    },
     async extractImageText(bytes){
       return extractImageText(bytes,{renewLease:()=>lease.renewLease(),invoke:async body=>{
         const response=await fetch(`${url}/functions/v1/image-text`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceRoleKey}`},body:JSON.stringify(body),signal:AbortSignal.timeout(45000)});
