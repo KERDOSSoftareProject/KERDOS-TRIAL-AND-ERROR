@@ -21,10 +21,10 @@ This is the original three-item Task 2, not a new module or renamed task.
    reference. The draft includes an idempotent named five-minute cron command;
    it is deliberately not enabled by applying the schema alone.
 3. **Automatically route pulled data into ingestion.** Preserve original bytes,
-   create an atomic content-keyed receipt and pending attachment, then invoke the
+   create an atomic revision/content-keyed receipt and pending attachment, then invoke the
    existing process-attachment worker. The receipt carries the authoritative
    organization/vendor/pricelist snapshot. No vendor inference or manual Save.
-   A replay preserves receipt/attachment identity. Storage conflicts require an
+   An immediate identical replay preserves receipt/attachment identity. Content A → B → A advances the source revision so a genuine return to an earlier price sheet is not suppressed as an old duplicate; each observation has a distinct storage path/import fingerprint. Revision changes and receipt staging commit atomically under the source lease. Storage conflicts require an
    exact byte comparison. Failed dispatch leaves a durable attachment available
    to existing A1 recovery. `received` means durable intake/handoff, not a false
    promise that every source row was accepted.
@@ -37,7 +37,7 @@ not claimed. Owned receiving domains are not needed for this pull path.
 
 ## Evidence
 
-- `npm run test:a2`: 20 executed checks, actual Edge entrypoint authentication,
+- `npm run test:a2`: 22 executed checks, actual Edge entrypoint authentication,
   export adapter and PostgreSQL-compatible SQL. SDK transport, DNS/HTTP and Vault
   are simulated locally; this is not hosted portal acceptance.
 - Actual kerdos-test Vault: create disposable synthetic credential, assert stored

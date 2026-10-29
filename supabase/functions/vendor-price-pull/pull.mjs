@@ -82,7 +82,10 @@ export async function pullVendorSources(backend,{sourceId=null,fetchImpl=fetch,r
     try{
       const {bytes,contentType}=await downloadExport(source,{fetchImpl,resolveHost,signal:AbortSignal.timeout(30000)});
       const hash=await digest(bytes);
-      const path=`${source.organization_id}/vendor-pulls/${source.id}/${hash}`;
+      const previousRevision=Number(source.content_revision||0);
+      if(!Number.isSafeInteger(previousRevision)||previousRevision<0||previousRevision>=Number.MAX_SAFE_INTEGER)throw new PullError('invalid_source');
+      const revision=source.content_hash===hash?previousRevision:previousRevision+1;
+      const path=`${source.organization_id}/vendor-pulls/${source.id}/${revision}/${hash}`;
       await backend.retain(source,path,bytes,contentType);
       const receipt=await backend.stage(source,{hash,path,contentType,size:bytes.length});
       attachmentId=receipt.attachment_id;

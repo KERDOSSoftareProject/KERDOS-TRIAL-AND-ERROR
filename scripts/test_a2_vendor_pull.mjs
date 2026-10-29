@@ -60,7 +60,7 @@ try{
  });
  await check('retained original precedes durable stage and existing automatic-worker dispatch',async()=>{
   const order=[];let finished;
-  const backend={claim:async()=>[source],retain:async(s,path,bytes)=>{order.push('retain');assert.equal(new TextDecoder().decode(bytes),text);assert.equal(path,org+'/vendor-pulls/source/'+'a'.repeat(64));},stage:async()=>{order.push('stage');return {attachment_id:'attachment'};},dispatch:async(o,a)=>{order.push('dispatch');assert.equal(o,org);assert.equal(a,'attachment');return {outcome:'auto_imported'};},finish:async(...args)=>{finished=args;return true;}};
+  const backend={claim:async()=>[source],retain:async(s,path,bytes)=>{order.push('retain');assert.equal(new TextDecoder().decode(bytes),text);assert.equal(path,org+'/vendor-pulls/source/1/'+'a'.repeat(64));},stage:async()=>{order.push('stage');return {attachment_id:'attachment'};},dispatch:async(o,a)=>{order.push('dispatch');assert.equal(o,org);assert.equal(a,'attachment');return {outcome:'auto_imported'};},finish:async(...args)=>{finished=args;return true;}};
   const result=await pullVendorSources(backend,{...opts,digest:async()=>'a'.repeat(64)});
   assert.deepEqual(order,['retain','stage','dispatch']);assert.equal(result.results[0].status,'received');assert.equal(finished[1],'received');
  });
@@ -105,7 +105,7 @@ try{
   assert.deepEqual((await db.query('SELECT public.kerdos_claim_vendor_pulls() jobs')).rows[0].jobs,[]);
  });
  await check('SQL stage is atomic, source-labelled and exact replay preserves attachment identity',async()=>{
-  const args=[id,claim.lease_token,'a'.repeat(64),org+'/vendor-pulls/'+id+'/'+'a'.repeat(64),'text/csv',text.length];
+  const args=[id,claim.lease_token,'a'.repeat(64),org+'/vendor-pulls/'+id+'/1/'+'a'.repeat(64),'text/csv',text.length];
   const first=(await db.query('SELECT public.kerdos_stage_vendor_pull($1,$2,$3,$4,$5,$6) receipt',args)).rows[0].receipt;
   const again=(await db.query('SELECT public.kerdos_stage_vendor_pull($1,$2,$3,$4,$5,$6) receipt',args)).rows[0].receipt;
   assert.deepEqual(again,first);
@@ -154,11 +154,30 @@ try{
   }
  });
  await check('schema draft is repeatable without resetting saved receipts',async()=>{await db.exec(sql);assert.equal((await db.query('SELECT count(*) FROM inbound_messages')).rows[0].count,1);});
+ await check('A → B → A creates a new price observation while immediate identical replay reuses its receipt',async()=>{
+  const current=(await db.query('SELECT public.kerdos_claim_vendor_pulls($1) jobs',[id])).rows[0].jobs[0];
+  const receipts=[];
+  for(const [revision,hash] of [[2,'b'.repeat(64)],[3,'a'.repeat(64)],[3,'a'.repeat(64)]]){
+   const args=[id,current.lease_token,hash,org+'/vendor-pulls/'+id+'/'+revision+'/'+hash,'text/csv',text.length];
+   receipts.push((await db.query('SELECT public.kerdos_stage_vendor_pull($1,$2,$3,$4,$5,$6) receipt',args)).rows[0].receipt);
+  }
+  assert.notEqual(receipts[0].attachment_id,receipts[1].attachment_id);assert.deepEqual(receipts[1],receipts[2]);
+  const attachments=(await db.query('SELECT storage_path FROM inbound_attachments ORDER BY storage_path')).rows;
+  assert.equal(attachments.length,3);assert.equal(new Set(attachments.map(row=>row.storage_path)).size,3);
+  assert.equal((await db.query('SELECT content_revision FROM kerdos_private.vendor_price_sources WHERE id=$1',[id])).rows[0].content_revision,3);
+ });
+ await check('adapter retains unchanged revision and advances it when an earlier content version returns',async()=>{
+  for(const [previousHash,hash,previousRevision,expectedRevision] of [['a','a',3,3],['b','a',2,3]]){
+   let path;
+   await pullVendorSources({claim:async()=>[{...source,content_hash:previousHash.repeat(64),content_revision:previousRevision}],retain:async(s,value)=>{path=value;},stage:async()=>({attachment_id:'a'}),dispatch:async()=>({outcome:'auto_imported'}),finish:async()=>true},{...opts,digest:async()=>hash.repeat(64)});
+   assert.equal(path,org+'/vendor-pulls/source/'+expectedRevision+'/'+hash.repeat(64));
+  }
+ });
  await check('removing a source deletes its credential but retains historical receipt evidence',async()=>{
   const secret=(await db.query('SELECT credential_secret_id id FROM kerdos_private.vendor_price_sources WHERE id=$1',[id])).rows[0].id;
   await db.query('DELETE FROM kerdos_private.vendor_price_sources WHERE id=$1',[id]);
   assert.equal((await db.query('SELECT count(*) FROM vault.secrets WHERE id=$1',[secret])).rows[0].count,0);
-  assert.equal((await db.query('SELECT count(*) FROM inbound_messages')).rows[0].count,1);
+  assert.equal((await db.query('SELECT count(*) FROM inbound_messages')).rows[0].count,3);
  });
  console.log(`${passed}/${passed} A2 executed adapter/SQL checks passed. Vault is simulated locally; no live vendor acceptance is implied.`);
 }finally{await db.close();}
