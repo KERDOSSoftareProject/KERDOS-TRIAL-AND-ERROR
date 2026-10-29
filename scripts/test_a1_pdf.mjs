@@ -98,4 +98,10 @@ await check('parallel page requests serialize safely and retain their own docume
   const results=await Promise.all([readPage(text,0),readPage(fixture('text-invoice'),0),readPage(text,1)]);
   assert.ok(results[0].lines.some(l=>l.includes('12345')));assert.ok(results[1].lines.some(l=>l.includes('PDF-123456789')));assert.ok(results[2].lines.some(l=>l.includes('12346')));
 });
+await check('failed raster engine attempt releases queue and permits a clean automatic retry',async()=>{
+  let fail=true,loads=0;
+  const recover=createPdfPageReader(async()=>{loads++;return PDFiumModule({wasmBinary:readFileSync(require.resolve('@hyzyla/pdfium/pdfium.wasm'))});},async(...args)=>{if(fail)throw Error('Raster encoder unavailable');return encode(...args);});
+  await assert.rejects(()=>recover(fixture('scanned-prices')),/Raster encoder unavailable/);
+  fail=false;assert.equal((await recover(fixture('scanned-prices'))).kind,'image');assert.equal(loads,2);
+});
 console.log(`${passed}/${passed} executed automatic PDF checks passed (local evidence).`);

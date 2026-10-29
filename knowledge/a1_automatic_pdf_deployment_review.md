@@ -10,7 +10,7 @@ Existing source-confidence, billing-unit, identity, arithmetic, row-hold, duplic
 
 ## Local evidence
 
-- 15/15 executed PDF checks: actual PDFium on two text pages, side-by-side lanes, scanned sheet and invoice, mixed text/image pages, retained invoice number/date and explicit CASE evidence, atomic importer handoff (2 × 40 = 80), unreadable-region preservation with a later valid row, nonpricing document, password/corrupt/excessive-page rejection, lost lease, transient/permanent failure split, incomplete responses, failure before writes and concurrent request isolation.
+- 16/16 executed PDF checks: actual PDFium on two text pages, side-by-side lanes, scanned sheet and invoice, mixed text/image pages, retained invoice number/date and explicit CASE evidence, atomic importer handoff (2 × 40 = 80), unreadable-region preservation with a later valid row, nonpricing document, password/corrupt/excessive-page rejection, lost lease, transient/permanent failure split, incomplete responses, failure before writes concurrent request isolation and fresh engine recovery after a failed raster attempt.
 - 15/15 attachment worker checks, including PDF adapter → price writes with original filename.
 - Existing 9/9 actual PNG/JPEG OCR checks remain passing.
 - Full `npm test` (including lint), production build and `git diff --check` passed.

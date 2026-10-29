@@ -101,9 +101,14 @@ export function createPdfPageReader(loadModule,encodePng){
       if(png.length>PDF_LIMITS.bytes)throw new PdfInputError('Rendered PDF page exceeds automatic image limits');
       let binary='';for(let i=0;i<png.length;i+=8192)binary+=String.fromCharCode(...png.subarray(i,i+8192));
       return {page:pageIndex,pages,kind:'image',width,height,content:btoa(binary)};
+    }catch(error){
+      // A failed WASM instance must not poison later automatic attempts.
+      if(!(error instanceof PdfInputError))modulePromise=null;
+      throw error;
     }finally{
-      if(m){if(bitmap)m._FPDFBitmap_Destroy(bitmap);if(pixels)m.wasmExports.free(pixels);if(coords)m.wasmExports.free(coords);if(textPage)m._FPDFText_ClosePage(textPage);if(page)m._FPDF_ClosePage(page);if(doc)m._FPDF_CloseDocument(doc);if(ptr)m.wasmExports.free(ptr);}
-      release();
+      try{
+        if(m){if(bitmap)m._FPDFBitmap_Destroy(bitmap);if(pixels)m.wasmExports.free(pixels);if(coords)m.wasmExports.free(coords);if(textPage)m._FPDFText_ClosePage(textPage);if(page)m._FPDF_ClosePage(page);if(doc)m._FPDF_CloseDocument(doc);if(ptr)m.wasmExports.free(ptr);}
+      }finally{release();}
     }
   };
 }
