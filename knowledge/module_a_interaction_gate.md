@@ -1,13 +1,13 @@
 # Module A — Interaction Gate Results
 
 Application: KERDOS → Division I · Procurement → Module A · Pre-Ingestion  
-Governing task list: v60, October 29, 2026 UTC / October 28 Eastern  
-Repository baseline: main through PR #20, merge `147af6053241c1963230b11cf12d929cf9166ada`  
+Governing task list: v61, October 29, 2026 UTC / October 28 Eastern  
+Repository baseline: main through PR #22, merge `5a545ff6dc1b06dc61ae3585e69908276a7e51c9`  
 Environment: kerdos-test `gwtnaudjfoxjermhvhpx`
 
 ## Current decision
 
-Scoped automatic processing evidence remains passing. **Whole Task 1 remains open**: A1.3 live copying depends on a displayed receiver after deferred platform configuration; A1.5 sender/date/clarification/status-only presentation is now observed, but received time was absent. PR #22 fixes that time display and passes local checks; it is not deployed. **Task 2 is now authorized and has a tested implementation draft in PR #23**, with no real vendor endpoint/credentials or hosted acceptance yet.
+Scoped automatic processing evidence remains passing. **Whole Task 1 remains open**: A1.3 live copying depends on a displayed receiver after deferred platform configuration; A1.5 sender/date/clarification/status-only presentation is now observed, but received time was absent. PR #22 is merged/deployed; run75 passed clean install/fulltests/lint/build/Pages and public HTTP200 asset index-BUQ24wMC.js contains the new seconds/timezone formatter and semantic datetime. Signed-in visual time observation remains unverified. **Task 2 is now authorized and has a tested implementation draft in PR #23**, with no real vendor endpoint/credentials or hosted acceptance yet.
 
 This reconciliation preserves the existing A1.1–A1.7 numbering. The original reconciliation changed documentation only. The follow-on code drafts are separately identified below; neither changes the deployed app, schema or workers. A passing code/database checkbox does not certify its separate live browser observation.
 
@@ -19,7 +19,7 @@ This reconciliation preserves the existing A1.1–A1.7 numbering. The original r
 | A1.2 | Automatically process emailed attachments using registered client/vendor/type | Receipt snapshot/immutability/permissions 17 database checks; durable handoff and active/stale lease checks; actual CSV price-sheet/invoice delivery; new/existing item/catalog retention; validated atomic invoice; PR #18 images, #19 PDF and #20 mixed hosted acceptance | XLSX reader coverage is executed local code evidence, not a hosted XLSX email pass. Image/PDF/mixed hosted results are not new real-email sends. |
 | A1.3 | Client can provide routing address to vendors | Clipboard code checks cover exact address, success after clipboard resolution and honest failure | **CONFIGURATION-DEPENDENT:** Dino’s signed-in Price Sheets view shows no address/Copy control while future domains are unconfigured. Exact copy remains unverified; no invented address, domain purchase or client setup is required to continue other work. |
 | A1.4 | Optional forwarding copy to client email | 19 code checks; processing/forwarding exception handoff tests | Actual outbound copy is OPTIONAL/UNVERIFIED; not an automatic intake blocker. |
-| A1.5 | Inbox displays received email, timestamp, sender and processing state | Routing/service tests and mounted production adapter checks; PR #17 automatic receipts are status-only without manual import controls | Dino’s signed-in Inbox screenshot confirms sender/date/filename/clarification and no manual import controls. **Time absent:** PR #22 supplies date/time/seconds/timezone; 7 mounted/full-suite/lint/build local passes. Draft, not deployed/live observed. |
+| A1.5 | Inbox displays received email, timestamp, sender and processing state | Routing/service tests and mounted production adapter checks; PR #17 automatic receipts are status-only without manual import controls | Dino’s signed-in Inbox screenshot confirms sender/date/filename/clarification and no manual import controls. **Time absent:** PR #22 supplies date/time/seconds/timezone; 7 mounted/full-suite/lint/build local passes. Merged/deployed under PR22/run75; not signed-in live observed. |
 | A1.6 | Link manually imported attachment to document and retain audit trail | 9 database audit-link checks; actual-modal reservation/resolution tests; rolled-back completion guard rejects premature success | Live manual-review save/correction is OPTIONAL separate manual work. It is not required for zero-action automatic intake. |
 | A1.7 | Partial import recovery | Same linked document, saved row:N keys only, retained unresolved source, active/stale lease distinction, duplicate-safe deployed CSV/image/PDF replay; scheduled recovery via existing cron/Vault | Scheduled 15:35 recovery passed with Dino-attested tab closure. Agent did not independently observe tabs; fresh-email closure timing is not claimed. |
 
@@ -54,7 +54,7 @@ The real forwarded horn.txt source has94 retained/mapped rows, no confirmed quot
 ## Remaining required live observations — existing task only
 
 1. **A1.3:** exact copying remains unverified because the signed-in view has no receiver/Copy control while future platform domains are unconfigured. Clipboard code checks pass. This is a future configuration dependency, not failed intake or a request to buy domains.
-2. **A1.5:** October28 21:54 Eastern screenshot observes visible mixed fixture `295b5376-797e-4339-a478-160179d9298f`: sender a1-test@example.invalid, date10/28/2026, A1_Review_Mixed_Test.csv, Processed — clarification flagged, explicit quoted-per uncertainty and retained Item Catalog evidence; no Save/Complete Import/Review & Import. Exact time is absent. PR #22 commit `0c8cea93e85d1d6bfe09f18f87ef49d19ac8f2bf` adds it, with 7 mounted/full-suite/lint/build local passes. Deployment/live time observation remains unverified. No new email, upload, Save, reassignment, reviewer correction or isolated-org membership change occurred.
+2. **A1.5:** October28 21:54 Eastern screenshot observes visible mixed fixture `295b5376-797e-4339-a478-160179d9298f`: sender a1-test@example.invalid, date10/28/2026, A1_Review_Mixed_Test.csv, Processed — clarification flagged, explicit quoted-per uncertainty and retained Item Catalog evidence; no Save/Complete Import/Review & Import. Exact time is absent. PR #22 commit `0c8cea93e85d1d6bfe09f18f87ef49d19ac8f2bf` adds it, with 7 mounted/full-suite/lint/build local passes. Deployment passed under PR22/run75; signed-in live time observation remains unverified. No new email, upload, Save, reassignment, reviewer correction or isolated-org membership change occurred.
 
 Generic catalog confidence and eligibility counts already have Dino's screenshot evidence. A specific test item appearing in the rendered Order Guide has not been claimed. Independent fresh-email browser-closure timing and real-email image/PDF/mixed delivery remain unclaimed limitations, not new mandatory tests added by this reconciliation.
 
@@ -74,8 +74,16 @@ No whole-Task1, Task2 or whole-module sign-off is made. The scoped automatic han
 
 ## Task 2 — Vendor Integration, original three requirements
 
-PR #23 (`0050403774bfac2d8a1e6bc4489782c211f0d4a4`) implements a draft for private per-organization/vendor Vault credentials; due/on-demand leased read-only HTTPS export pulls; and retained original/content-keyed receipt/automatic A1 worker handoff. Twenty local executed adapter/SQL checks pass, including actual entrypoint auth, rejected login pages/private networks/oversize sources, duplicate identity, byte conflicts, stale leases, credential rotation/removal and scheduler dispatch SQL. Full npm test, lint and build pass locally.
+PR #23 (initial `0050403774bfac2d8a1e6bc4489782c211f0d4a4`, revised `ea4747fa7812c1778f276af170fe5150be6da0e7`) implements a draft for private per-organization/vendor Vault credentials; due/on-demand leased read-only HTTPS export pulls; and retained original/content-keyed receipt/automatic A1 worker handoff. Twenty-two local executed adapter/SQL checks pass, including actual entrypoint auth, rejected login pages/private networks/oversize sources, duplicate identity, byte conflicts, stale leases, credential rotation/removal and scheduler dispatch SQL. Full npm test, lint and build pass locally.
 
 Actual kerdos-test Vault encryption/decryption assertions also passed with a disposable synthetic secret in a rolled-back transaction; removal was confirmed. Local Vault/HTTP tests remain simulated and are not hosted portal acceptance.
 
 Schema/function/cron are NOT deployed. The first adapter supports an explicitly approved read-only HTTPS export with Basic/Bearer auth; arbitrary interactive/MFA/cookie portal login is not implemented. No real vendor endpoint or authorized credentials have been supplied. No vendor API is invented and no actual vendor integration is marked complete. Deployment sequence, limits and rollback are in PR #23 knowledge/a2_vendor_integration_review.md. Existing application function versions and earlier evidence remain unchanged.
+
+### October29 follow-on
+
+PR22 merged/deployed as5a545ff; GitHub run75/40857406527 passed, public asset HTTP200 contains the new timestamp formatter/time element. This is deployment/asset verification, not a signed-in observation.
+
+Task2 revision ea4747f fixes returning price-sheet A→B→A suppression with atomic source revisions and distinct import fingerprints. Immediate identical replay remains duplicate-safe.22 local checks and full npmtest/lint pass.
+
+A proposed rollback-only live Task2 schema/Vault/replay check was rejected by automatic approval review. Reason: extensive temporary DDL, function/grant/trigger changes and synthetic data/Vault writes in shared kerdos-test still carry lock/side-effect/failure risk; explicit approval for applying the draft SQL live was absent. No SQL ran, no workaround/retry was attempted, and a read-only follow-up confirmed the draft source table/claim RPC remain absent. Explicit approval is needed before that exact live check; no hosted Task2 schema pass is recorded.
