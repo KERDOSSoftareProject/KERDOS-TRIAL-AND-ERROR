@@ -590,6 +590,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           const upload=await documents.uploadOriginal(orgId,vendorId,group.file);
           if(upload.error){
             saveError=(saveError?saveError+" ":"")+`"${group.name}": data was extracted, but the original file couldn't be saved: `+upload.error.message;
+            // The retained source is part of the invoice audit record. Do not
+            // create catalog entries or invoice charges without that original.
+            continue;
           } else {
             filePath=upload.path;
             fileName=upload.name;
