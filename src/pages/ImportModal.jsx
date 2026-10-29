@@ -92,8 +92,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     let active=true;
     (async()=>{
       const newGroups=await Promise.all(initialFiles.map(async file=>{
-        const text=await fileToText(file);
-        return {id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
+        let reading;
+        const text=await fileToText(file,{onRead:result=>{reading=result;}});
+        return {reading,id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
       }));
       if(active) setFileGroups(newGroups);
     })().catch(err=>setParseError(`Could not read attached file: ${err.message||String(err)}`));
@@ -126,8 +127,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const shownAt=Date.now();
     try{
       const newGroups=await Promise.all(fileArr.map(async file=>{
-        const text=await fileToText(file);
-        return {id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
+        let reading;
+        const text=await fileToText(file,{onRead:result=>{reading=result;}});
+        return {reading,id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
       }));
       const combined=[...fileGroups,...newGroups];
       setFileGroups(combined);
