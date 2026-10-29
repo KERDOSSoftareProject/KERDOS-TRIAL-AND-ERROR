@@ -1,15 +1,15 @@
 # Module A — Interaction Gate Results
 
 Application: KERDOS → Division I · Procurement → Module A · Pre-Ingestion  
-Governing task list: v59 reconciliation of v58 evidence, October 28, 2026 Eastern  
+Governing task list: v60, October 29, 2026 UTC / October 28 Eastern  
 Repository baseline: main through PR #20, merge `147af6053241c1963230b11cf12d929cf9166ada`  
 Environment: kerdos-test `gwtnaudjfoxjermhvhpx`
 
 ## Current decision
 
-Implementation and relevant database checks pass for the currently scoped automatic workflow. **Whole Task 1 remains open**, as does the separate Live App Verification task. Exactly two required live observations remain in that task: **A1.3 address copying** and **A1.5 current Inbox display**.
+Scoped automatic processing evidence remains passing. **Whole Task 1 remains open**: A1.3 live copying depends on a displayed receiver after deferred platform configuration; A1.5 sender/date/clarification/status-only presentation is now observed, but received time was absent. PR #22 fixes that time display and passes local checks; it is not deployed. **Task 2 is now authorized and has a tested implementation draft in PR #23**, with no real vendor endpoint/credentials or hosted acceptance yet.
 
-This reconciliation preserves the existing A1.1–A1.7 numbering. It changes documentation/checklist interpretation only: no new product task, code change, schema change, application deployment, test fixture or email send. A passing code/database checkbox does not certify its separate live browser observation.
+This reconciliation preserves the existing A1.1–A1.7 numbering. The original reconciliation changed documentation only. The follow-on code drafts are separately identified below; neither changes the deployed app, schema or workers. A passing code/database checkbox does not certify its separate live browser observation.
 
 ## A1.1–A1.7 under their actual labels
 
@@ -17,9 +17,9 @@ This reconciliation preserves the existing A1.1–A1.7 numbering. It changes doc
 |---|---|---|---|
 | A1.1 | Automatically provision receiving addresses identifying client, vendor and document type | PR #8: 12 PostgreSQL provisioning/permissions/lifecycle checks and 4 rendered context/no-client-write checks; deployed trigger/config migration; actual tagged Postmark routes preserve receipt ownership/type | Owned production domains/DNS are deferred and do not block testing. No claim of owned-domain delivery. |
 | A1.2 | Automatically process emailed attachments using registered client/vendor/type | Receipt snapshot/immutability/permissions 17 database checks; durable handoff and active/stale lease checks; actual CSV price-sheet/invoice delivery; new/existing item/catalog retention; validated atomic invoice; PR #18 images, #19 PDF and #20 mixed hosted acceptance | XLSX reader coverage is executed local code evidence, not a hosted XLSX email pass. Image/PDF/mixed hosted results are not new real-email sends. |
-| A1.3 | Client can provide routing address to vendors | Clipboard code checks cover exact address, success after clipboard resolution and honest failure | **OPEN live:** copy an already displayed receiving address and verify pasted text. No address creation or routing changes. |
+| A1.3 | Client can provide routing address to vendors | Clipboard code checks cover exact address, success after clipboard resolution and honest failure | **CONFIGURATION-DEPENDENT:** Dino’s signed-in Price Sheets view shows no address/Copy control while future domains are unconfigured. Exact copy remains unverified; no invented address, domain purchase or client setup is required to continue other work. |
 | A1.4 | Optional forwarding copy to client email | 19 code checks; processing/forwarding exception handoff tests | Actual outbound copy is OPTIONAL/UNVERIFIED; not an automatic intake blocker. |
-| A1.5 | Inbox displays received email, timestamp, sender and processing state | Routing/service tests and mounted production adapter checks; PR #17 automatic receipts are status-only without manual import controls | **OPEN live:** observe sender/time/current state/clarification reason and status-only automatic receipt in signed-in current app. Catalog confidence screenshot does not certify these Inbox fields. |
+| A1.5 | Inbox displays received email, timestamp, sender and processing state | Routing/service tests and mounted production adapter checks; PR #17 automatic receipts are status-only without manual import controls | Dino’s signed-in Inbox screenshot confirms sender/date/filename/clarification and no manual import controls. **Time absent:** PR #22 supplies date/time/seconds/timezone; 7 mounted/full-suite/lint/build local passes. Draft, not deployed/live observed. |
 | A1.6 | Link manually imported attachment to document and retain audit trail | 9 database audit-link checks; actual-modal reservation/resolution tests; rolled-back completion guard rejects premature success | Live manual-review save/correction is OPTIONAL separate manual work. It is not required for zero-action automatic intake. |
 | A1.7 | Partial import recovery | Same linked document, saved row:N keys only, retained unresolved source, active/stale lease distinction, duplicate-safe deployed CSV/image/PDF replay; scheduled recovery via existing cron/Vault | Scheduled 15:35 recovery passed with Dino-attested tab closure. Agent did not independently observe tabs; fresh-email closure timing is not claimed. |
 
@@ -53,8 +53,8 @@ The real forwarded horn.txt source has94 retained/mapped rows, no confirmed quot
 
 ## Remaining required live observations — existing task only
 
-1. **A1.3:** in the signed-in app, copy an existing displayed test receiver; pasted text must exactly match. Code-side success/rejection tests already pass.
-2. **A1.5:** read an existing visible receipt; verify sender, received time, processing state, clarification reason and absence of manual import controls on automatic receipts. Reuse visible mixed fixture message `295b5376-797e-4339-a478-160179d9298f` if available. No new email/upload/Save/reassignment/unit correction. Do not grant membership to the isolated fixture organization.
+1. **A1.3:** exact copying remains unverified because the signed-in view has no receiver/Copy control while future platform domains are unconfigured. Clipboard code checks pass. This is a future configuration dependency, not failed intake or a request to buy domains.
+2. **A1.5:** October28 21:54 Eastern screenshot observes visible mixed fixture `295b5376-797e-4339-a478-160179d9298f`: sender a1-test@example.invalid, date10/28/2026, A1_Review_Mixed_Test.csv, Processed — clarification flagged, explicit quoted-per uncertainty and retained Item Catalog evidence; no Save/Complete Import/Review & Import. Exact time is absent. PR #22 commit `0c8cea93e85d1d6bfe09f18f87ef49d19ac8f2bf` adds it, with 7 mounted/full-suite/lint/build local passes. Deployment/live time observation remains unverified. No new email, upload, Save, reassignment, reviewer correction or isolated-org membership change occurred.
 
 Generic catalog confidence and eligibility counts already have Dino's screenshot evidence. A specific test item appearing in the rendered Order Guide has not been claimed. Independent fresh-email browser-closure timing and real-email image/PDF/mixed delivery remain unclaimed limitations, not new mandatory tests added by this reconciliation.
 
@@ -70,4 +70,12 @@ Final application versions: inbound-emailv6, process-attachmentv13, recovery-swe
 
 ## Sign-off boundary
 
-No whole-Task1 or whole-live-gate sign-off is made. The code/database handoff review is complete; the two listed browser observations are still open. Task2 Vendor Integration remains not started and is not tabled. Do not rename/renumber tasks or reopen completed ingestion tests because of historical wording.
+No whole-Task1, Task2 or whole-module sign-off is made. The scoped automatic handoff evidence stands; the specific remaining A1.3/A1.5 boundaries above remain open. Task2 is in progress, not tabled. Do not rename/renumber tasks or reopen completed ingestion tests because of historical wording.
+
+## Task 2 — Vendor Integration, original three requirements
+
+PR #23 (`0050403774bfac2d8a1e6bc4489782c211f0d4a4`) implements a draft for private per-organization/vendor Vault credentials; due/on-demand leased read-only HTTPS export pulls; and retained original/content-keyed receipt/automatic A1 worker handoff. Twenty local executed adapter/SQL checks pass, including actual entrypoint auth, rejected login pages/private networks/oversize sources, duplicate identity, byte conflicts, stale leases, credential rotation/removal and scheduler dispatch SQL. Full npm test, lint and build pass locally.
+
+Actual kerdos-test Vault encryption/decryption assertions also passed with a disposable synthetic secret in a rolled-back transaction; removal was confirmed. Local Vault/HTTP tests remain simulated and are not hosted portal acceptance.
+
+Schema/function/cron are NOT deployed. The first adapter supports an explicitly approved read-only HTTPS export with Basic/Bearer auth; arbitrary interactive/MFA/cookie portal login is not implemented. No real vendor endpoint or authorized credentials have been supplied. No vendor API is invented and no actual vendor integration is marked complete. Deployment sequence, limits and rollback are in PR #23 knowledge/a2_vendor_integration_review.md. Existing application function versions and earlier evidence remain unchanged.
