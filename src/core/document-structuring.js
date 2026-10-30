@@ -25,8 +25,12 @@ function pageWords(page){
 function groupLines(words){
   const tolerance=Math.max(2,median(words.map(word=>word.height))*.4),lines=[];
   for(const word of [...words].sort((a,b)=>b.y-a.y||a.x-b.x)){
-    let line=lines.find(line=>Math.abs(line.y-word.y)<=tolerance);
-    if(!line){line={y:word.y,words:[]};lines.push(line);}
+    // OCR boxes end at each word's lowest glyph, not a shared baseline.
+    // A descender can move one header word below the baseline tolerance even
+    // when its box overlaps every other word on the same physical line.
+    let line=lines.find(line=>Math.abs(line.y-word.y)<=tolerance||word.box&&line.ocr&&
+      Math.min(line.top,word.y+word.height)-Math.max(line.bottom,word.y)>=Math.min(line.height,word.height)*.5);
+    if(!line){line={y:word.y,top:word.y+word.height,bottom:word.y,height:word.height,ocr:!!word.box,words:[]};lines.push(line);}
     line.words.push(word);
   }
   return lines.sort((a,b)=>b.y-a.y).map((line,index)=>({...line,index,words:line.words.sort((a,b)=>a.x-b.x)}));

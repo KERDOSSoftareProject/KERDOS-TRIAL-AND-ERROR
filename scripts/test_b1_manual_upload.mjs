@@ -13,6 +13,7 @@ import Renderer,{act} from 'react-test-renderer';
 import assert from 'node:assert/strict';
 import {PasteModal} from './src/pages/ImportModal.jsx';
 import {createPriceImportFixture} from './scripts/fixtures/price-import-backend.mjs';
+import ocrCapture from './scripts/fixtures/b2/mixed-ocr-reading.json';
 const csv='Code,Description,Pack,Price Unit,Price\nB1-001,Chicken Breast Boneless Skinless,2/10 LB,CASE,41.25\n';
 const invoice='INVOICE B1-INV-001\nDate: 10/27/2026\nItem,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\nB1-001,Chicken Breast Boneless Skinless,2/10 LB,CASE,2,41.25,82.50';
 const org='10000000-0000-0000-0000-000000000001';
@@ -159,7 +160,18 @@ await check('B3 remembers and applies unknown headers independently for both wor
  assert.ok(text(p.tree.toJSON()).includes('2 product rows read'));await save(p);
  assert.deepEqual(f.calls.applyQuote.map(call=>call.packSize),['20 LB','10 LB']);p.tree.unmount();
 });
-console.log(passed+'/12 B1/B3 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('B2 actual OCR capture saves correct numeric fields while retaining uncertainty flags',async()=>{
+ const f=fixture(),p=await open();
+ await upload(p,'picker',{...file('B2_Mixed_Scanned_Prices_Test.pdf',ocrCapture.text),reading:ocrCapture});
+ assert.equal(writes(f),0);await save(p);
+ assert.deepEqual(f.calls.applyQuote.map(call=>[call.vendorItemCode,call.price]),[['730001',46.75],['730002',57.85]]);
+ assert.equal(f.calls.applyQuote[1].priceUnavailable,true);
+ assert.equal(f.calls.applyQuote[1].importRow.reviewRequired,true);
+ assert.equal(f.calls.applyQuote[1].importRow.row.sourceProvenance.page,2);
+ assert.equal(f.calls.applyQuote[1].importRow.row.billingUnitEvidence.unit,'CASE');
+ assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);p.tree.unmount();
+});
+console.log(passed+'/13 B1/B2/B3 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

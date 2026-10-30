@@ -810,6 +810,9 @@ function findMoneyTokens(line) {
 
   return [...line.matchAll(moneyRe)].map(m => {
     const start = m.index, end = m.index + m[0].length;
+    // A match starting inside a longer digit run is an identifier fragment,
+    // never a smaller monetary amount (730002 must not become price 2).
+    if(start>0&&isDigit(line[start-1]))return null;
     // A number directly followed by "%" is a percentage, not a price
     // (e.g. "10% off" should never be read as a $10 line item).
     if (line[end] === "%") return null;
