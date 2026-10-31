@@ -865,13 +865,13 @@ export default function App() {
     <div style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
 
       {/* HEADER */}
-      <header style={{background:"white",color:"#1A4FA8",padding:"0 22px",height:60,
+      <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:60,
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
-        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:"#1A4FA8",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
+        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",fontFamily:tab==="home"?'"Times New Roman",Times,serif':"inherit",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
         {tab!=="home"&&<button type="button" onClick={()=>setTab("home")} style={{position:"absolute",left:"50%",transform:"translateX(-50%)",background:"none",border:0,color:"#1A4FA8",fontWeight:700,fontSize:14,cursor:"pointer"}}>← Home</button>}
         <div style={{position:"relative"}}>
-          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:"#E6EEF9",color:"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
+          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
           {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
             {organizations.length>1?<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>:<div style={{marginBottom:10,fontWeight:700}}>{org.name}</div>}
             <button type="button" onClick={()=>{setAccountMenuOpen(false);try{sessionStorage.removeItem("kerdos.activeTab.v2");}catch{} backend.session.signOut().catch(err=>alert(err.message));}} style={{background:"none",border:0,color:"#1A4FA8",cursor:"pointer",padding:0}}>Sign out</button>
