@@ -162,8 +162,15 @@ await check('B3 remembers and applies unknown headers independently for both wor
 });
 await check('B2 actual OCR capture saves correct numeric fields while retaining uncertainty flags',async()=>{
  const f=fixture(),p=await open();
+ const applyQuote=f.backend.pricing.applyQuote;
+ let resume;const pending=new Promise(resolve=>{resume=resolve;});
+ f.backend.pricing.applyQuote=async(...args)=>{await pending;return applyQuote(...args);};
  await upload(p,'picker',{...file('B2_Mixed_Scanned_Prices_Test.pdf',ocrCapture.text),reading:ocrCapture});
  assert.equal(writes(f),0);await save(p);
+ assert.ok(text(p.tree.toJSON()).includes('Source recognition is below 90%; retained values need confirmation.'));
+ assert.ok(!text(p.tree.toJSON()).includes('[object Object]'));
+ await act(async()=>{resume();});
+ for(let i=0;i<60&&!p.finished.length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
  assert.deepEqual(f.calls.applyQuote.map(call=>[call.vendorItemCode,call.price]),[['730001',46.75],['730002',57.85]]);
  assert.equal(f.calls.applyQuote[1].priceUnavailable,true);
  assert.equal(f.calls.applyQuote[1].importRow.reviewRequired,true);

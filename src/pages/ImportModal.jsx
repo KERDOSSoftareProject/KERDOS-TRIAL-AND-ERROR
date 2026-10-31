@@ -954,7 +954,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
                   {row.packSize&&<span style={{color:"#AAA",marginLeft:6,fontSize:11}}>{row.packSize}</span>}
                   {showSourceTags&&<span style={{color:"#BBB",marginLeft:6,fontSize:10}}>· {g.name}</span>}
                   {!!row.issues?.length&&<div style={{color:"#B26A00",fontSize:11,marginTop:3}}>
-                    ⚠ {row.issues.join("; ")}
+                    ⚠ {row.issues.map(issue=>typeof issue==="string"?issue:(issue?.message||issue?.kind||"Needs review")).join("; ")}
                     <button onClick={()=>approveIssue(g.id,i)} disabled={acceptedIssues.has(`${g.id}:${i}`)} style={{marginLeft:8,border:"none",background:"#FFF3E0",color:"#9A5700",cursor:"pointer",fontWeight:700}}>{acceptedIssues.has(`${g.id}:${i}`)?"Acknowledged":"Approve as entered"}</button>
                   </div>}
 
