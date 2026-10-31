@@ -917,20 +917,21 @@ export default function App() {
             `}</style>
             <main style={{flex:1,minWidth:0}}>
               <div style={{color:"white",fontSize:20,fontWeight:700,marginBottom:12}}>ORDER GUIDE</div>
-              <div className="order-browse-filters" style={{display:"flex",gap:10,marginBottom:12}}>
-                <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:180,background:"#E8F1FD",color:"#174EAB",fontWeight:700}}>
-                  <option value="">Vendors · All</option>
+              <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
+                <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+                  <option value="">Vendors</option>
                   {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
-                <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:220,background:"#E8F1FD",color:"#174EAB",fontWeight:700}}>
-                  <option value="">Item Categories · All</option>
+                <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
+                  <option value="">Item Categories</option>
                   {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
-                <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"#E8F1FD",color:"#174EAB",fontWeight:700}}>
-                  <option value="alpha">Sort · Item A–Z</option>
-                  <option value="added">Sort · Date Added</option>
-                  <option value="itemNumber">Sort · Item #</option>
-                  <option value="vendorCode">Sort · Vendor Code</option>
+                <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+                  <option value="alpha">Sort</option>
+                  <option value="alphabetical">Item A–Z</option>
+                  <option value="added">Date Added</option>
+                  <option value="itemNumber">Item #</option>
+                  <option value="vendorCode">Vendor Code</option>
                 </select>
               </div>
               <input value={search} onChange={e=>setSearch(e.target.value)}
