@@ -16,7 +16,8 @@ import {formatMoney} from "../localization.js";
 import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
 import {importPriceRow} from "../core/import-price-row.js";
-import {verifyResumeRows} from "../core/import-resume.js";
+import {verifyResumeRows,createSourceRowSnapshot} from "../core/import-resume.js";
+import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
 import {enrichFromInvoices,invoiceEvidence} from "../core/invoice-evidence.js";
@@ -58,6 +59,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const [step,setStep]=useState(1);
   const [loading,setLoading]=useState(false);
   const saveInFlight=useRef(false);
+  const saveProgress=useRef(null);
   const [result,setResult]=useState(null);
   const [dragOver,setDragOver]=useState(false);
   const [fileBusy,setFileBusy]=useState(false);
@@ -403,7 +405,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           return;
         }
       }
-      let failedRows=0;
+      let failedRows=0,savedSourceRows=0;
       for(const group of parsedGroups){
         if(!group.rows.length)continue;
         let sourceFilePath=null;
@@ -438,6 +440,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // is safe to repeat.
         if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
+        savedSourceRows+=completedKeys.size;
+        saveProgress.current?.update({saved:savedSourceRows,failed:failedRows});
         // A1.7.b: old partial documents (before the row:N fix) have non-standard keys
         // in completed_keys.  verifyResumeRows uses saved.key to index into the row array
         // (rows[N] from row:N) so old-format saved rows cause it to throw before the
@@ -461,9 +465,10 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           }
         }
         if(existingDoc){
-          try{verifyResumeRows(group.rows,[...completedKeys],await importService.resumeSources(orgId,vendorId,existingDoc.id));}
+          try{verifyResumeRows(group.rows,[...completedKeys],await importService.resumeSources(orgId,vendorId,existingDoc.id),existingDoc.source_rows??null);}
           catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
         }
+        sourceFilePath=existingDoc?.file_path||sourceFilePath;
         let sourceDocumentId=existingDoc?.id||null;
         lastSourceDocumentId=sourceDocumentId;
         if(!existingDoc){
@@ -473,7 +478,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             sourceFilePath=uploaded.path;
           }
           let storedDoc;
-          try{storedDoc=await importService.createPriceDocument({organization_id:orgId,vendor_id:vendorId,document_kind:"pricelist",fingerprint,original_text:group.text,file_name:group.name,file_path:sourceFilePath,status:"processing"});}
+          try{storedDoc=await importService.createPriceDocument({organization_id:orgId,vendor_id:vendorId,document_kind:"pricelist",fingerprint,original_text:group.text,file_name:group.name,file_path:sourceFilePath,status:"processing",source_rows:createSourceRowSnapshot(group.rows)});}
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           sourceDocumentId=storedDoc.id;
         }
@@ -542,6 +547,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         if(!inboxReview||!needsBasis){
           await importService.recordProgress(sourceDocumentId,[...completedKeys,completedKey]);
           completedKeys.add(completedKey);
+          savedSourceRows++;
         }
         const saved={...ex,id:vendorItemId,vendor_id:vendorId,organization_id:orgId,
           vendor_item_code:row.code||ex?.vendor_item_code||null,
@@ -558,6 +564,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           failedRows++;
           if(!saveError) saveError=`"${row.description}" — ${err.message||String(err)}`;
         }
+        saveProgress.current?.update({saved:savedSourceRows,failed:failedRows});
       }
         const finalStatus=priceDocumentStatus({failedRows,failuresBeforeGroup,completedKeys,rowCount:group.rows.length});
         try{await importService.finalizeDocument(sourceDocumentId,finalStatus,[...completedKeys]);}
@@ -988,7 +995,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           {saveReview&&<div style={{color:"#B71C1C",fontSize:12,marginBottom:8}}>{saveReview}</div>}
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>inboxReview?onClose():setStep(1)} style={{...btn("#EEE","#555"),flex:1}}>{inboxReview?"Close review":"← Back"}</button>
-            {(onBeforeSave||saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>{inboxReview?"Apply corrections": "Continue after resolving issues"}</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}><Drachma label="Saving…"/></div>}
+            {(onBeforeSave||saveReview||unsafeDocuments.length||(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length||invoiceConflicts.length)))?<button onClick={doSave} disabled={loading||!allRows.length||unsafeDocuments.length>0||(mode==="invoice"&&(needsReview.length>0||missingInvoiceDates.length>0||invoiceConflicts.length>0))||invoiceLoad==="loading"} style={{...btn("#003584"),flex:2}}>{inboxReview?"Apply corrections": "Continue after resolving issues"}</button>:<div style={{flex:2,display:"flex",justifyContent:"center",padding:4}}>{mode==="pricelist"?<ImportSaveProgress ref={saveProgress} total={allRows.length}/>:<Drachma label="Saving invoice…"/>}</div>}
           </div>
         </>}
 

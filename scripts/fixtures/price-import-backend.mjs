@@ -37,8 +37,12 @@ export function createPriceImportFixture({text:CSV_TEXT}) {
       if (action === 'select') return Promise.resolve({ data: eqFilter(vendorItems, filters), error: null });
       // update (import_row staging when needsBasis && ex — should NOT be called
       // for a brand-new item because ex is null)
-      if (action === 'update') return Promise.reject(new Error(
-        'vendor_items UPDATE called for new item — should not happen (needsBasis && ex path)'));
+      if (action === 'update') {
+        const matches=eqFilter(vendorItems,filters);
+        if(!matches.length)return Promise.reject(new Error('vendor_items UPDATE called for new item — should not happen (needsBasis && ex path)'));
+        for(const row of matches)Object.assign(row,value);
+        return Promise.resolve({data:cardinality==='single'?matches[0]:matches,error:null});
+      }
     }
 
     // ── catalog_items ─────────────────────────────────────────────────────────
@@ -103,7 +107,7 @@ export function createPriceImportFixture({text:CSV_TEXT}) {
         const fpFilter = filters.find(f => f.column === 'fingerprint');
         if (fpFilter && importDocs[fpFilter.value]) {
           const doc = importDocs[fpFilter.value];
-          const row = { id: doc.id, status: doc.status, completed_keys: doc.completed_keys };
+          const row = { id: doc.id, status: doc.status, completed_keys: doc.completed_keys,source_rows:doc.source_rows,file_path:doc.file_path };
           return Promise.resolve({ data: row, error: null });
         }
         return Promise.resolve({ data: null, error: null });
