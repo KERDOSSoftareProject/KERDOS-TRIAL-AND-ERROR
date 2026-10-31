@@ -26,6 +26,8 @@ import {ItemCatalogPanel} from "./pages/ItemCatalogPanel.jsx";
 import {PasteModal} from "./pages/ImportModal.jsx";
 import {VendorDetail} from "./pages/VendorDetail.jsx";
 import {EmailInboxPanel,RoutingAddressPanel} from "./pages/EmailInboxPanel.jsx";
+import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
+import {listMessages} from "./services/email-routing.js";
 import {PALETTE,btn,chipStyle,inp} from "./ui/styles.js";
 
 const documents=createDocumentService(backend);
@@ -94,9 +96,11 @@ export default function App() {
   const [dropTarget,setDropTarget]=useState(null);
   const [dropNotice,setDropNotice]=useState("");
   const [tab,setTab]=useState(()=>{
-    try { return sessionStorage.getItem("kerdos.activeTab") || "order"; }
-    catch { return "order"; }
+    try { return sessionStorage.getItem("kerdos.activeTab.v2") || "home"; }
+    catch { return "home"; }
   });
+  const [accountMenuOpen,setAccountMenuOpen]=useState(false);
+  const [inboxAttentionCount,setInboxAttentionCount]=useState(0);
   const [showPaste,setShowPaste]=useState(false);
   // One plain line after an import finishes on its own; it clears itself.
   const [importNotice,setImportNotice]=useState(null);
@@ -174,7 +178,7 @@ export default function App() {
     sessionController.start(({session:s,entered})=>{
       if(cancelled) return;
       setSession(s);
-      if(entered) setTab("order");
+      if(entered) setTab("home");
     }).catch(()=>{ if(!cancelled) setSession(null); });
     return ()=>{ cancelled=true; sessionController.stop(); };
   },[]);
@@ -194,10 +198,27 @@ export default function App() {
   },[]);
 
   // Preserve the current workspace on a normal browser refresh. A genuine
-  // sign-in still intentionally starts on Order Guide via sessionController.
+  // sign-in starts on Welcome via sessionController.
   useEffect(()=>{
-    try { sessionStorage.setItem("kerdos.activeTab", tab); } catch {}
+    try { sessionStorage.setItem("kerdos.activeTab.v2", tab); } catch {}
   },[tab]);
+
+  useEffect(()=>{
+    const previous=window.history.scrollRestoration;
+    window.history.scrollRestoration="manual";
+    return ()=>{window.history.scrollRestoration=previous;};
+  },[]);
+  useEffect(()=>{ if(!loading) window.scrollTo?.(0,0); },[tab,loading]);
+
+  // Inbox tracks actionable attachments; there is no read/unread state.
+  useEffect(()=>{
+    if(!org?.id||tab!=="home"||!["owner","manager"].includes(org.role))return;
+    let active=true;
+    listMessages(backend,org.id).then(messages=>{
+      if(active)setInboxAttentionCount(messages.reduce((sum,message)=>sum+(message.pending_count||0),0));
+    }).catch(()=>{if(active)setInboxAttentionCount(0);});
+    return ()=>{active=false;};
+  },[org?.id,org?.role,tab]);
 
   useEffect(()=>{
     if(session===undefined) return;
@@ -854,32 +875,20 @@ export default function App() {
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
   return (
-    <div style={{fontFamily:"'Inter',-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+    <div style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:tab==="home"?"#F0F4FA":"#003584"}}>
 
       {/* HEADER */}
-      <header style={{background:"#003584",color:"white",padding:"0 16px",height:52,
+      <header style={{background:"white",color:"#1A4FA8",padding:"0 22px",height:60,
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={openOrderGuide}>
-          <span style={{fontSize:24}}>🦉</span>
-          <div style={{fontWeight:900,fontSize:15,letterSpacing:"0.18em",color:"#4A90D9"}}>KERDOS</div>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          {totalSpend>0&&(
-            <div style={{textAlign:"right"}}>
-              <div style={{fontWeight:800,fontSize:17}}>{formatMoney(totalSpend)}</div>
-              {totalSpend>baselineSpend+0.01&&<div style={{fontSize:10,color:"#FF9800"}}>+{formatMoney(totalSpend-baselineSpend)} vs cheapest</div>}
-            </div>
-          )}
-          <div style={{fontSize:11,opacity:0.6,textAlign:"right"}}>
-              {organizations.length>1
-                ?<select aria-label="Active organization" value={org.id} onChange={e=>switchOrganization(e.target.value)}
-                  style={{maxWidth:190,fontSize:11,color:"white",background:"#00204F",border:"1px solid #4A90D9",borderRadius:4,padding:"2px 4px"}}>
-                  {organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
-                </select>
-                :<div>{org.name}</div>}
-            <button onClick={()=>{try{sessionStorage.removeItem("kerdos.activeTab");}catch{} backend.session.signOut().catch(err=>alert(err.message));}} style={{background:"none",border:"none",color:"#4A90D9",cursor:"pointer",fontSize:11,padding:0}}>Sign out</button>
-          </div>
+        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:"#1A4FA8",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
+        {tab!=="home"&&<button type="button" onClick={()=>setTab("home")} style={{position:"absolute",left:"50%",transform:"translateX(-50%)",background:"none",border:0,color:"#1A4FA8",fontWeight:700,fontSize:14,cursor:"pointer"}}>← Home</button>}
+        <div style={{position:"relative"}}>
+          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:"#E6EEF9",color:"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
+          {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
+            {organizations.length>1?<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>:<div style={{marginBottom:10,fontWeight:700}}>{org.name}</div>}
+            <button type="button" onClick={()=>{setAccountMenuOpen(false);try{sessionStorage.removeItem("kerdos.activeTab.v2");}catch{} backend.session.signOut().catch(err=>alert(err.message));}} style={{background:"none",border:0,color:"#1A4FA8",cursor:"pointer",padding:0}}>Sign out</button>
+          </div>}
         </div>
       </header>
 
@@ -890,24 +899,11 @@ export default function App() {
         </div>
       )}
 
-      {/* TABS */}
-      <div style={{background:"white",display:"flex",borderBottom:"1px solid #EEE",position:"sticky",top:52,zIndex:100}}>
-        {[["order","📋 Order Guide"],
-          ["catalog",`🗂️ Item Catalog${needsAttentionCount>0?` (${needsAttentionCount})`:""}`],
-          ["priceSheets","📊 Price Sheets"],
-          ["invoices",`📁 Invoices${invoiceReviewCount>0?` (${invoiceReviewCount})`:""}`],
-          ...(org.role==="owner"||org.role==="manager"?[["inbox","📥 Inbox"],["team","👥 Admin"]]:[])].map(([id,label])=>(
-          <button key={id} onClick={()=>id==="order"?openOrderGuide():setTab(id)}
-            style={{flex:1,padding:"12px 4px",border:"none",background:"none",cursor:"pointer",
-              fontSize:12,fontWeight:600,
-              color:tab===id?"#003584":"#888",
-              borderBottom:tab===id?"2px solid #003584":"2px solid transparent"}}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {tab==="home"&&<WelcomeScreen orgName={org.name} role={org.role}
+        attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
+        inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
-      <div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
+      {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -1496,7 +1492,7 @@ export default function App() {
             <CatalogPanel orgId={org.id} orgIndustry={org.industry} categories={categories} catalogItems={catalogItems} vocabulary={vocabulary} onUpdated={loadData} />
           </>
         )}
-      </div>
+      </div>}
 
       {showPaste&&org.role!=="employee"&&<PasteModal industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setShowPaste(false)} onDone={loadData} onFinished={setImportNotice} initialVendorId={selectedVendorId} initialMode={importMode} />}
       {importNotice&&(
