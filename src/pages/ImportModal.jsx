@@ -760,12 +760,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     // Persistence has finished. Show its result before refreshing the parent
     // workspace; a slow refresh must not masquerade as an unfinished save.
     setResult(summary);setStep(cleanFinish?4:3);setLoading(false);setRefreshingCatalog(true);
-    try{await onDone();}
-    catch(error){
+    try{
+      await onDone();
+      if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
+    }catch(error){
       setResult(previous=>({...previous,error:[previous.error,`Saved, but the catalog could not refresh: ${error.message||String(error)}. Reload the app to see the saved items.`].filter(Boolean).join(" ")}));
       setStep(3);
     }finally{setRefreshingCatalog(false);}
-    if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
   }
 
   // Start saving as soon as the parsed rows and invoice cross-reference are
