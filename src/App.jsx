@@ -888,10 +888,10 @@ export default function App() {
 
       {tab==="home"&&<WelcomeScreen orgName={org.name} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
-        inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+        inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
-        <TabHeading title={({order:"Order Guide",catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
+        <TabHeading title={({order:"Order Guide",catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
