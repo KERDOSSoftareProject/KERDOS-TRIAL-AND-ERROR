@@ -1155,7 +1155,7 @@ function parseDocumentRows(text, options={}) {
   const goodsInvoice=parseGoodsInvoice(rawLines,text);
   if(goodsInvoice)return goodsInvoice;
 
-  const delimiter = sniffDelimiter(rawLines);
+  const delimiter = options.delimiter==="tab"?"tab":sniffDelimiter(rawLines);
 
   // Informal emails have no table boundaries. Their subject, invoice
   // numbers and narrative cannot safely become product rows.
