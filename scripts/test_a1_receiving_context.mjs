@@ -20,19 +20,33 @@ try{
  const vendors=[{id:'v',name:'Vendor'}];let root;let passed=0;
  async function test(name,fn){await fn();passed++;console.log('PASS '+name);}
  async function mount(Component,props){await act(async()=>{root=Renderer.create(React.createElement(Component,props));});}
- await test('Invoice tab supplies its own type; opening it only reads registrations',async()=>{
+ await test('Invoice tab opens without configuration panels or address requests',async()=>{
+  const before=globalThis.__calls.length;
   await mount(InvoicesPage,{orgId:'org',vendors,invoices:[],vendorColors:new Map(),formatDate:x=>x,formatMoney:x=>x});
-  assert.equal(root.root.findByType(ReceivingAddressesPanel).props.documentType,'invoice');
-  const panel=root.root.findByProps({'aria-label':'Automatic email receiving'});
-  assert.equal(panel.findAllByType('select').length,0);assert.equal(panel.findAllByType('input').length,0);
-  assert.ok(JSON.stringify(panel.toJSON?.()||root.toJSON()).includes('client.vendor@invoices.example.com'));
-  assert.ok(!JSON.stringify(root.toJSON()).includes('client.vendor@prices.example.us'));
-  assert.ok(globalThis.__calls.every(x=>x.action==='select'));
+  assert.equal(root.root.findAllByType(ReceivingAddressesPanel).length,0);
+  assert.ok(!JSON.stringify(root.toJSON()).includes('Automatic email receiving'));
+  assert.ok(!JSON.stringify(root.toJSON()).includes('Invoice History'));
+  assert.equal(root.root.findAllByProps({'aria-label':'Invoice browse controls'}).length,1);
+  assert.equal(globalThis.__calls.length,before);
   await act(async()=>root.unmount());
  });
- await test('Price Sheets tab supplies its own type without a setup action',async()=>{
+ await test('Price Sheets opens directly to browsing without configuration panels or address requests',async()=>{
+  const before=globalThis.__calls.length;
   await mount(PriceSheetsPage,{orgId:'org',vendors,importDocuments:[],vendorColors:new Map(),formatDate:x=>x});
-  assert.equal(root.root.findByType(ReceivingAddressesPanel).props.documentType,'pricelist');
+  assert.equal(root.root.findAllByType(ReceivingAddressesPanel).length,0);
+  assert.ok(!JSON.stringify(root.toJSON()).includes('Automatic email receiving'));
+  assert.ok(!JSON.stringify(root.toJSON()).includes('Price Sheet History'));
+  assert.equal(root.root.findAllByProps({'aria-label':'Price sheet browse controls'}).length,1);
+  assert.equal(globalThis.__calls.length,before);
+  await act(async()=>root.unmount());
+ });
+ await test('receiving-address component still isolates document types when used elsewhere',async()=>{
+  await mount(ReceivingAddressesPanel,{orgId:'org',vendors,documentType:'invoice'});
+  assert.ok(JSON.stringify(root.toJSON()).includes('client.vendor@invoices.example.com'));
+  assert.ok(!JSON.stringify(root.toJSON()).includes('client.vendor@prices.example.us'));
+  assert.ok(!JSON.stringify(root.toJSON()).includes('foreign.vendor'));
+  await act(async()=>root.unmount());
+  await mount(ReceivingAddressesPanel,{orgId:'org',vendors,documentType:'pricelist'});
   assert.ok(JSON.stringify(root.toJSON()).includes('client.vendor@prices.example.us'));
   assert.ok(!JSON.stringify(root.toJSON()).includes('client.vendor@invoices.example.com'));
   await act(async()=>root.unmount());
