@@ -231,7 +231,15 @@ await check('review listing choices open for one row only and unrelated UI chang
  await act(async()=>{choices()[0].props.onClick();});assert.equal(selectors().length,1);assert.equal(selectors()[0].findAllByType('option').length,323);assert.equal(globalThis.__evidenceCalls,2);
  await act(async()=>{choices()[0].props.onClick();});assert.equal(selectors().length,1);assert.equal(globalThis.__evidenceCalls,2);p.tree.unmount();
 });
-console.log(passed+'/19 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('clean save with refresh failure retains warning and never emits success completion',async()=>{
+ const f=fixture();let reject;const gate=new Promise((_,r)=>{reject=r;});
+ const p=await open(vendor,'pricelist',{onDone:()=>gate});await upload(p,'picker');await save(p);
+ const doc=Object.values(f.importDocs)[0];assert.equal(doc.status,'complete');assert.deepEqual(doc.completed_keys,['row:0']);assert.equal(f.calls.applyQuote.length,1);assert.equal(p.finished.length,0);
+ await act(async()=>{reject(Error('Clean-save refresh failed'));await new Promise(r=>setTimeout(r,10));});
+ assert.ok(text(p.tree.toJSON()).includes('Saved, but the catalog could not refresh: Clean-save refresh failed'));assert.ok(button(p,'Done'));assert.equal(p.finished.length,0,'refresh failure must not emit success completion');
+ assert.equal(f.calls.applyQuote.length,1);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(doc.status,'complete');p.tree.unmount();
+});
+console.log(passed+'/20 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
