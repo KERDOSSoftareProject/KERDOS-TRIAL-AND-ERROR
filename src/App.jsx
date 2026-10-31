@@ -1,6 +1,5 @@
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
-import {AssociateAlternatives} from "./pages/AssociateAlternatives.jsx";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
@@ -71,7 +70,6 @@ function r2(n) { return Math.round(n * 100) / 100; }
 // ── LANDING ───────────────────────────────────────────────────────────
 export default function App() {
   const automaticGrouping=useRef(false);
-  const [alternativeSelections,setAlternativeSelections]=useState(new Set());
   const [session,setSession]=useState(undefined);
   const [org,setOrg]=useState(null);
   const [organizations,setOrganizations]=useState([]);
@@ -794,7 +792,7 @@ export default function App() {
   }
 
   async function submitOrders(){
-    if(blockedCartItems.length){alert(`${blockedCartItems.length} item(s) need a confirmed current quote. Remove them or refresh their prices before submitting.`);return;}
+    if(blockedCartItems.length){alert(`${blockedCartItems.length} item(s) need a confirmed current quote. Review them in Item Catalog before submitting.`);return;}
     if(!baskets.length){alert("No orderable items in the basket.");return;}
     let placed=0;
     try{
@@ -955,7 +953,6 @@ export default function App() {
                 </div>
               )}
 
-              {["owner","manager"].includes(org.role)&&<AssociateAlternatives orgId={org.id} selectedVendorIds={productList.filter(i=>alternativeSelections.has(i.catalogItemId)).flatMap(i=>i.options.map(o=>o.vendorItemId))} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={()=>loadData()} onClear={()=>setAlternativeSelections(new Set())}/>}
               {filtered.map(group=>(
                 <div key={group.category} style={{marginBottom:8}}>
                   <div style={{background:"white",borderRadius:8}}>
@@ -1024,7 +1021,6 @@ export default function App() {
                             title={activeBlocked?undefined:"Drag onto a vendor basket to order from that vendor"}
                             style={{minWidth:0,padding:"8px 8px 8px 2px",borderTop:"1px solid #F2F2F2",cursor:activeBlocked?"default":"grab",opacity:dragItem?.key===activeKey?0.5:1}}>
                             <div style={{fontWeight:600,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                              {["owner","manager"].includes(org.role)&&<input type="checkbox" aria-label={`Select ${item.name} for alternatives`} checked={alternativeSelections.has(item.catalogItemId)} onChange={()=>setAlternativeSelections(prev=>{const next=new Set(prev);if(next.has(item.catalogItemId))next.delete(item.catalogItemId);else next.add(item.catalogItemId);return next;})} style={{marginRight:6}}/>}
                               {displayOption?.description||item.name}
                               {hasEach&&<span title="Available by case or by each" style={{marginLeft:5,fontSize:9,background:"#E0F2F1",color:"#00695C",padding:"2px 5px",borderRadius:4,fontWeight:800}}>CASE + EACH</span>}
                               {totalLinkedVendors>1&&(()=>{
@@ -1211,10 +1207,6 @@ export default function App() {
                   </div>
                 )}
                 {dropNotice&&<div style={{background:"#FFF3E0",color:"#8A4F00",borderRadius:9,padding:"8px 12px",marginBottom:10,fontSize:12,fontWeight:600}}>{dropNotice}</div>}
-                {blockedCartItems.length>0&&<div style={{background:"#FFF3E0",color:"#8A4F00",borderRadius:9,padding:12,marginBottom:10,fontSize:12}}>
-                  <b>{blockedCartItems.length} item(s) need attention — not in vendor baskets.</b>
-                  {blockedCartItems.map(a=><div key={a.catalogItemId} style={{marginTop:5}}>{a.quantity} × {a.name}: confirm a current eligible vendor quote or remove from order.</div>)}
-                </div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.7)",letterSpacing:"0.08em",textTransform:"uppercase"}}>Order Baskets</div>
                   {baskets.length>0&&(
@@ -1327,7 +1319,7 @@ export default function App() {
                       <span style={{fontWeight:800,fontSize:16,color:totalSpend>baselineSpend+0.01?"#FF9800":"#69F0AE"}}>{formatMoney(totalSpend)}</span>
                     </div>
                     <button onClick={submitOrders} disabled={blockedCartItems.length>0}
-                      title={blockedCartItems.length?"Resolve the items needing a price first":undefined}
+                      title={blockedCartItems.length?"Review the items needing a quote in Item Catalog":undefined}
                       style={{...btn(blockedCartItems.length?"#777":"#4A90D9"),width:"100%"}}>
                       Record {baskets.length} Order{baskets.length>1?"s":""} (not sent)
                     </button>
@@ -1390,6 +1382,12 @@ export default function App() {
         {/* ITEM CATALOG TAB */}
         {tab==="catalog"&&(
           <>
+            {blockedCartItems.length>0&&(
+              <div role="status" style={{background:"#FFF3E0",color:"#8A4F00",borderRadius:9,padding:12,marginBottom:14,fontSize:12}}>
+                <b>{blockedCartItems.length} item(s) in your order need a confirmed vendor quote.</b>
+                {blockedCartItems.map(a=><div key={a.catalogItemId} style={{marginTop:5}}>{a.name}: review the product, pack, and saved quote here before ordering.</div>)}
+              </div>
+            )}
             {org.role!=="employee"&&unmappedCount>0&&(
               <div style={{background:"#FFF3E0",borderRadius:10,padding:16,marginBottom:14,textAlign:"center"}}>
                 <div role="status" style={{fontWeight:800,color:"#E65100"}}>{backfilling?`Bringing ${unmappedCount} imported item${unmappedCount===1?"":"s"} into the catalog…`:catalogRepairError||`${unmappedCount} imported item${unmappedCount===1?"":"s"} waiting for catalog links`}</div>
