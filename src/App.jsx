@@ -891,7 +891,7 @@ export default function App() {
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
-        {tab!=="order"&&<TabHeading title={({catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} />}
+        <TabHeading title={({order:"Order Guide",catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -915,7 +915,6 @@ export default function App() {
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
-              <TabHeading title="Order Guide" onHome={()=>setTab("home")} />
               <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
                 <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
                   <option value="">Vendors</option>

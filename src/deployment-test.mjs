@@ -57,7 +57,8 @@ for(const file of requiredMigrations.filter(name=>!name.startsWith("migration_02
   assert.ok(combined.includes(fs.readFileSync(path.join(root,"knowledge",file),"utf8").trim()),`${file} differs from combined database update`);
 
 for(const requiredUi of [
-  "Price Sheet History","Import Price Sheet","Invoice History","Import Invoice",
+  "Price sheet browse controls","Import Price Sheet","Invoice browse controls","Import Invoice",
+  "Search price sheets","Search invoices",
   "Click to open","Remove current prices from Order Guide","Remove price from Order Guide",
   "price_refresh_mode===\"automatic\"?\"automatic\":\"manual\"",
 ]) assert.ok((app+pageSources).includes(requiredUi),`requested import/history behavior missing: ${requiredUi}`);
