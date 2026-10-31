@@ -185,9 +185,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   // Header answers for this vendor's layouts: remembered ones from the
   // organization's settings, plus any given during this import.
   const organizationService=useMemo(()=>createOrganizationService(backend),[]);
-  const [layoutAnswers,setLayoutAnswers]=useState({});   // fingerprint -> {columnIndex: role}
+  // Keep successful answers available while this modal stays open. Parent
+  // settings need not refresh until a document is saved; starting from those
+  // stale props for every confirmation would overwrite an earlier layout.
+  const [layoutMemoryWarning,setLayoutMemoryWarning]=useState("");
+  const layoutSettings=useRef({orgId,fromProps:orgSettings,value:orgSettings});
+  if(layoutSettings.current.orgId!==orgId||layoutSettings.current.fromProps!==orgSettings){
+    layoutSettings.current={orgId,fromProps:orgSettings,value:orgSettings};
+  }
   function answersFor(fingerprint){
-    return {...rememberedLayout(orgSettings,vendorId,fingerprint),...(layoutAnswers[fingerprint]||{})};
+    return rememberedLayout(layoutSettings.current.value,vendorId,fingerprint);
   }
   function parseWithLayout(text,reading,overrides={}){
     const parse=(part,options={})=>{
@@ -213,7 +220,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       const fp=part.layout?.fingerprint;
       const unknown=(part.layout?.unknown||[]).filter(h=>h.label);
       if(!fp||!unknown.length||toAsk.some(entry=>entry.fingerprint===fp))continue;
-      const remembered=rememberedLayout(orgSettings,vendorId,fp);
+      const remembered=answersFor(fp);
       // If every unknown already has a remembered answer, no need to ask.
       const needsAnswer=unknown.filter(h=>remembered[String(h.index)]===undefined&&remembered[h.index]===undefined);
       if(!needsAnswer.length)continue;
@@ -233,7 +240,6 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const toRemember=[];
     for(const [fp,answers] of Object.entries(confirmedByFingerprint)){
       toRemember.push([fp,answers]);
-      setLayoutAnswers(prev=>({...prev,[fp]:answers}));
       settled=settled.map(x=>{
         if(!layoutsFor(x).some(part=>part.layout?.fingerprint===fp))return x;
         const parsed=parseWithLayout(x.text,x.reading,confirmedByFingerprint);
@@ -241,9 +247,25 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       });
     }
     if(toRemember.length){
-      let next=orgSettings;
-      for(const [fp,answers] of toRemember)next=withRememberedLayout(next,vendorId,fp,answers);
-      try{await organizationService.update(orgId,{settings:next});}catch{/* remembering is a convenience */}
+      let next=layoutSettings.current.value;
+      let changed=false;
+      for(const [fp,answers] of toRemember){
+        const previous=rememberedLayout(next,vendorId,fp);
+        const merged={...previous,...answers};
+        if(Object.keys(merged).some(key=>previous[key]!==merged[key])){
+          next=withRememberedLayout(next,vendorId,fp,merged);
+          changed=true;
+        }
+      }
+      if(changed){
+        try{
+          await organizationService.update(orgId,{settings:next});
+          layoutSettings.current.value=next;
+          setLayoutMemoryWarning("");
+        }catch{
+          setLayoutMemoryWarning("These column choices apply to this import, but could not be remembered. You may be asked again next time.");
+        }
+      }
     }
     return settled;
   }
@@ -265,7 +287,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     for(const g of groups)for(const part of layoutsFor(g)){
       const fp=part.layout?.fingerprint;
       if(!fp)continue;
-      const remembered=rememberedLayout(orgSettings,vendorId,fp);
+      const remembered=answersFor(fp);
       if(Object.keys(remembered).length)autoAnswers[fp]=remembered;
     }
     const settled=Object.keys(autoAnswers).length?await applyConfirmedAnswers(groups,autoAnswers):groups;
@@ -279,7 +301,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const confirmedByFingerprint={};
     for(const pending of pendingUnknowns){
       confirmedByFingerprint[pending.fingerprint]={
-        ...rememberedLayout(orgSettings,vendorId,pending.fingerprint),
+        ...answersFor(pending.fingerprint),
         ...pending.confirmedAnswers,
       };
     }
@@ -793,6 +815,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,cursor:"pointer",color:"#888"}}>×</button>
         </div>
 
+        {layoutMemoryWarning&&<p role="alert" style={{color:"#B26A00",fontSize:12}}>{layoutMemoryWarning}</p>}
         {step===1&&<>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Vendor</div>

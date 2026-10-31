@@ -261,14 +261,11 @@ function findHeaderRow(grid) {
   let best = { index: -1, score: 0 };
 
   for (let i = 0; i < searchLimit; i++) {
-    const { score, keywordHits, numericCells } = scoreHeaderRow(grid[i].cells, modeColumnCount);
-    // A single coincidental keyword inside an otherwise ordinary data row
-    // — e.g. a hand-typed description like "1 pallet unit" containing the
-    // word "unit" — must never be enough on its own to promote that row
-    // to "header". Real headers almost always name 2+ recognizable
-    // columns; the one-hit exception is only allowed when the row is
-    // entirely non-numeric (still plausibly a genuine, if sparse, header).
-    const eligible = keywordHits >= 2 || (keywordHits >= 1 && numericCells === 0);
+    const { score, keywordHits } = scoreHeaderRow(grid[i].cells, modeColumnCount);
+    // B4 requires at least two recognized column hits. A single matching
+    // word, even on a text-only row, is insufficient header evidence;
+    // column profiling/freeform fallback must retain genuine data instead.
+    const eligible = keywordHits >= 2;
     if (!eligible) continue;
     if (score > best.score) best = { index: i, score };
   }
