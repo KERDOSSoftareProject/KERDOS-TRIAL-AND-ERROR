@@ -1,12 +1,12 @@
 import {useEffect,useState} from "react";
 
 const destinations=[
-  {id:"order",name:"Order Guide",hint:"Ready items and current prices",icon:"▤"},
-  {id:"catalog",name:"Item Catalog",hint:"Review products and matches",icon:"◇"},
-  {id:"priceSheets",name:"Price Sheets",hint:"Imported vendor prices",icon:"▦"},
-  {id:"invoices",name:"Invoices",hint:"Purchasing records",icon:"▤"},
-  {id:"inbox",name:"Inbox",hint:"Documents and alerts",icon:"✉",restricted:true},
-  {id:"team",name:"Admin",hint:"Team and settings",icon:"⚙",restricted:true},
+  {id:"order",name:"Order Guide",hint:"Build orders from current vendor prices",icon:"▤"},
+  {id:"catalog",name:"Item Catalog",hint:"Your products and vendor listings",icon:"◇"},
+  {id:"priceSheets",name:"Price Sheets",hint:"View current and past price sheets",icon:"▦"},
+  {id:"invoices",name:"Invoices",hint:"Review invoices and purchase history",icon:"▤"},
+  {id:"inbox",name:"Inbox",hint:"Review incoming documents",icon:"✉",restricted:true},
+  {id:"team",name:"Admin",hint:"Manage your team and account",icon:"⚙",restricted:true},
 ];
 
 export function welcomeGreeting(date){
@@ -33,7 +33,7 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
   },[]);
   const canManage=role==="owner"||role==="manager";
   const hints={
-    catalog:attentionCount>0?`${attentionCount} associations to review`:undefined,
+    catalog:undefined,
     invoices:invoiceReviewCount>0?`${invoiceReviewCount} invoice lines to review`:undefined,
     inbox:inboxCount>0?`${inboxCount} attachments need attention`:undefined,
   };
@@ -41,9 +41,9 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
     <style>{`
       .welcome-screen { min-height:calc(100vh - 60px); box-sizing:border-box; padding:72px 32px 96px; background:#003584; color:white; font-family:'DM Sans',Inter,-apple-system,sans-serif; }
       .welcome-inner { max-width:1180px; margin:0 auto; }
-      .welcome-greeting { margin:0; text-align:center; font-size:clamp(28px,4vw,48px); font-weight:300; line-height:1.2; }
-      .welcome-greeting strong { font-weight:700; color:white; }
-      .welcome-date { margin:12px 0 52px; text-align:center; font-size:18px; color:#D7E6FA; }
+      .welcome-greeting { margin:0; text-align:center; font-size:clamp(27px,3vw,38px); font-weight:500; line-height:1.2; }
+      .welcome-greeting strong { font-weight:650; color:white; }
+      .welcome-greeting { margin-bottom:44px; }
       .welcome-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
       .welcome-tile { min-height:190px; border:2px solid #E6EEF9; border-radius:16px; background:white; color:#1A4FA8; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; text-align:center; transition:border-color .15s,box-shadow .15s; }
       .welcome-tile:hover,.welcome-tile:focus-visible { border-color:#1A4FA8; box-shadow:0 8px 24px rgba(26,79,168,.13); outline:none; }
@@ -51,12 +51,11 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
       .welcome-name { font-size:17px; font-weight:700; }
       .welcome-hint { font-size:12px; color:#64748B; line-height:1.4; }
       .welcome-badge { display:inline-block; margin-left:7px; padding:2px 7px; background:#1A4FA8; color:white; border-radius:12px; font-size:11px; vertical-align:middle; }
-      @media (max-width:560px) { .welcome-screen { padding:46px 18px 70px; } .welcome-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } .welcome-tile { min-height:152px; padding:14px; } .welcome-date { font-size:14px; margin-bottom:32px; } }
+      @media (max-width:560px) { .welcome-screen { padding:46px 18px 70px; } .welcome-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } .welcome-tile { min-height:152px; padding:14px; } .welcome-greeting { margin-bottom:32px; } }
       @media (max-width:380px) { .welcome-grid { grid-template-columns:1fr; } .welcome-tile { min-height:116px; } }
     `}</style>
     <div className="welcome-inner">
-      <h1 className="welcome-greeting">{welcomeGreeting(now)}, <strong>{orgName}.</strong></h1>
-      <p className="welcome-date">{welcomeDate(now)}</p>
+      <h1 className="welcome-greeting">{welcomeGreeting(now)}. <strong>What would you like to do today?</strong></h1>
       <div className="welcome-grid">
         {destinations.filter(item=>!item.restricted||canManage).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
           <span className="welcome-icon" aria-hidden="true">{item.icon}</span>
