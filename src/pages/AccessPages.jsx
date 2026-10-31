@@ -56,7 +56,7 @@ export function LandingGate() {
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>
         {SERVICES.map((s,i)=>(
-          <div key={i} style={{background:"rgba(255,255,255,0.08)",borderRadius:14,padding:"20px",position:"relative"}}>
+          <div key={i} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.28)",borderRadius:14,padding:"20px",position:"relative"}}>
             {s.tag&&<div style={{position:"absolute",top:14,right:14,fontSize:10,fontWeight:800,color:"white",background:"rgba(255,255,255,0.2)",padding:"3px 8px",borderRadius:20}}>{s.tag}</div>}
             <div style={{width:44,height:44,borderRadius:12,background:s.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:12}}>{s.icon}</div>
             <div style={{color:"white",fontWeight:800,fontSize:16,marginBottom:6}}>{s.name}</div>

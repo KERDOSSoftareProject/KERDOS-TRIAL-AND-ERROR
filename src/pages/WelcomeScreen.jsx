@@ -45,7 +45,7 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
       .welcome-greeting strong { font-weight:650; color:white; }
       .welcome-greeting { margin-bottom:44px; }
       .welcome-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
-      .welcome-tile { min-height:190px; border:2px solid transparent; border-radius:14px; background:rgba(255,255,255,0.08); color:white; font-family:inherit; cursor:pointer; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:12px; padding:24px; text-align:left; transition:border-color .15s,box-shadow .15s; }
+      .welcome-tile { min-height:190px; border:1px solid rgba(255,255,255,0.28); border-radius:14px; background:rgba(255,255,255,0.08); color:white; font-family:inherit; cursor:pointer; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:12px; padding:24px; text-align:left; transition:border-color .15s,box-shadow .15s; }
       .welcome-tile:hover,.welcome-tile:focus-visible { border-color:#69F0AE; box-shadow:0 8px 24px rgba(0,0,0,.18); outline:none; }
       .welcome-icon { width:44px; height:44px; display:flex; align-items:center; justify-content:center; border-radius:12px; background:#E3F2FD; color:#003584; font-size:26px; line-height:1; }
       .welcome-name { font-size:17px; font-weight:700; }
