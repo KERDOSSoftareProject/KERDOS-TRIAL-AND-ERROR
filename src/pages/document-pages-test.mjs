@@ -13,7 +13,7 @@ try{
     ssr:fileURLToPath(new URL("./DocumentPages.jsx",import.meta.url)),outDir:temporary,
     rollupOptions:{output:{entryFileNames:"document-pages.mjs"}},
   }});
-  const {PriceSheetsPage}=await import(pathToFileURL(join(temporary,"document-pages.mjs")));
+  const {PriceSheetsPage,InvoicesPage}=await import(pathToFileURL(join(temporary,"document-pages.mjs")));
   const file={id:"document-1",vendor_id:"v1",document_kind:"pricelist",created_at:"2026-09-26",file_name:"Vendor prices.xlsx",file_path:"org/vendor/source.xlsx",status:"partial",completed_keys:["row:0","row:1"]};
   const corrections=Array.from({length:3},(_,n)=>({id:`change-${n}`,vendor_item_id:"item-1",source_file_name:"Catalog field correction",effective_date:`2026-09-26T10:0${n}:00Z`,price:25+n}));
   const base={vendors:[{id:"v1",name:"Supplier A"},{id:"v2",name:"Supplier B"}],vendorFilter:"v1",vendorColors:new Map(),formatDate:value=>value,role:"owner",
@@ -78,5 +78,34 @@ try{
   tree.unmount();
   assert.equal(data.length,2,'browsing never changes saved documents');
   console.log('PASS Price Sheets browse row, selected-vendor import, filename/vendor/date search, search clearing and no-match state.');
+  const invoiceActions=[];
+  const invoiceProps={...base,vendorFilter:null,formatMoney:value=>String(value),attentionCount:1,
+    invoices:[{id:'i1',vendor_id:'v1',invoice_number:'INV-123',file_name:'October delivery.pdf',invoice_date:'2026-10-15',file_path:'original.pdf',invoice_lines:[{price_variance:2}]},{id:'i2',vendor_id:'v2',invoice_number:'INV-456',file_name:'November delivery.pdf',invoice_date:'2026-11-01',invoice_lines:[]}],
+    onImport:id=>invoiceActions.push(['import',id]),onExport:()=>invoiceActions.push(['export']),onViewOriginal:path=>invoiceActions.push(['original',path])};
+  await act(async()=>{tree=Renderer.create(createElement(InvoicesPage,invoiceProps));});
+  const invoiceSearch=()=>tree.root.findByProps({'aria-label':'Search invoices'});
+  const invoiceBrowse=tree.root.findByProps({'aria-label':'Invoice browse controls'});
+  assert.equal(invoiceBrowse.findAllByType('select').length,1);
+  await act(async()=>{invoiceBrowse.findAllByType('button')[1].props.onClick();});
+  assert.deepEqual(invoiceActions,[['export']],'export retains its existing report callback');
+  for(const value of ['inv-123','october','supplier a','2026-10-15']){
+    await act(async()=>{invoiceSearch().props.onChange({target:{value}});});
+    assert.match(pageText(),/October delivery.pdf/);
+    assert.ok(!pageText().includes('November delivery.pdf'),'search filters invoice documents');
+    assert.match(pageText(),/need review/,'price comparison review notice is preserved');
+  }
+  await act(async()=>{tree.root.findByProps({title:'Open original invoice'}).props.onClick({stopPropagation(){}});});
+  assert.deepEqual(invoiceActions.at(-1),['original','original.pdf'],'original file action is preserved');
+  await act(async()=>{tree.update(createElement(InvoicesPage,{...invoiceProps,vendorFilter:'v2'}));});
+  assert.match(pageText(),/No invoices match/,'search combines with vendor selection');
+  await act(async()=>{invoiceSearch().props.onChange({target:{value:''}});});
+  const selectedBrowse=tree.root.findByProps({'aria-label':'Invoice browse controls'});
+  await act(async()=>{selectedBrowse.findAllByType('button')[0].props.onClick();});
+  assert.deepEqual(invoiceActions.at(-1),['import','v2'],'invoice import retains selected vendor');
+  await act(async()=>{tree.update(createElement(InvoicesPage,{...invoiceProps,role:'employee'}));});
+  assert.ok(!pageText().includes('Import Invoice'),'employee import restriction remains');
+  assert.equal(tree.root.findAllByProps({title:'Edit invoice record'}).length,0);
+  tree.unmount();
+  console.log('PASS invoice search by vendor/number/file/date, selected-vendor import, report export, original access and employee restrictions.');
   console.log("Imported-document page checks passed: actual sources only, correction history excluded, original access, incomplete and repeated imports, vendor filtering, closed defaults, and document pagination.");
 }finally{rmSync(temporary,{recursive:true,force:true});}
