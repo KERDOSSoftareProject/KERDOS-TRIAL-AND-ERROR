@@ -22,7 +22,7 @@ try{
     await act(async()=>{tree=Renderer.create(React.createElement(WelcomeScreen,{orgName:"Hornet's Nest",role:'owner',onNavigate:id=>destination=id,attentionCount:7,invoiceReviewCount:2,inboxCount:3}));});
     const buttons=tree.root.findAllByType('button');
     assert.deepEqual(buttons.map(text).map(s=>s.match(/Order Guide|Item Catalog|Price Sheets|Invoices|Inbox|Admin/)?.[0]),['Order Guide','Item Catalog','Price Sheets','Invoices','Inbox','Admin']);
-    assert.match(text(tree.toJSON()),/What would you like to do today/);
+    assert.match(text(tree.toJSON()),/Good (morning|afternoon|evening) Hornet's Nest!/);
     assert.ok(!text(tree.toJSON()).includes("October"),"welcome screen does not show the date");
     assert.match(text(tree.toJSON()),/3 attachments need attention/);
     assert.equal(buttons[4].findAll(n=>n.props.className==='welcome-badge').length,1);

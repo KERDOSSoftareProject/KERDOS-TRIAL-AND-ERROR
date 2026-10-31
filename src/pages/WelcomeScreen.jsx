@@ -55,7 +55,7 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
       @media (max-width:380px) { .welcome-grid { grid-template-columns:1fr; } .welcome-tile { min-height:116px; } }
     `}</style>
     <div className="welcome-inner">
-      <h1 className="welcome-greeting">{welcomeGreeting(now)}. <strong>What would you like to do today?</strong></h1>
+      <h1 className="welcome-greeting">{welcomeGreeting(now)}{orgName?` ${orgName}`:""}!</h1>
       <div className="welcome-grid">
         {destinations.filter(item=>!item.restricted||canManage).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
           <span className="welcome-icon" aria-hidden="true">{item.icon}</span>
