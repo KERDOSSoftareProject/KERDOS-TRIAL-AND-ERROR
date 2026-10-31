@@ -9,7 +9,7 @@ import {unitChoices} from "../core/catalog-fields.js";
 import {backend} from "../backend/index.js";
 import {createCatalogService,mappingVerification,mappingGap,GAP_LABELS} from "../services/catalog.js";
 import {createCategoryService} from "../services/categories.js";
-import {bestCatalogMatch,bestPurchasingSuggestion,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,parsePackSize,unitsForDimension,suggestCategory,priceBasisFor} from "../procurement.js";
+import {bestCatalogMatch,bestPurchasingSuggestion,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,parsePackSize,unitsForDimension,contextualCategorySuggestion,priceBasisFor} from "../procurement.js";
 import {blockReason,orderable} from "../core/ordering.js";
 import {itemMatchesSearch} from "../core/catalog-browse.js";
 import {formatMoney} from "../localization.js";
@@ -105,7 +105,8 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
   // Re-evaluate older placements when an industry's context profile improves.
   // This is review-only: a past client choice is never silently overwritten.
   const categoryCorrections=useMemo(()=>new Map(catalogItems.flatMap(item=>{
-    const suggested=suggestCategory(item.name,categories,catalogItems);
+    // This badge only uses explicit product-form rules, never catalog-neighbor matches.
+    const suggested=contextualCategorySuggestion(item.name,categories);
     return suggested?.category?.id&&suggested.category.id!==item.category_id&&
       suggested.reason?.includes("Prepared product form")?[[item.id,suggested]]:[];
   })),[catalogItems,categories,vocabulary]);
