@@ -192,9 +192,12 @@ function classifyCategory(description, categories=[], catalogItems=[]) {
 // resemblance to items already in a category, or a category name that
 // shares a defining word with the product. Anything weaker is null and
 // the item goes to the holding pen as before.
+function contextualCategorySuggestion(description,categories=[]) {
+  return categoryContext(normalizeForMatch(description),categories);
+}
+
 function suggestCategory(description, categories=[], catalogItems=[]) {
-  const contextWords=normalizeForMatch(description);
-  const contextualPlacement=categoryContext(contextWords,categories);
+  const contextualPlacement=contextualCategorySuggestion(description,categories);
   if (contextualPlacement?.category) return contextualPlacement;
   if(contextualPlacement?.excludedCategoryIds)categories=categories.filter(c=>!contextualPlacement.excludedCategoryIds.includes(c.id));
   const confident=classifyCategory(description,categories,catalogItems);
@@ -762,7 +765,7 @@ function quoteStatus(item,settings={},now=new Date()){
 export {
   MATCH_POLICY, UNIT_DEFINITIONS, configureVocabulary, configureProcurement, productKnowledge, normalizeUnit, measurement, parsePackSize, packsEquivalent, normalizedPrice, eachPrice,
   unitsForDimension, pricePerUnit, brandsMatch, priceBasisFor, casePriceFromQuote, quotePriceOnBasis, normalizeGtin, normalizeManufacturerCode, packFromDescription, isAbbreviationOf, abbreviationPairs,
-  normalizeForMatch, wordsMatch, classifyCategory, suggestCategory, nextCategoryRange,
+  normalizeForMatch, wordsMatch, classifyCategory, suggestCategory, contextualCategorySuggestion, nextCategoryRange,
   safeProductScore, productIdentity, compareProductIdentity, comparePurchasingPack, commonPurchasingPack, bestPurchasingMatch, bestPurchasingSuggestion, quoteStatus, bestCatalogMatch, bestInvoiceMatch, assertKnownPriceBasis,
   normalizeMixedFraction,
 };
