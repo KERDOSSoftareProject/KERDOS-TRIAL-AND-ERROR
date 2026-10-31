@@ -518,7 +518,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         }
         if(!ex){
           const candidates=currentVendorItems;
-          const found=findUncodedVendorListing(row,candidates);
+          const found=findUncodedVendorListing(row,candidates,{allowDistinctPack:!inboxReview});
           if(found.conflict)throw new Error(found.conflict);
           ex=found.item;
           if(ex&&row.code){

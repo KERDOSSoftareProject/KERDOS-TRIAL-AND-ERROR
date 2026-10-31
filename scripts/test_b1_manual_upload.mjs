@@ -190,7 +190,13 @@ await check('interrupted import resumes with independent proof even when the cur
  assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(f.calls.applyQuote.length,2,'replayed staged listing must not create another quote');
  assert.equal(f.vendorItems[0].import_row.reviewRequired,true);assert.equal(f.vendorItems[0].import_row.sourceDocumentId,doc.id);resumed.tree.unmount();
 });
-console.log(passed+'/14 B1/B2/B3 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('manual alternate pack is saved as a separate offering without overwriting the saved pack',async()=>{
+ const f=fixture();const old={id:'existing-mint',organization_id:org,vendor_id:vendor,vendor_item_code:null,description:'Split Mint',brand:null,pack_size:'1LB',price:7};f.vendorItems.push(old);
+ const p=await open();await upload(p,'picker',file('alternate.csv','Description,Pack,Price Unit,Price\nSplit Mint,3CT,CASE,8.25\n'));await save(p);
+ assert.equal(f.calls.applyQuote.length,1,JSON.stringify(p.tree.toJSON()));assert.equal(f.calls.applyQuote[0].vendorItemId,null);assert.equal(f.calls.applyQuote[0].packSize,'3CT');assert.equal(old.pack_size,'1LB');assert.equal(old.price,7);
+ assert.equal(Object.values(f.importDocs)[0].status,'complete');p.tree.unmount();
+});
+console.log(passed+'/15 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
