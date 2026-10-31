@@ -78,7 +78,6 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
       <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
       {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
       <button type="button" onClick={onExport} style={button("#E8F5E9","#2E7D32")}>Export Variance Report</button>
-      <span role="status" style={{marginLeft:"auto",fontSize:12,color:navy}}>{visible.reduce((sum,group)=>sum+group.rows.length,0)} invoice file{visible.reduce((sum,group)=>sum+group.rows.length,0)===1?"":"s"}</span>
     </div>
     <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {attentionCount>0&&<div style={{background:"#FFF3E0",color:"#8A5A00",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:14}}>{attentionCount} invoice price comparison{attentionCount===1?"":"s"} need review. The original invoice remains the source record.</div>}
@@ -108,7 +107,6 @@ export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setV
     <div aria-label="Price sheet browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
       <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
       {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
-      <span role="status" style={{marginLeft:"auto",fontSize:12,color:navy}}>{visible.reduce((sum,group)=>sum+group.documents.length,0)} source file{visible.reduce((sum,group)=>sum+group.documents.length,0)===1?"":"s"}</span>
     </div>
     <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>

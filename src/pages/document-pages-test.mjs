@@ -33,7 +33,7 @@ try{
   // vendorFilter is active (v1 = "Supplier A") so we get the vendor-specific message
   assert.match(html,/No price sheets on file for.*Supplier A/);
   assert.match(html,/Import price sheet/i);
-  assert.match(html,/0 source files/);
+  assert.ok(!html.includes('role="status"'),"no aggregate file counter is shown");
   assert.ok(!html.includes("Catalog field correction"),"history alone cannot create documents");
 
   html=render({importDocuments:[file,{...file,id:"document-2",created_at:"2026-09-27"},{...file,id:"invoice-1",document_kind:"invoice"},{...file,id:"other-vendor",vendor_id:"v2"}]});
@@ -74,7 +74,8 @@ try{
   await act(async()=>{findSearch().props.onChange({target:{value:'2026-10-30'}});});
   assert.match(pageText(),/Winter specials.csv/,'search finds document dates');
   await act(async()=>{findSearch().props.onChange({target:{value:''}});});
-  assert.match(pageText(),/2 source files/,'clearing search restores loaded results');
+  assert.match(pageText(),/Supplier A/,'clearing search restores the first vendor');
+  assert.match(pageText(),/Supplier B/,'clearing search restores the second vendor');
   tree.unmount();
   assert.equal(data.length,2,'browsing never changes saved documents');
   console.log('PASS Price Sheets browse row, selected-vendor import, filename/vendor/date search, search clearing and no-match state.');
