@@ -27,9 +27,9 @@ function fixture(){
 }
 function file(name='B1_Prices.csv',content=csv){return {name,size:Buffer.byteLength(content),text:async()=>content};}
 function writes(f){return f.invoices.length+f.uploads.length+f.calls.applyQuote.length+f.calls.insertImportDoc.length+f.calls.createMapping.length;}
-async function open(initialVendorId=vendor,initialMode='pricelist'){
+async function open(initialVendorId=vendor,initialMode='pricelist',overrides={}){
  let tree;const finished=[];
- await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B1 Test Vendor'}],orgId:org,orgSettings:{},catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose:()=>{},onDone:async()=>{},onFinished:v=>finished.push(v),initialVendorId,initialMode}));});
+ await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B1 Test Vendor'}],orgId:org,orgSettings:{},catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose:()=>{},onDone:async()=>{},onFinished:v=>finished.push(v),initialVendorId,initialMode,...overrides}));});
  return {tree,finished};
 }
 function button(p,label){return p.tree.root.findAllByType('button').find(b=>text(b)===label);}
@@ -196,16 +196,53 @@ await check('manual alternate pack is saved as a separate offering without overw
  assert.equal(f.calls.applyQuote.length,1,JSON.stringify(p.tree.toJSON()));assert.equal(f.calls.applyQuote[0].vendorItemId,null);assert.equal(f.calls.applyQuote[0].packSize,'3CT');assert.equal(old.pack_size,'1LB');assert.equal(old.price,7);
  assert.equal(Object.values(f.importDocs)[0].status,'complete');p.tree.unmount();
 });
-console.log(passed+'/15 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('large ordinary import builds no editable evidence grid or per-row listing dropdowns',async()=>{
+ const f=fixture();const entries=Array.from({length:322},(_,i)=>({id:'old-'+i,vendor_id:vendor,description:'Stored product '+i,vendor_item_code:null,pack_size:'1LB'}));
+ const p=await open(vendor,'pricelist',{vendorItems:entries});globalThis.__evidenceCalls=0;
+ const many='Code,Description,Pack,Price Unit,Price\n'+Array.from({length:347},(_,i)=>'PERF-'+i+',Chicken Breast Boneless Skinless,20 LB,CASE,40').join('\n');
+ await upload(p,'picker',file('large.csv',many));assert.equal(globalThis.__evidenceCalls,0,'preview does not calculate editable evidence');
+ let release;const gate=new Promise(resolve=>{release=resolve;});const quote=f.backend.pricing.applyQuote;let entered=false;
+ f.backend.pricing.applyQuote=async args=>{if(!entered){entered=true;await gate;}return quote(args);};
+ await save(p);assert.equal(entered,true);assert.equal(globalThis.__evidenceCalls,0,'ordinary save does not compute the review grid');
+ assert.equal(p.tree.root.findAll(n=>n.type==='select'&&String(n.props['aria-label']||'').startsWith('Use saved vendor listing')).length,0);
+ release();for(let i=0;i<150&&!p.finished.length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+ assert.equal(p.finished.length,1);assert.equal(globalThis.__evidenceCalls,0,'result screen does not recalculate source evidence');assert.equal(Object.values(f.importDocs)[0].completed_keys.length,347);p.tree.unmount();
+});
+await check('saved result and Done appear before a delayed catalog refresh completes',async()=>{
+ const f=fixture();let release;const gate=new Promise(resolve=>{release=resolve;});const p=await open(vendor,'pricelist',{onDone:()=>gate});
+ await upload(p,'picker');await save(p);assert.equal(Object.values(f.importDocs)[0].status,'complete');assert.equal(p.finished.length,0);
+ assert.ok(text(p.tree.toJSON()).includes('Upload successful'));assert.ok(button(p,'Done'));assert.equal(button(p,'Import another').props.disabled,true);assert.ok(text(p.tree.toJSON()).includes('Refreshing catalog'));
+ release();await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(p.finished.length,1);assert.equal(button(p,'Import another').props.disabled,false);p.tree.unmount();
+});
+await check('partial result appears before refresh and a refresh error stays separate from saved data',async()=>{
+ const f=fixture();f.backend.pricing.applyQuote=async()=>{throw Error('Controlled row write failure');};let reject;const gate=new Promise((_,r)=>{reject=r;});
+ const p=await open(vendor,'pricelist',{onDone:()=>gate});await upload(p,'picker');await save(p);
+ assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.ok(button(p,'Done'));assert.ok(text(p.tree.toJSON()).includes('Controlled row write failure'));
+ await act(async()=>{reject(Error('Controlled refresh failure'));await new Promise(r=>setTimeout(r,10));});
+ assert.ok(text(p.tree.toJSON()).includes('Controlled refresh failure'));assert.ok(text(p.tree.toJSON()).includes('Controlled row write failure'));assert.equal(f.uploads.length,1);p.tree.unmount();
+});
+await check('review listing choices open for one row only and unrelated UI changes reuse evidence',async()=>{
+ fixture();const entries=Array.from({length:322},(_,i)=>({id:'old-'+i,vendor_id:vendor,description:'Stored product '+i,vendor_item_code:null,pack_size:'1LB'}));
+ const p=await open(vendor,'pricelist',{vendorItems:entries,onBeforeSave:async()=>true});globalThis.__evidenceCalls=0;
+ await upload(p,'picker',file('two.csv',csv+'B1-002,Turkey Breast Smoked,20 LB,CASE,50\n'));
+ assert.equal(globalThis.__evidenceCalls,2);
+ const selectors=()=>p.tree.root.findAll(n=>n.type==='select'&&String(n.props['aria-label']||'').startsWith('Use saved vendor listing'));
+ assert.equal(selectors().length,0);const choices=()=>p.tree.root.findAll(n=>n.type==='button'&&String(n.props['aria-label']||'').startsWith('Choose saved vendor listing'));
+ await act(async()=>{choices()[0].props.onClick();});assert.equal(selectors().length,1);assert.equal(selectors()[0].findAllByType('option').length,323);assert.equal(globalThis.__evidenceCalls,2);
+ await act(async()=>{choices()[0].props.onClick();});assert.equal(selectors().length,1);assert.equal(globalThis.__evidenceCalls,2);p.tree.unmount();
+});
+console.log(passed+'/19 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
  const outfile=join(dir,'test.mjs');
  await build({stdin:{contents:source,resolveDir:process.cwd(),loader:'jsx'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},plugins:[{name:'b1-boundaries',setup(b){
+  b.onResolve({filter:/import-evidence\.js$/},args=>args.namespace==='evidence-spy'?({path:args.path,namespace:'file'}):({path:'spy',namespace:'evidence-spy'}));
+  b.onLoad({filter:/spy/,namespace:'evidence-spy'},()=>({contents:`import {explainImportRow as real} from ${JSON.stringify(process.cwd()+'/src/core/import-evidence.js')};export function explainImportRow(...args){globalThis.__evidenceCalls=(globalThis.__evidenceCalls||0)+1;return real(...args);}`}));
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
   b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.reading)onRead?.(file.reading);return file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
   b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});
- process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',timeout:30000}));
+ process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',timeout:60000}));
 }finally{rmSync(dir,{recursive:true,force:true});}
