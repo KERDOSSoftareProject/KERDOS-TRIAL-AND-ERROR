@@ -104,22 +104,29 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
 export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setVendorFilter,vendorColors,
   formatDate,role,onImport,onExpireVendor,onDelete,onClear,onViewOriginal,onViewSource,
   expandedId,setExpandedId,hasMore,loadingMore,onLoadMore}){
+  const [search,setSearch]=useState("");
+  const query=search.trim().toLocaleLowerCase();
   // Only a saved import is a document. Price changes and catalog corrections
   // remain in price_history and never create files or affect these counts.
   const documents=(importDocuments||[]).filter(doc=>doc.document_kind==="pricelist").map(doc=>({id:doc.id,vendorId:doc.vendor_id,date:doc.created_at,fileName:doc.file_name||"Imported price sheet",filePath:doc.file_path,status:doc.status,completedCount:Array.isArray(doc.completed_keys)?doc.completed_keys.length:null}));
   const groups=new Map();for(const doc of documents){if(!groups.has(doc.vendorId))groups.set(doc.vendorId,[]);groups.get(doc.vendorId).push(doc);}
   const vendorGroups=[...groups.entries()].map(([vendorId,docs])=>({vendorId,vendorName:vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",documents:docs.sort((a,b)=>new Date(b.date)-new Date(a.date))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
-  const visible=vendorFilter?vendorGroups.filter(group=>group.vendorId===vendorFilter):vendorGroups;
+  const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,documents:group.documents.filter(doc=>!query||[group.vendorName,doc.fileName,doc.date,formatDate(doc.date)].some(value=>String(value||"").toLocaleLowerCase().includes(query)))})).filter(group=>group.documents.length);
   return <div>
     {orgId&&<ReceivingAddressesPanel orgId={orgId} vendors={vendors} documentType="pricelist"/>}
-    <PageHeader eyebrow="Vendor source files" title="Price Sheet History" description="Your imported price sheets, organized by vendor and date. Open a file to view the original document." actionLabel={role!=="employee"?"📋 Import Price Sheet":null} onAction={()=>onImport(vendorFilter)}/>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"0 0 14px",padding:"10px 12px",background:"rgba(255,255,255,.10)",borderRadius:11}}><VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter}/><span style={{fontSize:11,color:"rgba(255,255,255,.78)"}}>{visible.reduce((sum,group)=>sum+group.documents.length,0)} source file{visible.reduce((sum,group)=>sum+group.documents.length,0)===1?"":"s"}</span></div>
+    <PageHeader eyebrow="Vendor source files" title="Price Sheet History" description="Your imported price sheets, organized by vendor and date. Open a file to view the original document."/>
+    <div aria-label="Price sheet browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
+      <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
+      {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
+      <span role="status" style={{marginLeft:"auto",fontSize:12,color:navy}}>{visible.reduce((sum,group)=>sum+group.documents.length,0)} source file{visible.reduce((sum,group)=>sum+group.documents.length,0)===1?"":"s"}</span>
+    </div>
+    <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>
-      {vendorFilter
+      {query?<>No price sheets match your search. Try another vendor, filename, or date.</>:vendorFilter
         ? <>No price sheets on file for <b>{vendors.find(v=>v.id===vendorFilter)?.name||"this vendor"}</b> yet. Use <b>Import Price Sheet</b> above.</>
         : <>No price sheets imported yet. Use <b>Import Price Sheet</b> above.</>
       }
-    </div>:visible.map(group=>{const color=vendorColors.get(group.vendorId)||{accent:"#003584"};return <VendorSection key={group.vendorId} name={group.vendorName} count={`${group.documents.length} source file${group.documents.length===1?"":"s"}`} accent={color.accent} defaultOpen={Boolean(vendorFilter)} actions={role!=="employee"&&<MoreMenu><MenuButton onClick={()=>onImport(group.vendorId)}>Import price sheet</MenuButton><MenuButton danger onClick={()=>onExpireVendor(group.vendorId)}>Remove current prices from Order Guide</MenuButton></MoreMenu>}>
+    </div>:visible.map(group=>{const color=vendorColors.get(group.vendorId)||{accent:"#003584"};return <VendorSection key={`${group.vendorId}:${Boolean(query)}`} name={group.vendorName} count={`${group.documents.length} source file${group.documents.length===1?"":"s"}`} accent={color.accent} defaultOpen={Boolean(vendorFilter)||Boolean(query)} actions={role!=="employee"&&<MoreMenu><MenuButton onClick={()=>onImport(group.vendorId)}>Import price sheet</MenuButton><MenuButton danger onClick={()=>onExpireVendor(group.vendorId)}>Remove current prices from Order Guide</MenuButton></MoreMenu>}>
       {group.documents.map(doc=>{const key=String(doc.id),open=expandedId===key;const importState=doc.status==="partial"?" · Import marked incomplete":doc.status==="processing"?" · Import in progress":"";const savedCount=doc.completedCount===null?"":` · ${doc.completedCount} row${doc.completedCount===1?"":"s"} checkpointed`;return <DocumentRow key={key} title={doc.fileName} meta={`${formatDate(doc.date)}${importState}${savedCount} · Click to open`} open={open} onToggle={()=>setExpandedId(open?null:key)} controls={role!=="employee"&&<MoreMenu label={`Actions for ${doc.fileName}`}><MenuButton onClick={()=>onClear(doc)}>Clear current prices</MenuButton><MenuButton danger onClick={()=>onDelete(doc,true)}>Delete &amp; re-import</MenuButton><MenuButton danger onClick={()=>onDelete(doc,false)}>Delete source</MenuButton></MoreMenu>}>
         <button onClick={()=>doc.filePath?onViewOriginal(doc.filePath):onViewSource(doc.id)} style={button("#003584")}>{doc.filePath?"Open original file":"Open original source"}</button>
       </DocumentRow>;})}
