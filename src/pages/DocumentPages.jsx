@@ -1,6 +1,5 @@
 import {useEffect,useRef,useState} from "react";
 import {createPortal} from "react-dom";
-import {ReceivingAddressesPanel} from "./ReceivingAddresses.jsx";
 
 const navy="#073B83",ink="#17243A",muted="#6D7A8B",line="#E4EAF1",surface="#F5F8FC";
 const button=(background,color="white")=>({background,color,border:"1px solid transparent",borderRadius:9,padding:"10px 14px",fontWeight:800,cursor:"pointer",fontSize:12,boxShadow:"0 1px 2px rgba(16,35,61,.08)"});
@@ -12,19 +11,6 @@ function VendorFilter({vendors,value,onChange,label="View vendor"}){
       <option value="">All vendors</option>{vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
     </select>
   </label>;
-}
-
-function PageHeader({eyebrow,title,description,actionLabel,onAction,secondaryLabel,onSecondary}){
-  return <div style={{background:"linear-gradient(135deg,#FFFFFF 0%,#F3F8FF 100%)",border:`1px solid ${line}`,borderRadius:16,padding:"22px 24px",marginBottom:14,boxShadow:"0 8px 28px rgba(16,35,61,.08)"}}>
-    <div style={{fontSize:10,fontWeight:800,color:"#4A90D9",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>{eyebrow}</div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap"}}>
-      <div><h2 style={{margin:"0 0 5px",fontSize:24,color:navy,letterSpacing:"-.02em"}}>{title}</h2><div style={{fontSize:12,color:muted,maxWidth:720,lineHeight:1.5}}>{description}</div></div>
-      <div style={{display:"flex",gap:8}}>
-        {secondaryLabel&&<button onClick={onSecondary} style={button("#E8F5E9","#2E7D32")}>{secondaryLabel}</button>}
-        {actionLabel&&<button onClick={onAction} style={button("#003584")}>{actionLabel}</button>}
-      </div>
-    </div>
-  </div>;
 }
 
 function MoreMenu({children,label="Vendor actions"}){
@@ -88,8 +74,6 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
   const vendorGroups=[...groups.entries()].map(([vendorId,rows])=>({vendorId,vendorName:rows[0]?.vendors?.name||vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",rows:rows.sort((a,b)=>new Date(b.invoice_date||b.created_at)-new Date(a.invoice_date||a.created_at))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,rows:group.rows.filter(invoice=>!query||[group.vendorName,invoice.invoice_number,invoice.file_name,invoice.invoice_date,invoice.created_at,formatDate(invoice.invoice_date||invoice.created_at)].some(value=>String(value??"").toLocaleLowerCase().includes(query)))})).filter(group=>group.rows.length);
   return <div>
-    {orgId&&<ReceivingAddressesPanel orgId={orgId} vendors={vendors} documentType="invoice"/>}
-    <PageHeader eyebrow="Purchasing records" title="Invoice History" description="Invoices are preserved as their original files for historical reference. KERDOS reads them in the background only to verify that ordered items and charged prices agree with the applicable price sheet."/>
     <div aria-label="Invoice browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
       <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
       {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
@@ -121,8 +105,6 @@ export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setV
   const vendorGroups=[...groups.entries()].map(([vendorId,docs])=>({vendorId,vendorName:vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",documents:docs.sort((a,b)=>new Date(b.date)-new Date(a.date))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,documents:group.documents.filter(doc=>!query||[group.vendorName,doc.fileName,doc.date,formatDate(doc.date)].some(value=>String(value||"").toLocaleLowerCase().includes(query)))})).filter(group=>group.documents.length);
   return <div>
-    {orgId&&<ReceivingAddressesPanel orgId={orgId} vendors={vendors} documentType="pricelist"/>}
-    <PageHeader eyebrow="Vendor source files" title="Price Sheet History" description="Your imported price sheets, organized by vendor and date. Open a file to view the original document."/>
     <div aria-label="Price sheet browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
       <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
       {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
