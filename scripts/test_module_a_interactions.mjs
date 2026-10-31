@@ -98,12 +98,13 @@ check("email-routing service exposes documentType and removes hardcoded domain",
   // hardcoded domain check removed
   assert.doesNotMatch(svc, /@inbound\.kerdos\.com/);
 });
-check("receiving UI is read-only and tabs supply document context", () => {
+check("receiving UI is read-only and document tabs omit configuration panels", () => {
   const panel=source("../src/pages/ReceivingAddresses.jsx");
   const pages=source("../src/pages/DocumentPages.jsx");
   assert.doesNotMatch(panel, /<select|<input|createRoutingAddress|setRoutingAddressVendor|setRoutingAddressDocumentType/);
-  assert.match(pages,/documentType="invoice"/);
-  assert.match(pages,/documentType="pricelist"/);
+  assert.doesNotMatch(pages, /ReceivingAddressesPanel/);
+  assert.match(pages, /Invoice browse controls/);
+  assert.match(pages, /Price sheet browse controls/);
 });
 check("closing preview cannot reserve the attachment", () => {
   const inbox = source("../src/pages/EmailInboxPanel.jsx");
