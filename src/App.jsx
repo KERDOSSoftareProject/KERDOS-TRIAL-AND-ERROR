@@ -26,6 +26,7 @@ import {PasteModal} from "./pages/ImportModal.jsx";
 import {VendorDetail} from "./pages/VendorDetail.jsx";
 import {EmailInboxPanel,RoutingAddressPanel} from "./pages/EmailInboxPanel.jsx";
 import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
+import TabHeading from "./ui/TabHeading.jsx";
 import {listMessages} from "./services/email-routing.js";
 import {PALETTE,btn,inp} from "./ui/styles.js";
 
@@ -869,7 +870,6 @@ export default function App() {
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
         <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",fontFamily:tab==="home"?'"Times New Roman",Times,serif':"inherit",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
-        {tab!=="home"&&<button type="button" onClick={()=>setTab("home")} style={{position:"absolute",left:"50%",transform:"translateX(-50%)",background:"none",border:0,color:"#1A4FA8",fontWeight:700,fontSize:14,cursor:"pointer"}}>← Home</button>}
         <div style={{position:"relative"}}>
           <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
           {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
@@ -891,6 +891,7 @@ export default function App() {
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
+        {tab!=="order"&&<TabHeading title={({catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} />}
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -914,7 +915,7 @@ export default function App() {
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
-              <div style={{color:"white",fontSize:20,fontWeight:700,marginBottom:12}}>ORDER GUIDE</div>
+              <TabHeading title="Order Guide" onHome={()=>setTab("home")} />
               <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
                 <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
                   <option value="">Vendors</option>
