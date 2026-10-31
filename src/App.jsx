@@ -163,8 +163,10 @@ export default function App() {
   // PLACING orders, so it only ever shows items with a vendor price -
   // but the same "browse by item type, order by code/alpha" idea applies.
   const [orderCategoryFilter,setOrderCategoryFilter]=useState("");
+  const [orderVendorFilter,setOrderVendorFilter]=useState("");
+  const [selectedOrderItemId,setSelectedOrderItemId]=useState(null);
   const [orderSortMode,setOrderSortMode]=useState("alpha"); // "alpha" | "itemNumber" | "vendorCode"
-  function openOrderGuide(){setSearch("");setOrderCategoryFilter("");setTab("order");}
+  function openOrderGuide(){setSearch("");setOrderCategoryFilter("");setOrderVendorFilter("");setSelectedOrderItemId(null);setTab("order");}
 
   // Startup and session transitions are owned by sessionController (see
   // session.js), not decided here. It reports a single "entered" flag for
@@ -693,6 +695,7 @@ export default function App() {
     const matches=productList.filter(i=>{
       if(!i.options.some(orderable)) return false;
       if(orderCategoryFilter&&i.category!==orderCategoryFilter) return false;
+      if(orderVendorFilter&&!i.options.some(o=>o.vendorId===orderVendorFilter&&orderable(o))) return false;
       return itemMatchesSearch(i,search);
     });
     // Category alphabetical first, then ordered within each category by
@@ -709,7 +712,7 @@ export default function App() {
     return [...groups.entries()]
       .map(([category,items])=>({category,items:items.sort((a,b)=>compareItems(a,b,orderSortMode))}))
       .sort((a,b)=>a.category.localeCompare(b.category));
-  },[productList,search,orderCategoryFilter,orderSortMode]);
+  },[productList,search,orderCategoryFilter,orderVendorFilter,orderSortMode]);
 
   async function handleLogoUpload(file) {
     if (!file) return;
@@ -914,6 +917,7 @@ export default function App() {
               .order-aside { width:330px; flex-shrink:0; position:sticky; top:104px; align-self:flex-start; max-height:calc(100vh - 112px); overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
               .order-aside-inner { position:static; }
               .order-column-head { font-size:9px; font-weight:800; color:#718096; letter-spacing:.06em; text-transform:uppercase; }
+              .order-browse-filters select { max-width:48%; }
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
               @media (max-width:720px) {
@@ -921,45 +925,25 @@ export default function App() {
                 .order-aside { width:100%; position:static; max-height:none; overflow:visible; }
                 .order-aside-inner { position:static; }
                 .order-price-grid { grid-template-columns:1fr; }
+                .order-browse-filters { width:100%; }
+                .order-browse-filters select { flex:1; min-width:0!important; }
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
-              <div style={{color:"white",fontSize:13,fontWeight:700,marginBottom:10}}>Order Guide · All vendors · {readyOrderCount} ready item{readyOrderCount===1?"":"s"}</div>
-              {vendors.length>0&&(
-                <div style={{marginBottom:14}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.65)",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:8}}>Your Vendors — tap for details</div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                    {vendors.map(v=>{
-                      const vc=vendorColors.get(v.id)||PALETTE[0];
-                      return (
-                        <button key={v.id} onClick={()=>{setVendorDetailId(v.id);setTab("vendorDetail");}}
-                          style={{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:20,background:vc.bg,color:vc.accent,border:"none",cursor:"pointer"}}>
-                          {v.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              <div style={{color:"white",fontSize:20,fontWeight:700,marginBottom:12}}>Order Guide · {readyOrderCount} ready item{readyOrderCount===1?"":"s"}</div>
+              <div className="order-browse-filters" style={{display:"flex",gap:10,marginBottom:12}}>
+                <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);setSelectedOrderItemId(null);}} style={{...inp,width:"auto",minWidth:180,background:"#E8F1FD",color:"#174EAB",fontWeight:700}}>
+                  <option value="">Vendors · All</option>
+                  {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);setSelectedOrderItemId(null);}} style={{...inp,width:"auto",minWidth:220,background:"#E8F1FD",color:"#174EAB",fontWeight:700}}>
+                  <option value="">Item Categories · All</option>
+                  {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
               <input value={search} onChange={e=>setSearch(e.target.value)}
                 placeholder={`🔍 Search ${productList.length} items by name, vendor wording, or code...`}
                 style={{...inp,marginBottom:10}} />
-
-              {orderCategoryList.length>0&&(
-                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-                  <button onClick={()=>setOrderCategoryFilter("")} style={chipStyle(!orderCategoryFilter)}>
-                    Full List
-                  </button>
-                  {orderCategoryList.map(c=>{
-                    const isSelected=orderCategoryFilter===c;
-                    return (
-                      <button key={c} onClick={()=>setOrderCategoryFilter(isSelected?"":c)} style={chipStyle(isSelected)}>
-                        {c}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
 
               {orderCategoryList.length>0&&(
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:14}}>
@@ -986,9 +970,9 @@ export default function App() {
 
               {productList.length>0&&filtered.length===0&&(
                 <div style={{background:"white",borderRadius:10,padding:24,color:"#24436B",marginBottom:12}}>
-                  <b>{search||orderCategoryFilter?"No ready items match this filter":"Your Order Guide has no ready items yet"}</b>
-                  <p style={{margin:"8px 0",fontSize:13}}>{search||orderCategoryFilter?"Clear the search or choose Full List to see all ready items.":"Imported invoice items and vendor listings appear in Item Catalog first. Confirm the product, pack, association and quoted price there; ready items from every vendor then appear here together."}</p>
-                  {search||orderCategoryFilter?<button onClick={()=>{setSearch("");setOrderCategoryFilter("");}} style={btn("#003584")}>Show Full List</button>:<button onClick={()=>setTab("catalog")} style={btn("#003584")}>Open Item Catalog</button>}
+                  <b>{search||orderCategoryFilter||orderVendorFilter?"No ready items match this filter":"Your Order Guide has no ready items yet"}</b>
+                  <p style={{margin:"8px 0",fontSize:13}}>{search||orderCategoryFilter||orderVendorFilter?"Clear the search or choose All in both menus to see all ready items.":"Imported invoice items and vendor listings appear in Item Catalog first. Confirm the product, pack, association and quoted price there; ready items from every vendor then appear here together."}</p>
+                  {search||orderCategoryFilter||orderVendorFilter?<button onClick={()=>{setSearch("");setOrderCategoryFilter("");setOrderVendorFilter("");setSelectedOrderItemId(null);}} style={btn("#003584")}>Show Full List</button>:<button onClick={()=>setTab("catalog")} style={btn("#003584")}>Open Item Catalog</button>}
                 </div>
               )}
 
@@ -996,13 +980,26 @@ export default function App() {
               {filtered.map(group=>(
                 <div key={group.category} style={{marginBottom:8}}>
                   <div style={{fontSize:11,fontWeight:800,color:"rgba(255,255,255,0.75)",letterSpacing:"0.08em",textTransform:"uppercase",margin:"14px 0 6px"}}>{group.category}</div>
-                  <div style={{background:"white",borderRadius:8}}>
+                  <div style={{background:"white",borderRadius:8,padding:8}}>
+                    {group.items.map(item=>{
+                      const offer=item.options.find(orderable);
+                      const selected=selectedOrderItemId===item.catalogItemId;
+                      return <button type="button" key={`browse-${item.catalogItemId}`}
+                        aria-expanded={selected} onClick={()=>setSelectedOrderItemId(selected?null:item.catalogItemId)}
+                        style={{width:"100%",display:"grid",gridTemplateColumns:"minmax(0,1fr) auto auto",gap:16,alignItems:"center",padding:"13px 14px",marginBottom:6,border:"1px solid #D5E2F1",borderRadius:8,background:selected?"#EEF4FF":"#F8FBFF",color:"#15243D",textAlign:"left",cursor:"pointer"}}>
+                        <span style={{fontWeight:700}}>{item.name}<small style={{display:"block",color:"#60718D",fontWeight:400}}>{offer?.packSize||""}</small></span>
+                        <strong style={{color:"#003584"}}>{formatMoney(offer?.unitPrice??offer?.price)}</strong>
+                        <span style={{color:"#174EAB",fontWeight:700}}>{selected?"Hide":"View ›"}</span>
+                      </button>;
+                    })}
                     <div style={{display:"grid",gridTemplateColumns:"minmax(220px,1fr) 88px 104px minmax(370px,420px)",columnGap:10,rowGap:2,alignItems:"center",padding:"8px 12px"}}>
-                      <div className="order-column-head" style={{padding:"2px 2px 7px"}}>Item</div>
-                      <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit</div>
-                      <div className="order-column-head" style={{padding:"2px 6px 7px",textAlign:"center"}}>Qty</div>
-                      <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Price comparison</div>
-                      {group.items.flatMap(item=>{
+                      {selectedOrderItemId&&group.items.some(item=>item.catalogItemId===selectedOrderItemId)&&<>
+                        <div className="order-column-head" style={{padding:"2px 2px 7px"}}>Selected item</div>
+                        <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit</div>
+                        <div className="order-column-head" style={{padding:"2px 6px 7px",textAlign:"center"}}>Qty</div>
+                        <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Price comparison</div>
+                      </>}
+                      {group.items.filter(item=>item.catalogItemId===selectedOrderItemId).flatMap(item=>{
                         const caseKey=`${item.catalogItemId}_case`;
                         const eachKey=`${item.catalogItemId}_each`;
                         const caseQty=quantities[caseKey]||0;
