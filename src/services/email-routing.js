@@ -175,6 +175,7 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
       .select(`
         id, routing_address_id, postmark_message_id,
         sender_email, sender_name, subject, received_at,
+        receipt_vendor_id, receipt_document_type, vendor_snapshot_at,
         inbound_attachments ( id, filename, content_type, import_document_id, ingest_error, processing_status )
       `)
       .eq("organization_id", organizationId)
@@ -195,6 +196,20 @@ export async function listMessages(backend, organizationId, { limit = 50, offset
       pending_count: atts.filter((a) => !attachmentActionBlocked(a)).length,
     };
   });
+}
+
+// Read the retained archive in bounded requests; the Inbox must not silently
+// stop at the latest 50 messages. This never changes message or attachment state.
+export async function listMessageArchive(backend,organizationId,{pageSize=200}={}){
+  if(!Number.isInteger(pageSize)||pageSize<1||pageSize>1000)throw new Error("Invalid email page size.");
+  const messages=new Map();
+  for(let offset=0;;offset+=pageSize){
+    const page=await listMessages(backend,organizationId,{limit:pageSize,offset});
+    const before=messages.size;
+    for(const message of page)messages.set(message.id,message);
+    if(page.length<pageSize)return [...messages.values()];
+    if(messages.size===before)throw new Error("Earlier emails could not be loaded. Refresh to try again.");
+  }
 }
 
 /**
