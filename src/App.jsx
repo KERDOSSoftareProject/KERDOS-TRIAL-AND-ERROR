@@ -875,7 +875,7 @@ export default function App() {
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
   return (
-    <div style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:tab==="home"?"#F0F4FA":"#003584"}}>
+    <div style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
 
       {/* HEADER */}
       <header style={{background:"white",color:"#1A4FA8",padding:"0 22px",height:60,
