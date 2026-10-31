@@ -51,7 +51,7 @@ try{
   assert.ok(!JSON.stringify(root.toJSON()).includes('client.vendor@invoices.example.com'));
   await act(async()=>root.unmount());
  });
- await test('Inbox overview has no add-address, vendor assignment, type selection or save controls',async()=>{
+ await test('receiving-address component has no add-address, vendor assignment, type selection or save controls',async()=>{
   await mount(ReceivingAddressesPanel,{orgId:'org',vendors});
   assert.equal(root.root.findAllByType('select').length,0);assert.equal(root.root.findAllByType('input').length,0);
   const labels=root.root.findAllByType('button').map(x=>x.props['aria-label']);assert.ok(labels.every(x=>x.startsWith('Copy ')));

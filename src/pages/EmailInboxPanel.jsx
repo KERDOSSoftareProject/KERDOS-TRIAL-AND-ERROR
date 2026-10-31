@@ -20,17 +20,18 @@
  * Optional forwarding remains an operator-owned delivery setting.
  */
 
-import {useEffect,useState,useCallback} from "react";
+import {useEffect,useState,useCallback,useMemo,useRef} from "react";
 import {backend} from "../backend/index.js";
 import {
-  listMessages,
+  listMessageArchive,
   getMessage,
   listPendingAttachments as _listPendingAttachments,
   markAttachmentIngested,
   beginManualAttachmentReview,
   getAttachmentFile,
 } from "../services/email-routing.js";
-import {btn} from "../ui/styles.js";
+import {btn,inp} from "../ui/styles.js";
+import {browseInbox,inboxVendorId} from "../core/inbox-browse.js";
 import {formatDateTime} from "../localization.js";
 import {attachmentRenderOutcome,attachmentActionBlocked} from "../utils/attachment-state.js";
 
@@ -273,6 +274,8 @@ function MessageRow({msg,orgId,vendors,orgSettings,catalogItems,categories,vocab
   const pendingCount=msg.pending_count||0;
   const totalCount=msg.attachment_count||0;
   const dateStr=formatDateTime(msg.received_at);
+  const vendorId=inboxVendorId(msg);
+  const vendorName=vendorId?vendors.find(vendor=>vendor.id===vendorId)?.name||"Vendor unavailable":"Vendor not recorded";
 
   return(
     <div style={{borderBottom:"1px solid #F0F0F0"}}>
@@ -293,6 +296,7 @@ function MessageRow({msg,orgId,vendors,orgSettings,catalogItems,categories,vocab
               </span>
             )}
           </div>
+          <div style={{fontSize:11,color:"#245785",marginTop:3}}>{vendorName}</div>
           <div style={{fontSize:12,color:"#333",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
             {msg.subject||"(no subject)"}
           </div>
@@ -371,55 +375,63 @@ export function EmailInboxPanel({
   mappings=[],
   onDone,
 }){
-  const [messages,setMessages]=useState([]);
+  const [archive,setArchive]=useState({orgId:null,messages:[]});
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
-  const [pendingTotal,setPendingTotal]=useState(0);
+  const [search,setSearch]=useState("");
+  const [vendorFilter,setVendorFilter]=useState("");
+  const [sort,setSort]=useState("newest");
+  const [limit,setLimit]=useState(50);
+  const request=useRef(0),busy=useRef(false);
+  const messages=archive.orgId===orgId?archive.messages:[];
+  const pendingTotal=messages.reduce((sum,message)=>sum+(message.pending_count||0),0);
+  const visible=useMemo(()=>browseInbox(messages,{vendors,vendorId:vendorFilter,search,sort}),[messages,vendors,vendorFilter,search,sort]);
+  const archiveVendors=useMemo(()=>{
+    const names=new Map(vendors.map(vendor=>[vendor.id,vendor.name]));
+    return [...new Set(messages.map(inboxVendorId).filter(Boolean))].map(id=>({id,name:names.get(id)||"Vendor unavailable"})).sort((a,b)=>a.name.localeCompare(b.name));
+  },[messages,vendors]);
 
-  const load=useCallback(async()=>{
-    setLoading(true);setError("");
+  const load=useCallback(async({quiet=false}={})=>{
+    if(quiet&&busy.current)return;
+    const token=++request.current;
+    busy.current=true;
+    if(!quiet)setLoading(true);
+    setError("");
     try{
-      const msgs=await listMessages(backend,orgId);
-      setMessages(msgs);
-      setPendingTotal(msgs.reduce((n,m)=>n+(m.pending_count||0),0));
-    }catch(e){setError(e.message);}
-    setLoading(false);
+      const msgs=await listMessageArchive(backend,orgId);
+      if(token===request.current)setArchive({orgId,messages:msgs});
+    }catch(e){if(token===request.current)setError(e.message);}
+    finally{if(token===request.current){setLoading(false);busy.current=false;}}
   },[orgId]);
 
-  useEffect(()=>{load();},[load]);
+  useEffect(()=>{
+    load();
+    const timer=setInterval(()=>load({quiet:true}),30000);
+    return ()=>{clearInterval(timer);request.current++;busy.current=false;};
+  },[load]);
+  useEffect(()=>{setSearch("");setVendorFilter("");setSort("newest");},[orgId]);
+  useEffect(()=>{setLimit(50);},[orgId,search,vendorFilter,sort]);
 
-  return(
-    <Section
-      title={<>📥 Email Inbox{pendingTotal>0&&<Badge n={pendingTotal} color="#E65100"/>}</>}
-      action={<button onClick={load}
-        style={{...btn("#EEE","#333",{fontSize:12,padding:"6px 12px"})}}>↺ Refresh</button>}>
-
-      {error&&<p style={{color:"#c62828",fontSize:13,margin:"0 0 10px"}}>{error}</p>}
-
-      {loading
-        ? <p style={{fontSize:13,color:"#888",margin:0}}>Loading…</p>
-        : messages.length===0
-          ? <p style={{fontSize:13,color:"#888",margin:0}}>
-              No emails received yet. Share a routing address with your vendors so they can
-              email price sheets directly to KERDOS.
-            </p>
-          : messages.map(msg=>(
-              <MessageRow
-                key={msg.id}
-                msg={msg}
-                orgId={orgId}
-                industry={industry}
-                vendors={vendors}
-                orgSettings={orgSettings}
-                catalogItems={catalogItems}
-                categories={categories}
-                vocabulary={vocabulary}
-                vendorItems={vendorItems}
-                mappings={mappings}
-                onDone={()=>{load();onDone?.();}}
-              />
-            ))
-      }
+  return <div>
+    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,background:"#DCE9FA",borderRadius:10,marginBottom:14}}>
+      <select aria-label="Inbox vendors" value={vendorFilter} onChange={event=>setVendorFilter(event.target.value)} style={{...inp,width:"auto",minWidth:180,color:"#174EAB",fontWeight:700}}>
+        <option value="">All vendors</option>
+        {archiveVendors.map(vendor=><option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
+        <option value="__unassigned__">Vendor not recorded</option>
+      </select>
+      <select aria-label="Sort emails" value={sort} onChange={event=>setSort(event.target.value)} style={{...inp,width:"auto",minWidth:180,color:"#174EAB",fontWeight:700}}>
+        <option value="newest">Date · Newest first</option><option value="oldest">Date · Oldest first</option><option value="vendor">Vendor · A–Z</option><option value="sender">Sender · A–Z</option><option value="subject">Subject · A–Z</option>
+      </select>
+      <button type="button" onClick={()=>load()} disabled={loading} style={btn("#003584")}>↺ Refresh</button>
+    </div>
+    <input type="search" aria-label="Search emails" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search emails by vendor, sender, subject, or date..." style={{...inp,marginBottom:14}}/>
+    <Section title={<>Email Inbox{pendingTotal>0&&<Badge n={pendingTotal} color="#E65100"/>}</>}>
+      {error&&<p role="alert" style={{color:"#c62828",fontSize:13,margin:"0 0 10px"}}>{error}</p>}
+      {loading&&!messages.length?<p style={{fontSize:13,color:"#888",margin:0}}>Loading…</p>:
+        !messages.length?<p style={{fontSize:13,color:"#888",margin:0}}>No emails received yet.</p>:
+        !visible.length?<p style={{fontSize:13,color:"#888",margin:0}}>No emails match your search or vendor filter.</p>:
+        visible.slice(0,limit).map(msg=><MessageRow key={msg.id} msg={msg} orgId={orgId} industry={industry} vendors={vendors} orgSettings={orgSettings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onDone={()=>{load();onDone?.();}}/>)}
+      {visible.length>limit&&<button type="button" onClick={()=>setLimit(value=>value+50)} style={{...btn("#003584"),marginTop:14}}>Show more emails</button>}
     </Section>
-  );
+  </div>;
 }

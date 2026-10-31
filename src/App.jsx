@@ -24,7 +24,7 @@ import {CatalogPanel} from "./pages/CatalogAdminPanel.jsx";
 import {ItemCatalogPanel} from "./pages/ItemCatalogPanel.jsx";
 import {PasteModal} from "./pages/ImportModal.jsx";
 import {VendorDetail} from "./pages/VendorDetail.jsx";
-import {EmailInboxPanel,RoutingAddressPanel} from "./pages/EmailInboxPanel.jsx";
+import {EmailInboxPanel} from "./pages/EmailInboxPanel.jsx";
 import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
 import TabHeading from "./ui/TabHeading.jsx";
 import {listMessages} from "./services/email-routing.js";
@@ -1406,7 +1406,6 @@ export default function App() {
         {/* TEAM TAB */}
         {tab==="inbox"&&(org.role==="owner"||org.role==="manager")&&(
           <>
-            <RoutingAddressPanel orgId={org.id} vendors={vendors} onUpdated={loadData} />
             <EmailInboxPanel
               orgId={org.id}
               industry={org.industry}
