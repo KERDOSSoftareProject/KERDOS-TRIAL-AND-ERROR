@@ -163,12 +163,13 @@ await check('B3 remembers and applies unknown headers independently for both wor
 await check('B2 actual OCR capture saves correct numeric fields while retaining uncertainty flags',async()=>{
  const f=fixture(),p=await open();
  const applyQuote=f.backend.pricing.applyQuote;
- let resume;const pending=new Promise(resolve=>{resume=resolve;});
- f.backend.pricing.applyQuote=async(...args)=>{await pending;return applyQuote(...args);};
+ let resume,attempts=0;const pending=new Promise(resolve=>{resume=resolve;});
+ f.backend.pricing.applyQuote=async(...args)=>{if(++attempts===2)await pending;return applyQuote(...args);};
  await upload(p,'picker',{...file('B2_Mixed_Scanned_Prices_Test.pdf',ocrCapture.text),reading:ocrCapture});
  assert.equal(writes(f),0);await save(p);
  assert.ok(text(p.tree.toJSON()).includes('Source recognition is below 90%; retained values need confirmation.'));
  assert.ok(!text(p.tree.toJSON()).includes('[object Object]'));
+ assert.ok(text(p.tree.toJSON()).includes('Saved 1 of 2 rows'));
  await act(async()=>{resume();});
  for(let i=0;i<60&&!p.finished.length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
  assert.deepEqual(f.calls.applyQuote.map(call=>[call.vendorItemCode,call.price]),[['730001',46.75],['730002',57.85]]);
@@ -178,7 +179,18 @@ await check('B2 actual OCR capture saves correct numeric fields while retaining 
  assert.equal(f.calls.applyQuote[1].importRow.row.billingUnitEvidence.unit,'CASE');
  assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);p.tree.unmount();
 });
-console.log(passed+'/13 B1/B2/B3 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('interrupted import resumes with independent proof even when the current listing only retains a later row',async()=>{
+ const f=fixture(),first=await open(),input={...file('B2_Mixed_Scanned_Prices_Test.pdf',ocrCapture.text),reading:ocrCapture};
+ await upload(first,'picker',input);await save(first);first.tree.unmount();
+ const doc=Object.values(f.importDocs)[0];assert.equal(doc.source_rows.rows.length,2);
+ doc.status='processing';doc.completed_keys=['row:0'];
+ assert.equal(f.vendorItems[0].import_row.rowKey,'row:1');
+ const resumed=await open();await upload(resumed,'picker',input);await save(resumed);
+ assert.equal(doc.status,'complete',JSON.stringify(resumed.tree.toJSON()));assert.deepEqual(doc.completed_keys,['row:0','row:1']);
+ assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(f.calls.applyQuote.length,2,'replayed staged listing must not create another quote');
+ assert.equal(f.vendorItems[0].import_row.reviewRequired,true);assert.equal(f.vendorItems[0].import_row.sourceDocumentId,doc.id);resumed.tree.unmount();
+});
+console.log(passed+'/14 B1/B2/B3 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
