@@ -17,7 +17,7 @@
     "test:a2": "node scripts/test_a2_vendor_pull.mjs",
     "test:b1": "node scripts/test_b1_manual_upload.mjs",
     "test:b2": "node scripts/test_b2_document_reading.mjs && node scripts/test_b2_ocr_geometry.mjs",
-    "test:b3": "node scripts/test_b3_document_structuring.mjs",
+    "test:b3": "node scripts/test_b3_document_structuring.mjs && node scripts/test_b3_invoice_layouts.mjs",
     "test:b2-ocr": "node scripts/verify_b2_mixed_ocr.mjs"
   },
   "dependencies": {

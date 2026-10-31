@@ -24,7 +24,7 @@ export async function readPdf(pdf,filename,recognizePage){
       const content=await page.getTextContent();
       const items=content.items.filter(item=>typeof item.str==='string').map(item=>({
         text:item.str,transform:Array.from(item.transform),width:item.width,height:item.height,
-        direction:item.dir,fontName:item.fontName,hasEOL:!!item.hasEOL,
+        direction:item.dir,fontName:item.fontName,fontFamily:content.styles?.[item.fontName]?.fontFamily??null,hasEOL:!!item.hasEOL,
       }));
       const text=pdfTextLines(content.items).join('\n');
       const viewport=page.getViewport({scale:1});
