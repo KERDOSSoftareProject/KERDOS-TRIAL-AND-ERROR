@@ -5,6 +5,16 @@ async function run(promise,operation){const {data,error}=await promise;if(error)
 export function createImportService(backend){
   const table=backend.records.query;
   return {
+    async retainedPartialDocuments(organizationId){
+      const documents=[];
+      for(let offset=0;;offset+=50){
+        const batch=await run(table("import_documents").select("id,vendor_id,document_kind,status,file_name,source_rows,completed_keys")
+          .eq("organization_id",organizationId).eq("document_kind","pricelist").eq("status","partial")
+          .order("id").range(offset,offset+49),"Could not load retained incoming rows");
+        documents.push(...batch);if(batch.length<50)break;
+      }
+      return documents;
+    },
     findPriceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status,completed_keys,source_rows,file_path").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").eq("fingerprint",fingerprint).maybeSingle(),"Could not verify whether the file was already imported");},
     // Resume a partial import document by its known ID (A1.7.a).
     // Validates organization_id and vendor_id ownership so a stale or spoofed

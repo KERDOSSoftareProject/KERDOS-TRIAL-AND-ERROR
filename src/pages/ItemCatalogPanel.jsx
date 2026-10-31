@@ -3,6 +3,8 @@ import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
 import {useMemo,useState} from "react";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {CatalogRows} from "./CatalogRows.jsx";
+import {RetainedImportRows} from "./RetainedImportRows.jsx";
+import {createImportService} from "../services/imports.js";
 import {unitChoices} from "../core/catalog-fields.js";
 import {backend} from "../backend/index.js";
 import {createCatalogService,mappingVerification,mappingGap,GAP_LABELS} from "../services/catalog.js";
@@ -16,6 +18,7 @@ import {btn,chipStyle,inp} from "../ui/styles.js";
 
 const catalogService=createCatalogService(backend);
 const categoryService=createCategoryService(backend);
+const importService=createImportService(backend);
 
 const MULTI_VENDOR_FILTER="__multi_vendor__";
 const CATEGORY_REVIEW_FILTER="__category_review__";
@@ -413,6 +416,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
 
       <div style={{display:"flex",gap:8,marginBottom:12}}><button onClick={()=>setRowView(true)} style={btn(rowView?"#003584":"#EEE",rowView?"white":"#333")}>Edit catalog rows</button><button onClick={()=>setRowView(false)} style={btn(!rowView?"#003584":"#EEE",!rowView?"white":"#333")}>Product details</button></div>
       {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
+      <RetainedImportRows orgId={orgId} vendors={vendors} service={importService} search={search}/>
 
       {canManage&&addingItem&&(
         <MovableDialog label="Add a catalog item" maxWidth={428} zIndex={1000}>
