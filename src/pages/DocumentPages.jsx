@@ -77,7 +77,7 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
     <div aria-label="Invoice browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
       <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
       {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
-      <button type="button" onClick={onExport} style={button("#003584")}>Price Variance Detected</button>
+      <button type="button" onClick={onExport} style={button("#003584")}>Price Variance Report</button>
     </div>
     <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {attentionCount>0&&<div style={{background:"#FFF3E0",color:"#8A5A00",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:14}}>{attentionCount} invoice price comparison{attentionCount===1?"":"s"} need review. The original invoice remains the source record.</div>}
