@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from "react";
 import {createPortal} from "react-dom";
+import PriceVarianceReport from "./PriceVarianceReport.jsx";
 
 const navy="#073B83",ink="#17243A",muted="#6D7A8B",line="#E4EAF1",surface="#F5F8FC";
 const button=(background,color="white")=>({background,color,border:"1px solid transparent",borderRadius:9,padding:"10px 14px",fontWeight:800,cursor:"pointer",fontSize:12,boxShadow:"0 1px 2px rgba(16,35,61,.08)"});
@@ -60,6 +61,7 @@ function DocumentRow({title,meta,amount,warning,open,onToggle,children,controls}
 
 export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilter,vendorColors,formatDate,formatMoney,
   attentionCount,role,onImport,onExport,onViewOriginal,onEdit,onDelete,expandedId,setExpandedId}){
+  const [reportOpen,setReportOpen]=useState(false);
   const [search,setSearch]=useState("");
   const query=search.trim().toLocaleLowerCase();
   const groups=new Map();
@@ -74,10 +76,11 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
   const vendorGroups=[...groups.entries()].map(([vendorId,rows])=>({vendorId,vendorName:rows[0]?.vendors?.name||vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",rows:rows.sort((a,b)=>new Date(b.invoice_date||b.created_at)-new Date(a.invoice_date||a.created_at))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,rows:group.rows.filter(invoice=>!query||[group.vendorName,invoice.invoice_number,invoice.file_name,invoice.invoice_date,invoice.created_at,formatDate(invoice.invoice_date||invoice.created_at)].some(value=>String(value??"").toLocaleLowerCase().includes(query)))})).filter(group=>group.rows.length);
   return <div>
+    {reportOpen&&<PriceVarianceReport orgId={orgId} invoices={invoices} vendors={vendors} onClose={()=>setReportOpen(false)} onExport={onExport}/>}
     <div aria-label="Invoice browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
       <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
       {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
-      <button type="button" onClick={onExport} style={button("#003584")}>Price Variance Report</button>
+      <button type="button" onClick={()=>setReportOpen(true)} style={button("#003584")}>Price Variance Report</button>
     </div>
     <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {attentionCount>0&&<div style={{background:"#FFF3E0",color:"#8A5A00",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:14}}>{attentionCount} invoice price comparison{attentionCount===1?"":"s"} need review. The original invoice remains the source record.</div>}

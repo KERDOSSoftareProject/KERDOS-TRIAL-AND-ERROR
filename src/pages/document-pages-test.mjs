@@ -6,6 +6,8 @@ import {createElement} from "react";
 import Renderer,{act} from "react-test-renderer";
 import {renderToStaticMarkup} from "react-dom/server";
 import {build} from "vite";
+import {createRecords} from "../backend/records.js";
+import {createVarianceReportService} from "../services/variance-report.js";
 
 const temporary=mkdtempSync(fileURLToPath(new URL("../../node_modules/.kerdos-document-pages-",import.meta.url)));
 try{
@@ -88,7 +90,13 @@ try{
   const invoiceBrowse=tree.root.findByProps({'aria-label':'Invoice browse controls'});
   assert.equal(invoiceBrowse.findAllByType('select').length,1);
   await act(async()=>{invoiceBrowse.findAllByType('button')[1].props.onClick();});
-  assert.deepEqual(invoiceActions,[['export']],'export retains its existing report callback');
+  assert.equal(tree.root.findAllByProps({role:'dialog','aria-label':'Price Variance Report'}).length,1,'report opens before download');
+  assert.deepEqual(invoiceActions,[],'opening report must not immediately download');
+  const reportButton=tree.root.findAllByType('button').find(button=>text(button.toJSON?.()||{children:button.children})==='Download CSV');
+  await act(async()=>{reportButton.props.onClick();});
+  assert.deepEqual(invoiceActions,[['export']],'report keeps its CSV export callback');
+  const closeReport=tree.root.findAllByType('button').find(button=>text(button.toJSON?.()||{children:button.children})==='Close');
+  await act(async()=>{closeReport.props.onClick();});
   for(const value of ['inv-123','october','supplier a','2026-10-15']){
     await act(async()=>{invoiceSearch().props.onChange({target:{value}});});
     assert.match(pageText(),/October delivery.pdf/);
@@ -108,5 +116,31 @@ try{
   assert.equal(tree.root.findAllByProps({title:'Edit invoice record'}).length,0);
   tree.unmount();
   console.log('PASS invoice search by vendor/number/file/date, selected-vendor import, report export, original access and employee restrictions.');
+  let exported;
+  const zeroInvoice={id:'zero',vendor_id:'v1',invoice_number:'ZERO-1',invoice_date:'2026-10-20',invoice_lines:[{description:'Matched item',unit_price:10,line_total:10,price_variance:0}]};
+  await act(async()=>{tree=Renderer.create(createElement(InvoicesPage,{...invoiceProps,invoices:[zeroInvoice],onExport:scope=>exported=scope}));});
+  await act(async()=>{tree.root.findByProps({'aria-label':'Invoice browse controls'}).findAllByType('button')[1].props.onClick();});
+  assert.equal((pageText().match(/0 variances found/g)||[]).length,2,'every client vendor appears at zero');
+  assert.match(pageText(),/Invoice #ZERO-1/);
+  assert.match(pageText(),/Report period/);
+  assert.match(pageText(),/reference not recorded/,'price sheet provenance cannot be invented');
+  assert.match(pageText(),/No completed invoice comparisons/,'no evidence is distinct from a clean comparison');
+  assert.ok(!pageText().includes('0 items found'));
+  await act(async()=>{tree.root.findByProps({'aria-label':'Report from date'}).props.onChange({target:{value:'2026-11-01'}});});
+  assert.ok(!pageText().includes('Invoice #ZERO-1'),'report periods exclude invoices outside the range');
+  const download=()=>tree.root.findAllByType('button').find(button=>text({children:button.children})==='Download CSV');
+  await act(async()=>{download().props.onClick();});assert.deepEqual(exported.invoices,[],'CSV uses the report period');
+  await act(async()=>{tree.root.findByProps({'aria-label':'Report to date'}).props.onChange({target:{value:'2026-10-01'}});});
+  assert.match(pageText(),/Choose an end date/);assert.equal(download().props.disabled,true);
+  tree.unmount();
+  const reads=[];
+  const stored=Array.from({length:205},(_,i)=>({...zeroInvoice,id:'stored'+i,organization_id:'org'}));
+  const service=createVarianceReportService({records:createRecords(async spec=>{
+    reads.push(spec);assert.equal(spec.action,'select');assert.ok(spec.filters.some(f=>f.column==='organization_id'&&f.value==='org'));
+    return {data:stored.slice(spec.range.from,spec.range.to+1),error:null};
+  })});
+  assert.equal((await service.invoices('org')).length,205,'report reads beyond the normal 30-invoice snapshot');
+  assert.equal(reads.length,2);
+  console.log('PASS variance report opens with per-vendor zero results, invoice evidence, explicit missing price-sheet references, period filters and scoped download; history reads remain read-only.');
   console.log("Imported-document page checks passed: actual sources only, correction history excluded, original access, incomplete and repeated imports, vendor filtering, closed defaults, and document pagination.");
 }finally{rmSync(temporary,{recursive:true,force:true});}

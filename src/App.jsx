@@ -1337,7 +1337,7 @@ export default function App() {
             vendorColors={vendorColors} formatDate={formatDate} formatMoney={formatMoney}
             attentionCount={flaggedInvoiceLines.length+invoiceDerivedItems.length} role={org.role}
             onImport={vendorId=>{setSelectedVendorId(vendorId);setImportMode("invoice");setShowPaste(true);}}
-            onExport={()=>downloadTextFile(`price-variance-report-${new Date().toISOString().split("T")[0]}.csv`,buildVarianceReportCSV(invoices,vendors),"text/csv")}
+            onExport={scope=>downloadTextFile(`price-variance-report-${new Date().toISOString().split("T")[0]}.csv`,buildVarianceReportCSV(scope?.invoices||invoices,scope?.vendors||vendors),"text/csv")}
             onViewOriginal={viewStoredFile} onEdit={setEditingInvoice} onDelete={deleteInvoice}
             expandedId={expandedInvoiceId} setExpandedId={setExpandedInvoiceId}
           />
