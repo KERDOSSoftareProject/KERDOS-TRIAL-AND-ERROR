@@ -33,6 +33,8 @@ export function assertBackendContract(backend) {
     if(typeof backend.estimatedDrafts[name]!=='function')throw new Error(`KERDOS backend estimatedDrafts.${name} is not implemented`);
   if(backend.estimatedOrders)for(const name of ['review','submit','getByDraft'])
     if(typeof backend.estimatedOrders[name]!=='function')throw new Error(`KERDOS backend estimatedOrders.${name} is not implemented`);
+  if(backend.estimatedReceipts)for(const name of ['candidates','review','save','list'])
+    if(typeof backend.estimatedReceipts[name]!=='function')throw new Error(`KERDOS backend estimatedReceipts.${name} is not implemented`);
   return backend;
 }
 

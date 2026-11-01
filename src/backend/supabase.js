@@ -45,6 +45,12 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    estimatedReceipts:{
+      candidates(organizationId,orderLineId,offset){return providerResult(client.rpc('kerdos_receipt_candidates',{p_organization_id:organizationId,p_order_line_id:orderLineId,p_offset:offset}),'Load invoice candidates');},
+      review(organizationId,orderLineId,invoiceLineId,cases){return providerResult(client.rpc('kerdos_review_estimated_receipt',{p_organization_id:organizationId,p_order_line_id:orderLineId,p_invoice_line_id:invoiceLineId,p_received_cases:cases}),'Review invoice receipt');},
+      save(review){return providerResult(client.rpc('kerdos_save_estimated_receipt',{p_organization_id:review.organizationId,p_order_line_id:review.orderLine.id,p_invoice_line_id:review.invoiceLine.id,p_received_cases:review.receivedCaseQuantity,p_review:review,p_confirmed:true,p_cases_confirmed:true}),'Save invoice receipt');},
+      list(organizationId,orderId){return providerResult(client.rpc('kerdos_list_estimated_receipts',{p_organization_id:organizationId,p_order_id:orderId}),'Load receipt history');},
+    },
     estimatedOrders:{
       review(organizationId,draftId){return providerResult(client.rpc('kerdos_review_estimated_order',{p_organization_id:organizationId,p_draft_id:draftId}),'Review estimated order');},
       submit(review,minimumAcknowledged){return providerResult(client.rpc('kerdos_submit_estimated_order',{p_organization_id:review.organizationId,p_draft_id:review.draftId,p_review:review,p_confirmed:true,p_minimum_acknowledged:minimumAcknowledged}),'Record estimated order');},

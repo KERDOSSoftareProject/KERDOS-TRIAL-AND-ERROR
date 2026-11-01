@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import {build} from 'vite';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import React from 'react';
+import Renderer,{act} from 'react-test-renderer';
+import {parseDocument} from '../ingestion.js';
+import {invoiceBilledQuantityEvidence} from '../core/invoice-quantity-evidence.js';
+import {prepareVariableWeightReceipt} from '../core/variable-weight-purchasing.js';
+import {createEstimatedReceiptService,summarizeEstimatedOrderReceipts} from '../services/estimated-receipts.js';
+const dir=mkdtempSync(fileURLToPath(new URL('../../node_modules/.kerdos-receipt-ui-',import.meta.url)));
+const text=n=>typeof n==='string'?n:Array.isArray(n)?n.map(text).join(''):(n?.children||[]).map(text).join('');
+try{
+ await build({configFile:false,logLevel:'error',esbuild:{jsx:'automatic'},build:{ssr:fileURLToPath(new URL('./InvoiceReceiptReview.jsx',import.meta.url)),outDir:dir,rollupOptions:{output:{entryFileNames:'receipt.mjs'}}}});
+ const {InvoiceReceiptReview}=await import(pathToFileURL(join(dir,'receipt.mjs')));
+ const terms={organizationId:'org',vendorId:'v',catalogItemId:'ci',vendorItemId:'vi',sourceDocumentId:'quote',sourceRowKey:'row:0',vendorItemCode:'SYN',description:'Example material',packSize:'2/6-8 LBA',quotedRate:4,quotedUnit:'LB'};
+ const estimate={amount:null,minimum:96,maximum:128,estimated:true,guaranteed:false};
+ const line={kind:'estimated_purchase_line',version:1,id:'ol',orderId:'order',terms,approvalId:'approval',quantity:2,orderUnit:'case',rowRevision:0,estimate,actualCharge:null};
+ const order={id:'order',organizationId:'org',vendorId:'v',lines:[line],estimate};
+ function fixture(){
+  const records=[];let calls=0,mode='ok',refreshes=0;
+  const invoices=[4,5].map((rate,index)=>{const row=parseDocument(`INVOICE I-${index}\nDate: 11/01/2026\nItem,Description,Pack,Price Unit,Billed Weight,Unit Price,Extended Price\nSYN,Example material,2/6-8 LBA,LB,14,${rate},${rate*14}`).rows[0];return {id:'il'+index,sourceDocumentId:'invoice'+index,documentKind:'invoice',organizationId:'org',vendorId:'v',vendorItemId:'vi',invoiceNumber:'I-'+index,invoiceDate:'2026-11-01',row,billedQuantityEvidence:invoiceBilledQuantityEvidence(row),quantitySource:row.quantitySource};});
+  const backend={session:{get:async()=>mode==='signed-out'?null:{user:{id:'employee'}}},estimatedReceipts:{
+   candidates:async()=>invoices.map(i=>({...i,linkedReceiptId:records.find(r=>r.invoiceLineId===i.id)?.id||null})),
+   review:async(org,ol,id,cases)=>{const invoice=invoices.find(i=>i.id===id);const intent=prepareVariableWeightReceipt({orderLine:line,invoiceLine:invoice,link:{confirmed:true,orderLineId:ol,invoiceDocumentId:invoice.sourceDocumentId,invoiceLineId:id},receivedCaseQuantity:cases,actorId:'employee',now:'2026-11-01T22:00:00Z'});for(const k of ['kind','version','requestedBy','reviewedAt','requiresAuthenticatedPersistence'])delete intent[k];return {kind:'estimated_receipt_review',version:1,organizationId:org,orderLine:line,invoiceLine:invoice,receivedCaseQuantity:cases,remainingCases:2-records.reduce((sum,r)=>sum+r.receivedCaseQuantity,0),calculation:intent};},
+   save:async r=>{calls++;if(mode==='network-before')throw Error('Connection lost');if(mode==='sql'){const e=Error('Source changed');e.cause={code:'P0001'};throw e;}let saved=records.find(s=>s.invoiceLineId===r.invoiceLine.id);if(!saved){const time='2026-11-01T22:00:00Z';saved={...r.calculation,kind:'variable_weight_receipt',version:1,id:'receipt'+records.length,receivedBy:'employee',receivedAt:time,caseEvidence:{kind:'client_received_cases',quantity:r.receivedCaseQuantity,confirmedBy:'employee',confirmedAt:time},sourceReview:r};records.push(structuredClone(saved));}if(mode==='network-after')throw Error('Response lost');return structuredClone(saved);},
+   list:async()=>{if(mode==='offline')throw Error('Offline');return structuredClone(records);},
+  }};
+  const service=createEstimatedReceiptService(backend);return {records,service,backend,props:{order,service,onUpdated:()=>{refreshes++;}},get calls(){return calls;},get refreshes(){return refreshes;},set mode(v){mode=v;}};
+ }
+ let tree;const button=label=>tree.root.findAllByType('button').find(b=>text(b)===label);
+ async function mount(f){await act(async()=>{tree=Renderer.create(React.createElement(InvoiceReceiptReview,f.props));});}
+ async function change(label,value){await act(async()=>{const node=tree.root.findByProps({'aria-label':label});node.props.onChange({target:{value,checked:!!value}});});}
+ async function click(label){const b=button(label);assert.ok(b&&!b.props.disabled,label);await act(async()=>{await b.props.onClick();});}
+ async function choose(id='il0'){await change('Receipt order line','ol');await change('Receipt invoice line',id);await change('Received cases for invoice line','1');await click('Review receipt');}
+ async function consent(){await change('Confirm invoice order link',true);await change('Confirm physically received cases',true);}
+ let f=fixture();await mount(f);assert.equal(f.calls,0);assert.match(text(tree.toJSON()),/Final charge: unknown/);await choose();await change('Confirm invoice order link',true);assert.equal(button('Save confirmed receipt').props.disabled,true);await change('Confirm physically received cases',true);await click('Save confirmed receipt');assert.equal(f.calls,1);assert.equal(f.refreshes,1);assert.match(text(tree.toJSON()),/Receipt status: partial/);assert.match(text(tree.toJSON()),/Final charge: unknown/);
+ await change('Receipt invoice line','il1');await change('Received cases for invoice line','1');await click('Review receipt');await consent();await click('Save confirmed receipt');assert.equal(f.calls,2);assert.match(text(tree.toJSON()),/Receipt status: complete/);assert.match(text(tree.toJSON()),/Final charge: \$126.00/);assert.deepEqual(summarizeEstimatedOrderReceipts(order,f.records).estimate,estimate);assert.throws(()=>summarizeEstimatedOrderReceipts(order,[f.records[0],f.records[0]]),/twice/);tree.unmount();
+ f=fixture();await mount(f);await choose();await consent();await change('Received cases for invoice line','2');assert.equal(button('Save confirmed receipt'),undefined);assert.equal(f.calls,0);tree.unmount();
+ f=fixture();f.mode='network-after';await mount(f);await choose();await consent();await click('Save confirmed receipt');assert.equal(f.records.length,1);assert.equal(tree.root.findByProps({'aria-label':'Receipt order line'}).props.disabled,true);assert.match(text(tree.toJSON()),/saving is unconfirmed/);await click('Refresh receipts');assert.equal(f.calls,1);assert.equal(tree.root.findByProps({'aria-label':'Receipt order line'}).props.disabled,false);tree.unmount();await mount(f);assert.match(text(tree.toJSON()),/Receipt status: partial/);assert.match(text(tree.toJSON()),/I-0/);assert.equal(f.calls,1);tree.unmount();
+ f=fixture();f.mode='network-before';await mount(f);await choose();await consent();await click('Save confirmed receipt');f.mode='ok';await consent();await click('Retry same receipt');assert.equal(f.records.length,1);assert.equal(f.calls,2);tree.unmount();
+ f=fixture();f.mode='sql';await mount(f);await choose();await consent();await click('Save confirmed receipt');assert.equal(f.records.length,0);assert.equal(tree.root.findByProps({'aria-label':'Receipt order line'}).props.disabled,false);tree.unmount();
+ f=fixture();f.mode='offline';await mount(f);assert.match(text(tree.toJSON()),/Final charge: unknown/);assert.equal(f.calls,0);tree.unmount();
+ f=fixture();f.mode='signed-out';await assert.rejects(f.service.list('org','order'),/Sign in/);f.mode='ok';await assert.rejects(f.service.review('other','ol','il0',1),/differs|scope|belong/);
+ const plan=await f.service.review('org','ol','il0',1);await assert.rejects(f.service.save(plan,{confirmed:true}),/Confirm/);const realSave=f.backend.estimatedReceipts.save;f.backend.estimatedReceipts.save=async r=>({...await realSave(r),actualCharge:1});await assert.rejects(f.service.save(plan,{confirmed:true,casesConfirmed:true}),/differs/);
+ console.log('PASS rendered receipt controls/service: explicit link/case consent, invalidation, partial/final charge, lost response/request and remount recovery, stable retry, SQL/offline/auth failures and snapshot tamper rejection.');
+}finally{rmSync(dir,{recursive:true,force:true});}
