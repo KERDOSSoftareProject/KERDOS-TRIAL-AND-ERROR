@@ -45,6 +45,9 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    invoiceReconciliation:{
+      review(organizationId,invoiceId){return providerResult(client.rpc('kerdos_review_invoice_reconciliation',{p_organization_id:organizationId,p_invoice_id:invoiceId}),'Review full invoice reconciliation');},
+    },
     estimatedReceiptReplacements:{
       replace(predecessorId,review,reason){return providerResult(client.rpc('kerdos_replace_estimated_receipt',{p_organization_id:review.organizationId,p_predecessor_id:predecessorId,p_order_line_id:review.orderLine.id,p_invoice_line_id:review.invoiceLine.id,p_received_cases:review.receivedCaseQuantity,p_review:review,p_reason:reason,p_confirmed:true,p_cases_confirmed:true,p_replacement_confirmed:true}),'Replace receipt source');},
     },

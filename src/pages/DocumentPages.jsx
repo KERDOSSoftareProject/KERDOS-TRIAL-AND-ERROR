@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from "react";
+import {InvoiceReconciliation} from './InvoiceReconciliation.jsx';
 import {createPortal} from "react-dom";
 
 const navy="#073B83",ink="#17243A",muted="#6D7A8B",line="#E4EAF1",surface="#F5F8FC";
@@ -59,8 +60,9 @@ function DocumentRow({title,meta,amount,warning,open,onToggle,children,controls}
 }
 
 export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilter,vendorColors,formatDate,formatMoney,
-  attentionCount,role,onImport,onExport,onViewOriginal,onEdit,onDelete,expandedId,setExpandedId}){
+  attentionCount,role,onImport,onExport,onViewOriginal,onEdit,onDelete,expandedId,setExpandedId,reconciliationService}){
   const [search,setSearch]=useState("");
+  const [reconciliationId,setReconciliationId]=useState(null);
   const query=search.trim().toLocaleLowerCase();
   const groups=new Map();
   for(const invoice of invoices){
@@ -84,9 +86,9 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>{query?"No invoices match your search. Try another vendor, invoice number, filename, or date.":vendorFilter?"No invoices recorded for this vendor yet.":"No invoices recorded yet."}</div>:visible.map(group=>{
       const color=vendorColors.get(group.vendorId)||{accent:"#003584"};
       return <VendorSection key={`${group.vendorId}:${Boolean(query)}`} name={group.vendorName} count={`${group.rows.length} invoice${group.rows.length===1?"":"s"}`} accent={color.accent} defaultOpen={Boolean(vendorFilter)||Boolean(query)} actions={role!=="employee"&&<MoreMenu><MenuButton onClick={()=>onImport(group.vendorId)}>Import invoice for {group.vendorName}</MenuButton></MoreMenu>}>
-        {group.rows.map(invoice=>{const open=expandedId===invoice.id;const openOriginal=()=>invoice.file_path?onViewOriginal(invoice.file_path):setExpandedId(open?null:invoice.id);return <DocumentRow key={invoice.id} title={invoice.file_name||`Invoice${invoice.invoice_number?` #${invoice.invoice_number}`:""}`} meta={`${formatDate(invoice.invoice_date)||formatDate(invoice.created_at)}${invoice.invoice_number?` · Invoice #${invoice.invoice_number}`:""} · Click to open original`} amount={formatMoney(invoice.total_amount)} open={open&&!invoice.file_path} onToggle={openOriginal} warning={invoice._flagged.length>0&&<div style={{fontSize:11,fontWeight:700,color:invoice._totalVariance>0?"#C64A1B":"#0A7C48",marginTop:3}}>⚠ {formatMoney(Math.abs(invoice._totalVariance))} {invoice._totalVariance>0?"over":"under"} quoted</div>} controls={<><button onClick={event=>{event.stopPropagation();openOriginal();}} title="Open original invoice" style={{background:"none",border:"none",cursor:"pointer",color:navy}}>↗</button>{role!=="employee"&&<button onClick={event=>{event.stopPropagation();onEdit(invoice);}} title="Edit invoice record" style={{background:"none",border:"none",cursor:"pointer",color:muted}}>✎</button>}{role!=="employee"&&<button onClick={event=>{event.stopPropagation();onDelete(invoice);}} title="Delete invoice" style={{background:"none",border:"none",color:"#C64A1B",fontSize:16,cursor:"pointer"}}>×</button>}</>}>
+        {group.rows.map(invoice=>{const open=expandedId===invoice.id;const openOriginal=()=>invoice.file_path?onViewOriginal(invoice.file_path):setExpandedId(open?null:invoice.id);return <div key={invoice.id}><DocumentRow title={invoice.file_name||`Invoice${invoice.invoice_number?` #${invoice.invoice_number}`:""}`} meta={`${formatDate(invoice.invoice_date)||formatDate(invoice.created_at)}${invoice.invoice_number?` · Invoice #${invoice.invoice_number}`:""} · Click to open original`} amount={formatMoney(invoice.total_amount)} open={open&&!invoice.file_path} onToggle={openOriginal} warning={invoice._flagged.length>0&&<div style={{fontSize:11,fontWeight:700,color:invoice._totalVariance>0?"#C64A1B":"#0A7C48",marginTop:3}}>⚠ {formatMoney(Math.abs(invoice._totalVariance))} {invoice._totalVariance>0?"over":"under"} quoted</div>} controls={<><button aria-label={`Reconcile invoice ${invoice.invoice_number||invoice.id}`} onClick={event=>{event.stopPropagation();setReconciliationId(reconciliationId===invoice.id?null:invoice.id);}} style={button("#003584")}>Reconcile</button><button onClick={event=>{event.stopPropagation();openOriginal();}} title="Open original invoice" style={{background:"none",border:"none",cursor:"pointer",color:navy}}>↗</button>{role!=="employee"&&<button onClick={event=>{event.stopPropagation();onEdit(invoice);}} title="Edit invoice record" style={{background:"none",border:"none",cursor:"pointer",color:muted}}>✎</button>}{role!=="employee"&&<button onClick={event=>{event.stopPropagation();onDelete(invoice);}} title="Delete invoice" style={{background:"none",border:"none",color:"#C64A1B",fontSize:16,cursor:"pointer"}}>×</button>}</>}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}><div><b style={{fontSize:11,color:ink}}>Original invoice file</b><div style={{fontSize:11,color:muted,marginTop:3}}>KERDOS retained the extracted data for price verification; the original document remains the historical record.</div></div>{invoice.file_path&&<button onClick={()=>onViewOriginal(invoice.file_path)} style={button("#003584")}>Open original file</button>}</div>
-        </DocumentRow>;})}
+        </DocumentRow>{reconciliationId===invoice.id&&<InvoiceReconciliation organizationId={orgId} invoiceId={invoice.id} service={reconciliationService} onClose={()=>setReconciliationId(null)}/>}</div>;})}
       </VendorSection>;
     })}
   </div>;

@@ -19,7 +19,7 @@ begin
  insert into public.vendor_items(id,organization_id,vendor_id,vendor_item_code,description,brand,pack_size,price,selling_unit,price_basis,price_unavailable,last_updated,import_row)
  values(vi,o,v,'SYN-ORDER','Synthetic order rollback material','Example','2/6-8 LBA',4,'LB','measure',true,current_timestamp,jsonb_build_object('sourceDocumentId',doc,'rowKey','row:0','row',source,'reviewRequired',true,'reviewFields',jsonb_build_array('pack_size')));
  insert into public.item_mappings(id,organization_id,vendor_item_id,catalog_item_id,comparison_track,confidence_score) values(m,o,vi,ci,'exact',100);
- insert into public.invoices(id,organization_id,vendor_id,invoice_number,invoice_date,total_amount,raw_text,status) values(inv1,o,v,'SYN-RECEIPT-1',current_date,56,'Controlled invoice with explicitly printed billed weight, price and total','recorded'),(inv2,o,v,'SYN-RECEIPT-2',current_date,70,'Controlled second partial invoice','recorded'),(inv3,o,v,'SYN-RECEIPT-CORRECTED',current_date,84,'Controlled corrected invoice source','recorded');
+ insert into public.invoices(id,organization_id,vendor_id,invoice_number,invoice_date,total_amount,raw_text,status) values(inv1,o,v,'SYN-RECEIPT-1',current_date,56,'Controlled invoice with explicitly printed billed weight, price and total','recorded'),(inv2,o,v,'SYN-RECEIPT-2',current_date,70,'Controlled second partial invoice','recorded'),(inv3,o,v,'SYN-RECEIPT-CORRECTED',current_date,90,E'Subtotal 84.00\nTax 5.00\nFreight 2.00\nCredits 1.00\nInvoice Total 90.00','recorded');
  qs:=jsonb_build_object('kind','quantity-column','header','Billed Weight','rawValue','14','columnIndex',2,'headerLine',E'Code\tPrice Unit\tBilled Weight\tUnit Price\tExtended Price');
  insert into public.invoice_lines(id,invoice_id,vendor_item_id,vendor_item_code,description,quantity,unit_price,line_total,selling_unit,source_line,billing_unit_evidence,quantity_source,match_confidence,match_method) values
  (il1,inv1,vi,'SYN-ORDER','Synthetic order rollback material',14,4,56,'LB',E'SYN-ORDER\tLB\t14\t4\t56',jsonb_build_object('kind','pricing-unit-header','header','Price Unit','unit','LB'),qs,100,'code'),
@@ -30,7 +30,7 @@ begin
 end $$;
 set local role authenticated;
 do $$
-declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; ol uuid;
+declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; ol uuid;
 begin
  terms:=public.kerdos_variable_weight_terms(o,vi,m);
  a:=public.kerdos_approve_variable_weight(o,vi,m,0,jsonb_build_object('kind','variable_weight_approval_intent','version',1,'requestedBy',auth.uid(),'finalChargeKnown',false,'terms',terms));
@@ -75,6 +75,9 @@ begin
  if (select sum((er.snapshot->>'actualCharge')::numeric) from public.estimated_order_receipts er where er.order_id=(saved->>'id')::uuid and not exists(select 1 from public.estimated_receipt_reversals rv where rv.receipt_id=er.id))<>154 then raise exception 'Replacement charge summary failed';end if;
  blocked:=false;begin delete from public.estimated_receipt_replacements where predecessor_id=(receipt1->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
  if not blocked then raise exception 'Replacement deletion was not denied';end if;
+ select public.kerdos_review_invoice_reconciliation(o,invoice_id) into invoice_review from public.invoice_lines where id=(c->>'il3')::uuid;
+ if invoice_review->>'kind'<>'invoice_reconciliation_source' or (invoice_review->'header'->>'recordedTotal')::numeric<>90 or jsonb_array_length(invoice_review->'lines')<>1 or jsonb_array_length(invoice_review->'receipts')<>1 or jsonb_array_length(invoice_review->'reversals')<>0 or invoice_review->'header'->>'rawText' not like '%Tax 5.00%' then raise exception 'Full invoice summary/source/receipt snapshot failed';end if;
+ if (invoice_review->'lines'->0->>'amount')::numeric<>84 or (select count(*) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>3 then raise exception 'Invoice review changed receipts or lost item amount';end if;
  set constraints all immediate;
 end $$;
 rollback;
