@@ -1,7 +1,7 @@
 import {reconcileInvoice} from '../core/invoice-reconciliation.js';
 import {sameOrderData} from '../core/estimated-orders.js';
 export function validateInvoiceApproval(approval,organizationId,invoiceId){
- if(approval?.kind!=='invoice_accounting_approval'||approval.version!==1||!approval.id||approval.organizationId!==organizationId||approval.invoiceId!==invoiceId||!approval.requestId||!approval.approvedBy||!Number.isFinite(Date.parse(approval.approvedAt))||typeof approval.note!=='string'||approval.note!==approval.note.trim()||approval.note.length>500||approval.gate?.eligible!==true||!Array.isArray(approval.gate.reasons)||approval.gate.reasons.length||reconcileInvoice(approval.source,{organizationId,invoiceId}).status!=='reconciled')throw new Error('Accounting approval has invalid scope or evidence');
+ if(approval?.kind!=='invoice_accounting_approval'||approval.version!==1||!approval.id||approval.organizationId!==organizationId||approval.invoiceId!==invoiceId||!approval.requestId||!approval.approvedBy||!Number.isFinite(Date.parse(approval.approvedAt))||typeof approval.note!=='string'||approval.note!==approval.note.replace(/^ +| +$/g,'')||[...approval.note].length>500||approval.gate?.eligible!==true||!Array.isArray(approval.gate.reasons)||approval.gate.reasons.length||reconcileInvoice(approval.source,{organizationId,invoiceId}).status!=='reconciled')throw new Error('Accounting approval has invalid scope or evidence');
  return approval;
 }
 export function validateInvoiceApprovalReview(review,organizationId,invoiceId){
