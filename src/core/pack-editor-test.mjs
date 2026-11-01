@@ -18,3 +18,11 @@ const can=serializePack({...editablePack('6/#10 CN'),count:12});
 assert.equal(can,'12/#10 CN');
 assert.equal(parsePackSize(can).parsed,true);
 assert.equal(parsePackSize(can).caseQty,12);
+
+const nested={type:'case',count:3,innerCounts:[4],size:200,unit:'ML',catchWeight:false};
+assert.deepEqual(editablePack('3/4/200 ML'),nested);
+assert.equal(serializePack(nested),'3/4/200 ML');
+assert.equal(serializePack({...nested,count:6}),'6/4/200 ML');
+const unfinished={...nested,innerCounts:[''],catchWeight:true};
+assert.deepEqual(editablePack(serializePack(unfinished)),unfinished,'incomplete nested edits retain every level and average marker');
+assert.ok(!parsePackSize(serializePack(unfinished))?.parsed);
