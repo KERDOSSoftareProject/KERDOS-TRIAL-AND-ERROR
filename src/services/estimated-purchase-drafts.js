@@ -19,20 +19,30 @@ export function estimatedDraftRecord(row,organizationId){
 export function createEstimatedDraftService(backend){
   const supported=!!backend.estimatedDrafts;
   const requireCapability=()=>{if(!supported)throw new Error('Estimated drafts are unavailable with this connection');};
+  async function savePrepared(intent,{confirmed}={}){
+      requireCapability();
+      if(confirmed!==true||intent?.kind!=='estimated_purchase_draft_intent'||intent.version!==1||intent.finalCharge!==null||!intent.requestId||!Array.isArray(intent.lines)||!intent.lines.length||intent.lines.length>100||!same(estimatedDraftTotal(intent.lines),intent.estimate))throw new Error('Explicitly review this estimated draft before saving');
+      const actorId=(await backend.session.get())?.user?.id;
+      if(!actorId)throw new Error('Sign in before saving a draft');
+      const row=await backend.estimatedDrafts.save(intent);
+      const record=estimatedDraftRecord(row,intent.organizationId);
+      if(record.vendorId!==intent.vendorId||record.requestId!==intent.requestId||record.createdBy!==actorId||!same(row.requested_lines,intent.lines))throw new Error('Saved draft differs from this request');
+      return record;
+    }
   return {supported,
     async save(input){
-      requireCapability();const actorId=(await backend.session.get())?.user?.id;
-      if(!actorId)throw new Error('Sign in before saving a draft');
-      const intent=prepareEstimatedPurchaseDraft({...input,now:input.now||new Date().toISOString()});
-      const row=await backend.estimatedDrafts.save(intent);
-      const record=estimatedDraftRecord(row,input.organizationId);
-      if(record.vendorId!==input.vendorId||record.requestId!==input.requestId||record.createdBy!==actorId||!same(row.requested_lines,intent.lines))throw new Error('Saved draft differs from this request');
-      return record;
+      requireCapability();if(!(await backend.session.get())?.user?.id)throw new Error('Sign in before saving a draft');return savePrepared(prepareEstimatedPurchaseDraft({...input,now:input.now||new Date().toISOString()}),{confirmed:input.confirmed});
     },
-    async recover(organizationId,requestId){
+    savePrepared,
+    async list(organizationId,offset=0){
+      requireCapability();if(!organizationId||!Number.isSafeInteger(offset)||offset<0)throw new Error('Choose an organization and valid draft page');
+      return (await backend.estimatedDrafts.list(organizationId,offset)).map(row=>estimatedDraftRecord(row,organizationId));
+    },
+    async recover(organizationId,requestId,expectedIntent){
       requireCapability();const actorId=(await backend.session.get())?.user?.id;if(!actorId)throw new Error('Sign in before recovering a draft');
       const row=await backend.estimatedDrafts.getByRequest(organizationId,requestId);if(!row)return null;const record=estimatedDraftRecord(row,organizationId);
-      if(record.requestId!==requestId||record.createdBy!==actorId)throw new Error('Draft request belongs to a different creator');return record;
+      if(record.requestId!==requestId||record.createdBy!==actorId)throw new Error('Draft request belongs to a different creator');
+      if(expectedIntent&&(expectedIntent.organizationId!==organizationId||expectedIntent.vendorId!==record.vendorId||!same(expectedIntent.lines,row.requested_lines)))throw new Error('Recovered draft differs from the retained request');return record;
     },
     async get(organizationId,draftId){requireCapability();const row=await backend.estimatedDrafts.get(organizationId,draftId);if(!row)return null;const record=estimatedDraftRecord(row,organizationId);if(record.id!==draftId)throw new Error('Saved draft ID differs');return record;},
     async cancel(organizationId,draftId){requireCapability();const row=await backend.estimatedDrafts.cancel(organizationId,draftId);const record=estimatedDraftRecord(row,organizationId);if(record.id!==draftId||record.status!=='cancelled')throw new Error('Draft cancellation was not confirmed');return record;},

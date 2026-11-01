@@ -2,6 +2,7 @@ import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
 import {useMemo,useState} from "react";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
+import {EstimatedDraftLauncher} from './EstimatedPurchaseDrafts.jsx';
 import {CatalogRows} from "./CatalogRows.jsx";
 import {RetainedImportRows} from "./RetainedImportRows.jsx";
 import {createImportService} from "../services/imports.js";
@@ -23,7 +24,7 @@ const importService=createImportService(backend);
 const MULTI_VENDOR_FILTER="__multi_vendor__";
 const CATEGORY_REVIEW_FILTER="__category_review__";
 
-export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
+export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
   const canManage=role==="owner"||role==="manager";
   const [search,setSearch]=useState("");
   const [rowView,setRowView]=useState(true);
@@ -407,6 +408,7 @@ export function ItemCatalogPanel({industry="",orgId,role,productList,vendors,cat
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <h3 style={{margin:0,fontSize:16,color:"white"}}>Item Catalog</h3>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <EstimatedDraftLauncher key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/>
           {canManage&&<button onClick={()=>setAddingItem(true)} style={{...btn("#003584","white",{fontSize:12,padding:"8px 14px"})}}>+ Add Item</button>}
           <button onClick={()=>downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv")}
             disabled={!productList.length} style={{...btn("#2E7D32","white",{fontSize:12,padding:"8px 14px"})}}>

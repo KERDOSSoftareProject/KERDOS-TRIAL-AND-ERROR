@@ -64,3 +64,47 @@ client basket/draft controls, fresh validation before submission, mixed exact
 and estimated order presentation, final order persistence/export, delivery
 minimum semantics, explicit invoice matching, partial receipts and final-charge
 reconciliation. No real client approvals or drafts are created by local tests.
+
+## Client controls increment
+
+Item Catalog now opens a movable Estimated drafts workspace for purchasing
+roles. The existing Order Guide stays unchanged. Vendor selection is explicit;
+only scoped variable-weight rows with a current matching approval and one exact
+catalog association can be selected. Whole-case inputs build the shared draft
+preview. Quantity or source-term changes clear consent. All line and aggregate
+amounts remain labeled estimates, both range endpoints stay visible, and final
+charges remain unknown. No submission/export action is exposed.
+
+Save, saved-draft browsing/reopening, pagination, and creator/manager cancellation
+use the existing draft capability. A stored snapshot is shown as historical terms
+requiring fresh validation before any future order. Unsupported providers do not
+show the launcher; advertised draft providers now also implement paginated list.
+
+Local recovery records are scoped to the signed-in user and organization.
+Unsent quantities and last-read confirmations can be reopened locally; a failed
+connection blocks saving until confirmations refresh. Each pending save gets a
+separate local journal key, so another request cannot overwrite it. The exact
+prepared intent is retained before any server call; resolved attempts retain only compact local metadata, while the server keeps the saved snapshot. Local storage failure blocks
+that call. Unknown outcomes block a new draft and can be recovered by request ID.
+If the server has no result yet, explicit consent retries the identical stored
+request and source terms. A PostgreSQL transaction-error response to a fresh first attempt marks that
+attempt failed; transport/API ambiguity stays pending. Once an earlier outcome
+is unknown, even a rejected retry keeps its journal pending: failure of the
+retry does not prove the earlier attempt failed. Local history recovery does not
+make expired or revoked terms orderable. Server source/approval/revision checks
+still run on every new save.
+
+Interactive tests exercise the actual workspace and independent service with a
+simulated persistence adapter: consent, quantity/source changes, range display,
+save/reopen/cancel, peer cancellation restrictions, pagination, lost request and
+lost response recovery across remount, same-ID retry, definitive transaction
+failure, stale approvals, storage failure and retained offline selections.
+Separate journal tests verify actor/client isolation and per-request records.
+These are local interaction checks, not live supplier, signed-in client,
+multibrowser, or true concurrent-tab/database acceptance.
+
+Still open: transaction-proven abandonment of an unresolved save attempt, signed-in save/reload/recovery/cancellation acceptance; actual
+concurrent-tab/database testing; final order submission, delivery minimums,
+mixed exact/estimated orders, exports and invoice/partial-receipt reconciliation.
+No client approvals, drafts or supplier orders are created by this increment's
+local tests or release.
