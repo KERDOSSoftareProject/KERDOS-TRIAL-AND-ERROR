@@ -41,8 +41,9 @@ protection; no worker automatically creates receipts.
 
 Linked invoice lines become immutable. Their invoice header can change status,
 but its source/ownership/financial fields and deletion are protected. Recorded
-estimated orders/lines and their original estimates remain immutable. Correction,
-void/reversal and source-replacement workflows require a later audited design;
+estimated orders/lines and their original estimates remain immutable. Append-only reversal is now available as described in
+`a2_estimated_receipt_reversals.md`. Replacement/source-correction workflows
+require a later audited design;
 this increment does not silently rewrite existing receipts.
 
 ## Client behavior and charges
@@ -84,7 +85,7 @@ upload, paid service, new secret, domain or automatic-ingestion change is needed
 
 Still open: signed-in source review/receipt save/reload; true separate-session
 receipt races; source clarification for ambiguous invoices; audited receipt
-correction/reversal; received-case supporting attachments; mixed exact/estimated
+source correction/replacement and reversal undo; received-case supporting attachments; mixed exact/estimated
 orders; remaining invoice charges/credits/taxes/freight and complete invoice
 settlement; full supplier-to-invoice end-to-end acceptance. Task 1 remains
 implementation-complete awaiting domains and related verification. Whole Task 2

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {variableWeightFixture} from './fixtures/variable-weight-db.mjs';
 import {prepareVariableWeightApproval} from '../core/variable-weight-purchasing.js';
 import {prepareEstimatedPurchaseDraft} from '../core/estimated-purchase-drafts.js';
-import {validateReceiptReview,validateEstimatedReceipt,summarizeEstimatedOrderReceipts} from '../services/estimated-receipts.js';
+import {validateReceiptReview,validateEstimatedReceipt,summarizeEstimatedOrderReceipts,validateReceiptHistory} from '../services/estimated-receipts.js';
 const f=await variableWeightFixture();const {db,org,owner,employee,outsider,vendor,vi,map,actor,admin,loadInput}=f;
 await db.exec(`alter table organizations add column name text default 'Synthetic client';alter table vendors add column name text default 'Synthetic vendor';alter table vendors add column delivery_minimum_dollar numeric;alter table vendors add column delivery_minimum_units integer;
 create role service_role;create table inbound_attachments(id uuid);create table inbound_messages(id uuid);
@@ -17,7 +17,7 @@ create policy member_orders on purchase_orders for all to authenticated using(ex
 create policy member_lines on purchase_order_lines for all to authenticated using(exists(select 1 from purchase_orders p join organization_members m on m.organization_id=p.organization_id where p.id=purchase_order_lines.purchase_order_id and m.user_id=auth.uid()));
 create policy member_invoices on invoices for all to authenticated using(exists(select 1 from organization_members m where m.organization_id=invoices.organization_id and m.user_id=auth.uid()));
 create policy member_invoice_lines on invoice_lines for all to authenticated using(exists(select 1 from invoices i join organization_members m on m.organization_id=i.organization_id where i.id=invoice_lines.invoice_id and m.user_id=auth.uid()));`);
-for(const name of ['20261101201348_estimated_purchase_drafts.sql','20261101204628_close_estimated_draft_attempts.sql','20261101210029_estimated_order_submission.sql','20261101213251_invoice_billed_quantity_evidence.sql','20261101215229_estimated_order_receipts.sql']){const s=fs.readFileSync(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8');await db.exec(s);await db.exec(s);}
+for(const name of ['20261101201348_estimated_purchase_drafts.sql','20261101204628_close_estimated_draft_attempts.sql','20261101210029_estimated_order_submission.sql','20261101213251_invoice_billed_quantity_evidence.sql','20261101215229_estimated_order_receipts.sql','20261101221823_estimated_receipt_reversals.sql']){const s=fs.readFileSync(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8');await db.exec(s);await db.exec(s);}
 const input=await loadInput(owner);await actor(owner);const a=(await db.query('select kerdos_approve_variable_weight($1,$2,$3,0,$4) as a',[org,vi,map,JSON.stringify(prepareVariableWeightApproval(input))])).rows[0].a;
 const intent=prepareEstimatedPurchaseDraft({organizationId:org,vendorId:vendor,requestId:'11111111-0000-0000-0000-000000000001',confirmed:true,now:new Date().toISOString(),lines:[{...input,quantity:2,orderUnit:'case',approval:{kind:'variable_weight_approval',version:1,id:a.id,terms:a.terms,approvedBy:owner,approvedAt:a.approved_at}}]});await actor(employee);
 const d=(await db.query('select kerdos_save_estimated_draft($1,$2,$3,$4) as d',[org,vendor,intent.requestId,JSON.stringify(intent.lines)])).rows[0].d;
@@ -58,6 +58,30 @@ const extreme=await invoice({qty:30,rate:4,amount:120});const extremeReview=(awa
 const stale=(await db.query('select kerdos_review_estimated_receipt($1,$2,$3,1) as r',[org,ol2,excess.lid])).rows[0].r;
 await db.query('select kerdos_save_estimated_receipt($1,$2,$3,1,$4,true,true)',[org,ol2,extreme.lid,JSON.stringify(extremeReview)]);
 await assert.rejects(db.query('select kerdos_save_estimated_receipt($1,$2,$3,1,$4,true,true)',[org,ol2,excess.lid,JSON.stringify(stale)]),/remaining cases changed/);
+// Append-only reversal is manager/owner-only and restores remaining cases without reusing its invoice.
+const reverse=async(id=receipt.id,reason='Incorrect received case confirmation',confirmed=true)=>(await db.query('select kerdos_reverse_estimated_receipt($1,$2,$3,$4) as r',[org,id,reason,confirmed])).rows[0].r;
+await actor(employee);await assert.rejects(reverse(),/Owner or manager/);
+await assert.rejects(db.query('insert into estimated_receipt_reversals(organization_id,receipt_id,reason,confirmed) values($1,$2,$3,true)',[org,receipt.id,'Bypassing the application control']),/Owner or manager/);
+await actor(owner);await assert.rejects(reverse(receipt.id,'Too short'),/reason/);await assert.rejects(reverse(receipt.id,'Incorrect received case confirmation',false),/confirm/);
+await assert.rejects(reverse(receipt.id,' Incorrect received case confirmation'),/reason/);
+const reversal=await reverse();assert.equal((await reverse()).id,reversal.id);await assert.rejects(reverse(receipt.id,'Different correction reason'),/different request/);
+const history=(await db.query('select kerdos_estimated_receipt_history($1,$2) as h',[org,order.id])).rows[0].h;
+validateReceiptHistory(history,org,order.id);assert.equal(history.receipts.length,2);assert.equal(history.reversals.length,1);
+const after=summarizeEstimatedOrderReceipts(order,history.receipts,history.reversals);assert.equal(after.status,'partial');assert.equal(after.recordedCharge,70);assert.equal(after.actualCharge,null);assert.equal(after.lines[0].receivedCaseQuantity,1);assert.deepEqual(after.estimate,order.estimate);
+assert.throws(()=>summarizeEstimatedOrderReceipts(order,history.receipts,[...history.reversals,...history.reversals]),/duplicate/);
+assert.throws(()=>summarizeEstimatedOrderReceipts(order,history.receipts,[{...reversal,receiptId:'missing'}]),/unknown/);
+await assert.rejects(db.query('update estimated_receipt_reversals set reason=$1',['Changed reversal reason']),/permission denied/);await assert.rejects(db.query('delete from estimated_receipt_reversals'),/permission denied/);
+await assert.rejects(review(first.lid),/already linked/);await actor(employee);assert.equal((await save(r)).id,receipt.id);await actor(owner); // historical replay never reactivates it
+await assert.rejects(db.query("update invoice_lines set description='Changed source' where id=$1",[first.lid]),/immutable/);
+const restored=await review(excess.lid);assert.equal(restored.remainingCases,1);
+// A second reversal changes remaining cases and invalidates an older review.
+await reverse(receipt2.id);await assert.rejects(save(restored),/remaining cases changed/);
+const fresh=await review(excess.lid);assert.equal(fresh.remainingCases,2);const replacement=await save(fresh);
+assert.equal(summarizeEstimatedOrderReceipts(order,[receipt,receipt2,replacement],[reversal,(await db.query('select snapshot from estimated_receipt_reversals where receipt_id=$1',[receipt2.id])).rows[0].snapshot]).recordedCharge,56);
+await actor(employee);await assert.rejects(reverse(),/Owner or manager/);
+await actor(outsider);assert.equal((await db.query('select count(*) from estimated_receipt_reversals')).rows[0].count,0);await assert.rejects(db.query('select kerdos_estimated_receipt_history($1,$2)',[org,order.id]),/outside/);await assert.rejects(reverse(),/Owner or manager/);
+await actor(null,'anon');await assert.rejects(reverse(),/permission denied/);
+await actor(owner);await assert.rejects(admin('update estimated_receipt_reversals set reason=$1',['Tamper reversal history']),/immutable/);await actor(owner);
 const viewer='44444444-0000-0000-0000-000000000001';await admin('insert into organization_members values($1,$2,$3)',[org,viewer,'viewer']);await actor(viewer);await assert.rejects(review(excess.lid),/membership/);
 await actor(outsider);assert.equal((await db.query('select count(*) from estimated_order_receipts')).rows[0].count,0);await assert.rejects(review(first.lid),/membership/);
 await actor(null,'anon');await assert.rejects(review(first.lid),/permission denied/);
