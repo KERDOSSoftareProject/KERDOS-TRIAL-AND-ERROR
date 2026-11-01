@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {build} from 'vite';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import React from 'react';
+import Renderer,{act} from 'react-test-renderer';
+import {reconciliationFixture} from '../core/fixtures/invoice-reconciliation.mjs';
+import {reconcileInvoice} from '../core/invoice-reconciliation.js';
+import {sameOrderData} from '../core/estimated-orders.js';
+import {createInvoiceApprovalService} from '../services/invoice-approvals.js';
+const dir=mkdtempSync(fileURLToPath(new URL('../../node_modules/.kerdos-invoice-approval-',import.meta.url))),scope={organizationId:'org',invoiceId:'i'};
+const text=n=>typeof n==='string'?n:Array.isArray(n)?n.map(text).join(''):(n?.children||[]).map(text).join('');
+function fixture(){let mode='ok',calls=0,readCalls=0,canApprove=true;const source=reconciliationFixture(),approvals=[];
+ const backend={session:{get:async()=>mode==='signed-out'?null:{user:{id:'owner'}}},invoiceApprovals:{
+  review:async()=>{readCalls++;if(mode==='offline'||mode==='history-after'&&approvals.length){const e=Error('History unavailable');e.cause={code:'P0001'};throw e;}const eligible=reconcileInvoice(source,scope).status==='reconciled';return structuredClone({source,gate:{eligible,reasons:eligible?[]:['Every invoice line needs one active receipt']},approvals,canApprove});},
+  save:async request=>{calls++;if(mode==='network-before')throw Error('Connection lost');if(mode==='sql'||!canApprove||!sameOrderData(request.source,source)){const e=Error('Evidence changed or approval denied');e.cause={code:'P0001'};throw e;}let saved=approvals.find(a=>a.requestId===request.requestId);if(!saved){saved={kind:'invoice_accounting_approval',version:1,id:'approval-'+approvals.length,organizationId:'org',invoiceId:'i',requestId:request.requestId,source:structuredClone(request.source),gate:{eligible:true,reasons:[]},note:request.note,approvedBy:'owner',approvedAt:'2026-11-01T23:00:00Z'};approvals.push(saved);}if(mode==='network-after')throw Error('Response lost');return structuredClone(saved);},
+ }};
+ const service=createInvoiceApprovalService(backend,{requestId:()=> '77777777-0000-0000-0000-000000000001'});return {service,backend,source,approvals,get calls(){return calls;},get readCalls(){return readCalls;},set mode(v){mode=v;},set canApprove(v){canApprove=v;}};
+}
+try{
+ await build({configFile:false,logLevel:'error',esbuild:{jsx:'automatic'},build:{ssr:fileURLToPath(new URL('./InvoiceAccountingApproval.jsx',import.meta.url)),outDir:dir,rollupOptions:{output:{entryFileNames:'approval.mjs'}}}});
+ const {InvoiceAccountingApproval}=await import(pathToFileURL(join(dir,'approval.mjs')));let tree;
+ const button=label=>tree.root.findAllByType('button').find(n=>text(n)===label);
+ async function mount(f){await act(async()=>{tree=Renderer.create(React.createElement(InvoiceAccountingApproval,{...scope,service:f.service}));});}
+ async function change(label,value){await act(async()=>{tree.root.findByProps({'aria-label':label}).props.onChange({target:{value,checked:!!value}});});}
+ async function click(label){const b=button(label);assert.ok(b&&!b.props.disabled,label);await act(async()=>{await b.props.onClick();});}
+ let f=fixture();await mount(f);assert.equal(f.calls,0);assert.equal(button('Save accounting approval').props.disabled,true);await change('Confirm invoice accounting approval',true);await change('Invoice approval note','Reviewed against original');assert.equal(button('Save accounting approval').props.disabled,true);await change('Confirm invoice accounting approval',true);await click('Save accounting approval');assert.equal(f.calls,1);assert.equal(f.approvals.length,1);assert.match(text(tree.toJSON()),/Approval current/);assert.match(text(tree.toJSON()),/Accounting approval history/);tree.unmount();await mount(f);assert.match(text(tree.toJSON()),/Approval current/);f.source.receipts=[];await click('Refresh accounting approval');assert.match(text(tree.toJSON()),/Needs reapproval/);assert.match(text(tree.toJSON()),/Earlier evidence/);assert.equal(button('Save accounting approval'),undefined);tree.unmount();
+ f=fixture();f.canApprove=false;await mount(f);assert.match(text(tree.toJSON()),/Owner or manager/);assert.equal(button('Save accounting approval'),undefined);assert.equal(f.calls,0);tree.unmount();
+ f=fixture();await mount(f);await change('Confirm invoice accounting approval',true);f.mode='network-after';await click('Save accounting approval');assert.equal(f.approvals.length,1);assert.equal(tree.root.findByProps({'aria-label':'Invoice approval note'}).props.disabled,true);f.mode='ok';await click('Refresh accounting approval');assert.match(text(tree.toJSON()),/Approval current/);assert.equal(f.calls,1);tree.unmount();
+ f=fixture();await mount(f);await change('Confirm invoice accounting approval',true);f.mode='network-before';await click('Save accounting approval');f.mode='ok';await change('Confirm invoice accounting approval',true);await click('Retry same accounting approval');assert.equal(f.calls,2);assert.equal(f.approvals.length,1);tree.unmount();
+ f=fixture();await mount(f);await change('Confirm invoice accounting approval',true);f.mode='sql';await click('Save accounting approval');assert.equal(f.approvals.length,0);assert.equal(button('Retry same accounting approval'),undefined);f.mode='ok';await click('Refresh accounting approval');assert.equal(button('Save accounting approval').props.disabled,true);tree.unmount();
+ f=fixture();await mount(f);await change('Confirm invoice accounting approval',true);f.mode='history-after';await click('Save accounting approval');assert.equal(f.approvals.length,1);assert.ok(button('Retry same accounting approval'));f.mode='ok';await click('Refresh accounting approval');assert.equal(f.calls,1);assert.match(text(tree.toJSON()),/Approval current/);tree.unmount();
+ f=fixture();f.mode='offline';await mount(f);assert.match(text(tree.toJSON()),/History unavailable/);assert.equal(button('Save accounting approval'),undefined);tree.unmount();
+ f=fixture();const review=await f.service.review('org','i');assert.throws(()=>f.service.prepare(review),/Explicit/);const request=f.service.prepare(review,{confirmed:true});await assert.rejects(f.service.save(request),/Confirm/);f.mode='signed-out';await assert.rejects(f.service.save(request,{confirmed:true}),/Sign in/);assert.equal(f.calls,0);f.mode='ok';const save=f.backend.invoiceApprovals.save;f.backend.invoiceApprovals.save=async r=>({...await save(r),note:'Tampered'});await assert.rejects(f.service.save(request,{confirmed:true}),/differs/);
+ f=fixture();f.source.receipts=[];f.backend.invoiceApprovals.review=async()=>({source:f.source,gate:{eligible:true,reasons:[]},approvals:[],canApprove:true});await assert.rejects(f.service.review('org','i'),/differ/);
+ console.log('PASS accounting approval UI/service: role/consent/note gates, immutable snapshot validation, current versus stale evidence, history/remount, lost request/response, identical retry, history-after-write recovery, SQL/offline/auth failures and tamper denial.');
+}finally{rmSync(dir,{recursive:true,force:true});}
