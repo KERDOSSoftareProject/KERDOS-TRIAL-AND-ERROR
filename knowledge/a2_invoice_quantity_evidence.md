@@ -59,3 +59,21 @@ order/invoice-line matching; unique invoice-line receipt protection; partial
 receipts and received-case evidence; delivered-weight charge/rate variance;
 concurrent receipt checks; signed-in and real supplier acceptance. No receipt,
 actual final charge, vendor email or supplier order is created by this increment.
+
+## Hosted installation verification
+
+Migration installed on kerdos-test. The rollback-only fixture follows the real
+email source contract by creating a temporary registered route, message and
+attachment in its isolated organization. Authenticated manual save retained
+14 LB of explicit billed-weight evidence and rejected a contradictory 2-unit
+proof. Service-role automatic save/replay retained the same evidence and one
+invoice line. Rollback left the original eight invoices/eight lines unchanged,
+zero historical evidence rows and zero fixture organizations. No real domain,
+provider registration, Storage file or email was created.
+
+process-attachment v17 is ACTIVE with verify_jwt=true. All 43 deployed files
+match the reviewed bundle; only ingestion.js and automatic-invoice.js differ
+from v16, plus the new pure quantity helper. Missing and invalid authorization
+both return HTTP 401. No new security-advisor finding names the helper/trigger.
+These are deployed-source/authentication and database-role checks, not a fresh
+real-email/browser-to-receipt acceptance pass.
