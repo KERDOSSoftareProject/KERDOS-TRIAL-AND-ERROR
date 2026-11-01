@@ -132,7 +132,9 @@ export function summarizeVariableWeightReceipts(orderLine,receipts){
     if(!receipt.invoiceDocumentId||!receipt.invoiceLineId||seen.has(sourceKey)||receiptIds.has(receipt.id))throw new Error('A receipt or invoice line cannot be counted twice');
     seen.add(sourceKey);receiptIds.add(receipt.id);
     if(!Number.isFinite(receipt.actualCharge)||receipt.actualCharge<0)throw new Error('Receipt charge is invalid');
-    actual+=receipt.actualCharge;
+    const cents=Math.round(receipt.actualCharge*100);
+    if(!Number.isSafeInteger(cents)||cents/100!==receipt.actualCharge||!Number.isSafeInteger(actual+cents))throw new Error('Actual charge exceeds supported monetary precision');
+    actual+=cents;
     if(receipt.receivedCaseQuantity==null)completeQuantities=false;
     else{if(!Number.isSafeInteger(receipt.receivedCaseQuantity)||receipt.receivedCaseQuantity<=0)throw new Error('Receipt quantity is invalid');received+=receipt.receivedCaseQuantity;}
   }
@@ -140,5 +142,5 @@ export function summarizeVariableWeightReceipts(orderLine,receipts){
   if(!Number.isFinite(actual))throw new Error('Actual charge cannot be represented');
   const complete=completeQuantities&&received===ordered;
   return {status:complete?'complete':receipts.length?'partial':'pending',receivedCaseQuantity:received,
-    recordedCharge:money(actual),actualCharge:complete?money(actual):null,estimate:structuredClone(orderLine.estimate),quotedTerms:structuredClone(orderLine.terms)};
+    recordedCharge:actual/100,actualCharge:complete?actual/100:null,estimate:structuredClone(orderLine.estimate),quotedTerms:structuredClone(orderLine.terms)};
 }
