@@ -19,7 +19,7 @@ begin
  insert into public.vendor_items(id,organization_id,vendor_id,vendor_item_code,description,brand,pack_size,price,selling_unit,price_basis,price_unavailable,last_updated,import_row)
  values(vi,o,v,'SYN-ORDER','Synthetic order rollback material','Example','2/6-8 LBA',4,'LB','measure',true,current_timestamp,jsonb_build_object('sourceDocumentId',doc,'rowKey','row:0','row',source,'reviewRequired',true,'reviewFields',jsonb_build_array('pack_size')));
  insert into public.item_mappings(id,organization_id,vendor_item_id,catalog_item_id,comparison_track,confidence_score) values(m,o,vi,ci,'exact',100);
- insert into public.invoices(id,organization_id,vendor_id,invoice_number,invoice_date,total_amount,raw_text,status) values(inv1,o,v,'SYN-RECEIPT-1',current_date,56,'Controlled invoice with explicitly printed billed weight, price and total','recorded'),(inv2,o,v,'SYN-RECEIPT-2',current_date,70,'Controlled second partial invoice','recorded'),(inv3,o,v,'SYN-RECEIPT-CORRECTED',current_date,90,E'Subtotal 84.00\nTax 5.00\nFreight 2.00\nCredits 1.00\nInvoice Total 90.00','recorded');
+ insert into public.invoices(id,organization_id,vendor_id,invoice_number,invoice_date,total_amount,raw_text,status) values(inv1,o,v,'SYN-RECEIPT-1',current_date,56,E'Subtotal 56.00\nTax 0.00\nFreight 0.00\nCredits 0.00\nInvoice Total 56.00','recorded'),(inv2,o,v,'SYN-RECEIPT-2',current_date,70,'Controlled second partial invoice','recorded'),(inv3,o,v,'SYN-RECEIPT-CORRECTED',current_date,90,E'Subtotal 84.00\nTax 5.00\nFreight 2.00\nCredits 1.00\nInvoice Total 90.00','recorded');
  qs:=jsonb_build_object('kind','quantity-column','header','Billed Weight','rawValue','14','columnIndex',2,'headerLine',E'Code\tPrice Unit\tBilled Weight\tUnit Price\tExtended Price');
  insert into public.invoice_lines(id,invoice_id,vendor_item_id,vendor_item_code,description,quantity,unit_price,line_total,selling_unit,source_line,billing_unit_evidence,quantity_source,match_confidence,match_method) values
  (il1,inv1,vi,'SYN-ORDER','Synthetic order rollback material',14,4,56,'LB',E'SYN-ORDER\tLB\t14\t4\t56',jsonb_build_object('kind','pricing-unit-header','header','Price Unit','unit','LB'),qs,100,'code'),
@@ -30,7 +30,7 @@ begin
 end $$;
 set local role authenticated;
 do $$
-declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; ol uuid;
+declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; approval_review jsonb; approval jsonb; request_id uuid:=gen_random_uuid(); ol uuid;
 begin
  terms:=public.kerdos_variable_weight_terms(o,vi,m);
  a:=public.kerdos_approve_variable_weight(o,vi,m,0,jsonb_build_object('kind','variable_weight_approval_intent','version',1,'requestedBy',auth.uid(),'finalChargeKnown',false,'terms',terms));
@@ -50,6 +50,11 @@ begin
  review1:=public.kerdos_review_estimated_receipt(o,ol,(c->>'il1')::uuid,1);
  receipt1:=public.kerdos_save_estimated_receipt(o,ol,(c->>'il1')::uuid,1,review1,true,true);
  if public.kerdos_save_estimated_receipt(o,ol,(c->>'il1')::uuid,1,review1,true,true)<>receipt1 then raise exception 'Receipt replay changed identity';end if;
+ select public.kerdos_review_invoice_approval(o,invoice_id) into approval_review from public.invoice_lines where id=(c->>'il1')::uuid;
+ if approval_review->'gate'->'eligible' is distinct from 'true'::jsonb then raise exception 'Clean hosted invoice was not eligible for accounting approval';end if;
+ approval:=public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,request_id,approval_review->'source','Reviewed retained source and receipt',true);
+ if public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,request_id,approval_review->'source','Reviewed retained source and receipt',true)<>approval then raise exception 'Approval replay changed identity';end if;
+
  if (select sum(received_cases) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>1 then raise exception 'Partial receipt case count failed';end if;
  review2:=public.kerdos_review_estimated_receipt(o,ol,(c->>'il2')::uuid,1);
  receipt2:=public.kerdos_save_estimated_receipt(o,ol,(c->>'il2')::uuid,1,review2,true,true);
@@ -59,6 +64,12 @@ begin
  if not blocked then raise exception 'Receipt invoice mutation was not blocked';end if;
  reversal:=public.kerdos_reverse_estimated_receipt(o,(receipt1->>'id')::uuid,'Incorrect physical case confirmation',true);
  if public.kerdos_reverse_estimated_receipt(o,(receipt1->>'id')::uuid,'Incorrect physical case confirmation',true)<>reversal then raise exception 'Reversal replay changed identity';end if;
+ select public.kerdos_review_invoice_approval(o,invoice_id) into approval_review from public.invoice_lines where id=(c->>'il1')::uuid;
+ if approval_review->'gate'->'eligible' is distinct from 'false'::jsonb or jsonb_array_length(approval_review->'approvals')<>1 or approval_review->'approvals'->0 is distinct from approval then raise exception 'Approval audit or reversal invalidation failed';end if;
+ blocked:=false;begin perform public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,gen_random_uuid(),approval_review->'source','',true);exception when raise_exception then if sqlerrm like '%does not pass%' then blocked:=true;else raise;end if;end;
+ if not blocked then raise exception 'Incomplete invoice approval was not denied';end if;
+ blocked:=false;begin delete from public.invoice_accounting_approvals where id=(approval->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
+ if not blocked then raise exception 'Approval deletion was not denied';end if;
  history:=public.kerdos_estimated_receipt_history(o,(saved->>'id')::uuid);
  if jsonb_array_length(history->'receipts')<>2 or jsonb_array_length(history->'reversals')<>1 then raise exception 'Reversal audit history failed';end if;
  if (select sum(er.received_cases) from public.estimated_order_receipts er where er.order_id=(saved->>'id')::uuid and not exists(select 1 from public.estimated_receipt_reversals rv where rv.receipt_id=er.id))<>1 then raise exception 'Reversal did not restore case capacity';end if;
@@ -81,4 +92,4 @@ begin
  set constraints all immediate;
 end $$;
 rollback;
-select (select count(*) from public.estimated_receipt_replacements) as replacements,(select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
+select (select count(*) from public.invoice_accounting_approvals) as approvals,(select count(*) from public.estimated_receipt_replacements) as replacements,(select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
