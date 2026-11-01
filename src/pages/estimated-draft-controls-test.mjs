@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import React from 'react';
 import Renderer,{act} from 'react-test-renderer';
 import {prepareVariableWeightApproval} from '../core/variable-weight-purchasing.js';
+import {createEstimatedOrderService} from '../services/estimated-orders.js';
 import {createEstimatedDraftService} from '../services/estimated-purchase-drafts.js';
 import {createDraftRecoveryStore} from '../services/draft-recovery-store.js';
 const dir=mkdtempSync(fileURLToPath(new URL('../../node_modules/.kerdos-draft-ui-',import.meta.url)));
@@ -20,7 +21,7 @@ try{
  const terms=prepareVariableWeightApproval({organizationId:'org',vendorId:'v',catalogItemId:'ci',listing,mapping,confirmed:true,actorId:'manager',now}).terms;
  const approval={kind:'variable_weight_approval',version:1,id:'approval',terms,approvedBy:'manager',approvedAt:now};
  function fixture(){
-  const records=[],journal=memory();let writes=0,cancellations=0,release,mode='ok',readFailure=false,approvalRows=[approval];
+  const records=[],journal=memory();let recordedOrder=null,submissionCalls=0;let writes=0,cancellations=0,release,mode='ok',readFailure=false,approvalRows=[approval];
   const backend={session:{get:async()=>({user:{id:'employee'}})},estimatedDrafts:{
    save:async i=>{writes++;if(mode==='sql'){const e=Error('Source terms changed');e.cause={code:'P0001'};throw e;}if(mode==='network-before')throw Error('Connection lost');let r=records.find(d=>d.request_id===i.requestId);if(!r){r={id:'draft-'+records.length,organization_id:'org',vendor_id:'v',request_id:i.requestId,created_by:'employee',created_at:now,status:'draft',final_charge:null,requested_lines:i.lines,estimate:i.estimate,lines:i.lines.map((l,index)=>{const n={...l,id:'line-'+index,orderId:'draft-'+records.length,kind:'estimated_purchase_draft_line',rowRevision:l.expectedRevision};delete n.expectedRevision;delete n.requiresAuthenticatedPersistence;return n;})};records.unshift(r);}if(mode==='network-after')throw Error('Response lost');if(mode==='deferred')return new Promise(resolve=>{release=()=>resolve(structuredClone(r));});return structuredClone(r);},
    closeAttempt:async i=>{if(mode==='close-failure')throw Error('Connection lost');const r=records.find(d=>d.request_id===i.requestId);if(r)return {status:'saved',draft:structuredClone(r)};return {status:'closed',organizationId:i.organizationId,vendorId:i.vendorId,requestId:i.requestId,createdBy:'employee',closedAt:now,requestedLines:i.lines};},
@@ -29,9 +30,15 @@ try{
    list:async(org,offset)=>{if(readFailure)throw Error('Offline');return structuredClone(records.filter(r=>r.organization_id===org).slice(offset,offset+50));},
    cancel:async(org,id)=>{cancellations++;const r=records.find(r=>r.id===id&&r.organization_id===org);r.status='cancelled';r.cancelled_at=now;r.cancelled_by='employee';return structuredClone(r);}
   }};
+  backend.estimatedOrders={
+   review:async(org,id)=>{const r=records.find(d=>d.id===id);return {kind:'estimated_order_review',version:1,organizationId:org,vendorId:r.vendor_id,draftId:r.id,requestedLines:r.requested_lines,estimate:r.estimate,finalCharge:null,deliveryMinimum:{dollar:200,units:1,caseQuantity:2,status:'unknown'}};},
+   submit:async r=>{submissionCalls++;if(!recordedOrder){const draft=records.find(d=>d.id===r.draftId);recordedOrder={kind:'estimated_purchase_order',version:1,id:'order-1',organizationId:r.organizationId,vendorId:r.vendorId,sourceDraftId:r.draftId,submittedBy:'employee',submittedAt:now,lines:draft.lines.map(l=>({...l,id:'order-'+l.id,orderId:'order-1',kind:'estimated_purchase_line'})),estimate:r.estimate,deliveryMinimum:r.deliveryMinimum,finalCharge:null,deliveryStatus:'not_sent'};draft.estimated_draft_submissions={purchase_order_id:'order-1'};}if(mode==='order-after')throw Error('Order response lost');return structuredClone(recordedOrder);},
+   getByDraft:async()=>structuredClone(recordedOrder),
+  };
+  const orderService=createEstimatedOrderService(backend);
   const service=createEstimatedDraftService(backend),store=createDraftRecoveryStore(journal,'org','employee');
-  const props={orgId:'org',userId:'employee',role:'employee',vendors:[{id:'v',name:'Supplier',organization_id:'org'}],vendorItems:[listing],mappings:[mapping],catalogItems:[{id:'ci',name:'Synthetic material'}],service,store,approvalService:{supported:true,list:async()=>{if(readFailure)throw Error('Offline');return approvalRows;}},onClose(){},makeRequestId:()=>`request-${records.length}-${writes}`};
-  return {props,records,store,journal,get release(){return release;},get writes(){return writes;},get cancellations(){return cancellations;},set mode(v){mode=v;},set readFailure(v){readFailure=v;},set approvals(v){approvalRows=v;}};
+  const props={orgId:'org',userId:'employee',role:'employee',vendors:[{id:'v',name:'Supplier',organization_id:'org'}],vendorItems:[listing],mappings:[mapping],catalogItems:[{id:'ci',name:'Synthetic material'}],service,store,orderService,approvalService:{supported:true,list:async()=>{if(readFailure)throw Error('Offline');return approvalRows;}},onClose(){},makeRequestId:()=>`request-${records.length}-${writes}`};
+  return {props,records,store,journal,get release(){return release;},get writes(){return writes;},get submissionCalls(){return submissionCalls;},get recordedOrder(){return recordedOrder;},get cancellations(){return cancellations;},set mode(v){mode=v;},set readFailure(v){readFailure=v;},set approvals(v){approvalRows=v;}};
  }
  let tree;async function mount(props){await act(async()=>{tree=Renderer.create(React.createElement(EstimatedPurchaseDrafts,props));});}
  const button=label=>tree.root.findAllByType('button').find(b=>text(b)===label);
@@ -68,6 +75,8 @@ try{
  f=fixture();for(let i=0;i<51;i++)f.records.push({...structuredClone(template),id:'history-'+i,request_id:'history-request-'+i,created_by:'peer',lines:template.lines.map(l=>({...l,orderId:'history-'+i}))});await mount(f.props);await click('Saved drafts');assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Open draft').length,50);await click('Load older drafts');assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Open draft').length,51);await click('Open draft');assert.equal(button('Cancel saved draft'),undefined);assert.equal(f.cancellations,0);tree.unmount();
  // Source-ineligible items cannot be selected.
  f=fixture();f.approvals=[];await mount(f.props);await change('Estimated draft vendor','v');assert.equal(tree.root.findByProps({'aria-label':'Cases for Synthetic material (SYN)'}).props.disabled,true);tree.unmount();
+ // Fresh review, separate minimum acknowledgement, stable recording and remount recovery.
+ f=fixture();await mount(f.props);await choose();await change('Confirm saving estimated draft',true);await click('Save estimated draft');await click('Review order submission');assert.equal(f.submissionCalls,0);assert.equal(button('Record estimated order').props.disabled,true);await change('Confirm recording estimated order',true);assert.equal(button('Record estimated order').props.disabled,true);await change('Acknowledge unconfirmed delivery minimum',true);f.mode='order-after';await click('Record estimated order');assert.equal(f.submissionCalls,1);assert.equal(f.recordedOrder.finalCharge,null);assert.match(text(tree.toJSON()),/Order recording is unconfirmed/);await click('Check recorded order');assert.equal(f.submissionCalls,1);assert.ok(button('Export recorded order'));assert.equal(button('Cancel saved draft'),undefined);assert.equal(button('Review order submission'),undefined);tree.unmount();await mount(f.props);await click('Saved drafts');await click('Open draft');assert.equal(button('Cancel saved draft'),undefined);await click('Check recorded order');assert.ok(button('Export recorded order'));assert.equal(f.submissionCalls,1);tree.unmount();
  f=fixture();await mount({...f.props,role:'viewer'});assert.equal(tree.toJSON(),null);assert.equal(f.writes,0);tree.unmount();
  console.log('PASS rendered draft controls: range totals, consent/stale holds, save/reopen/cancel, scoped durable recovery, identical retry, definitive failure, offline edits and storage/role guards.');
 }finally{rmSync(dir,{recursive:true,force:true});}
