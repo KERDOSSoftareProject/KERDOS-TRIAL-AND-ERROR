@@ -297,6 +297,22 @@ function parsePackSize(raw) {
   // A known unit (any number of words, longest first) is preferred; an
   // unknown single word is still accepted as a unit of its own.
   const unit=`(${UNIT_ALTERNATION}|[a-z]+)`;
+  // Three or more explicit levels retain their packaging topology. A weight
+  // range must never become another packaging level through dash cleanup.
+  const nested=clean.match(new RegExp(`^((?:\\d+\\s*[/x]\\s*){2,})${number}\\s*${unit}\\s*$`));
+  if(nested&&!/\d\s*[-‐‑–]\s*\d/.test(working)){
+    const counts=nested[1].split(/[/x]/).map(s=>s.trim()).filter(Boolean).map(Number);
+    const amount=Number(nested[2]),measure=measurement(amount,nested[3]);
+    const quantity=counts.reduce((a,b)=>a*b,1);
+    if(counts.some(n=>!Number.isSafeInteger(n)||n<=0)||!measure||!Number.isFinite(quantity*amount)||amount<=0)return null;
+    const inside=counts.slice(1).reduce((a,b)=>a*b,1)*amount;
+    return {raw:source,originalRaw,parsed:true,caseQty:counts[0],unitQty:inside,unit:measure.unit,
+      total:quantity*amount,catchWeight,qualifiers:context.qualifiers,nestedCounts:counts,
+      dimension:measure.dimension,baseUnit:measure.baseUnit,baseTotal:round(quantity*measure.baseQuantity),
+      levels:[...counts.map(quantity=>({quantity,type:"PACKAGE"})),{quantity:amount,type:measure.unit}],
+      eachStr:`${[...counts.slice(1),amount].join('/')} ${measure.unit}`,
+      caseStr:`${[...counts,amount].join('/')} ${measure.unit}`};
+  }
   let m=clean.match(new RegExp(`^${number}\\s*(?:/|x|\\s)\\s*${number}\\s*${unit}\\b`));
   let outerQty=1, innerQty, unitRaw;
   if (m) { outerQty=Number(m[1]); innerQty=Number(m[2]); unitRaw=m[3]; }
@@ -687,6 +703,8 @@ function comparePurchasingPack(incoming,existing){
   }
   if(a.caseQty!==b.caseQty||Math.abs(a.unitQty*measurement(1,a.unit).baseQuantity-b.unitQty*measurement(1,b.unit).baseQuantity)>0.001)
     return {status:"review",reason:`Case configuration differs: ${incoming} versus ${existing}`};
+  if(JSON.stringify(a.nestedCounts||[])!==JSON.stringify(b.nestedCounts||[]))
+    return {status:"review",reason:`Inner case configuration differs: ${incoming} versus ${existing}`};
   if(JSON.stringify(a.qualifiers||[])!==JSON.stringify(b.qualifiers||[]))
     return {status:"review",reason:`Pack qualifiers differ: ${incoming} versus ${existing}`};
   if(!!a.catchWeight!==!!b.catchWeight)

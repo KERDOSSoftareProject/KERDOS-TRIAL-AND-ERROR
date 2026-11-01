@@ -37,6 +37,10 @@ try{
   const caseHtml=renderToStaticMarkup(createElement(CatalogRows,{...props,vendorItems:[{...row,pack_size:"4/5 LB"}]}));
   assert.match(caseHtml,/aria-label="Count for undefined"[^>]*value="4"/);
   assert.match(caseHtml,/aria-label="Amount in each for undefined"[^>]*value="5"/);
+  const nestedHtml=renderToStaticMarkup(createElement(CatalogRows,{...props,vendorItems:[{...row,pack_size:"3/4/200 ML"}]}));
+  assert.match(nestedHtml,/aria-label="Count for undefined"[^>]*value="3"/);
+  assert.match(nestedHtml,/aria-label="Inner count 1 for undefined"[^>]*value="4"/);
+  assert.match(nestedHtml,/aria-label="Amount in each for undefined"[^>]*value="200"/);
   assert.match(caseHtml,/>Pounds<\/option>/);
   assert.ok(!caseHtml.includes("Auto ("));
   assert.match(caseHtml,/aria-label="Item name for 20001"[^>]*value="Beef"/);

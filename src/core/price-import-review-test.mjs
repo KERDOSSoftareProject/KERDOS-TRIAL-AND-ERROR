@@ -66,3 +66,15 @@ const invoiceRow={code:"A-001",description:"Material Alpha",price:36,sellingUnit
 const invoiceProof=[{id:"invoice",row:{code:"A-001",description:"Material Alpha",packSize:"18 LB"}}];
 assert.equal(preparePriceImport(invoiceRow,null,null,[],invoiceProof).row.packSize,"18 LB","new quote handling retains invoice pack evidence");
 console.log("Universal pack syntax and repeated price import review tests passed.");
+
+const nestedPack=parsePackSize('3/4/200 ML');
+assert.equal(nestedPack.baseTotal,2400);
+assert.deepEqual(nestedPack.levels.map(level=>level.quantity),[3,4,200]);
+assert.equal(nestedPack.eachStr,'4/200 ML');
+assert.equal(pricePerUnit(24,'3/4/200 ML','ML').price,0.01);
+assert.equal(packsEquivalent('3/4/200 ML','3x4x200 ML'),true);
+assert.equal(packsEquivalent('3/4/200 ML','3/800 ML'),false,'same total cannot erase inner packages');
+assert.equal(packsEquivalent('3/2/2/200 ML','3/4/200 ML'),false,'every intermediate level participates in identity');
+assert.equal(preparePriceImport({...source,packSize:'3/4/200 ML',sellingUnit:'CS',price:24}).requiresReview,false);
+for(const value of ['2/8-9 LBA','2/8-9 LB','0/4/200 ML','3/0/200 ML','3/4/0 ML','3/4/200 ML EXTRA'])
+  assert.ok(!parsePackSize(value)?.parsed,`${value}: preserve ranges and reject invalid nested specs`);
