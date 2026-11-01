@@ -68,8 +68,11 @@ invoker-only anonymous/worker-denied functions verified; no new related security
 advisor finding.
 
 Still open: signed-in owner/manager/employee acceptance and true separate-session
-approval/save/reversal races; audited approval withdrawal; correction of missing
+approval/save/reversal races; withdrawal race acceptance; correction of missing
 or ambiguous invoice summary evidence; standalone credit notes/credit allocation,
 mixed fixed/estimated receipt coverage and split allocations; payment recording,
 payment reversal and complete settlement; supplier end-to-end acceptance. Task 1
 remains code/database complete awaiting domains.
+
+Follow-on: `a2_invoice_approval_withdrawal.md` documents append-only withdrawal,
+current-status filtering, preserved audit and fresh reapproval.
