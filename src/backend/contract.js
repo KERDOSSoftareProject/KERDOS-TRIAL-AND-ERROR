@@ -31,6 +31,8 @@ export function assertBackendContract(backend) {
     if(typeof backend.variableWeight[name]!=='function')throw new Error(`KERDOS backend variableWeight.${name} is not implemented`);
   if(backend.estimatedDrafts)for(const name of ['save','get','getByRequest','list','cancel','closeAttempt'])
     if(typeof backend.estimatedDrafts[name]!=='function')throw new Error(`KERDOS backend estimatedDrafts.${name} is not implemented`);
+  if(backend.estimatedOrders)for(const name of ['review','submit','getByDraft'])
+    if(typeof backend.estimatedOrders[name]!=='function')throw new Error(`KERDOS backend estimatedOrders.${name} is not implemented`);
   return backend;
 }
 

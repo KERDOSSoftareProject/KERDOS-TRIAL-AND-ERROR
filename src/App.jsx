@@ -1,3 +1,4 @@
+import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -1163,10 +1164,10 @@ export default function App() {
                           <div style={{textAlign:"left"}}>
                             <div style={{fontWeight:700,fontSize:13}}>{vendorName}</div>
                             <div style={{fontSize:12,color:"#888"}}>{formatDate(po.created_at)} · {lines.length} item{lines.length===1?"":"s"}</div>
-                            <div style={{fontSize:11,fontWeight:700,color:po.status==="submitted"?"#0A8A4B":"#888",textTransform:"capitalize"}}>{po.status||"submitted"}</div>
+                            <div style={{fontSize:11,fontWeight:700,color:po.status==="submitted"?"#0A8A4B":"#888",textTransform:"capitalize"}}>{po.estimated_snapshot?"Recorded · sending unconfirmed":po.status||"submitted"}</div>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:10}}>
-                            <div style={{fontWeight:800,fontSize:15}}>{formatMoney(po.total_amount)}</div>
+                            <div style={{fontWeight:800,fontSize:15}}>{orderAmountText(po)}</div>
                             <span style={{color:"#CCC"}}>{isOpen?"▲":"▼"}</span>
                           </div>
                         </button>
@@ -1178,8 +1179,8 @@ export default function App() {
                               const vi=vendorItems.find(v=>v.id===line.vendor_item_id);
                               return (
                                 <div key={line.id} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"5px 0",borderBottom:"1px solid #FAFAFA"}}>
-                                  <div>{line.quantity}× {vi?.description||"Item"}</div>
-                                  <div style={{fontWeight:700}}>{formatMoney(line.line_total)}</div>
+                                  <div>{line.quantity}× {line.estimated_snapshot?.terms?.description||vi?.description||"Item"}</div>
+                                  <div style={{fontWeight:700}}>{orderLineAmountText(line)}</div>
                                 </div>
                               );
                             })}

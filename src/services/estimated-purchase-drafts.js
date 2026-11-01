@@ -14,7 +14,7 @@ export function estimatedDraftRecord(row,organizationId){
     ids.add(line.id);
   }
   return {kind:'estimated_purchase_draft',version:1,id:row.id,organizationId,vendorId:row.vendor_id,requestId:row.request_id,
-    createdBy:row.created_by,createdAt:row.created_at,status:row.status,lines:row.lines,estimate:row.estimate,finalCharge:null,requiresFreshValidation:true,cancelledAt:row.cancelled_at??null,cancelledBy:row.cancelled_by??null};
+    createdBy:row.created_by,createdAt:row.created_at,status:row.status,lines:row.lines,estimate:row.estimate,finalCharge:null,requiresFreshValidation:true,cancelledAt:row.cancelled_at??null,cancelledBy:row.cancelled_by??null,submittedOrderId:(Array.isArray(row.estimated_draft_submissions)?row.estimated_draft_submissions[0]:row.estimated_draft_submissions)?.purchase_order_id??null};
 }
 export function createEstimatedDraftService(backend){
   const supported=!!backend.estimatedDrafts;

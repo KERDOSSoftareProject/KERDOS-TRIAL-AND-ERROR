@@ -1,3 +1,6 @@
+import {estimatedOrderExport} from '../core/estimated-orders.js';
+import {createEstimatedOrderService} from '../services/estimated-orders.js';
+import {downloadTextFile} from '../reporting.js';
 import {useEffect,useRef,useState} from 'react';
 import {MovableDialog} from '../ui/MovableDialog.jsx';
 import {backend} from '../backend/index.js';
@@ -9,6 +12,7 @@ import {parsePackSize,priceBasisFor} from '../procurement.js';
 import {formatMoney} from '../localization.js';
 import {btn,inp} from '../ui/styles.js';
 
+const estimatedOrderService=createEstimatedOrderService(backend);
 const draftService=createEstimatedDraftService(backend),confirmationService=createVariableWeightService(backend);
 const estimateLabel=e=>Number.isFinite(e?.amount)&&e.amount>0?formatMoney(e.amount):Number.isFinite(e?.minimum)&&Number.isFinite(e?.maximum)&&e.minimum>0&&e.maximum>=e.minimum?`${formatMoney(e.minimum)}–${formatMoney(e.maximum)}`:'Unresolved';
 const rateLabel=value=>value==null||!Number.isFinite(Number(value))||Number(value)<=0?'Unquoted':`${formatMoney(value)}${Number(value)!==Math.round(Number(value)*100)/100?` (stated rate ${value})`:''}`;
@@ -25,12 +29,13 @@ export function EstimatedDraftLauncher(props){
   </>;
 }
 
-export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItems=[],mappings=[],catalogItems=[],settings={},service,approvalService,onClose,store:providedStore,makeRequestId=()=>crypto.randomUUID()}){
+export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItems=[],mappings=[],catalogItems=[],settings={},service,approvalService,orderService=estimatedOrderService,onClose,store:providedStore,makeRequestId=()=>crypto.randomUUID()}){
   const [store]=useState(()=>providedStore||browserStore(orgId,userId));
   const [basket,setBasket]=useState(()=>store.readBasket()),[pending,setPending]=useState(()=>store.pending());
   const [approvals,setApprovals]=useState(()=>store.readConfirmations()),[offline,setOffline]=useState(false),[loading,setLoading]=useState(true);
   const [saved,setSaved]=useState([]),[offset,setOffset]=useState(0),[hasOlder,setHasOlder]=useState(false),[view,setView]=useState('prepare'),[selected,setSelected]=useState(null);
   const [busy,setBusy]=useState(false),[consent,setConsent]=useState(''),[retry,setRetry]=useState(null),[retryConsent,setRetryConsent]=useState(false),[cancelTarget,setCancelTarget]=useState(null);
+  const [orderReview,setOrderReview]=useState(null),[orderConsent,setOrderConsent]=useState(false),[minimumConsent,setMinimumConsent]=useState(false),[recordedOrder,setRecordedOrder]=useState(null);
   const [closeTarget,setCloseTarget]=useState(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const alive=useRef(true),working=useRef(false);
   const scopedItems=vendorItems.filter(v=>v.organization_id===orgId&&parsePackSize(v.pack_size)?.catchWeight&&priceBasisFor(v.selling_unit)?.basis==='measure');
@@ -68,7 +73,7 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
   useEffect(()=>{setConsent('');},[fingerprint]);
   const canEdit=purchasingRole(role)&&!busy&&!pending.length;
   const scopedVendors=vendors.filter(v=>v.organization_id===orgId);
-  const canCancelSelected=selected?.status==='draft'&&(selected.createdBy===userId||['owner','manager'].includes(role));
+  const canCancelSelected=selected?.status==='draft'&&!selected.submittedOrderId&&(selected.createdBy===userId||['owner','manager'].includes(role));
   const vendorName=id=>scopedVendors.find(v=>v.id===id)?.name||'Supplier';
   async function refresh(){
     if(working.current)return;working.current=true;setLoading(true);setError('');
@@ -128,12 +133,31 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
     finally{working.current=false;if(alive.current)setBusy(false);}
   }
   async function retrySave(){if(working.current||!retry||!retryConsent)return;working.current=true;setBusy(true);setError('');try{await send(retry,true);}finally{working.current=false;if(alive.current)setBusy(false);}}
-  async function openDraft(record){if(working.current)return;working.current=true;setBusy(true);setError('');try{const fresh=await service.get(orgId,record.id);if(!fresh)throw new Error('Draft is no longer available.');if(alive.current){setSelected(fresh);setCancelTarget(null);}}catch(err){if(alive.current)setError(err.message||String(err));}finally{working.current=false;if(alive.current)setBusy(false);}}
+  async function openDraft(record){if(working.current)return;working.current=true;setBusy(true);setError('');try{const fresh=await service.get(orgId,record.id);if(!fresh)throw new Error('Draft is no longer available.');if(alive.current){setSelected(fresh);setCancelTarget(null);setOrderReview(null);setOrderConsent(false);setMinimumConsent(false);setRecordedOrder(null);}}catch(err){if(alive.current)setError(err.message||String(err));}finally{working.current=false;if(alive.current)setBusy(false);}}
   async function cancel(){
     if(working.current||!cancelTarget||!canCancelSelected||selected.id!==cancelTarget)return;working.current=true;setBusy(true);setError('');
     try{const record=await service.cancel(orgId,cancelTarget);if(alive.current){setSelected(record);setSaved(prior=>prior.map(d=>d.id===record.id?record:d));setCancelTarget(null);setNotice('Draft cancelled. Its history is preserved.');}}
     catch(err){if(alive.current)setError(err.message||String(err));}
     finally{working.current=false;if(alive.current)setBusy(false);}
+  }
+  async function reviewOrder(){
+    if(working.current||!selected||!canCancelSelected||!orderService.supported)return;working.current=true;setBusy(true);setError('');setOrderReview(null);setOrderConsent(false);setMinimumConsent(false);
+    try{const result=await orderService.review(orgId,selected);if(alive.current){setOrderReview(result);setCancelTarget(null);}}
+    catch(err){if(alive.current)setError(err.message||String(err));}finally{working.current=false;if(alive.current)setBusy(false);}
+  }
+  function showRecordedOrder(order){
+    if(!alive.current)return;setRecordedOrder(order);setOrderReview(null);setOrderConsent(false);setMinimumConsent(false);setSelected(prior=>({...prior,submittedOrderId:order.id}));setSaved(prior=>prior.map(d=>d.id===order.sourceDraftId?{...d,submittedOrderId:order.id}:d));setCancelTarget(null);setNotice('Order recorded in KERDOS. Export it to send separately; vendor receipt is not confirmed.');
+  }
+  async function recordOrder(){
+    if(working.current||!orderReview||!orderConsent)return;working.current=true;setBusy(true);setError('');
+    try{showRecordedOrder(await orderService.submit(orderReview,{confirmed:true,minimumAcknowledged:minimumConsent}));}
+    catch(err){if(alive.current){setError(err.message||String(err));setOrderConsent(false);setNotice('Order recording is unconfirmed. Check the recorded result before retrying this same draft.');}}
+    finally{working.current=false;if(alive.current)setBusy(false);}
+  }
+  async function recoverOrder(){
+    if(working.current||!selected)return;working.current=true;setBusy(true);setError('');
+    try{const order=await orderService.recover(orgId,selected.id);if(order)showRecordedOrder(order);else if(alive.current)setNotice('No recorded order found. Review and retry this same saved draft.');}
+    catch(err){if(alive.current)setError(err.message||String(err));}finally{working.current=false;if(alive.current)setBusy(false);}
   }
   async function older(){if(working.current)return;working.current=true;setBusy(true);setError('');try{const page=await service.list(orgId,offset);if(alive.current){setSaved(prior=>[...new Map([...prior,...page].map(d=>[d.id,d])).values()]);setOffset(offset+page.length);setHasOlder(page.length===50);}}catch(err){if(alive.current)setError(err.message||String(err));}finally{working.current=false;if(alive.current)setBusy(false);}}
   function snapshot(lines,estimate){return <div><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><th>Product / saved terms</th><th>Cases</th><th>Line estimate</th></tr></thead><tbody>{lines.map(l=><tr key={l.id||l.terms.vendorItemId}><td style={{padding:8}}>{l.terms.description}<br/><small>{l.terms.packSize} · {rateLabel(l.terms.quotedRate)} per {l.terms.quotedUnit}</small></td><td>{l.quantity}</td><td>{estimateLabel(l.estimate)}</td></tr>)}</tbody></table><p><b>Estimated total: {estimateLabel(estimate)}</b></p><p>Final charge: unknown. Delivered weight determines the invoice charge; estimates and range endpoints are not guaranteed.</p></div>;}
@@ -157,8 +181,11 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
       <label style={{display:'block',margin:'12px 0'}}><input type="checkbox" aria-label="Confirm saving estimated draft" checked={accepted} disabled={!preview||!canEdit||loading||offline} onChange={e=>setConsent(e.target.checked?fingerprint:'')}/> I reviewed the quantities and estimates and want to save this draft.</label>
       <button disabled={!preview||!accepted||!canEdit||loading||offline} onClick={save} style={btn('#003584','white')}>{busy?'Saving…':'Save estimated draft'}</button>
     </section>}
-    {view==='saved'&&<section><h4>Saved drafts</h4>{!saved.length&&!loading&&<p>No saved estimated drafts.</p>}{saved.map(d=><div key={d.id} style={{padding:10,borderBottom:'1px solid #DEE7F0'}}>{vendorName(d.vendorId)} · {displayDate(d.createdAt)} · {d.status==='cancelled'?'Cancelled':'Draft'} · Estimate {estimateLabel(d.estimate)} <button disabled={busy||loading} onClick={()=>openDraft(d)} style={btn('#E8F1FB','#003584')}>Open draft</button></div>)}{hasOlder&&<button disabled={busy||loading} onClick={older} style={btn('#E8F1FB','#003584')}>Load older drafts</button>}
-      {selected&&<article style={{background:'#F1F6FC',padding:12,marginTop:12}}><h4>{vendorName(selected.vendorId)} · {selected.status==='cancelled'?'Cancelled draft':'Saved draft'}</h4>{snapshot(selected.lines,selected.estimate)}<p>These are saved terms. Current confirmations must be checked again before any future order.</p>{canCancelSelected&&<button disabled={busy||loading} onClick={()=>setCancelTarget(selected.id)} style={btn('#E8F1FB','#003584')}>Cancel saved draft</button>}{canCancelSelected&&cancelTarget===selected.id&&<div><p>Cancel this draft? Saved terms and history will remain.</p><button disabled={busy} onClick={cancel} style={btn('#003584','white')}>Confirm cancellation</button><button disabled={busy} onClick={()=>setCancelTarget(null)} style={btn('#EEE','#444')}>Keep draft</button></div>}</article>}
+    {view==='saved'&&<section><h4>Saved drafts</h4>{!saved.length&&!loading&&<p>No saved estimated drafts.</p>}{saved.map(d=><div key={d.id} style={{padding:10,borderBottom:'1px solid #DEE7F0'}}>{vendorName(d.vendorId)} · {displayDate(d.createdAt)} · {d.submittedOrderId?'Order recorded':d.status==='cancelled'?'Cancelled':'Draft'} · Estimate {estimateLabel(d.estimate)} <button disabled={busy||loading} onClick={()=>openDraft(d)} style={btn('#E8F1FB','#003584')}>Open draft</button></div>)}{hasOlder&&<button disabled={busy||loading} onClick={older} style={btn('#E8F1FB','#003584')}>Load older drafts</button>}
+      {selected&&<article style={{background:'#F1F6FC',padding:12,marginTop:12}}><h4>{vendorName(selected.vendorId)} · {selected.submittedOrderId?'Order recorded':selected.status==='cancelled'?'Cancelled draft':'Saved draft'}</h4>{snapshot(selected.lines,selected.estimate)}<p>These are saved terms. Current confirmations must be checked again before any future order.</p>{orderService.supported&&<div style={{margin:'12px 0'}}>{canCancelSelected&&<button disabled={busy||loading} onClick={reviewOrder} style={btn('#003584','white')}>Review order submission</button>} <button disabled={busy||loading} onClick={recoverOrder} style={btn('#E8F1FB','#003584')}>Check recorded order</button></div>}
+      {orderReview&&<section><h4>Review order submission</h4>{snapshot(selected.lines,orderReview.estimate)}<p>Delivery minimum: {orderReview.deliveryMinimum.status==='unknown'?'monetary requirement unconfirmed until the actual charge is known':orderReview.deliveryMinimum.status==='units_short'?'case quantity is below the stated minimum':'case requirement met; no monetary requirement recorded'}.</p>{orderReview.deliveryMinimum.status==='unknown'&&<label style={{display:'block'}}><input type="checkbox" aria-label="Acknowledge unconfirmed delivery minimum" checked={minimumConsent} disabled={busy} onChange={e=>setMinimumConsent(e.target.checked)}/> I understand the monetary delivery minimum is unconfirmed and will verify with the vendor.</label>}<label style={{display:'block'}}><input type="checkbox" aria-label="Confirm recording estimated order" checked={orderConsent} disabled={busy} onChange={e=>setOrderConsent(e.target.checked)}/> I reviewed these quantities, source terms and estimates and want to record this order. I will send it separately.</label><button disabled={busy||!orderConsent||orderReview.deliveryMinimum.status==='units_short'||orderReview.deliveryMinimum.status==='unknown'&&!minimumConsent} onClick={recordOrder} style={btn('#003584','white')}>Record estimated order</button></section>}
+      {recordedOrder&&<section><h4>Recorded order {recordedOrder.id}</h4>{snapshot(recordedOrder.lines,recordedOrder.estimate)}<p>Recorded {displayDate(recordedOrder.submittedAt)}. Vendor receipt is unconfirmed.</p><button disabled={busy} onClick={()=>downloadTextFile(`KERDOS_Order_${recordedOrder.id}.txt`,estimatedOrderExport(recordedOrder,{organizationId:orgId,draftId:selected.id,vendorName:vendorName(recordedOrder.vendorId)}),'text/plain;charset=utf-8')} style={btn('#003584','white')}>Export recorded order</button></section>}
+      {canCancelSelected&&<button disabled={busy||loading} onClick={()=>setCancelTarget(selected.id)} style={btn('#E8F1FB','#003584')}>Cancel saved draft</button>}{canCancelSelected&&cancelTarget===selected.id&&<div><p>Cancel this draft? Saved terms and history will remain.</p><button disabled={busy} onClick={cancel} style={btn('#003584','white')}>Confirm cancellation</button><button disabled={busy} onClick={()=>setCancelTarget(null)} style={btn('#EEE','#444')}>Keep draft</button></div>}</article>}
     </section>}
   </div></MovableDialog>;
 }

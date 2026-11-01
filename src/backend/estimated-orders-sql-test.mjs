@@ -1,0 +1,68 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {variableWeightFixture} from './fixtures/variable-weight-db.mjs';
+import {prepareVariableWeightApproval} from '../core/variable-weight-purchasing.js';
+import {prepareEstimatedPurchaseDraft} from '../core/estimated-purchase-drafts.js';
+import {validateEstimatedOrder,estimatedOrderExport} from '../core/estimated-orders.js';
+const {db,org,owner,manager,employee,outsider,vendor,vi,map,actor,admin,loadInput}=await variableWeightFixture();
+await db.exec(`alter table organizations add column name text default 'Synthetic client';alter table vendors add column name text default 'Synthetic vendor';alter table vendors add column delivery_minimum_dollar numeric;alter table vendors add column delivery_minimum_units integer;
+create table purchase_orders(id uuid primary key default gen_random_uuid(),organization_id uuid,vendor_id uuid,created_by uuid,status text,total_amount numeric,notes text,created_at timestamptz default current_timestamp,submitted_at timestamptz,meets_delivery_minimum boolean);
+create table purchase_order_lines(id uuid primary key default gen_random_uuid(),purchase_order_id uuid references purchase_orders(id),catalog_item_id uuid,vendor_item_id uuid,quantity integer,unit_price numeric,line_total numeric,order_unit text,pack_size text);
+alter table purchase_orders enable row level security;alter table purchase_order_lines enable row level security;
+grant select,insert,update,delete on purchase_orders,purchase_order_lines to authenticated;
+create policy member_orders on purchase_orders for all to authenticated using(exists(select 1 from organization_members m where m.organization_id=purchase_orders.organization_id and m.user_id=auth.uid()));
+create policy member_lines on purchase_order_lines for all to authenticated using(exists(select 1 from purchase_orders p join organization_members m on m.organization_id=p.organization_id where p.id=purchase_order_lines.purchase_order_id and m.user_id=auth.uid()));`);
+for(const file of ['20261101201348_estimated_purchase_drafts.sql','20261101204628_close_estimated_draft_attempts.sql','20261101210029_estimated_order_submission.sql']){const sql=fs.readFileSync(new URL('../../supabase/migrations/'+file,import.meta.url),'utf8');await db.exec(sql);await db.exec(sql);}
+const input=await loadInput(owner);await actor(owner);
+const approval=(await db.query('select kerdos_approve_variable_weight($1,$2,$3,0,$4) as a',[org,vi,map,JSON.stringify(prepareVariableWeightApproval(input))])).rows[0].a;
+const intent=prepareEstimatedPurchaseDraft({organizationId:org,vendorId:vendor,requestId:'11111111-0000-0000-0000-000000000001',confirmed:true,now:new Date().toISOString(),lines:[{...input,quantity:2,orderUnit:'case',approval:{kind:'variable_weight_approval',version:1,id:approval.id,terms:approval.terms,approvedBy:owner,approvedAt:approval.approved_at}}]});
+await actor(employee);
+const draft=(await db.query('select kerdos_save_estimated_draft($1,$2,$3,$4) as d',[org,vendor,intent.requestId,JSON.stringify(intent.lines)])).rows[0].d;
+const review=async(id=draft.id)=>(await db.query('select kerdos_review_estimated_order($1,$2) as r',[org,id])).rows[0].r;
+const submit=async(r,confirmed=true,ack=false)=>(await db.query('select kerdos_submit_estimated_order($1,$2,$3,$4,$5) as o',[org,draft.id,JSON.stringify(r),confirmed,ack])).rows[0].o;
+const r=await review();assert.equal(r.deliveryMinimum.status,'met');
+await assert.rejects(submit(r,false),/confirm/);
+await assert.rejects(submit({...r,estimate:{amount:1}}),/changed/);
+await admin('update vendors set delivery_minimum_dollar=200 where id=$1',[vendor]);await actor(employee);
+await assert.rejects(submit(r),/changed/);
+const monetary=await review();assert.equal(monetary.deliveryMinimum.status,'unknown');
+await assert.rejects(submit(monetary),/Acknowledge/);
+await assert.rejects(db.query('insert into estimated_draft_submissions(organization_id,draft_id,review) values($1,$2,$3)',[org,draft.id,JSON.stringify(monetary)]),/Acknowledge/,'direct insert cannot bypass minimum acknowledgement');
+await admin('update vendors set delivery_minimum_units=3 where id=$1',[vendor]);await actor(employee);
+const short=await review();assert.equal(short.deliveryMinimum.status,'units_short');await assert.rejects(submit(short,true,true),/minimum/);
+await admin('update vendors set delivery_minimum_units=2 where id=$1',[vendor]);await actor(employee);
+const accepted=await review();
+await admin('update vendor_items set row_revision=1 where id=$1',[vi]);await actor(employee);await assert.rejects(submit(accepted,true,true),/listing changed/);
+await admin('update vendor_items set row_revision=0 where id=$1',[vi]);await actor(employee);
+// An actual line-write error rolls back submission, header and every line.
+await admin("alter table purchase_order_lines add constraint fail_submission check(quantity<>2)");await actor(employee);
+await assert.rejects(submit(accepted,true,true),/fail_submission/);
+assert.equal((await db.query('select count(*) from estimated_draft_submissions')).rows[0].count,0);assert.equal((await db.query('select count(*) from purchase_orders')).rows[0].count,0);
+await admin('alter table purchase_order_lines drop constraint fail_submission');await actor(employee);
+const order=await submit(accepted,true,true);validateEstimatedOrder(order,{organizationId:org,draftId:draft.id,review:accepted});
+assert.equal(order.lines[0].kind,'estimated_purchase_line');assert.equal(order.finalCharge,null);assert.equal(order.deliveryStatus,'not_sent');
+assert.equal((await submit(accepted,true,true)).id,order.id,'lost-response retry returns one order');
+const header=(await db.query('select * from purchase_orders')).rows[0];const line=(await db.query('select * from purchase_order_lines')).rows[0];
+assert.equal(header.total_amount,null);assert.equal(header.meets_delivery_minimum,null);assert.equal(line.unit_price,null);assert.equal(line.line_total,null);assert.deepEqual(line.estimated_snapshot,order.lines[0]);
+await assert.rejects(db.query('select kerdos_cancel_estimated_draft($1,$2)',[org,draft.id]),/recorded order/);
+for(const q of ["update purchase_orders set total_amount=96","update purchase_orders set estimated_snapshot=null","delete from purchase_orders","update purchase_order_lines set line_total=96","delete from purchase_order_lines"]){await assert.rejects(db.query(q),/immutable/);}
+await assert.rejects(db.query('delete from estimated_draft_submissions'),/permission denied/);
+await assert.rejects(db.query('update estimated_draft_submissions set review=$1',[JSON.stringify(r)]),/permission denied/);
+await assert.rejects(db.query("insert into purchase_order_lines(purchase_order_id,quantity) values($1,2)",[order.id]),/authoritative/);
+await assert.rejects(db.query("insert into purchase_orders(organization_id,vendor_id,estimated_snapshot) values($1,$2,$3)",[org,vendor,JSON.stringify(order)]),/authenticated estimated submission/);
+const peer='33333333-0000-0000-0000-000000000001';await admin('insert into organization_members values($1,$2,$3)',[org,peer,'employee']);await actor(peer);await assert.rejects(submit(accepted,true,true),/creator|outside/);
+await actor(manager);await assert.rejects(submit(accepted,true,true),/another reviewed request/);
+await actor(outsider);assert.equal((await db.query('select count(*) from purchase_orders')).rows[0].count,0);await assert.rejects(submit(accepted,true,true),/outside/);
+await actor(null,'anon');await assert.rejects(submit(accepted,true,true),/permission denied/);
+await actor(employee);const text=estimatedOrderExport(order,{organizationId:org,draftId:draft.id});assert.match(text,/Estimated total: \$96.00–\$128.00/);assert.match(text,/Final charge: unknown/);assert.match(text,/not sent by KERDOS/);
+// Historical retry survives source invalidation without creating another order.
+await admin('update vendor_items set row_revision=3 where id=$1',[vi]);await actor(employee);assert.equal((await submit(accepted,true,true)).id,order.id);
+assert.equal((await db.query('select count(*) from purchase_orders')).rows[0].count,1);
+// Managers can record another creator's unsubmitted draft, but cancellation is terminal.
+await admin('update vendor_items set row_revision=0 where id=$1',[vi]);await actor(employee);
+const second=(await db.query('select kerdos_save_estimated_draft($1,$2,$3,$4) as d',[org,vendor,'11111111-0000-0000-0000-000000000002',JSON.stringify(intent.lines)])).rows[0].d;
+await actor(manager);const managerReview=await review(second.id);
+const managerOrder=(await db.query('select kerdos_submit_estimated_order($1,$2,$3,true,true) as o',[org,second.id,JSON.stringify(managerReview)])).rows[0].o;assert.equal(managerOrder.submittedBy,manager);
+await actor(employee);const third=(await db.query('select kerdos_save_estimated_draft($1,$2,$3,$4) as d',[org,vendor,'11111111-0000-0000-0000-000000000003',JSON.stringify(intent.lines)])).rows[0].d;
+await db.query('select kerdos_cancel_estimated_draft($1,$2)',[org,third.id]);await assert.rejects(review(third.id),/Cancelled/);
+await db.close();console.log('PASS estimated order SQL: fresh authoritative review, source/minimum changes, explicit consent, stable submission, full rollback, shared history, immutable records, tenant/role isolation and unknown final charges.');
