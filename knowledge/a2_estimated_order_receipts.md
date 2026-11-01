@@ -42,8 +42,9 @@ protection; no worker automatically creates receipts.
 Linked invoice lines become immutable. Their invoice header can change status,
 but its source/ownership/financial fields and deletion are protected. Recorded
 estimated orders/lines and their original estimates remain immutable. Append-only reversal is now available as described in
-`a2_estimated_receipt_reversals.md`. Replacement/source-correction workflows
-require a later audited design;
+`a2_estimated_receipt_reversals.md`. Replacement using a different saved invoice source is documented in
+`a2_estimated_receipt_replacements.md`; correction against the same reserved source
+still requires further design;
 this increment does not silently rewrite existing receipts.
 
 ## Client behavior and charges
