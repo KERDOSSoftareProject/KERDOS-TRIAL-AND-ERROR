@@ -45,6 +45,12 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    invoicePayments:{
+      ledger(organizationId,invoiceId){return providerResult(client.rpc('kerdos_invoice_payment_ledger',{p_organization_id:organizationId,p_invoice_id:invoiceId}),'Load invoice payment ledger');},
+      review(organizationId,invoiceId,approvalId,input){return providerResult(client.rpc('kerdos_review_invoice_payment',{p_organization_id:organizationId,p_invoice_id:invoiceId,p_approval_id:approvalId,p_paid_cents:input.amountCents,p_paid_on:input.paidOn,p_method:input.method,p_reference:input.reference}),'Review invoice payment record');},
+      save(request){return providerResult(client.rpc('kerdos_save_invoice_payment',{p_organization_id:request.review.organizationId,p_request_id:request.requestId,p_review:request.review,p_confirmed:true}),'Record invoice payment');},
+      reverse(organizationId,paymentId,reason){return providerResult(client.rpc('kerdos_reverse_invoice_payment',{p_organization_id:organizationId,p_payment_id:paymentId,p_reason:reason,p_confirmed:true}),'Reverse invoice payment record');},
+    },
     invoiceApprovalWithdrawals:{
       withdraw(organizationId,approvalId,reason){return providerResult(client.rpc('kerdos_withdraw_invoice_approval',{p_organization_id:organizationId,p_approval_id:approvalId,p_reason:reason,p_confirmed:true}),'Withdraw invoice accounting approval');},
     },
