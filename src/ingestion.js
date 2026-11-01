@@ -39,11 +39,11 @@ import {readHeaderLayout,applyLayoutAnswers,checkRowCells} from "./core/sheet-la
 // Every column in a document gets matched to one of these, or "unknown".
 const COLUMN_ROLES = {
   description: ["description", "desc", "product", "name", "item description", "product description", "product name", "item name"],
-  code:        ["item no", "item#", "itm#", "item", "sku", "code", "cust item no", "item number", "item no.", "part no", "part number", "vendor item", "vendor code", "vendor no"],
-  brand:       ["brand", "manufacturer", "make"],
+  code:        ["item no", "item#", "itm#", "item", "sku", "code", "cust item no", "item number", "item no.", "part no", "part number", "vendor item", "vendor code", "vendor no", "product number", "product no", "product code"],
+  brand:       ["brand", "manufacturer", "make", "product brand"],
   gtin:        ["upc", "gtin", "ean", "barcode", "bar code", "upc code", "upc/ean"],
   mfrCode:     ["mfr #", "mfg #", "mfr no", "mfg no", "mfr item", "mfg item", "manufacturer item", "manufacturer no", "manufacturer #", "manufacturer part", "mfr part", "part no", "part number", "model"],
-  sellingUnit: ["type", "selling unit", "order unit", "quoted per", "price unit", "price uom", "pricing unit", "pricing basis", "price basis", "unit of sale"],
+  sellingUnit: ["product uom", "type", "selling unit", "order unit", "quoted per", "price unit", "price uom", "pricing unit", "pricing basis", "price basis", "unit of sale"],
   qty:         ["qty", "quantity", "count", "ordered", "order qty", "ord qty", "delivered", "dlv", "dlvd"],
   packSize:    ["unit", "size", "pack", "uom", "pack size", "pk", "pkg", "package", "pack/size", "pack & size", "pack & size:", "package size", "unit size"],
   price:       ["price", "pr", "prc", "unit price", "cost", "unit cost", "rate", "your price", "net price", "sell", "sell price", "selling price", "quote price", "quoted price", "list price", "price/case", "price per case", "price/ea", "price/lb", "price/gal"],
@@ -286,6 +286,17 @@ const PRICE_PRIORITY = ["your price","net price","sell price","selling price",
 
 function mapColumnsFromHeader(headerCells) {
   const map = {};
+  // Reserve explicit column labels across the whole header before fuzzy matches.
+  // An earlier "Group Name" must not steal a later "Product Description".
+  const exact=[];
+  headerCells.forEach((cell,idx)=>{
+    const lower=cell.toLowerCase().trim().replace(/\s+/g," ");
+    for(const [role,keywords] of Object.entries(COLUMN_ROLES)){
+      if(role!=="price"&&keywords.includes(lower))exact.push({role,idx,score:lower.length});
+    }
+  });
+  exact.sort((a,b)=>b.score-a.score);
+  for(const hit of exact)if(map[hit.role]===undefined&&!Object.values(map).includes(hit.idx))map[hit.role]=hit.idx;
   // Two-pass: first map all non-price roles, then apply price priority.
   const priceCandidates = [];
   headerCells.forEach((cell,idx)=>{
@@ -298,7 +309,7 @@ function mapColumnsFromHeader(headerCells) {
       }
     }
     choices.sort((a,b)=>b.score-a.score);
-    const chosen=choices.find(c=>map[c.role]===undefined);
+    const chosen=!Object.values(map).includes(idx)&&choices.find(c=>map[c.role]===undefined);
     if(chosen)map[chosen.role]=idx;
     // Pricing-unit headers describe the billing basis, not a monetary amount.
     // Otherwise "Price Unit" steals "Price" and CASE is parsed as the price.
@@ -530,8 +541,14 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // vendor wrote them. They are not a problem to resolve on import; the
   // engine may later place one in the brand box, and the client can
   // correct any of it in Item Catalog.
+  // Explicit organizational/storage/customer-reference fields remain source
+  // metadata. They are not product description or culinary vocabulary evidence.
+  const metadataHeader=/^(?:line (?:number|no)|group (?:name|description)|customer product (?:number|no)|storage description|(?:[a-z0-9]+ )*class description)$/i;
+  const sourceMetadata=cells.map((value,index)=>({header:sourceHeaders[index]||"",value:value.trim(),columnIndex:index}))
+    .filter(cell=>cell.value&&metadataHeader.test(cell.header.trim()));
+  const metadataIndices=new Set(sourceMetadata.map(cell=>cell.columnIndex));
   let details=cells.map((value,index)=>({value:value.trim(),index}))
-    .filter(cell=>cell.value&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value))
+    .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value))
     .map(cell=>cell.value);
   // A row with no item code whose unlabeled cell looks like one ("X2700",
   // "1234567", "AB-100") gets that cell as its code; the engine says so.
@@ -557,10 +574,11 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // Build a header-hint array from the column map: each cell gets its role name as the hint.
   const roleByCol = Object.fromEntries(Object.entries(columnMap).map(([role,idx])=>[idx,role]));
   const headerHints = cells.map((_,i) => roleByCol[i] || '');
-  const cellEvidence = analyzeRow(cells, headerHints, priceHeader, confirmedColIndices);
+  const analysisCells=cells.map((cell,index)=>metadataIndices.has(index)?"":cell);
+  const cellEvidence = analyzeRow(analysisCells, headerHints, priceHeader, confirmedColIndices);
   const priceProposal = cellEvidence.resolved.price;
   const packProposal  = cellEvidence.resolved.pack;
-  const finalPriceUnavailable = priceUnavailable || priceUnreadable || priceProposal?.priceUnavailable || false;
+  const finalPriceUnavailable = price === 0 || priceUnavailable || priceUnreadable || priceProposal?.priceUnavailable || false;
   const finalRequiresReview   = priceProposal?.requiresReview || false;
   const finalOriginalRaw      = packProposal?.originalRaw || null;
   // Preserve unresolved-field explanations and conflict details on the row so they
@@ -581,6 +599,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     priceHeader,
     description: fullDescription.slice(0, 120),
     details,
+    sourceMetadata,
     packSize,
     packSource,
     originalPackRaw: finalOriginalRaw,
@@ -1271,7 +1290,7 @@ function parseDocumentRows(text, options={}) {
     // Repeated table headers can change the quoted unit. Do not leak a
     // preceding worksheet's price header into the next table.
     const header=mapColumnsFromHeader(cells);
-    if(header.description!==undefined&&header.price!==undefined&&parseMoneyLenient(cells[header.price])===null){
+    if(header.description!==undefined&&header.price!==undefined&&header.description!==header.price&&parseMoneyLenient(cells[columnMap.price])===null&&parseMoneyLenient(cells[header.price])===null){
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;continue;
     }
     const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders);

@@ -37,7 +37,7 @@ const r2=value=>Math.round(value*100)/100;
 // document by ID + ownership instead of re-fingerprinting — ensuring the user's
 // PasteModal session resumes the SAME partial document the worker created rather
 // than creating a duplicate under the content fingerprint.
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,inboxImportDocumentId=null}) {
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,inboxImportDocumentId=null}) {
   const inboxReview=typeof onBeforeSave==="function";
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
@@ -126,6 +126,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     .filter(key=>invoiceClues.get(key)?.conflicts.length&&!acceptedInvoiceConflicts.has(key));
 
   async function handleDroppedFiles(files){
+    if(companionEvidence)return;
     const fileArr=Array.from(files||[]);
     if(!fileArr.length||fileBusy||parsing) return;
     setFileBusy(true);
@@ -507,7 +508,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             sourceFilePath=uploaded.path;
           }
           let storedDoc;
-          try{storedDoc=await importService.createPriceDocument({organization_id:orgId,vendor_id:vendorId,document_kind:"pricelist",fingerprint,original_text:group.text,file_name:group.name,file_path:sourceFilePath,status:"processing",source_rows:createSourceRowSnapshot(group.rows)});}
+          try{storedDoc=await importService.createPriceDocument({organization_id:orgId,vendor_id:vendorId,document_kind:"pricelist",fingerprint,original_text:group.text,file_name:group.name,file_path:sourceFilePath,status:"processing",source_rows:createSourceRowSnapshot(group.rows),...(companionEvidence?{retrieval_evidence:companionEvidence}:{})});}
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
           sourceDocumentId=storedDoc.id;
         }
@@ -815,11 +816,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           <button onClick={onClose} style={{background:"none",border:"none",fontSize:24,cursor:"pointer",color:"#888"}}>×</button>
         </div>
 
+        {companionEvidence&&<p role="status">Received from your browser companion for {vendors.find(v=>v.id===initialVendorId)?.name}. Account: {companionEvidence.account_label}; list: {companionEvidence.list_label}.</p>}
         {layoutMemoryWarning&&<p role="alert" style={{color:"#B26A00",fontSize:12}}>{layoutMemoryWarning}</p>}
         {step===1&&<>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Vendor</div>
-            <select style={{...inp,color:vendorId?undefined:"#888"}} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
+            <select style={{...inp,color:vendorId?undefined:"#888"}} value={vendorId} disabled={!!companionEvidence} onChange={e=>setVendorId(e.target.value)}>
               <option value="">Select vendor…</option>
               {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
@@ -835,7 +837,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               </optgroup>
             </select>
           </div>}
-          <div style={{marginBottom:14}}>
+          {!companionEvidence&&<div style={{marginBottom:14}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Drag in one or more {mode==="pricelist"?"price list":"invoice"} files</div>
             <div
               onDragOver={e=>{e.preventDefault();setDragOver(true);}}
@@ -859,15 +861,15 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
                 ))}
               </div>
             )}
-          </div>
-          <div style={{marginBottom:14}}>
+          </div>}
+          {!companionEvidence&&<div style={{marginBottom:14}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Or paste text directly</div>
             <textarea
               style={{...inp,height:120,resize:"vertical",fontFamily:"monospace",fontSize:12}}
               value={pastedText} onChange={e=>setPastedText(e.target.value)}
               onPaste={e=>{const pasted=e.clipboardData.getData("text");if(pasted.trim().length>=10){e.preventDefault();setPastedText(pasted);void parseSources(fileGroups,pasted);}}}
               placeholder="Copy from Excel, email, PDF — paste here..." />
-          </div>
+          </div>}
           {parseError&&<div role="alert" style={{background:"#FFEBEE",color:"#B71C1C",padding:10,marginBottom:9,fontSize:12}}>{parseError}</div>}
           {pastedText.trim().length>=10&&<button onClick={doParse} disabled={fileBusy||parsing} style={{...btn("#003584"),width:"100%"}}>{parsing?"Reading item rows…":"Review pasted text"}</button>}
         </>}
@@ -946,7 +948,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           {!vendorId&&(
             <div style={{marginBottom:14}}>
               <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Select a vendor to save this import</div>
-              <select style={{...inp,color:"#888"}} value={vendorId} onChange={e=>setVendorId(e.target.value)}>
+              <select style={{...inp,color:"#888"}} value={vendorId} disabled={!!companionEvidence} onChange={e=>setVendorId(e.target.value)}>
                 <option value="">Select vendor…</option>
                 {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
               </select>

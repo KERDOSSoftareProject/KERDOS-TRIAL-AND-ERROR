@@ -1,7 +1,7 @@
 // A field value alone does not establish what the vendor billed.
 // Preserve the exact header; inferred column roles never become source evidence.
 export function pricingUnitHeader(header){
-  return /^(?:selling unit|price unit|price uom|pricing unit|pricing basis|price basis|unit of sale|quoted per)$/i.test(String(header||'').trim());
+  return /^(?:product uom|selling unit|price unit|price uom|pricing unit|pricing basis|price basis|unit of sale|quoted per)$/i.test(String(header||'').trim());
 }
 
 export function billingUnitEvidence(row){

@@ -239,7 +239,24 @@ await check('clean save with refresh failure retains warning and never emits suc
  assert.ok(text(p.tree.toJSON()).includes('Saved, but the catalog could not refresh: Clean-save refresh failed'));assert.ok(button(p,'Done'));assert.equal(p.finished.length,0,'refresh failure must not emit success completion');
  assert.equal(f.calls.applyQuote.length,1);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(doc.status,'complete');p.tree.unmount();
 });
-console.log(passed+'/20 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('companion delivery enters the real importer with locked vendor, original bytes and retained evidence before quotes',async()=>{
+ const f=fixture();const proof={kind:'browser_companion',adapter_key:'us-foods-moxe',origin:'https://order.usfoods.com',account_label:'Synthetic Client',list_label:'Synthetic List',sha256:'a'.repeat(64),byte_length:csv.length,received_at:'2026-11-01T12:00:00.000Z',assurance:'user_approved_browser_session'};
+ const apply=f.backend.pricing.applyQuote;
+ f.backend.pricing.applyQuote=async(...args)=>{assert.equal(f.uploads.length,1);assert.deepEqual(f.calls.insertImportDoc[0].retrieval_evidence,proof);return apply(...args);};
+ const p=await open(vendor,'pricelist',{initialFiles:[file()],companionEvidence:proof});
+ for(let i=0;i<20&&!button(p,'Save Import →');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+ assert.equal(p.tree.root.findAll(n=>n.type==='input'&&n.props.type==='file').length,0);assert.equal(p.tree.root.findAllByType('textarea').length,0);
+ assert.equal(p.tree.root.findAllByType('select').filter(n=>n.props.value===vendor&&!n.props.disabled).length,0);
+ await save(p);assert.equal(f.uploads[0].bytes,csv);assert.equal(f.calls.insertImportDoc[0].vendor_id,vendor);assert.equal(f.calls.insertImportDoc[0].organization_id,org);assert.equal(f.calls.applyQuote.length,1);p.tree.unmount();
+});
+await check('missing companion evidence schema blocks quote writes instead of falling back to manual provenance',async()=>{
+ const f=fixture(),query=f.backend.records.query;
+ f.backend.records.query=name=>name==='import_documents'?{select:(...args)=>query(name).select(...args),insert:()=>({select:()=>({single:async()=>({data:null,error:{message:'retrieval_evidence column not installed'}})})})}:query(name);
+ const p=await open(vendor,'pricelist',{initialFiles:[file()],companionEvidence:{kind:'browser_companion',account_label:'Synthetic Client',list_label:'Synthetic List'}});
+ for(let i=0;i<20&&!button(p,'Save Import →');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+ await save(p);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.insertImportDoc.length,0);assert.match(text(p.tree.toJSON()),/retrieval_evidence column not installed/);p.tree.unmount();
+});
+console.log(passed+'/22 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
