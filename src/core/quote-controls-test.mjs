@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {quoteGroup,quoteMetrics,chooseQuoteGroup,comparisonUnits,calculatedUnitCost} from './quote-controls.js';
 import {prepareCatalogCorrection} from '../services/catalog-rows.js';
+import {casePriceFromQuote,estimateCaseCost,quotePriceOnBasis,measuredQuoteRate,configureVocabulary} from '../procurement.js';
 assert.equal(quoteGroup('CSE'),'case');assert.equal(quoteGroup('lbs'),'weight');assert.equal(quoteGroup('FL OZ'),'volume');
 assert.equal(chooseQuoteGroup('weight','CASE'),'WEIGHT');assert.equal(chooseQuoteGroup('volume','LB'),'VOLUME');
 assert.equal(chooseQuoteGroup('weight','OZ'),'OZ');
@@ -23,3 +24,22 @@ const mapping={id:'m',organization_id:'o',vendor_item_id:'vi'};
 assert.equal(prepareCatalogCorrection({organizationId:'o',vendorItem:row,mapping,patch:{selling_unit:'WEIGHT',brand:'A'}}).priceAvailable,false);
 assert.throws(()=>prepareCatalogCorrection({organizationId:'o',vendorItem:row,mapping,patch:{unit_cost_unit:'GAL'}}),/compatible/);
 console.log('Grouped quote controls and conversion checks passed.');
+
+for(const pack_size of ['3/7 LBA','3/7 LB AVG','2/6-8 LBA']){
+  assert.equal(calculatedUnitCost({...row,pack_size,selling_unit:'LB',price:4,unit_cost_unit:'OZ'}).price,0.25);
+  assert.equal(calculatedUnitCost({...row,pack_size,selling_unit:'LB',price:4,unit_cost_unit:'EA'}),null);
+  assert.equal(casePriceFromQuote(4,'measure','LB',pack_size),null,'no exact case charge from average/range weight');
+  assert.equal(quotePriceOnBasis({price:4,basis:'measure',unit:'LB',packSize:pack_size},{basis:'measure',unit:'OZ'}),0.25,'invoice comparison uses stated rate directly');
+  assert.equal(quotePriceOnBasis({price:4,basis:'measure',unit:'LB',packSize:pack_size},{basis:'case'}),null,'estimated case must not become invoice variance evidence');
+  assert.equal(prepareCatalogCorrection({organizationId:'o',vendorItem:{...row,pack_size,selling_unit:'LB'},mapping,patch:{approve_row:true}}).priceAvailable,false);
+}
+assert.deepEqual(estimateCaseCost(4,'measure','LB','3/7 LBA'),{amount:84,minimum:null,maximum:null,estimated:true});
+assert.deepEqual(estimateCaseCost(4,'measure','LB','2/6-8 LBA'),{amount:null,minimum:48,maximum:64,estimated:true});
+assert.equal(estimateCaseCost(4,'measure','GAL','2/6-8 LBA'),null);
+assert.equal(casePriceFromQuote(30,'case',null,'3/7 LBA'),30,'a genuinely stated case quote remains exact');
+assert.equal(calculatedUnitCost({...row,pack_size:'3/7 LBA',selling_unit:'CS',price:30}).estimated,true,'unit cost derived from a fixed case price and average weight is labeled estimated');
+assert.equal(measuredQuoteRate(0.000013,'LB','LB').price,0.000013,'unchanged units preserve the full stated rate');
+configureVocabulary([{kind:'unit',term:'sheet',canonical:'SHEET'}]);
+assert.equal(quotePriceOnBasis({price:0.012345,basis:'measure',unit:'sheet',packSize:'100 sheet'},{basis:'measure',unit:'sheet'}),0.012345);
+assert.equal(measuredQuoteRate(3,'CN','CN'),null,'an unconfirmed packaging code is not a measured unit');
+configureVocabulary([]);

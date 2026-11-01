@@ -273,7 +273,7 @@ function parsePackSize(raw) {
   const source=normalizeMixedFraction(originalRaw);
   // "4/10 LBAV", "4/10 LB AVG", "2/10# AVG": the marker is read and then
   // set aside so the rest parses as an ordinary pack.
-  let working=source.toLowerCase().replace(/(lb|lbs)(av|avg)\b/g,"$1 $2");
+  let working=source.toLowerCase().replace(/(\d)\s*lba\.?$/i,"$1 lb avg").replace(/(lb|lbs)(av|avg)\b/g,"$1 $2");
   const catchWeight=CATCH_WEIGHT_RE.test(working);
   if(catchWeight) working=working.replace(CATCH_WEIGHT_RE,"").trim();
   // "#10" after a slash is a can size, not pounds: "6/#10 CN" is six cans
@@ -297,6 +297,17 @@ function parsePackSize(raw) {
   // A known unit (any number of words, longest first) is preferred; an
   // unknown single word is still accepted as a unit of its own.
   const unit=`(${UNIT_ALTERNATION}|[a-z]+)`;
+  // An explicitly variable mass range describes bounds, never a midpoint or
+  // another slash-separated case count. Keep the absence of an exact total.
+  const range=catchWeight&&working.match(new RegExp(`^(?:(\\d+)\\s*[/x]\\s*)?${number}\\s*[-‐‑–]\\s*${number}\\s*${unit}\\s*$`));
+  if(range){
+    const caseQty=Number(range[1]||1),minimum=Number(range[2]),maximum=Number(range[3]),measure=measurement(1,range[4]);
+    if(!Number.isSafeInteger(caseQty)||caseQty<=0||![minimum,maximum,caseQty*maximum].every(Number.isFinite)||minimum<=0||maximum<minimum||!measure||measure.dimension!=="mass")return null;
+    return {raw:source,originalRaw,parsed:true,caseQty,unitQty:null,unit:measure.unit,total:null,catchWeight:true,
+      weightRange:{minimum,maximum},dimension:measure.dimension,baseUnit:measure.baseUnit,baseTotal:null,qualifiers:context.qualifiers,
+      levels:[{quantity:caseQty,type:"PACKAGE"},{quantity:null,minimum,maximum,type:measure.unit}],
+      eachStr:`${minimum}-${maximum} ${measure.unit} AVG`,caseStr:`${caseQty}/${minimum}-${maximum} ${measure.unit} AVG`};
+  }
   // Three or more explicit levels retain their packaging topology. A weight
   // range must never become another packaging level through dash cleanup.
   const nested=clean.match(new RegExp(`^((?:\\d+\\s*[/x]\\s*){2,})${number}\\s*${unit}\\s*$`));
@@ -310,8 +321,8 @@ function parsePackSize(raw) {
       total:quantity*amount,catchWeight,qualifiers:context.qualifiers,nestedCounts:counts,
       dimension:measure.dimension,baseUnit:measure.baseUnit,baseTotal:round(quantity*measure.baseQuantity),
       levels:[...counts.map(quantity=>({quantity,type:"PACKAGE"})),{quantity:amount,type:measure.unit}],
-      eachStr:`${[...counts.slice(1),amount].join('/')} ${measure.unit}`,
-      caseStr:`${[...counts,amount].join('/')} ${measure.unit}`};
+      eachStr:`${[...counts.slice(1),amount].join('/')} ${measure.unit}${catchWeight?' AVG':''}`,
+      caseStr:`${[...counts,amount].join('/')} ${measure.unit}${catchWeight?' AVG':''}`};
   }
   let m=clean.match(new RegExp(`^${number}\\s*(?:/|x|\\s)\\s*${number}\\s*${unit}\\b`));
   let outerQty=1, innerQty, unitRaw;
@@ -342,7 +353,7 @@ function parsePackSize(raw) {
     raw:source,originalRaw,parsed:true,caseQty:outerQty,unitQty:innerQty,unit:measure.unit,total,catchWeight,qualifiers:context.qualifiers,
     dimension:measure.dimension,baseUnit:measure.baseUnit,baseTotal:round(outerQty*measure.baseQuantity),
     levels: outerQty>1 ? [{quantity:outerQty,type:"PACKAGE"},{quantity:innerQty,type:measure.unit}] : [{quantity:innerQty,type:measure.unit}],
-    eachStr:`${innerQty} ${measure.unit}`,caseStr:outerQty>1?`${outerQty}/${innerQty} ${measure.unit}`:`${innerQty} ${measure.unit}`,
+    eachStr:`${innerQty} ${measure.unit}${catchWeight?' AVG':''}`,caseStr:(outerQty>1?`${outerQty}/${innerQty} ${measure.unit}`:`${innerQty} ${measure.unit}`)+(catchWeight?' AVG':''),
   };
 }
 
@@ -517,6 +528,9 @@ function casePriceFromQuote(price,basis,unit,pack){
   if(!basis||basis==="case") return round(n,4);
   const p=parsePackSize(pack);
   if(!p?.parsed) return null;
+  // A measured quote multiplied by nominal/variable weight is an estimate,
+  // not an exact charge for a purchasing pack. Use the explicit estimator.
+  if(p.catchWeight&&basis==="measure")return null;
   if(basis==="each") return round(n*p.caseQty,4);
   if(basis==="measure"){
     const code=normalizeUnit(unit),def=UNIT_DEFINITIONS[code];
@@ -536,9 +550,39 @@ function casePriceFromQuote(price,basis,unit,pack){
   return null;
 }
 
+function measuredQuoteRate(price,sourceUnit,targetUnit){
+  const n=Number(price),sourceCode=normalizeUnit(sourceUnit),targetCode=normalizeUnit(targetUnit),source=UNIT_DEFINITIONS[sourceCode],target=UNIT_DEFINITIONS[targetCode];
+  if(!Number.isFinite(n)||n<=0)return null;
+  if(!source||!target){
+    const key=String(sourceCode||'').toLowerCase();
+    return sourceCode===targetCode&&UNIT_LOOKUP.has(key)&&!PACKAGING_ALIASES.has(key)?{price:n,unit:sourceCode,dimension:'unknown'}:null;
+  }
+  if(source.dimension!==target.dimension)return null;
+  if(sourceCode===targetCode)return {price:n,unit:sourceCode,dimension:source.dimension};
+  const converted=round(n*target.factor/source.factor,4);
+  return Number.isFinite(converted)&&converted>0?{price:converted,unit:normalizeUnit(targetUnit),dimension:source.dimension}:null;
+}
+
+// Separate contract: callers must display these as estimates and must not
+// persist them as vendor-stated case quotes or compare them to exact invoices.
+function estimateCaseCost(price,basis,unit,pack){
+  const p=parsePackSize(pack),n=Number(price);
+  if(!p?.parsed||!p.catchWeight||basis!=="measure"||!Number.isFinite(n)||n<=0)return null;
+  const rate=measuredQuoteRate(n,unit,p.unit);
+  if(!rate)return null;
+  if(p.weightRange){
+    const minimum=round(rate.price*p.caseQty*p.weightRange.minimum,4),maximum=round(rate.price*p.caseQty*p.weightRange.maximum,4);
+    return [minimum,maximum].every(n=>Number.isFinite(n)&&n>0)?{amount:null,minimum,maximum,estimated:true}:null;
+  }
+  const amount=round(rate.price*p.total,4);
+  return Number.isFinite(amount)&&amount>0?{amount,minimum:null,maximum:null,estimated:true}:null;
+}
+
 // Express a stored quote on the basis an invoice line is billed in, so
 // the variance compares like with like. null means "cannot compare".
 function quotePriceOnBasis(quote,target){
+  if(quote.basis==="measure"&&target?.basis==="measure")
+    return measuredQuoteRate(quote.price,quote.unit,target.unit)?.price??null;
   const casePrice=casePriceFromQuote(quote.price,quote.basis,quote.unit,quote.packSize);
   if(casePrice==null) return null;
   const basis=target?.basis||"case";
@@ -680,6 +724,13 @@ function bestCatalogMatch(description, catalogItems=[], policy=MATCH_POLICY) {
 function comparePurchasingPack(incoming,existing){
   const a=parsePackSize(incoming),b=parsePackSize(existing);
   if(!a?.parsed||!b?.parsed)return {status:"review",reason:"Pack size missing or unreadable"};
+  if(a.weightRange||b.weightRange){
+    const same=a.weightRange&&b.weightRange&&a.caseQty===b.caseQty&&a.baseUnit===b.baseUnit&&
+      a.weightRange.minimum*measurement(1,a.unit).baseQuantity===b.weightRange.minimum*measurement(1,b.unit).baseQuantity&&
+      a.weightRange.maximum*measurement(1,a.unit).baseQuantity===b.weightRange.maximum*measurement(1,b.unit).baseQuantity&&
+      JSON.stringify(a.qualifiers||[])===JSON.stringify(b.qualifiers||[]);
+    return same?{status:"same",reason:"Stated weight ranges agree; actual delivered weight remains variable"}:{status:"review",reason:"Weight ranges or case configuration differ"};
+  }
   if(a.dimension!==b.dimension||a.baseUnit!==b.baseUnit||a.baseTotal!==b.baseTotal)
     return {status:"different",reason:`Pack size differs: ${incoming} versus ${existing}`};
   // When both packs have no measurable dimension, their numeric totals are coincidental —
@@ -782,7 +833,7 @@ function quoteStatus(item,settings={},now=new Date()){
 
 export {
   MATCH_POLICY, UNIT_DEFINITIONS, configureVocabulary, configureProcurement, productKnowledge, normalizeUnit, measurement, parsePackSize, packsEquivalent, normalizedPrice, eachPrice,
-  unitsForDimension, pricePerUnit, brandsMatch, priceBasisFor, casePriceFromQuote, quotePriceOnBasis, normalizeGtin, normalizeManufacturerCode, packFromDescription, isAbbreviationOf, abbreviationPairs,
+  unitsForDimension, pricePerUnit, brandsMatch, priceBasisFor, casePriceFromQuote, measuredQuoteRate, estimateCaseCost, quotePriceOnBasis, normalizeGtin, normalizeManufacturerCode, packFromDescription, isAbbreviationOf, abbreviationPairs,
   normalizeForMatch, wordsMatch, classifyCategory, suggestCategory, contextualCategorySuggestion, nextCategoryRange,
   safeProductScore, productIdentity, compareProductIdentity, comparePurchasingPack, commonPurchasingPack, bestPurchasingMatch, bestPurchasingSuggestion, quoteStatus, bestCatalogMatch, bestInvoiceMatch, assertKnownPriceBasis,
   normalizeMixedFraction,

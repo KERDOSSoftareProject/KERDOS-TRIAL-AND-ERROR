@@ -14,6 +14,8 @@ export function blockReason(option){
   if(option.unverified&&option.qualificationReason)return option.qualificationReason;
   if(option.priceUnavailable)return "No current quoted price";
   if(option.invoiceOnly)return "Invoice charge only — quotation required";
+  if(option.basisUnconvertible&&parsePackSize(option.packSize)?.catchWeight)
+    return `Quoted per ${option.quoteUnit||"unit"} — variable case weight; an estimate is not a confirmed case charge. Review purchasing terms in Item Catalog`;
   // A price quoted per pound, per gallon or per each can only join the
   // ranking once the pack tells KERDOS how many of that unit a case holds.
   if(option.basisUnconvertible)return `Quoted per ${option.quoteUnit||option.quoteBasis||"unit"} — pack can't convert it to a case price; correct the pack in Item Catalog`;
