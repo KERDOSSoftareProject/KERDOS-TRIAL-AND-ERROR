@@ -44,6 +44,20 @@ export function createEstimatedDraftService(backend){
       if(record.requestId!==requestId||record.createdBy!==actorId)throw new Error('Draft request belongs to a different creator');
       if(expectedIntent&&(expectedIntent.organizationId!==organizationId||expectedIntent.vendorId!==record.vendorId||!same(expectedIntent.lines,row.requested_lines)))throw new Error('Recovered draft differs from the retained request');return record;
     },
+    async closeAttempt(intent,{confirmed}={}){
+      requireCapability();
+      if(confirmed!==true||intent?.kind!=='estimated_purchase_draft_intent'||intent.version!==1||!intent.organizationId||!intent.vendorId||!intent.requestId||!Array.isArray(intent.lines)||!intent.lines.length||intent.lines.length>100)throw new Error('Confirm closing the retained save attempt');
+      const actorId=(await backend.session.get())?.user?.id;if(!actorId)throw new Error('Sign in before closing a save attempt');
+      if(typeof backend.estimatedDrafts.closeAttempt!=='function')throw new Error('Closing save attempts is unavailable with this connection');
+      const result=await backend.estimatedDrafts.closeAttempt(intent);
+      if(result?.status==='saved'){
+        const record=estimatedDraftRecord(result.draft,intent.organizationId);
+        if(record.requestId!==intent.requestId||record.vendorId!==intent.vendorId||record.createdBy!==actorId||!same(result.draft.requested_lines,intent.lines))throw new Error('Recovered draft differs from the retained request');
+        return {status:'saved',draft:record};
+      }
+      if(result?.status!=='closed'||result.organizationId!==intent.organizationId||result.vendorId!==intent.vendorId||result.requestId!==intent.requestId||result.createdBy!==actorId||!Number.isFinite(Date.parse(result.closedAt))||!same(result.requestedLines,intent.lines))throw new Error('Server did not confirm closure of this save attempt');
+      return result;
+    },
     async get(organizationId,draftId){requireCapability();const row=await backend.estimatedDrafts.get(organizationId,draftId);if(!row)return null;const record=estimatedDraftRecord(row,organizationId);if(record.id!==draftId)throw new Error('Saved draft ID differs');return record;},
     async cancel(organizationId,draftId){requireCapability();const row=await backend.estimatedDrafts.cancel(organizationId,draftId);const record=estimatedDraftRecord(row,organizationId);if(record.id!==draftId||record.status!=='cancelled')throw new Error('Draft cancellation was not confirmed');return record;},
   };

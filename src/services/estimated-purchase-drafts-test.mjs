@@ -35,6 +35,14 @@ fail=true;await assert.rejects(service.save(input),/Quote changed/);fail=false;
 assert.equal((await service.recover('org',input.requestId)).id,saved.id);
 await assert.rejects(service.recover('org','other'),/different creator/);
 assert.equal((await service.list('org')).length,1);await assert.rejects(service.list('other'),/scope/);await assert.rejects(service.list('org',-1),/page/);
+let closure={status:'closed',organizationId:'org',vendorId:'vendor',requestId:intent.requestId,createdBy:'employee',closedAt:now,requestedLines:intent.lines};
+backend.estimatedDrafts.closeAttempt=async()=>structuredClone(closure);
+assert.equal((await service.closeAttempt(intent,{confirmed:true})).status,'closed');
+await assert.rejects(service.closeAttempt(intent),/Confirm closing/);
+signedIn=false;await assert.rejects(service.closeAttempt(intent,{confirmed:true}),/Sign in/);signedIn=true;
+for(const patch of [{organizationId:'other'},{vendorId:'other'},{requestId:'other'},{createdBy:'peer'},{closedAt:null},{requestedLines:[]},{status:'unknown'}]){const good=closure;closure={...good,...patch};await assert.rejects(service.closeAttempt(intent,{confirmed:true}),/did not confirm/);closure=good;}
+closure={status:'saved',draft:record};assert.equal((await service.closeAttempt(intent,{confirmed:true})).draft.id,saved.id);
+closure={status:'saved',draft:{...record,created_by:'peer'}};await assert.rejects(service.closeAttempt(intent,{confirmed:true}),/differs/);
 const cancelled=await service.cancel('org','draft');assert.equal(cancelled.status,'cancelled');assert.equal(cancelled.finalCharge,null);assert.deepEqual(cancelled.lines,saved.lines);
 const missing=createEstimatedDraftService({});assert.equal(missing.supported,false);await assert.rejects(missing.get('org','draft'),/unavailable/);
 assert.deepEqual(input,original,'draft preparation and storage adapters preserve source, mapping and approval inputs');

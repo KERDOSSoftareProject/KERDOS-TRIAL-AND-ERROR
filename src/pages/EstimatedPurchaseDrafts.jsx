@@ -31,7 +31,7 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
   const [approvals,setApprovals]=useState(()=>store.readConfirmations()),[offline,setOffline]=useState(false),[loading,setLoading]=useState(true);
   const [saved,setSaved]=useState([]),[offset,setOffset]=useState(0),[hasOlder,setHasOlder]=useState(false),[view,setView]=useState('prepare'),[selected,setSelected]=useState(null);
   const [busy,setBusy]=useState(false),[consent,setConsent]=useState(''),[retry,setRetry]=useState(null),[retryConsent,setRetryConsent]=useState(false),[cancelTarget,setCancelTarget]=useState(null);
-  const [error,setError]=useState(''),[notice,setNotice]=useState('');
+  const [closeTarget,setCloseTarget]=useState(null),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const alive=useRef(true),working=useRef(false);
   const scopedItems=vendorItems.filter(v=>v.organization_id===orgId&&parsePackSize(v.pack_size)?.catchWeight&&priceBasisFor(v.selling_unit)?.basis==='measure');
   const ids=scopedItems.map(v=>v.id).sort().join('|');
@@ -108,9 +108,23 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
     finally{working.current=false;if(alive.current)setBusy(false);}
   }
   async function recover(entry){
-    if(working.current)return;working.current=true;setBusy(true);setError('');setRetry(null);setRetryConsent(false);
+    if(working.current)return;working.current=true;setBusy(true);setError('');setCloseTarget(null);setRetry(null);setRetryConsent(false);
     try{const record=await service.recover(orgId,entry.intent.requestId,entry.intent);if(record)adopt(entry,record);else if(alive.current){setRetry(entry);setNotice('No saved draft found yet. Retry this same request to avoid creating a second draft.');}}
     catch(err){if(alive.current)setError(err.message||String(err));}
+    finally{working.current=false;if(alive.current)setBusy(false);}
+  }
+  async function closeAttempt(){
+    if(working.current||!closeTarget)return;const entry=closeTarget;
+    working.current=true;setBusy(true);setError('');
+    try{
+      const result=await service.closeAttempt(entry.intent,{confirmed:true});
+      if(result.status==='saved')adopt(entry,result.draft);
+      else {
+        const kept=store.settle(entry,'closed');
+        if(alive.current){setPending(store.pending());setRetry(null);setRetryConsent(false);setConsent('');setNotice(kept?'Save attempt closed. No draft was saved; your selections are retained for review.':'Save attempt closed on the server. Its recovery journal still needs updating.');}
+      }
+      if(alive.current)setCloseTarget(null);
+    }catch(err){if(alive.current){setError(err.message||String(err));setNotice('Closure is unconfirmed. The retained save remains available to check or close again.');}}
     finally{working.current=false;if(alive.current)setBusy(false);}
   }
   async function retrySave(){if(working.current||!retry||!retryConsent)return;working.current=true;setBusy(true);setError('');try{await send(retry,true);}finally{working.current=false;if(alive.current)setBusy(false);}}
@@ -131,7 +145,8 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
     {loading&&<p role="status">Loading saved drafts and confirmations…</p>}
     {error&&<p role="alert" style={{color:'#A32B20'}}>{error}</p>}{notice&&<p role="status">{notice}</p>}
     {offline&&<p>Connection unavailable. Local selections are retained; refresh confirmations before saving.</p>}
-    {pending.length>0&&<section style={{background:'#FFF4D9',padding:12,marginTop:12}}><b>A save needs checking.</b><p>Recover the result before starting another draft.</p>{pending.map(entry=><div key={entry.intent.requestId} style={{marginBottom:12}}>{vendorName(entry.intent.vendorId)} · {displayDate(entry.createdAt)} · Estimate {estimateLabel(entry.intent.estimate)} <button disabled={busy||loading} onClick={()=>recover(entry)} style={btn('#003584','white')}>Check saved result</button></div>)}</section>}
+    {pending.length>0&&<section style={{background:'#FFF4D9',padding:12,marginTop:12}}><b>A save needs checking.</b><p>Recover the result before starting another draft.</p>{pending.map(entry=><div key={entry.intent.requestId} style={{marginBottom:12}}>{vendorName(entry.intent.vendorId)} · {displayDate(entry.createdAt)} · Estimate {estimateLabel(entry.intent.estimate)} <button disabled={busy||loading} onClick={()=>recover(entry)} style={btn('#003584','white')}>Check saved result</button> <button disabled={busy||loading} onClick={()=>{setCloseTarget(entry);setRetry(null);setRetryConsent(false);}} style={btn('#E8F1FB','#003584')}>Close save attempt</button></div>)}</section>}
+    {closeTarget&&<section><h4>{vendorName(closeTarget.intent.vendorId)} · Unresolved save</h4>{snapshot(closeTarget.intent.lines,closeTarget.intent.estimate)}<p>Close this unresolved save attempt? If a draft was saved, KERDOS will recover it. Otherwise, this request will be permanently closed and cannot save later. Your selections will remain for review.</p><button disabled={busy} onClick={closeAttempt} style={btn('#003584','white')}>Confirm closing save attempt</button><button disabled={busy} onClick={()=>setCloseTarget(null)} style={btn('#EEE','#444')}>Keep save attempt</button></section>}
     {retry&&<section>{snapshot(retry.intent.lines,retry.intent.estimate)}<label><input type="checkbox" aria-label="Confirm retry of estimated draft" checked={retryConsent} disabled={busy} onChange={e=>setRetryConsent(e.target.checked)}/> I confirm retrying these saved terms with the same request.</label><button disabled={busy||!retryConsent} onClick={retrySave} style={btn('#003584','white')}>Retry same save</button></section>}
     {view==='prepare'&&<section>
       <label>Vendor<select aria-label="Estimated draft vendor" value={basket.vendorId} disabled={!canEdit} onChange={e=>{remember({...basket,vendorId:e.target.value});setConsent('');}} style={{...inp,margin:10}}><option value="">Select vendor</option>{scopedVendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
