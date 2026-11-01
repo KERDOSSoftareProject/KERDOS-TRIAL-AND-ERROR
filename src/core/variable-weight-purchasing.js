@@ -20,8 +20,6 @@ function termsFor({organizationId,vendorId,catalogItemId,listing,mapping,setting
   const fields=listing.import_row?.reviewFields;
   if(listing.import_row?.reviewRequired&&(!Array.isArray(fields)||!fields.length||fields.some(field=>field!=='pack_size')))
     throw new Error('Resolve the other source fields before reviewing variable-weight purchasing');
-  if(listing.price_unavailable&&(!listing.import_row?.reviewRequired||!Array.isArray(fields)||fields.length!==1||fields[0]!=='pack_size'))
-    throw new Error('An unavailable quotation cannot be approved as a variable-weight quote');
   const reviewedAt=time(now);
   if(quoteStatus({...listing,price_unavailable:false},settings,reviewedAt)!=='current')throw new Error('A current vendor quotation is required');
   const price=positive(listing.price,'Quoted rate'),basis=priceBasisFor(listing.selling_unit),pack=parsePackSize(listing.pack_size);
@@ -33,12 +31,17 @@ function termsFor({organizationId,vendorId,catalogItemId,listing,mapping,setting
   const row=source.evidence||source.row,unitProof=billingUnitEvidence(row||{});
   if(!unitProof||row.priceNeedsReview||numeric(row.price,'Stated source rate')!==price||normalizeUnit(row.sellingUnit)!==normalizeUnit(listing.selling_unit)||comparePurchasingPack(row.packSize,listing.pack_size).status!=='same')
     throw new Error('Preserve the stated source rate, unit and variable pack evidence before approval');
+  const solePackReview=source.reviewRequired&&Array.isArray(fields)&&fields.length===1&&fields[0]==='pack_size';
+  if(listing.price_unavailable&&!solePackReview&&row.priceUnavailable!==false)
+    throw new Error('An unavailable quotation cannot be approved as a variable-weight quote');
   return {organizationId,vendorId,catalogItemId,vendorItemId:listing.id,
     vendorItemCode:listing.vendor_item_code??null,description:listing.description??null,brand:listing.brand??null,
     packSize:listing.pack_size,quotedRate:price,quotedUnit:normalizeUnit(basis.unit),
-    validUntil:listing.price_quote_valid_until??null,lastUpdated:listing.last_updated??null,
+    validUntil:listing.price_quote_valid_until??null,lastUpdated:listing.last_updated?time(listing.last_updated):null,
     sourceDocumentId:source.sourceDocumentId,sourceRowKey:source.rowKey,billingUnitEvidence:structuredClone(unitProof)};
 }
+
+export function variableWeightTerms(input){return termsFor(input);}
 
 export function prepareVariableWeightApproval(input){
   if(input.confirmed!==true)throw new Error('Explicit acceptance of estimated purchasing is required');

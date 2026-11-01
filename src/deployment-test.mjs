@@ -23,8 +23,9 @@ const pageSources=fs.readdirSync(path.join(root,"src/pages")).filter(file=>file.
 const inboxMigrations=["migration_032_email_routing.sql","migration_032_email_routing_addendum.sql","migration_035_partial_import_recovery.sql","migration_037_manual_review_claim_draft.sql","migration_038_receipt_vendor_snapshot_draft.sql"];
 // Vendor Connect has separately reviewed SQL and fails closed until installed.
 const vendorConnectMigrations=["a2_vendor_connect_draft.sql"];
-const migrationSql=[...requiredMigrations,...inboxMigrations,...vendorConnectMigrations].map(file=>fs.readFileSync(path.join(root,"knowledge",file),"utf8")).join("\n");
-for(const rpc of [...adapter.matchAll(/client\.rpc\("([^"]+)"/g)].map(match=>match[1]))
+const additionalSql=fs.readdirSync(path.join(root,"supabase/migrations")).filter(file=>file.endsWith(".sql")).map(file=>fs.readFileSync(path.join(root,"supabase/migrations",file),"utf8")).join("\n");
+const migrationSql=[...requiredMigrations,...inboxMigrations,...vendorConnectMigrations].map(file=>fs.readFileSync(path.join(root,"knowledge",file),"utf8")).join("\n")+"\n"+additionalSql;
+for(const rpc of [...adapter.matchAll(/client\.rpc\(['"]([^'"]+)['"]/g)].map(match=>match[1]))
   assert.match(migrationSql,new RegExp(`function\\s+(?:public\\.)?${rpc}\\b`,`i`),`adapter RPC ${rpc} has no migration`);
 
 // A price-sheet import must never wait on a person: the auto-save may hold

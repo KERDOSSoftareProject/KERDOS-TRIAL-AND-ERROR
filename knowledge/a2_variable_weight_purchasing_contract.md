@@ -69,3 +69,37 @@ The existing 87-row import and its nine saved review holds are not modified.
    normal scoped saved-review resolutions before enabling the seven held
    variable-weight offers. Recurring retrieval and universal executor delivery
    remain separate existing open tasks.
+
+## Authenticated approval increment — November 1, 2026
+
+Approval persistence and Item Catalog review are now implemented separately from
+estimated ordering and receipts. The optional provider-neutral `variableWeight`
+backend capability offers batched reads, confirmation and revocation. Connections
+without that capability continue to work and expose no approval action.
+
+The SQL transaction authenticates an owner/manager, locks the scoped listing and
+mapping, checks the listing revision, and reconstructs terms against the retained
+price-sheet source snapshot. It checks ownership, source key, positive current
+rate, declared mass unit, variable packaging and provenance. Reviewed terms must
+match this authoritative reconstruction. An identical retry returns the same
+active confirmation; changed terms create a new snapshot and revoke the earlier
+one atomically. Immutable history and role-scoped RLS apply even to direct table
+writes; anonymous users cannot call these operations.
+
+Item Catalog requires an exact confirmed catalog association before reviewing
+terms. Dirty rows cannot be confirmed. The dialog shows the saved rate, raw pack
+and nominal/range estimate, requires explicit consent, and invalidates an open
+review when row details change. Owners/managers may revoke confirmation. These
+operations never edit quote availability, mappings, retained sources or review
+flags and never enable the existing Order Guide.
+
+Actual migration tests run under authenticated, anonymous, employee, manager and
+outside-organization roles in local PostgreSQL/PGlite. Independent adapter and
+rendered interactive tests cover batching, consent, cancellation, stale changes,
+errors and revocation. Hosted schema verification is distinct from live signed-in
+client acceptance. No real client terms have been approved by these tests.
+
+Still open: authenticated estimated-order and receipt storage; partial-delivery
+and concurrent receipt protection; basket/order estimate displays; explicit
+invoice matching; client confirmation/reload/revocation acceptance; and the prior
+retained-original, saved-review and universal executor acceptance work.

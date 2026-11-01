@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import {build} from 'vite';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import React from 'react';
+import Renderer,{act} from 'react-test-renderer';
+const dir=mkdtempSync(fileURLToPath(new URL('../../node_modules/.kerdos-variable-ui-',import.meta.url)));
+try{
+ await build({configFile:false,logLevel:'error',esbuild:{jsx:'automatic'},build:{ssr:fileURLToPath(new URL('./VariableWeightConfirmation.jsx',import.meta.url)),outDir:dir,rollupOptions:{output:{entryFileNames:'confirmation.mjs'}}}});
+ const {VariableWeightConfirmation}=await import(pathToFileURL(join(dir,'confirmation.mjs')));
+ const source={code:'SYN',packSize:'2/6-8 LBA',price:4,sellingUnit:'LB',priceUnavailable:false,billingUnitEvidence:{kind:'pricing-unit-header',header:'Product UOM',unit:'LB'}};
+ const listing={id:'vi',organization_id:'org',vendor_id:'v',vendor_item_code:'SYN',description:'Synthetic product',pack_size:source.packSize,price:4,selling_unit:'LB',price_basis:'measure',price_unavailable:true,import_row:{reviewRequired:false,sourceDocumentId:'doc',rowKey:'row:0',row:source}};
+ const mapping={id:'m',organization_id:'org',vendor_item_id:'vi',catalog_item_id:'ci',comparison_track:'exact',confidence_score:100};
+ let writes=0,revokes=0,changed=0,failure=false;
+ const service={supported:true,approve:async input=>{writes++;assert.equal(input.confirmed,true);if(failure)throw new Error('The row changed; reload it');return {id:'a',terms:{organizationId:'org'},approvedBy:'owner'};},revoke:async()=>{revokes++;return {revokedAt:'now'};}};
+ const props={service,organizationId:'org',listing,mapping,catalogItemId:'ci',canManage:true,onChanged:()=>changed++};
+ const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
+ let tree;const mount=async p=>{await act(async()=>{tree=Renderer.create(React.createElement(VariableWeightConfirmation,p));});};
+ const button=label=>tree.root.findAllByType('button').find(b=>text(b)===label);
+ const click=async label=>{const b=button(label);assert.ok(b&&!b.props.disabled,label);await act(async()=>{await b.props.onClick();});};
+ const check=async()=>{await act(async()=>tree.root.findByType('input').props.onChange({target:{checked:true}}));};
+ await mount(props);assert.equal(writes,0);await click('Review variable-weight terms');
+ assert.match(text(tree.toJSON()),/\$48.00.*\$64.00/);assert.equal(button('Confirm terms').props.disabled,true);
+ await click('Cancel');assert.equal(writes,0);await click('Review variable-weight terms');await check();await click('Confirm terms');assert.equal(writes,1);assert.equal(changed,1);tree.unmount();
+ await mount(props);await click('Review variable-weight terms');await check();
+ await act(async()=>tree.update(React.createElement(VariableWeightConfirmation,{...props,listing:{...listing,description:'Changed'}})));
+ assert.equal(button('Confirm terms').props.disabled,true);assert.match(text(tree.toJSON()),/Close and reopen/);assert.equal(writes,1);tree.unmount();
+ failure=true;await mount(props);await click('Review variable-weight terms');await check();await click('Confirm terms');assert.equal(changed,1);assert.match(text(tree.toJSON()),/reload it/);tree.unmount();failure=false;
+ await mount({...props,canManage:false});assert.equal(tree.root.findAllByType('button').length,0);tree.unmount();
+ await mount({...props,disabled:true});assert.equal(button('Review variable-weight terms').props.disabled,true);tree.unmount();
+ await mount({...props,mapping:{...mapping,comparison_track:'new',confidence_score:0}});assert.equal(button('Review variable-weight terms').props.disabled,true);assert.match(text(tree.toJSON()),/catalog association/);tree.unmount();
+ await mount({...props,approval:{id:'a',terms:{},revokedAt:null}});await click('Revoke confirmation');await click('Cancel');assert.equal(revokes,0);await click('Revoke confirmation');await act(async()=>{await tree.root.findAllByType('button').filter(b=>text(b)==='Revoke confirmation').at(-1).props.onClick();});assert.equal(revokes,1);tree.unmount();
+ await mount({...props,approval:{revokedAt:'now'}});assert.match(text(tree.toJSON()),/Confirmation revoked/);tree.unmount();
+ console.log('PASS rendered approval controls: consent, cancel, rate/range labeling, changed-row hold, errors, roles, dirty rows, unconfirmed mapping and revocation.');
+}finally{rmSync(dir,{recursive:true,force:true});}

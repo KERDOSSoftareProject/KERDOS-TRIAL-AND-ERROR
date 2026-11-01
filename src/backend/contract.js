@@ -25,6 +25,10 @@ export function assertBackendContract(backend) {
     for (const name of names) if (typeof backend[capability][name] !== "function")
       throw new Error(`KERDOS backend ${capability}.${name} is not implemented`);
   }
+  // Optional during provider upgrades; when advertised, all operations must
+  // exist. Screens use this business capability, never a vendor SDK.
+  if(backend.variableWeight)for(const name of ['listApprovals','approve','revoke'])
+    if(typeof backend.variableWeight[name]!=='function')throw new Error(`KERDOS backend variableWeight.${name} is not implemented`);
   return backend;
 }
 
