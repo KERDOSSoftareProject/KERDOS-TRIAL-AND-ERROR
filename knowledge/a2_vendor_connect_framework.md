@@ -3,6 +3,22 @@
 I · Procurement → A · Automated Ingestion → Task 2 · Vendor Integration
 Client page: Vendor Connect. Implementation increment: November 1, 2026.
 
+## Execution method boundary — November 1, 2026 clarification
+
+Vendor Connect is a universal client/vendor framework. The execution method is
+an implementation behind the shared connection/retrieval/import contract, not
+a commitment to Chrome or a single pilot account. Browser companion, desktop
+companion, approved direct connection and guided upload should reuse that
+contract with honest capability reporting. Desktop and broader browser delivery
+remain evaluation/build tasks; Chrome is the first implementation. Portal
+maintenance still belongs to vendor adapters. Local execution requires a running
+device, and retrieving current vendor data requires connectivity.
+
+The live Chrome pilot reached CSV receipt for review. Its native-table header
+false positive and controlled-source preservation checks are documented in
+[B4 native header repair](b4_native_header_false_positive.md). Receipt and local
+parser validation do not establish saved-price acceptance.
+
 ## Result
 
 The application can prepare a client-vendor setup request using an approved

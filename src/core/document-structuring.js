@@ -1,4 +1,4 @@
-import {parseDocument,mapColumnsFromHeader,detectDocumentKind,findQuoteValidity,findInvoiceNumber} from '../ingestion.js';
+import {parseDocument,mapColumnsFromHeader,isTableHeader,detectDocumentKind,findQuoteValidity,findInvoiceNumber} from '../ingestion.js';
 import {applySourceUnits,documentQuoteUnit} from './source-units.js';
 
 const clean=value=>String(value??'').replace(/[\t\r\n]+/g,' ').trim();
@@ -7,7 +7,7 @@ const furniture=text=>/^(?:page\s+\d+|(?:grand\s+)?total\b|subtotal\b|signature\
 const sectionTitle=text=>/^\*+\s*(?:[a-z]\s*)+\*+$/i.test(text.trim());
 const nonProductSection=text=>/(?:following items were out of stock|these are your outstanding invoices)/i.test(text);
 const roles=cells=>mapColumnsFromHeader(cells.map(cell=>clean(cell.text??cell)));
-const isHeader=cells=>{const map=roles(cells);return map.description!==undefined&&map.price!==undefined;};
+const isHeader=(cells,previousColumns={})=>isTableHeader(cells.map(cell=>clean(cell.text??cell)),previousColumns);
 const lineText=row=>row.cells.map(cell=>clean(cell.text)).join('\t');
 
 function ocrWords(nodes,scale,height,result=[]){
@@ -149,11 +149,14 @@ function worksheetSegments(reading){
       if(!rows.has(cell.row))rows.set(cell.row,{cells:Array.from({length:max-min+1},()=>({text:'',cells:[]})),lines:[cell.row]});
       const slot=rows.get(cell.row).cells[cell.column-min];slot.text=clean(cell.value);slot.cells.push(cell);
     }
-    let active=[];
-    const finish=()=>{if(active.length)segments.push({kind:'native',worksheet:sheet.name,rows:active});active=[];};
+    let active=[],headerColumns=null;
+    const finish=()=>{if(active.length)segments.push({kind:'native',worksheet:sheet.name,rows:active});active=[];headerColumns=null;};
     for(const row of [...rows.values()].sort((a,b)=>a.lines[0]-b.lines[0])){
       if(!row.cells.some(cell=>cell.text))continue;
-      if(isHeader(row.cells)&&active.some(prior=>isHeader(prior.cells)))finish();
+      if(isHeader(row.cells,headerColumns||{})){
+        if(headerColumns)finish();
+        headerColumns=roles(row.cells);
+      }
       active.push(row);
     }
     finish();
