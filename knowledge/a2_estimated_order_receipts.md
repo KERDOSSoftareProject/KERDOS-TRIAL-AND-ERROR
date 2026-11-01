@@ -89,3 +89,22 @@ orders; remaining invoice charges/credits/taxes/freight and complete invoice
 settlement; full supplier-to-invoice end-to-end acceptance. Task 1 remains
 implementation-complete awaiting domains and related verification. Whole Task 2
 and universal delivery remain open.
+
+## Hosted verification
+
+The migration is installed in kerdos-test. The rollback-only category-compliant
+fixture created approved source terms, a saved draft and recorded order plus two
+retained invoice lines. Authenticated review/save produced one case/$56 and one
+case/$70; the second had $14 rate variance against the ordered rate. Identical
+receipt retry retained identity. Two confirmed cases totaled $126 in linked item
+charges, original order totals stayed null, invoice-line edits were rejected and
+deferred constraints passed. After rollback: zero receipts/orders/fixture
+organizations, original eight invoices/eight lines unchanged. Numeric assertions
+compare numeric values, respecting hosted fixed-scale decimal serialization.
+
+RLS is enabled. Eight new functions are SECURITY INVOKER with anonymous
+execution revoked. Authenticated receipt UPDATE/DELETE and service-role INSERT
+are denied; the worker retains SELECT access for source guards. No new security
+advisor finding names the new receipt objects. No worker was deployed or
+modified. This is hosted database-role verification, not a real signed-in client,
+concurrent session or supplier receipt acceptance pass.

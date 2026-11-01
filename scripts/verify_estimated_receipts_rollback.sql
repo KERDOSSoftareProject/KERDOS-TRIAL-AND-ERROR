@@ -52,7 +52,7 @@ begin
  if (select sum(received_cases) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>1 then raise exception 'Partial receipt case count failed';end if;
  review2:=public.kerdos_review_estimated_receipt(o,ol,(c->>'il2')::uuid,1);
  receipt2:=public.kerdos_save_estimated_receipt(o,ol,(c->>'il2')::uuid,1,review2,true,true);
- if receipt1->>'actualCharge'<>'56' or receipt2->>'actualCharge'<>'70' or receipt2->>'rateVariance'<>'14' then raise exception 'Invoice charges or quoted variance failed';end if;
+ if (receipt1->>'actualCharge')::numeric<>56 or (receipt2->>'actualCharge')::numeric<>70 or (receipt2->>'rateVariance')::numeric<>14 then raise exception 'Invoice charges or quoted variance failed';end if;
  if (select sum(received_cases) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>2 or (select sum((snapshot->>'actualCharge')::numeric) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>126 then raise exception 'Complete linked item charges failed';end if;
  blocked:=false;begin update public.invoice_lines set unit_price=5 where id=(c->>'il1')::uuid;exception when raise_exception then if sqlerrm like '%immutable%' then blocked:=true;else raise;end if;end;
  if not blocked then raise exception 'Receipt invoice mutation was not blocked';end if;
