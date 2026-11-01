@@ -30,7 +30,7 @@ const importRow={sourceDocumentId:doc,rowKey:'row:0',row:source,reviewRequired:t
 await db.query('insert into import_documents values($1,$2,$3,$4,$5)',[doc,org,vendor,'pricelist',JSON.stringify({version:1,rows:[proof]})]);
 await db.query('insert into vendor_items(id,organization_id,vendor_id,vendor_item_code,description,brand,pack_size,price,selling_unit,price_basis,price_unavailable,last_updated,import_row) values($1,$2,$3,$4,$5,$6,$7,4,\'LB\',\'measure\',true,$8,$9)',[vi,org,vendor,source.code,source.description,source.brand,source.packSize,'2026-11-01T15:20:30.216144Z',JSON.stringify(importRow)]);
 await db.query('insert into item_mappings values($1,$2,$3,$4,$5,100)',[map,org,vi,ci,'exact']);
-const sql=fs.readFileSync(new URL('../../supabase/migrations/20261101193124_variable_weight_approvals.sql',import.meta.url),'utf8');
+const sql=fs.readFileSync(new URL('../../supabase/migrations/20261101195350_variable_weight_approvals.sql',import.meta.url),'utf8');
 await db.exec(sql);await db.exec(sql);
 async function actor(user,role='authenticated'){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user||'']);await db.exec(`set role ${role}`);}
 async function admin(query,args=[]){await db.exec('reset role');return db.query(query,args);}
