@@ -84,11 +84,12 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
     setPending(store.pending());setRetry(null);setRetryConsent(false);setConsent('');setSelected(record);setView('saved');
     setSaved(prior=>[record,...prior.filter(d=>d.id!==record.id)]);setNotice(kept?'Draft saved. Nothing has been ordered or sent.':'Draft saved. Its recovery journal still needs updating.');
   }
-  async function send(entry){
+  async function send(entry,retrying=false){
     try{const record=await service.savePrepared(entry.intent,{confirmed:true});adopt(entry,record);}
     catch(err){
-      if(draftSaveDefinitelyFailed(err))store.settle(entry,'failed');
-      if(alive.current){setPending(store.pending());setConsent('');if(draftSaveDefinitelyFailed(err)){setRetry(null);setRetryConsent(false);}setError(err.message||String(err));setNotice(draftSaveDefinitelyFailed(err)?'Save failed. Review the current terms before trying again.':'The save result is unknown. Check the saved result before starting another draft.');}
+      const definite=draftSaveDefinitelyFailed(err)&&!retrying;
+      if(definite)store.settle(entry,'failed');
+      if(alive.current){setPending(store.pending());setConsent('');if(definite){setRetry(null);setRetryConsent(false);}setError(err.message||String(err));setNotice(definite?'Save failed. Review the current terms before trying again.':'The save result is unknown. Check the saved result before starting another draft.');}
     }
   }
   async function save(){
@@ -112,7 +113,7 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
     catch(err){if(alive.current)setError(err.message||String(err));}
     finally{working.current=false;if(alive.current)setBusy(false);}
   }
-  async function retrySave(){if(working.current||!retry||!retryConsent)return;working.current=true;setBusy(true);setError('');try{await send(retry);}finally{working.current=false;if(alive.current)setBusy(false);}}
+  async function retrySave(){if(working.current||!retry||!retryConsent)return;working.current=true;setBusy(true);setError('');try{await send(retry,true);}finally{working.current=false;if(alive.current)setBusy(false);}}
   async function openDraft(record){if(working.current)return;working.current=true;setBusy(true);setError('');try{const fresh=await service.get(orgId,record.id);if(!fresh)throw new Error('Draft is no longer available.');if(alive.current){setSelected(fresh);setCancelTarget(null);}}catch(err){if(alive.current)setError(err.message||String(err));}finally{working.current=false;if(alive.current)setBusy(false);}}
   async function cancel(){
     if(working.current||!cancelTarget||!canCancelSelected||selected.id!==cancelTarget)return;working.current=true;setBusy(true);setError('');

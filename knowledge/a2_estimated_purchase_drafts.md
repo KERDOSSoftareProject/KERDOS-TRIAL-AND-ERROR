@@ -87,8 +87,10 @@ separate local journal key, so another request cannot overwrite it. The exact
 prepared intent is retained before any server call; resolved attempts retain only compact local metadata, while the server keeps the saved snapshot. Local storage failure blocks
 that call. Unknown outcomes block a new draft and can be recovered by request ID.
 If the server has no result yet, explicit consent retries the identical stored
-request and source terms. PostgreSQL transaction-error responses mark a failed
-attempt; transport/API ambiguity stays pending. Local history recovery does not
+request and source terms. A PostgreSQL transaction-error response to a fresh first attempt marks that
+attempt failed; transport/API ambiguity stays pending. Once an earlier outcome
+is unknown, even a rejected retry keeps its journal pending: failure of the
+retry does not prove the earlier attempt failed. Local history recovery does not
 make expired or revoked terms orderable. Server source/approval/revision checks
 still run on every new save.
 
@@ -101,7 +103,7 @@ Separate journal tests verify actor/client isolation and per-request records.
 These are local interaction checks, not live supplier, signed-in client,
 multibrowser, or true concurrent-tab/database acceptance.
 
-Still open: signed-in save/reload/recovery/cancellation acceptance; actual
+Still open: transaction-proven abandonment of an unresolved save attempt, signed-in save/reload/recovery/cancellation acceptance; actual
 concurrent-tab/database testing; final order submission, delivery minimums,
 mixed exact/estimated orders, exports and invoice/partial-receipt reconciliation.
 No client approvals, drafts or supplier orders are created by this increment's
