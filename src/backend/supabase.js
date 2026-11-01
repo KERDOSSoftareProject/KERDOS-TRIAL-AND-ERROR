@@ -45,8 +45,11 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    invoiceApprovalWithdrawals:{
+      withdraw(organizationId,approvalId,reason){return providerResult(client.rpc('kerdos_withdraw_invoice_approval',{p_organization_id:organizationId,p_approval_id:approvalId,p_reason:reason,p_confirmed:true}),'Withdraw invoice accounting approval');},
+    },
     invoiceApprovals:{
-      review(organizationId,invoiceId){return providerResult(client.rpc('kerdos_review_invoice_approval',{p_organization_id:organizationId,p_invoice_id:invoiceId}),'Review invoice accounting approval');},
+      review(organizationId,invoiceId){return providerResult(client.rpc('kerdos_review_invoice_approval_audit',{p_organization_id:organizationId,p_invoice_id:invoiceId}),'Review invoice accounting approval');},
       save(request){return providerResult(client.rpc('kerdos_save_invoice_approval',{p_organization_id:request.organizationId,p_invoice_id:request.invoiceId,p_request_id:request.requestId,p_source:request.source,p_note:request.note,p_confirmed:true}),'Save invoice accounting approval');},
     },
     invoiceReconciliation:{

@@ -30,7 +30,7 @@ begin
 end $$;
 set local role authenticated;
 do $$
-declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; approval_review jsonb; approval jsonb; request_id uuid:=gen_random_uuid(); ol uuid;
+declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; approval_review jsonb; approval jsonb; withdrawal jsonb; withdrawn_approval jsonb; request_id uuid:=gen_random_uuid(); ol uuid;
 begin
  terms:=public.kerdos_variable_weight_terms(o,vi,m);
  a:=public.kerdos_approve_variable_weight(o,vi,m,0,jsonb_build_object('kind','variable_weight_approval_intent','version',1,'requestedBy',auth.uid(),'finalChargeKnown',false,'terms',terms));
@@ -54,6 +54,22 @@ begin
  if approval_review->'gate'->'eligible' is distinct from 'true'::jsonb then raise exception 'Clean hosted invoice was not eligible for accounting approval';end if;
  approval:=public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,request_id,approval_review->'source','Reviewed retained source and receipt',true);
  if public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,request_id,approval_review->'source','Reviewed retained source and receipt',true)<>approval then raise exception 'Approval replay changed identity';end if;
+ withdrawn_approval:=approval;
+ withdrawal:=public.kerdos_withdraw_invoice_approval(o,(approval->>'id')::uuid,'Approval requires a fresh accounting review',true);
+ if public.kerdos_withdraw_invoice_approval(o,(approval->>'id')::uuid,'Approval requires a fresh accounting review',true)<>withdrawal then raise exception 'Withdrawal replay changed identity';end if;
+ select public.kerdos_review_invoice_approval(o,invoice_id) into approval_review from public.invoice_lines where id=(c->>'il1')::uuid;
+ if jsonb_array_length(approval_review->'approvals')<>0 then raise exception 'Legacy reader counted withdrawn approval';end if;
+ select public.kerdos_review_invoice_approval_audit(o,invoice_id) into approval_review from public.invoice_lines where id=(c->>'il1')::uuid;
+ if jsonb_array_length(approval_review->'approvals')<>1 or jsonb_array_length(approval_review->'withdrawals')<>1 or approval_review->'withdrawals'->0 is distinct from withdrawal then raise exception 'Complete withdrawal audit was not retained';end if;
+ if public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,request_id,approval_review->'source','Reviewed retained source and receipt',true)<>withdrawn_approval then raise exception 'Historical withdrawn approval replay changed';end if;
+ request_id:=gen_random_uuid();
+ approval:=public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,request_id,approval_review->'source','Fresh approval after withdrawal',true);
+ if approval->>'id'=withdrawn_approval->>'id' then raise exception 'Reapproval reused withdrawn identity';end if;
+ select public.kerdos_review_invoice_approval(o,invoice_id) into approval_review from public.invoice_lines where id=(c->>'il1')::uuid;
+ if jsonb_array_length(approval_review->'approvals')<>1 or approval_review->'approvals'->0 is distinct from approval then raise exception 'Fresh reapproval did not preserve legacy current status';end if;
+ blocked:=false;begin delete from public.invoice_approval_withdrawals where id=(withdrawal->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
+ if not blocked then raise exception 'Withdrawal deletion was not denied';end if;
+
 
  if (select sum(received_cases) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>1 then raise exception 'Partial receipt case count failed';end if;
  review2:=public.kerdos_review_estimated_receipt(o,ol,(c->>'il2')::uuid,1);
@@ -92,4 +108,4 @@ begin
  set constraints all immediate;
 end $$;
 rollback;
-select (select count(*) from public.invoice_accounting_approvals) as approvals,(select count(*) from public.estimated_receipt_replacements) as replacements,(select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
+select (select count(*) from public.invoice_approval_withdrawals) as approval_withdrawals,(select count(*) from public.invoice_accounting_approvals) as approvals,(select count(*) from public.estimated_receipt_replacements) as replacements,(select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
