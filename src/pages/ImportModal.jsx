@@ -1,3 +1,4 @@
+import {invoiceBilledQuantityEvidence} from '../core/invoice-quantity-evidence.js';
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
@@ -752,7 +753,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           linesToInsert.push({
             vendor_item_id:matched?.id||null, vendor_item_code:row.code, description:row.description,
             quantity:row.qty??null,selling_unit:row.sellingUnit||null,
-            source_line:row.sourceLine??null,billing_unit_evidence:billingUnitEvidence(row),
+            source_line:row.sourceLine??null,billing_unit_evidence:billingUnitEvidence(row),quantity_source:row.quantitySource??null,billed_quantity_evidence:invoiceBilledQuantityEvidence(row),
             unit_price:row.price, line_total:(row.amount!=null?row.amount:row.price),
             price_variance:variance, match_confidence:confidence, match_method:method,
             create_vendor_item:!matched&&!codeConflict&&method==="created_from_invoice",
