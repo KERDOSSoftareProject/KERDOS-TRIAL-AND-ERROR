@@ -13,6 +13,8 @@ import Renderer,{act} from 'react-test-renderer';
 import assert from 'node:assert/strict';
 import {PasteModal} from './src/pages/ImportModal.jsx';
 import {createPriceImportFixture} from './scripts/fixtures/price-import-backend.mjs';
+import * as XLSX from 'xlsx';
+import {createDocumentReader} from './src/core/document-reading.js';
 import ocrCapture from './scripts/fixtures/b2/mixed-ocr-reading.json';
 const csv='Code,Description,Pack,Price Unit,Price\nB1-001,Chicken Breast Boneless Skinless,2/10 LB,CASE,41.25\n';
 const invoice='INVOICE B1-INV-001\nDate: 10/27/2026\nItem,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\nB1-001,Chicken Breast Boneless Skinless,2/10 LB,CASE,2,41.25,82.50';
@@ -256,7 +258,19 @@ await check('missing companion evidence schema blocks quote writes instead of fa
  for(let i=0;i<20&&!button(p,'Save Import →');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
  await save(p);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.insertImportDoc.length,0);assert.match(text(p.tree.toJSON()),/retrieval_evidence column not installed/);p.tree.unmount();
 });
-console.log(passed+'/22 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('native 87-row companion CSV asks only about genuine metadata headings then previews all products without writes',async()=>{
+ const header=['Line Number','Group Name','Product Number','Product Description','Product Brand','Product Package Size','Customer Product Number','Product Price','Product UOM','Class Description','Storage Description'];
+ const content=[header,...Array.from({length:87},(_,i)=>[i+1,'Example Group','TEST-'+i,'Sample cooked product '+i,i===84?'PRICE PRODUCT NAME':'Example brand','2/10 LB','','41.25','CS','Example class','Dry'])].map(row=>row.join(',')).join('\n');
+ const input=file('vendor-prices.csv',content),reader=createDocumentReader({loadWorkbook:async()=>XLSX});input.reading=await reader(input);
+ const f=fixture(),p=await open(vendor,'pricelist',{initialFiles:[input],companionEvidence:{kind:'browser_companion',account_label:'Synthetic Client',list_label:'Synthetic List'}});
+ for(let i=0;i<20&&!button(p,'Continue →');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
+ assert.match(text(p.tree.toJSON()),/Check unrecognized columns/);
+ assert.deepEqual(p.tree.root.findAll(node=>node.type==='span'&&node.props.style?.fontFamily==='monospace').map(node=>text(node)),['Line Number','Group Name','Customer Product Number','Class Description','Storage Description']);
+ assert.equal(writes(f),0);
+ await act(async()=>{await button(p,'Continue →').props.onClick();});
+ assert.ok(button(p,'Save Import →'));assert.match(text(p.tree.toJSON()),/87 product rows read/);assert.equal(writes(f),0);p.tree.unmount();
+});
+console.log(passed+'/23 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

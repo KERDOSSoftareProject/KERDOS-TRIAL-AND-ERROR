@@ -330,6 +330,15 @@ function mapColumnsFromHeader(headerCells) {
   return map;
 }
 
+// Header words inside product data are not a new table. The two required
+// roles must occupy separate cells, and an established price cell containing
+// a real amount (including zero or a price/unit value) keeps the row as data.
+function isTableHeader(cells, previousColumns={}) {
+  const map=mapColumnsFromHeader(cells);
+  return map.description!==undefined&&map.price!==undefined&&map.description!==map.price&&
+    parseMoneyLenient(cells[map.price])===null&&parseMoneyLenient(cells[previousColumns.price])===null;
+}
+
 // Profiles each column's DATA (rather than its header text) to guess
 // its role, based on shape: how numeric it is, how long the text is,
 // etc. Used in two situations:
@@ -1290,7 +1299,7 @@ function parseDocumentRows(text, options={}) {
     // Repeated table headers can change the quoted unit. Do not leak a
     // preceding worksheet's price header into the next table.
     const header=mapColumnsFromHeader(cells);
-    if(header.description!==undefined&&header.price!==undefined&&header.description!==header.price&&parseMoneyLenient(cells[columnMap.price])===null&&parseMoneyLenient(cells[header.price])===null){
+    if(isTableHeader(cells,columnMap)){
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;continue;
     }
     const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders);
@@ -1319,4 +1328,4 @@ function parseDocument(text, options={}){
 }
 
 // Exported for use elsewhere in the app.
-export { parseDocument, findDate, findInvoiceNumber, detectDocumentKind, findQuoteValidity, mapColumnsFromHeader };
+export { parseDocument, findDate, findInvoiceNumber, detectDocumentKind, findQuoteValidity, mapColumnsFromHeader, isTableHeader };

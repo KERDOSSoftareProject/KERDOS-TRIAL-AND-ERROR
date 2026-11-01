@@ -50,6 +50,18 @@ await check('native CSV preserves quoted commas/newlines and source cells instea
   assert.equal(p.rows[0].sourceProvenance.cells[1].cells[0].value,'Chicken, boneless\nbreast');
   assert.equal(r.text,text);
 });
+await check('priced rows with separate header-like words stay data, including zero and price/unit amounts',async()=>{
+  const source=[['Code','Description','Brand','Price'],['A1','Description of Sample Product','Price Brand','41.25'],['A2','Description of Sample Product','Price Brand','0.00'],['A3','Description of Sample Product','Price Brand','45.00/cs']];
+  const csv=source.map(row=>row.join(',')).join('\n');
+  const r=await reader(file('header-words.csv',new TextEncoder().encode(csv))),p=parseStructuredDocument(csv,r);
+  assert.equal(p.parts.length,1);assert.deepEqual(p.rows.map(row=>[row.code,row.price]),[['A1',41.25],['A2',0],['A3',45]]);
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.lines),[[2],[3],[4]]);
+});
+await check('native repeated and reordered headers still start independent tables and change price basis',async()=>{
+  const csv='Code,Description,Price/CASE\nA1,Chicken Breast,40\nCode,Description,Price/CASE\nA2,Turkey Breast,50\nPrice/LB,Code,Description\n6.25,A3,Beef Tenderloin';
+  const r=await reader(file('repeated.csv',new TextEncoder().encode(csv))),p=parseStructuredDocument(csv,r);
+  assert.equal(p.parts.length,3);assert.deepEqual(p.rows.map(row=>[row.code,row.price,row.sellingUnit]),[['A1',40,'CASE'],['A2',50,'CASE'],['A3',6.25,'LB']]);
+});
 await check('wrapped description merges by column/nearby geometry and retains both source lines',()=>{
   const r=positioned([...headings,...product('12345','Chicken Breast',40,510),item('Boneless Skinless',150,496,120),...product('12346','Turkey Breast',50,450)]);
   const p=parseStructuredDocument('',r);
