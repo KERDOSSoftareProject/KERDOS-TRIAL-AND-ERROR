@@ -5,15 +5,18 @@ import {editablePack,serializePack} from "../core/pack-editor.js";
 import {QuotedPerControl} from "./QuotedPerControl.jsx";
 import {calculatedUnitCost,comparisonUnits,defaultComparisonUnit} from "../core/quote-controls.js";
 import {buildCategoryDropdown} from "../services/categories.js";
-import {useState,useMemo} from "react";
+import {useState,useMemo,useEffect} from "react";
 import {backend} from "../backend/index.js";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
+import {createVariableWeightService} from '../services/variable-weight.js';
+import {VariableWeightConfirmation} from './VariableWeightConfirmation.jsx';
 import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,qualificationSummary,BLOCKER_LABELS} from "../core/catalog-fields.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost} from "../procurement.js";
 import {formatMoney} from "../localization.js";
 import {btn,inp} from "../ui/styles.js";
 
 const service=createCatalogRowsService(backend);
+const variableWeightService=createVariableWeightService(backend);
 const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"};
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
 // A percentage only where there is a value; an empty cell is simply empty.
@@ -25,7 +28,7 @@ function Evidence({field}){
   const color=field.accuracy>=90?"#38704E":field.accuracy>=70?"#8D5900":"#B03A2E";
   return <small title={field.reason} style={{display:"block",marginTop:4,color}}>{field.accuracy}%{field.by?<span style={{marginLeft:6,fontWeight:800,color:"#003584"}}>{field.by}</span>:null}</small>;
 }
-function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={}}){
+function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
   const [draft,setDraft]=useState({});
   const [nameDraft,setNameDraft]=useState(null);
   const [numberDraft,setNumberDraft]=useState(null);
@@ -148,6 +151,7 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
         {dirty&&<button disabled={busy} onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setPackParts(null);setError("");}} style={{border:0,background:"none",cursor:"pointer",fontSize:11}}>Undo edits</button>}
         <button onClick={()=>setDetails(!details)} style={{display:"block",marginTop:6,border:0,background:"none",cursor:"pointer",color:"#245785"}}>Details</button>
         {vendorItem.import_row?.reviewRequired&&<small style={{display:"block",color:"#9B4400"}}>New quote needs review</small>}
+        {parsedPack?.catchWeight&&currentBasis?.basis==='measure'&&<VariableWeightConfirmation service={variableWeightService} organizationId={orgId} listing={vendorItem} mapping={mapping} catalogItemId={item.id} settings={settings} approval={variableApproval} disabled={dirty||busy} canManage={canManage} onChanged={onVariableApprovalChanged}/>}
         {saved&&<small role="status" style={{color:"#276742"}}>Saved</small>}
         {error&&<div role="alert" style={{fontSize:11,color:"#A32B20",whiteSpace:"normal"}}>{error}</div>}
       </td>
@@ -186,6 +190,15 @@ export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,ma
   const summary=useMemo(()=>qualificationSummary({catalogItems,vendorItems,mappings,vendors,categories,settings}),[catalogItems,vendorItems,mappings,vendors,categories,settings]);
   const [selected,setSelected]=useState(new Set());
   const [sort,setSort]=useState({key:"product",direction:1});
+  const [variableApprovals,setVariableApprovals]=useState({}),[approvalError,setApprovalError]=useState('');
+  const variableIds=vendorItems.filter(v=>parsePackSize(v.pack_size)?.catchWeight&&priceBasisFor(v.selling_unit)?.basis==='measure').map(v=>v.id).sort().join('|');
+  useEffect(()=>{
+    let active=true;setVariableApprovals({});setApprovalError('');
+    if(variableWeightService.supported&&orgId&&variableIds)variableWeightService.list(orgId,variableIds.split('|')).then(rows=>{
+      if(active)setVariableApprovals(Object.fromEntries(rows.map(row=>[row.terms.vendorItemId,row])));
+    }).catch(err=>{if(active)setApprovalError(err.message||String(err));});
+    return ()=>{active=false;};
+  },[orgId,variableIds]);
   const catalog=new Map(catalogItems.map(i=>[i.id,i])),viById=new Map(vendorItems.map(v=>[v.id,v])),vendorById=new Map(vendors.map(v=>[v.id,v]));
   const visible=new Set(items.map(i=>i.catalogItemId));
   const rows=mappings.filter(m=>visible.has(m.catalog_item_id)).flatMap(mapping=>{
@@ -201,6 +214,7 @@ export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,ma
   });
   const linked=new Set(rows.map(r=>r.item.id));
   return <div style={{overflowX:"auto",borderRadius:10,background:"white",marginBottom:16}}>
+    {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     <div style={{padding:12,fontSize:12}}>Correct any cell, then save its row. Missing fields can be completed later.
       <details style={{marginTop:8}}><summary>{summary.ready} of {summary.total} vendor rows meet Order Guide requirements · {summary.blocked} need evidence</summary>
         <p>All required fields need at least 90%, a verified product association and a current quote. A row can have more than one blocker.</p>
@@ -209,7 +223,7 @@ export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,ma
     </div>
     {canManage&&<AssociateAlternatives orgId={orgId} selectedVendorIds={[...selected]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelected(new Set())}/>}
     <table style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}<th style={cellStyle}>Actions</th></tr></thead>
-      <tbody>{rows.map(row=><EditableRow selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
+      <tbody>{rows.map(row=><EditableRow selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
       {items.filter(i=>!linked.has(i.catalogItemId)).map(i=><tr key={i.catalogItemId}><td style={cellStyle}/><td style={cellStyle}>#{i.masterItemNumber}</td><td colSpan={CATALOG_COLUMNS.length-1} style={cellStyle}>{i.name} · No vendor listing linked yet.</td><td><button onClick={()=>onDetails(i.catalogItemId)}>Details</button></td></tr>)}
       </tbody>
     </table>

@@ -100,6 +100,19 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
         p_expected_revision:row.expectedRevision,p_patch:row.patch,p_price_basis:row.priceBasis,p_price_available:row.priceAvailable,
       }),"Save catalog row");},
     },
+    variableWeight:{
+      listApprovals(organizationId,vendorItemIds){
+        if(!vendorItemIds.length)return Promise.resolve([]);
+        return providerResult(client.from('variable_weight_approvals').select('*').eq('organization_id',organizationId).in('vendor_item_id',vendorItemIds).is('revoked_at',null),'Load variable-weight confirmations');
+      },
+      approve(row){return providerResult(client.rpc('kerdos_approve_variable_weight',{
+        p_organization_id:row.organizationId,p_vendor_item_id:row.vendorItemId,p_mapping_id:row.mappingId,
+        p_expected_revision:row.expectedRevision,p_intent:row.intent,
+      }),'Confirm variable-weight terms');},
+      revoke(row){return providerResult(client.rpc('kerdos_revoke_variable_weight',{
+        p_organization_id:row.organizationId,p_approval_id:row.approvalId,
+      }),'Revoke variable-weight confirmation');},
+    },
     invoices:{
       record(header,lines){
         return providerResult(client.rpc("kerdos_record_invoice",{p_header:header,p_lines:lines}),"Record invoice");
