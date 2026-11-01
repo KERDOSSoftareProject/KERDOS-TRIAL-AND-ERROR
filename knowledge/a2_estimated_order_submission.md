@@ -75,6 +75,18 @@ history formatting. Rendered controls verify review, separate acknowledgement,
 recording, a lost response, recovery and reopening the same order after remount.
 These are controlled local checks, not signed-in or concurrent hosted acceptance.
 
+Hosted kerdos-test migration installation and rollback-only verification passed.
+The fixture follows the existing category/item-number rules, simulates an
+existing authenticated owner in an isolated temporary organization, approves
+source terms, saves a draft, reviews and records it, retries the same submission,
+checks the shared header/line and null total, rejects draft cancellation and
+header mutation, and forces deferred FK checks before rollback. Final counts
+remain zero approvals, drafts, submissions, headers, lines and fixture
+organizations. All new functions are SECURITY INVOKER with anonymous execution
+revoked; the linking table has RLS and no client UPDATE/DELETE grants. No security
+advisor finding names the new objects. This is database role simulation, not
+real browser sign-in, concurrency or vendor delivery.
+
 Open: signed-in review/record/reload/export, actual separate-session races,
 mixed fixed/estimated orders, vendor delivery confirmation, explicit invoice
 matching, actual delivered-weight charges, partial receipts and reconciliation.

@@ -4,7 +4,7 @@ begin;
 set local lock_timeout='3s';
 set local statement_timeout='20s';
 do $$
-declare o uuid:=gen_random_uuid(); v uuid:=gen_random_uuid(); ci uuid:=gen_random_uuid(); vi uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); doc uuid:=gen_random_uuid(); u uuid; source jsonb; proof jsonb;
+declare o uuid:=gen_random_uuid(); v uuid:=gen_random_uuid(); ci uuid:=gen_random_uuid(); category uuid:=gen_random_uuid(); vi uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); doc uuid:=gen_random_uuid(); u uuid; source jsonb; proof jsonb;
 begin
  select om.user_id into u from public.organization_members om join auth.users au on au.id=om.user_id where om.role='owner' limit 1;
  if u is null then raise exception 'An existing test owner is required'; end if;
@@ -13,7 +13,8 @@ begin
  insert into public.organizations(id,name) values(o,'KERDOS rollback estimated order fixture');
  insert into public.organization_members(organization_id,user_id,role) values(o,u,'owner');
  insert into public.vendors(id,organization_id,name,delivery_minimum_dollar,delivery_minimum_units) values(v,o,'Synthetic rollback vendor',200,1);
- insert into public.catalog_items(id,organization_id,name) values(ci,o,'Synthetic order rollback material');
+ insert into public.catalog_categories(id,organization_id,name,range_start,range_end) values(category,o,'Synthetic rollback category',900000,999999);
+ insert into public.catalog_items(id,organization_id,name,category_id) values(ci,o,'Synthetic order rollback material',category);
  insert into public.import_documents(id,organization_id,vendor_id,document_kind,file_name,source_rows) values(doc,o,v,'pricelist','synthetic-order-rollback.csv',jsonb_build_object('version',1,'rows',jsonb_build_array(proof)));
  insert into public.vendor_items(id,organization_id,vendor_id,vendor_item_code,description,brand,pack_size,price,selling_unit,price_basis,price_unavailable,last_updated,import_row)
  values(vi,o,v,'SYN-ORDER','Synthetic order rollback material','Example','2/6-8 LBA',4,'LB','measure',true,current_timestamp,jsonb_build_object('sourceDocumentId',doc,'rowKey','row:0','row',source,'reviewRequired',true,'reviewFields',jsonb_build_array('pack_size')));
