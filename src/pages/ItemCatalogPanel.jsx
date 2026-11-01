@@ -408,7 +408,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <h3 style={{margin:0,fontSize:16,color:"white"}}>Item Catalog</h3>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <EstimatedDraftLauncher key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/>
+          <EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/>
           {canManage&&<button onClick={()=>setAddingItem(true)} style={{...btn("#003584","white",{fontSize:12,padding:"8px 14px"})}}>+ Add Item</button>}
           <button onClick={()=>downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv")}
             disabled={!productList.length} style={{...btn("#2E7D32","white",{fontSize:12,padding:"8px 14px"})}}>

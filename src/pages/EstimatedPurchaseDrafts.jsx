@@ -29,7 +29,7 @@ export function EstimatedDraftLauncher(props){
   </>;
 }
 
-export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItems=[],mappings=[],catalogItems=[],settings={},service,approvalService,orderService=estimatedOrderService,onClose,store:providedStore,makeRequestId=()=>crypto.randomUUID()}){
+export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItems=[],mappings=[],catalogItems=[],settings={},service,approvalService,orderService=estimatedOrderService,onOrderRecorded,onClose,store:providedStore,makeRequestId=()=>crypto.randomUUID()}){
   const [store]=useState(()=>providedStore||browserStore(orgId,userId));
   const [basket,setBasket]=useState(()=>store.readBasket()),[pending,setPending]=useState(()=>store.pending());
   const [approvals,setApprovals]=useState(()=>store.readConfirmations()),[offline,setOffline]=useState(false),[loading,setLoading]=useState(true);
@@ -147,6 +147,7 @@ export function EstimatedPurchaseDrafts({orgId,userId,role,vendors=[],vendorItem
   }
   function showRecordedOrder(order){
     if(!alive.current)return;setRecordedOrder(order);setOrderReview(null);setOrderConsent(false);setMinimumConsent(false);setSelected(prior=>({...prior,submittedOrderId:order.id}));setSaved(prior=>prior.map(d=>d.id===order.sourceDraftId?{...d,submittedOrderId:order.id}:d));setCancelTarget(null);setNotice('Order recorded in KERDOS. Export it to send separately; vendor receipt is not confirmed.');
+    if(onOrderRecorded)Promise.resolve().then(()=>onOrderRecorded()).catch(()=>{if(alive.current)setNotice('Order recorded. Refresh the workspace to update order history.');});
   }
   async function recordOrder(){
     if(working.current||!orderReview||!orderConsent)return;working.current=true;setBusy(true);setError('');
