@@ -1406,7 +1406,7 @@ export default function App() {
             {autoPlaceError&&org.role!=="employee"&&<div role="alert" style={{background:"#FFF3E0",padding:12,marginBottom:12,borderRadius:8}}>
               {autoPlaceError} <button disabled={autoPlacing} onClick={()=>setAutoPlaceRetry(n=>n+1)} style={btn("#003584")}>Retry</button>
             </div>}
-            <ItemCatalogPanel industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
+            <ItemCatalogPanel industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} userId={session.user.id} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
               vendorItems={vendorItems} categories={categories} vocabulary={vocabulary} editors={editors}
               onUpdated={loadData} />
           </>

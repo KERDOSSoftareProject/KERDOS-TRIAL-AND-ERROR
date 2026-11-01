@@ -29,7 +29,7 @@ export function assertBackendContract(backend) {
   // exist. Screens use this business capability, never a vendor SDK.
   if(backend.variableWeight)for(const name of ['listApprovals','approve','revoke'])
     if(typeof backend.variableWeight[name]!=='function')throw new Error(`KERDOS backend variableWeight.${name} is not implemented`);
-  if(backend.estimatedDrafts)for(const name of ['save','get','getByRequest','cancel'])
+  if(backend.estimatedDrafts)for(const name of ['save','get','getByRequest','list','cancel'])
     if(typeof backend.estimatedDrafts[name]!=='function')throw new Error(`KERDOS backend estimatedDrafts.${name} is not implemented`);
   return backend;
 }

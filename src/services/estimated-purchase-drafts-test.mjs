@@ -21,6 +21,7 @@ let signedIn=true,writes=0,record,fail=false,tamper=false;
 const backend={session:{get:async()=>signedIn?{user:{id:'employee'}}:null},estimatedDrafts:{
  save:async i=>{writes++;if(fail)throw new Error('Quote changed');if(!record)record={id:'draft',organization_id:'org',vendor_id:'vendor',request_id:i.requestId,created_by:'employee',created_at:now,status:'draft',final_charge:null,requested_lines:i.lines,estimate:i.estimate,lines:i.lines.map((l,index)=>{const saved={...l,id:'line-'+index,orderId:'draft',kind:'estimated_purchase_draft_line',rowRevision:l.expectedRevision};delete saved.expectedRevision;delete saved.requiresAuthenticatedPersistence;return saved;})};const result=structuredClone(record);if(tamper)result.lines[0].terms.vendorItemId='different';return result;},
  get:async()=>record?structuredClone(record):null,
+ list:async(org,offset)=>{assert.equal(offset,0);return record?[structuredClone(record)]:[];},
  getByRequest:async()=>record?structuredClone(record):null,
  cancel:async()=>{record={...record,status:'cancelled',cancelled_at:now,cancelled_by:'employee'};return structuredClone(record);}}};
 const service=createEstimatedDraftService(backend);
@@ -33,6 +34,7 @@ tamper=true;await assert.rejects(service.save(input),/snapshot|differs from this
 fail=true;await assert.rejects(service.save(input),/Quote changed/);fail=false;
 assert.equal((await service.recover('org',input.requestId)).id,saved.id);
 await assert.rejects(service.recover('org','other'),/different creator/);
+assert.equal((await service.list('org')).length,1);await assert.rejects(service.list('other'),/scope/);await assert.rejects(service.list('org',-1),/page/);
 const cancelled=await service.cancel('org','draft');assert.equal(cancelled.status,'cancelled');assert.equal(cancelled.finalCharge,null);assert.deepEqual(cancelled.lines,saved.lines);
 const missing=createEstimatedDraftService({});assert.equal(missing.supported,false);await assert.rejects(missing.get('org','draft'),/unavailable/);
 assert.deepEqual(input,original,'draft preparation and storage adapters preserve source, mapping and approval inputs');
