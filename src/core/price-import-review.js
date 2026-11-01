@@ -86,7 +86,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   if(!row.priceUnavailable){
     if(!resolved)reasons.push("Quoted unit is unresolved.");
     else if(parsePackSize(row.packSize)?.parsed&&casePriceFromQuote(row.price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,row.packSize)==null)
-      reasons.push("The quoted amount, unit and pack cannot produce a valid case price.");
+      reasons.push(parsePackSize(row.packSize)?.catchWeight?
+        "Average or ranged pack weight does not establish an exact case charge; the quoted rate is retained for review.":
+        "The quoted amount, unit and pack cannot produce a valid case price.");
   }
   if(row.priceNeedsReview&&!reasons.length)reasons.push("The incoming price basis needs review.");
   const quoteBasisEvidence=resolved?.invoiceArithmetic?{source:resolved.source,unit:resolved.sellingUnit,references:resolved.invoiceReferences}:null;

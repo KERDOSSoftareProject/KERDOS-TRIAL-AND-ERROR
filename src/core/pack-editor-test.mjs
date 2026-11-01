@@ -26,3 +26,14 @@ assert.equal(serializePack({...nested,count:6}),'6/4/200 ML');
 const unfinished={...nested,innerCounts:[''],catchWeight:true};
 assert.deepEqual(editablePack(serializePack(unfinished)),unfinished,'incomplete nested edits retain every level and average marker');
 assert.ok(!parsePackSize(serializePack(unfinished))?.parsed);
+
+const rangedParts=editablePack('2/6-8 LBA');
+assert.equal(rangedParts.rangeMinimum,6);assert.equal(rangedParts.rangeMaximum,8);
+assert.equal(rangedParts.size,'');
+assert.equal(serializePack(rangedParts),'2/6-8 LB AVG');
+assert.deepEqual(editablePack(serializePack(rangedParts)),rangedParts);
+const rangeDraft={...rangedParts,rangeMaximum:''};
+assert.deepEqual(editablePack(serializePack(rangeDraft)),rangeDraft);
+assert.ok(!parsePackSize(serializePack(rangeDraft))?.parsed);
+const averageDraft={type:'case',count:3,size:'',unit:'LB',catchWeight:true};
+assert.deepEqual(editablePack(serializePack(averageDraft)),averageDraft,'partial ordinary packs retain the average marker too');

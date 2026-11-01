@@ -9,7 +9,7 @@ import {useState,useMemo} from "react";
 import {backend} from "../backend/index.js";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,qualificationSummary,BLOCKER_LABELS} from "../core/catalog-fields.js";
-import {parsePackSize,priceBasisFor,casePriceFromQuote} from "../procurement.js";
+import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost} from "../procurement.js";
 import {formatMoney} from "../localization.js";
 import {btn,inp} from "../ui/styles.js";
 
@@ -66,6 +66,8 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
   const dirty=Object.keys(draft).length>0||nameDirty||linkDirty;
   function edit(key,value){setBase(b=>b||vendorItem);setDraft(d=>({...d,[key]:value}));setSaved(false);setError("");}
   const parsedPack=parsePackSize(current.pack_size);
+  const currentBasis=priceBasisFor(current.selling_unit);
+  const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const shownPack=packParts||editablePack(current.pack_size);
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
@@ -109,7 +111,10 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
           {shownPack.type&&<>
             {shownPack.type==="case"&&<label style={{display:"block",marginTop:4}}>{shownPack.innerCounts?.length?"Inner packs in case":"Eaches in case"}<input aria-label={`Count for ${vendorItem.vendor_item_code}`} type="number" min="1" step="1" style={inputStyle} disabled={!canManage||busy} value={shownPack.count} onChange={e=>changePack("count",e.target.value)}/></label>}
             {shownPack.type==="case"&&shownPack.innerCounts?.map((count,index)=><label key={index} style={{display:"block",marginTop:4}}>Units in inner pack {index+1}<input aria-label={`Inner count ${index+1} for ${vendorItem.vendor_item_code}`} type="number" min="1" step="1" style={inputStyle} disabled={!canManage||busy} value={count} onChange={e=>changePack("innerCounts",shownPack.innerCounts.map((n,i)=>i===index?e.target.value:n))}/></label>)}
-            <label style={{display:"block",marginTop:4}}>Amount in each<input aria-label={`Amount in each for ${vendorItem.vendor_item_code}`} type="number" min="0.001" step="any" style={inputStyle} disabled={!canManage||busy} value={shownPack.size} onChange={e=>changePack("size",e.target.value)}/></label>
+            {Object.hasOwn(shownPack,"rangeMinimum")?<>
+              <label style={{display:"block",marginTop:4}}>Minimum weight in each<input aria-label={`Minimum weight for ${vendorItem.vendor_item_code}`} type="number" min="0.001" step="any" style={inputStyle} disabled={!canManage||busy} value={shownPack.rangeMinimum} onChange={e=>changePack("rangeMinimum",e.target.value)}/></label>
+              <label style={{display:"block",marginTop:4}}>Maximum weight in each<input aria-label={`Maximum weight for ${vendorItem.vendor_item_code}`} type="number" min="0.001" step="any" style={inputStyle} disabled={!canManage||busy} value={shownPack.rangeMaximum} onChange={e=>changePack("rangeMaximum",e.target.value)}/></label>
+            </>:<label style={{display:"block",marginTop:4}}>Amount in each<input aria-label={`Amount in each for ${vendorItem.vendor_item_code}`} type="number" min="0.001" step="any" style={inputStyle} disabled={!canManage||busy} value={shownPack.size} onChange={e=>changePack("size",e.target.value)}/></label>}
             <label style={{display:"block",marginTop:4}}>Measurement<select aria-label={`Each measurement for ${vendorItem.vendor_item_code}`} style={inputStyle} disabled={!canManage||busy} value={shownPack.unit} onChange={e=>changePack("unit",e.target.value)}>
               <option value="" disabled>Select measurement</option>
               {shownPack.unit&&!packUnits.some(u=>u.value===shownPack.unit)&&<option value={shownPack.unit}>{unitLabel(shownPack.unit)}</option>}
@@ -121,9 +126,12 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
         </>;
         else if(key==="itemName")content=<input aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy||linkDirty} value={linkDirty?displayItem.name:nameDraft??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);setNameDraft(e.target.value);setSaved(false);setError("");}} />;
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={current[fields[key]]??""} placeholder={key==="brand"?"Blank if absent":""} onChange={e=>edit(fields[key],e.target.value)} />;
-        else if(key==="sellingUnit")content=<QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={current.selling_unit||""} onChange={value=>edit("selling_unit",value)}/>;
+        else if(key==="sellingUnit")content=<>
+          <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={current.selling_unit||""} onChange={value=>edit("selling_unit",value)}/>
+          {caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
+        </>;
         else content=<>
-          {f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{formatMoney(f.value)}</span>}
+          {f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(current.pack_size).length} value={current.unit_cost_unit||f.unit||defaultComparisonUnit(current.pack_size,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
             {current.unit_cost_unit&&!comparisonUnits(current.pack_size).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}

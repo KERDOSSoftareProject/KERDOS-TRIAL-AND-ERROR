@@ -76,5 +76,20 @@ assert.equal(packsEquivalent('3/4/200 ML','3x4x200 ML'),true);
 assert.equal(packsEquivalent('3/4/200 ML','3/800 ML'),false,'same total cannot erase inner packages');
 assert.equal(packsEquivalent('3/2/2/200 ML','3/4/200 ML'),false,'every intermediate level participates in identity');
 assert.equal(preparePriceImport({...source,packSize:'3/4/200 ML',sellingUnit:'CS',price:24}).requiresReview,false);
-for(const value of ['2/8-9 LBA','2/8-9 LB','0/4/200 ML','3/0/200 ML','3/4/0 ML','3/4/200 ML EXTRA'])
+for(const value of ['2/8-9 LB','0/4/200 ML','3/0/200 ML','3/4/0 ML','3/4/200 ML EXTRA'])
   assert.ok(!parsePackSize(value)?.parsed,`${value}: preserve ranges and reject invalid nested specs`);
+
+for(const packSize of ['3/7 LBA','3/7 LB AVG','2/6-8 LBA','6-8 LB AVG']){
+  const parsed=parsePackSize(packSize);
+  assert.equal(parsed.parsed,true);assert.equal(parsed.catchWeight,true);assert.equal(parsed.unit,'LB');
+  const reviewed=preparePriceImport({...source,packSize,sellingUnit:'LB',price:3});
+  assert.equal(reviewed.requiresReview,true,'a stated measured rate does not authorize a fabricated case charge');
+  assert.ok(reviewed.reasons.some(reason=>reason.includes('exact case charge')));
+  assert.equal(reviewed.row.packSize,packSize);assert.equal(reviewed.row.price,3);
+}
+const ranged=parsePackSize('2/6-8 LBA');
+assert.deepEqual(ranged.weightRange,{minimum:6,maximum:8});
+assert.equal(ranged.total,null);assert.equal(ranged.baseTotal,null);assert.equal(ranged.unitQty,null);
+assert.equal(packsEquivalent('2/6-8 LBA','2/6-8 LB AVG'),true);
+assert.equal(packsEquivalent('2/6-8 LBA','2/7-9 LBA'),false);
+for(const invalid of ['2/8-6 LBA','2/0-8 LBA','0/6-8 LBA','2/6-8 LBA EXTRA'])assert.ok(!parsePackSize(invalid)?.parsed,invalid);

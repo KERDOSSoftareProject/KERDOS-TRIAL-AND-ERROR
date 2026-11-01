@@ -78,3 +78,35 @@ The 347 controlled source proofs still deep-match the retained snapshot;
 335 completed keys and 12 unresolved records remain unchanged. Existing saved
 review flags require the normal scoped review path; this change does not
 rewrite database records or enable recurring retrieval.
+
+## Average/range-weight calculation boundary
+
+The shared parser recognizes the documented `LBA` spelling as pounds average,
+retains the original source text and average marker, and represents an explicit
+variable mass range with separate minimum/maximum values. A range has no single
+unit quantity, total or base total; its midpoint is never invented. The pack
+editor retains both endpoints through complete and incomplete edits.
+
+`casePriceFromQuote` now rejects a measured-rate-to-case conversion when case
+weight is variable. `measuredQuoteRate` converts a stated measured rate directly
+between compatible measurements, without multiplying and dividing by a nominal
+case weight. `quotePriceOnBasis` uses that direct route for like-basis invoice
+comparisons; a variable measured quote cannot be compared to a case-billed
+invoice as an exact charge. Registered custom units retain same-unit arithmetic.
+
+`estimateCaseCost` is a separate, explicitly estimated result. A stated average
+gives a nominal amount; a range gives two bounds and a null single amount.
+Item Catalog displays that estimate with the delivered-weight qualification.
+A fixed case quote divided by average weight produces an estimated unit cost
+at 70% confidence, which cannot enter Order Guide without an explicit supported
+resolution. A direct stated per-pound rate is not downgraded merely because
+case weight is variable.
+
+The seven real-source weight-based rows now have readable pack evidence and
+exact retained per-pound rates, but remain review holds for case purchasing.
+Order Guide does not substitute the raw per-pound price for a missing case
+charge. A held variable-weight row cannot establish a basket amount. No saved
+review was cleared, no delivered weight guessed, and no automatic recurring
+retrieval enabled. Completing variable-weight purchasing still requires an
+explicit workflow for estimated orders and their final delivered-weight charge,
+or a confirmed vendor quote on a supported purchasing basis.

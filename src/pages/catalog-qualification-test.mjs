@@ -41,6 +41,14 @@ try{
   assert.match(nestedHtml,/aria-label="Count for undefined"[^>]*value="3"/);
   assert.match(nestedHtml,/aria-label="Inner count 1 for undefined"[^>]*value="4"/);
   assert.match(nestedHtml,/aria-label="Amount in each for undefined"[^>]*value="200"/);
+  const rangeHtml=renderToStaticMarkup(createElement(CatalogRows,{...props,vendorItems:[{...row,pack_size:"2/6-8 LBA",selling_unit:"LB",price_basis:"measure",price:4}]}));
+  assert.match(rangeHtml,/aria-label="Minimum weight for undefined"[^>]*value="6"/);
+  assert.match(rangeHtml,/aria-label="Maximum weight for undefined"[^>]*value="8"/);
+  assert.ok(!rangeHtml.includes('Amount in each for undefined'),'range cannot become one invented amount');
+  assert.match(rangeHtml,/Case estimate:.*\$48\.00.*\$64\.00/);
+  assert.match(rangeHtml,/Final charge depends on delivered weight/);
+  const averageHtml=renderToStaticMarkup(createElement(CatalogRows,{...props,vendorItems:[{...row,pack_size:"3/7 LBA",selling_unit:"LB",price_basis:"measure",price:4}]}));
+  assert.match(averageHtml,/Case estimate:.*\$84\.00/);
   assert.match(caseHtml,/>Pounds<\/option>/);
   assert.ok(!caseHtml.includes("Auto ("));
   assert.match(caseHtml,/aria-label="Item name for 20001"[^>]*value="Beef"/);
