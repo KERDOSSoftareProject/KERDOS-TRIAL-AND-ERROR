@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════════════════════════
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
+import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
 import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
@@ -44,7 +45,7 @@ const COLUMN_ROLES = {
   gtin:        ["upc", "gtin", "ean", "barcode", "bar code", "upc code", "upc/ean"],
   mfrCode:     ["mfr #", "mfg #", "mfr no", "mfg no", "mfr item", "mfg item", "manufacturer item", "manufacturer no", "manufacturer #", "manufacturer part", "mfr part", "part no", "part number", "model"],
   sellingUnit: ["product uom", "type", "selling unit", "order unit", "quoted per", "price unit", "price uom", "pricing unit", "pricing basis", "price basis", "unit of sale"],
-  qty:         ["qty", "quantity", "count", "ordered", "order qty", "ord qty", "delivered", "dlv", "dlvd"],
+  qty:         ["billed quantity", "billed qty", "billed weight", "quantity billed", "weight billed", "invoice quantity", "invoice qty", "qty", "quantity", "count", "ordered", "order qty", "ord qty", "delivered", "dlv", "dlvd"],
   packSize:    ["unit", "size", "pack", "uom", "pack size", "pk", "pkg", "package", "pack/size", "pack & size", "pack & size:", "package size", "unit size"],
   price:       ["price", "pr", "prc", "unit price", "cost", "unit cost", "rate", "your price", "net price", "sell", "sell price", "selling price", "quote price", "quoted price", "list price", "price/case", "price per case", "price/ea", "price/lb", "price/gal"],
   amount:      ["amount", "total", "ext", "extended", "ext price", "ext. price", "line total", "line amount", "extended price", "total price", "total amount"],
@@ -286,6 +287,8 @@ const PRICE_PRIORITY = ["your price","net price","sell price","selling price",
 
 function mapColumnsFromHeader(headerCells) {
   const map = {};
+  const billedIndex=headerCells.findIndex(billedQuantityHeader);
+  if(billedIndex>=0)map.qty=billedIndex;
   // Reserve explicit column labels across the whole header before fuzzy matches.
   // An earlier "Group Name" must not steal a later "Product Description".
   const exact=[];
@@ -613,6 +616,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     packSource,
     originalPackRaw: finalOriginalRaw,
     qty: qty !== null ? qty : null,
+    quantitySource:Number.isInteger(columnMap.qty)&&sourceHeaders[columnMap.qty]?{kind:'quantity-column',header:sourceHeaders[columnMap.qty],rawValue:get('qty')??'',columnIndex:columnMap.qty,headerLine:sourceHeaders.join('\t')}:null,
     price: price !== null ? price : amount,
     amount: amount !== null ? amount : price,
     priceUnavailable: finalPriceUnavailable,
@@ -793,6 +797,7 @@ function parseGoodsInvoice(lines,text){
     rows.push({code,description:description.slice(0,120),packSize,qty,orderedQty:Number(ordered),deliveredQty:Number(delivered),weight:weightPart,
       sellingUnit:uom.toUpperCase(),sellingUnitSource:'goods invoice billed UOM',
       billingUnitEvidence:{kind:'goods-invoice-billed-unit',header:'UOM',unit:uom.toUpperCase()},
+      quantitySource:weightMatch?{kind:'goods-invoice-weight',header:lines[heading].match(/\b(Weight|Billed\s+Quantity)\b/i)[1],rawValue:weightMatch[1],headerLine:lines[heading]}:null,
       price,amount,priceBasis:measuredUnit?'measure':'selling-unit',
       priceUnavailable:false,sourceLine:line,issues});
   }

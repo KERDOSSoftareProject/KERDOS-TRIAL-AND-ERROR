@@ -57,6 +57,7 @@ try{
   await db.exec(read('knowledge/migration_038_receipt_vendor_snapshot_draft.sql'));
   await db.exec(read('knowledge/migration_039_routing_document_type.sql'));
   await db.exec(read('supabase/migrations/20261027205000_a1_atomic_background_invoice.sql'));
+  await db.exec(read('supabase/migrations/20261101213251_invoice_billed_quantity_evidence.sql'));
   await db.exec(`GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
     INSERT INTO vendors VALUES('${vendor}','${org}');INSERT INTO vendor_items VALUES('${item}','${org}','${vendor}');
     INSERT INTO email_routing_addresses(id,organization_id,routing_address,document_type) VALUES('${route}','${org}','client.vendor@configured.example','invoice');
@@ -118,6 +119,15 @@ try{
     await db.exec('DROP TRIGGER fail_final_status ON inbound_attachments');
     await rpc({...header,invoice_number:'INV-102',raw_text:text.replace('INV-101','INV-102')},prepared.lines,token,att,'second:128');
     assert.deepEqual(await counts(),{invoices:2,lines:2,docs:2});
+  });
+  await check('new billed quantity source/evidence survive automatic atomic persistence and replay',async()=>{
+    await db.query("UPDATE inbound_attachments SET processing_status='processing' WHERE id=$1",[att]);
+    const billedText=text.replace('INV-101','INV-BILLED').replace(',Qty,',',Billed Quantity,');
+    const billed=prepareAutomaticInvoice({text:billedText,rows:parseDocument(billedText).rows,organizationId:org,vendorId:vendor,vendorItems:[listing]});
+    assert.ok(billed.lines[0].billed_quantity_evidence);const h={...billed.header,file_name:'invoice.csv',file_path:'org/inbound/file'};
+    const id=(await rpc(h,billed.lines,token,att,'billed:128')).rows[0].id;
+    const saved=(await db.query('select quantity_source,billed_quantity_evidence from invoice_lines where invoice_id=$1',[id])).rows[0];assert.deepEqual(saved.quantity_source,billed.lines[0].quantity_source);assert.deepEqual(saved.billed_quantity_evidence,billed.lines[0].billed_quantity_evidence);
+    await db.query("UPDATE inbound_attachments SET processing_status='processing' WHERE id=$1",[att]);assert.equal((await rpc(h,billed.lines,token,att,'billed:128')).rows[0].id,id);
   });
 }finally{await db.close();}
 console.log(`${passed}/${passed} automatic invoice checks passed (local parser/importer + PostgreSQL).`);

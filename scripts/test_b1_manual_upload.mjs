@@ -110,6 +110,10 @@ await check('invoice uploads record invoice charges and preserve their original 
  assert.equal(f.invoices[0].lines[0].billing_unit_evidence.unit,'CASE');
  assert.equal(f.invoices[0].lines[0].billing_unit_evidence.kind,'pricing-unit-header');p.tree.unmount();
 });
+await check('manual invoice retains explicit billed quantity source separately from ordered counts',async()=>{
+ const f=fixture(),p=await open(vendor,'invoice');await upload(p,'picker',file('Billed.csv',invoice.replace(',Qty,',',Billed Quantity,')));await save(p);
+ assert.equal(f.invoices.length,1);const line=f.invoices[0].lines[0];assert.equal(line.quantity_source.header,'Billed Quantity');assert.equal(line.billed_quantity_evidence.quantity,2);assert.equal(line.billed_quantity_evidence.unit,'CASE');p.tree.unmount();
+});
 await check('failed original retention prevents invoice persistence and catalog side effects',async()=>{
  const f=fixture();f.backend.documents.upload=async()=>{throw Error('controlled storage failure');};
  const p=await open(vendor,'invoice');await upload(p,'picker',file('B1_Invoice.csv',invoice));await save(p);

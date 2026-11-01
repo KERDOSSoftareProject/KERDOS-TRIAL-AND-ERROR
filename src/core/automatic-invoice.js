@@ -1,3 +1,4 @@
+import {invoiceBilledQuantityEvidence} from './invoice-quantity-evidence.js';
 // Background invoice preparation. Uses the same parser, identity/pack rules,
 // matching threshold and billed-unit evidence as the interactive import flow.
 // No writes happen here. Uncertain lines keep the whole invoice in review.
@@ -47,7 +48,7 @@ export function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendo
     lines.push({vendor_item_id:candidates[0].id,vendor_item_code:row.code||null,description:row.description,
       quantity:Number(row.qty),unit_price:Number(row.price),line_total:Number(row.amount),
       selling_unit:row.sellingUnit,pack_size:row.packSize,source_line:row.sourceLine,
-      billing_unit_evidence:billingUnitEvidence(row),price_variance:null,match_confidence:confidence,match_method:method});
+      billing_unit_evidence:billingUnitEvidence(row),quantity_source:row.quantitySource??null,billed_quantity_evidence:invoiceBilledQuantityEvidence(row),price_variance:null,match_confidence:confidence,match_method:method});
   }
   const total=money(lines.reduce((sum,line)=>sum+line.line_total,0));
   // A stated total must reconcile; taxes, fees, credits and unexplained differences

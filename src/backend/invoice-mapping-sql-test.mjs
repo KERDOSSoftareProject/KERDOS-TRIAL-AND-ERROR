@@ -7,7 +7,7 @@ const db=new PGlite();
 const org="00000000-0000-0000-0000-000000000001",user="00000000-0000-0000-0000-000000000002";
 const vendor="00000000-0000-0000-0000-000000000003",item="00000000-0000-0000-0000-000000000004";
 const listing="00000000-0000-0000-0000-000000000005";
-await db.exec(`create schema auth; create role authenticated; create role anon;
+await db.exec(`create schema auth; create role authenticated; create role anon;create role service_role;create table inbound_attachments(id uuid);create table inbound_messages(id uuid);
 create function auth.uid() returns uuid language sql as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
 create table organization_members(organization_id uuid,user_id uuid,role text);
 create table vendors(id uuid,organization_id uuid);
@@ -24,6 +24,7 @@ insert into vendor_items(id,organization_id,vendor_id,description,pack_size,pric
 const sql=fs.readFileSync(fileURLToPath(new URL("../../knowledge/migration_013_invoice_mapping.sql",import.meta.url)),"utf8");
 await db.exec(sql);
 await db.exec(fs.readFileSync(fileURLToPath(new URL("../../knowledge/b1_invoice_line_evidence.sql",import.meta.url)),"utf8"));
+await db.exec(fs.readFileSync(new URL('../../supabase/migrations/20261101213251_invoice_billed_quantity_evidence.sql',import.meta.url),'utf8'));
 const header={organization_id:org,vendor_id:vendor,total_amount:38.3,raw_text:"Bacon invoice",invoice_date:"2026-09-26",invoice_number:"A1"};
 const line={vendor_item_id:listing,description:"Bacon",unit_price:3.83,line_total:38.3,catalog_item_id:item,catalog_confidence:75,catalog_track:"review"};
 await db.query("select kerdos_record_invoice($1::jsonb,$2::jsonb)",[JSON.stringify(header),JSON.stringify([line])]);
@@ -41,6 +42,10 @@ assert.equal(saved.source_line,evidence.source_line);assert.deepEqual(saved.bill
 assert.equal(Number((await db.query("select price from vendor_items where id=$1",[listing])).rows[0].price),3.83,"invoice evidence cannot overwrite accepted vendor quote");
 const legacy=(await db.query("select quantity,selling_unit,billing_unit_evidence from invoice_lines where quantity is null limit 1")).rows[0];
 assert.deepEqual(legacy,{quantity:null,selling_unit:null,billing_unit_evidence:null},"absent evidence stays absent, never inferred from arithmetic");
+const billed={...evidence,source_line:'Bacon\t10\t3.83\t38.30',quantity_source:{kind:'quantity-column',header:'Billed Quantity',rawValue:'10',columnIndex:1,headerLine:'Description\tBilled Quantity\tPrice\tAmount'}};
+const billedInvoice=(await db.query('select kerdos_record_invoice($1,$2) as id',[JSON.stringify({...header,invoice_number:'BILLED'}),JSON.stringify([billed])])).rows[0].id;
+const billedSaved=(await db.query('select quantity_source,billed_quantity_evidence from invoice_lines where invoice_id=$1',[billedInvoice])).rows[0];assert.deepEqual(billedSaved.quantity_source,billed.quantity_source);assert.equal(billedSaved.billed_quantity_evidence.quantity,10);
+await assert.rejects(db.query('select kerdos_record_invoice($1,$2)',[JSON.stringify({...header,invoice_number:'BAD-BILLED'}),JSON.stringify([{...billed,billed_quantity_evidence:{kind:'invoice_billed_quantity',quantity:2}}])]),/differs/);
 const count=(await db.query("select count(*) count from invoices")).rows[0].count;
 await assert.rejects(db.query("select kerdos_record_invoice($1::jsonb,$2::jsonb)",[JSON.stringify({...header,invoice_number:"INVALID"}),JSON.stringify([{...evidence,quantity:"not-a-number"}])]),/invalid input/);
 assert.equal((await db.query("select count(*) count from invoices")).rows[0].count,count,"line failure rolls back its invoice header");
