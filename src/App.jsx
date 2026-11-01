@@ -27,6 +27,8 @@ import {VendorDetail} from "./pages/VendorDetail.jsx";
 import {EmailInboxPanel} from "./pages/EmailInboxPanel.jsx";
 import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
 import TabHeading from "./ui/TabHeading.jsx";
+import {pageName} from "./ui/workspace-pages.js";
+import VendorConnectPage from "./pages/VendorConnectPage.jsx";
 import {listMessages} from "./services/email-routing.js";
 import {PALETTE,btn,inp} from "./ui/styles.js";
 
@@ -891,7 +893,9 @@ export default function App() {
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
-        <TabHeading title={({order:"Order Guide",catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+        <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+
+        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage />}
 
         {/* HOME TAB */}
         {/* ORDER TAB */}

@@ -22,12 +22,13 @@ try{
     let destination=null,tree;
     await act(async()=>{tree=Renderer.create(React.createElement(WelcomeScreen,{orgName:"Hornet's Nest",role:'owner',onNavigate:id=>destination=id,attentionCount:7,invoiceReviewCount:2,inboxCount:3}));});
     const buttons=tree.root.findAllByType('button');
-    assert.deepEqual(buttons.map(text).map(s=>s.match(/Order Guide|Item Catalog|Price Sheets|Invoices|Inbox|Admin/)?.[0]),['Order Guide','Item Catalog','Price Sheets','Invoices','Inbox','Admin']);
+    assert.deepEqual(buttons.map(text).map(s=>s.match(/Order Guide|Item Catalog|Price Sheets|Invoices|Inbox|Vendor Connect|Admin/)?.[0]),['Order Guide','Item Catalog','Price Sheets','Invoices','Inbox','Vendor Connect','Admin']);
     assert.match(text(tree.toJSON()),/Good (morning|afternoon|evening) Hornet's Nest!/);
     assert.ok(!text(tree.toJSON()).includes("October"),"welcome screen does not show the date");
     assert.match(text(tree.toJSON()),/3 attachments need attention/);
     assert.equal(buttons[4].findAll(n=>n.props.className==='welcome-badge').length,1);
     await act(async()=>{buttons[2].props.onClick();});assert.equal(destination,'priceSheets');
+    await act(async()=>{buttons[5].props.onClick();});assert.equal(destination,'vendorConnect');
     tree.unmount();
     await act(async()=>{tree=Renderer.create(React.createElement(WelcomeScreen,{orgName:'Other Org',role:'employee',onNavigate:id=>destination=id}));});
     assert.equal(tree.root.findAllByType('button').length,4,'restricted sections must not be offered to employees');
@@ -37,10 +38,10 @@ try{
       let home=false;
       await act(async()=>{tree=Renderer.create(React.createElement(TabHeading,{title:'Price Sheets',activeTab:'priceSheets',role,onHome:()=>home=true,onNavigate:id=>destination=id}));});
       const navButtons=tree.root.findAllByType('button');
-      assert.equal(navButtons.length,role==='employee'?5:7);
+      assert.equal(navButtons.length,role==='employee'?5:8);
       assert.equal(navButtons.filter(b=>b.props['aria-current']==='page').length,1);
       await act(async()=>{navButtons[0].props.onClick();});assert.equal(home,true);
-      const expected=role==='employee'?['order','catalog','priceSheets','invoices']:['order','catalog','priceSheets','invoices','inbox','team'];
+      const expected=role==='employee'?['order','catalog','priceSheets','invoices']:['order','catalog','priceSheets','invoices','inbox','vendorConnect','team'];
       for(let i=0;i<expected.length;i++){await act(async()=>{navButtons[i+1].props.onClick();});assert.equal(destination,expected[i]);}
       tree.unmount();
     }
