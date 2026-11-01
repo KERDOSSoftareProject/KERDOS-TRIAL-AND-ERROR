@@ -6,7 +6,7 @@
 //   [3] CSV baseline format — commas, quotes, newlines, carriage returns
 
 import assert from "node:assert/strict";
-import {buildCatalogExportCSV,buildVarianceReportCSV} from "../reporting.js";
+import {buildCatalogExportCSV,buildVarianceReportCSV,buildVarianceReport} from "../reporting.js";
 import {formatMoney} from "../localization.js";
 
 let passed=0;
@@ -141,6 +141,27 @@ run("line total impact scales per-unit variance by quantity",()=>{
   assert.equal(data[7],formatMoney(5),"impact must equal variance × quantity (1 × 5 = $5.00)");
 });
 
+run("zero-variance report includes every client vendor and distinguishes missing comparisons",()=>{
+  const vendors=[{id:"a",name:"Alpha"},{id:"b",name:"Beta"}];
+  const report=buildVarianceReport([{id:"i",vendor_id:"a",invoice_number:"A-1",invoice_date:"2026-10-20",invoice_lines:[{price_variance:0},{price_variance:null}]}],vendors);
+  assert.deepEqual(report.vendors.map(v=>[v.vendorName,v.items.length]),[["Alpha",0],["Beta",0]]);
+  assert.equal(report.vendors[0].invoicesCompared[0].number,"A-1");
+  assert.equal(report.vendors[0].uncomparedLineCount,1);
+  assert.equal(report.vendors[1].comparedLineCount,0);
+  assert.equal(report.period.from,"2026-10-20");
+  const csv=buildVarianceReportCSV([],vendors);
+  assert.equal((csv.match(/0 variances found/g)||[]).length,2);
+  assert.ok(!csv.includes("0 items found"));
+});
+run("report periods filter invoice dates while preserving zero-result vendors",()=>{
+  const vendors=[{id:"a",name:"Alpha"},{id:"b",name:"Beta"}];
+  const invoices=[{id:"old",vendor_id:"a",invoice_date:"2026-09-30",invoice_lines:[{unit_price:12,price_variance:2}]},{id:"inside",vendor_id:"a",invoice_date:"2026-10-01",invoice_lines:[{unit_price:10,price_variance:0}]},{id:"undated",vendor_id:"b",invoice_lines:[{unit_price:20,price_variance:5}]}];
+  const report=buildVarianceReport(invoices,vendors,{from:"2026-10-01",to:"2026-10-31"});
+  assert.equal(report.lines.length,0);assert.equal(report.vendors.length,2);
+  assert.deepEqual(report.vendors[0].invoicesCompared.map(i=>i.id),["inside"]);
+  assert.deepEqual(report.period,{from:"2026-10-01",to:"2026-10-31"});
+});
+
 // ── [3] CSV baseline format ────────────────────────────────────────────────
 console.log("\n[3] CSV baseline format — escaping");
 
@@ -173,5 +194,5 @@ run("carriage return (\\r) in a cell is quoted per RFC 4180",()=>{
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-const total=11;
+const total=13;
 console.log(`\nModule G · Task 4 · Export: ${passed}/${total} checks passed.\n`);

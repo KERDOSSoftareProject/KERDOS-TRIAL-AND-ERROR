@@ -23,13 +23,33 @@ export function buildCatalogExportCSV(productList,vendors){
   return rowsToCSV(rows);
 }
 
-export function buildVarianceReportCSV(invoices,vendors){
-  const vendorMap=new Map(vendors.map(vendor=>[vendor.id,vendor]));
-  const rows=[["Date","Vendor","Invoice #","Item","Quoted Price","Charged Price","Difference","Line Total Impact"]];
-  for(const invoice of invoices)for(const line of invoice.invoice_lines||[]){
-    if(line.price_variance==null||Math.abs(line.price_variance)<0.005)continue;
+export function buildVarianceReport(invoices,vendors,{from="",to=""}={}){
+  const makeGroup=(id,name)=>({vendorId:id,vendorName:name,items:[],invoicesCompared:[],comparedLineCount:0,uncomparedLineCount:0});
+  const groups=new Map(vendors.map(vendor=>[vendor.id,makeGroup(vendor.id,vendor.name)]));
+  const selected=invoices.filter(invoice=>{const date=String(invoice.invoice_date||"").slice(0,10);return (!from||date&&date>=from)&&(!to||date&&date<=to);});
+  const dates=selected.map(invoice=>String(invoice.invoice_date||"").slice(0,10)).filter(Boolean).sort();
+  const lines=[];
+  for(const invoice of selected){
+    if(!groups.has(invoice.vendor_id))groups.set(invoice.vendor_id,makeGroup(invoice.vendor_id,invoice.vendors?.name||"Vendor unavailable"));
+    const group=groups.get(invoice.vendor_id);
+    let compared=false;
+    for(const [index,line] of (invoice.invoice_lines||[]).entries()){
+    if(line.price_variance==null||!Number.isFinite(Number(line.price_variance))){group.uncomparedLineCount++;continue;}
+    group.comparedLineCount++;compared=true;
+    if(Math.abs(line.price_variance)<0.005)continue;
     const impact=line.price_variance*(line.line_total&&line.unit_price?line.line_total/line.unit_price:1);
-    rows.push([invoice.invoice_date||"",vendorMap.get(invoice.vendor_id)?.name||"",invoice.invoice_number||"",line.description,formatMoney(line.unit_price-line.price_variance),formatMoney(line.unit_price),formatMoney(line.price_variance),formatMoney(Math.round(impact*100)/100)]);
+    const item={id:`${invoice.id||lines.length}:${index}`,date:invoice.invoice_date||"",vendorName:group.vendorName,invoiceNumber:invoice.invoice_number||"",description:line.description,quotedPrice:line.unit_price-line.price_variance,chargedPrice:line.unit_price,difference:Number(line.price_variance),impact:Math.round(impact*100)/100};
+    group.items.push(item);lines.push(item);
+    }
+    if(compared)group.invoicesCompared.push({id:invoice.id,number:invoice.invoice_number||"",fileName:invoice.file_name||"",date:invoice.invoice_date||""});
   }
+  return {vendors:[...groups.values()],lines,invoices:selected,period:{from:from||dates[0]||"",to:to||dates.at(-1)||""}};
+}
+
+export function buildVarianceReportCSV(invoices,vendors){
+  const report=buildVarianceReport(invoices,vendors);
+  const rows=[["Date","Vendor","Invoice #","Item","Quoted Price","Charged Price","Difference","Line Total Impact"]];
+  for(const item of report.lines)rows.push([item.date,item.vendorName,item.invoiceNumber,item.description,formatMoney(item.quotedPrice),formatMoney(item.chargedPrice),formatMoney(item.difference),formatMoney(item.impact)]);
+  if(!report.lines.length)for(const vendor of report.vendors)rows.push(["",vendor.vendorName,"","0 variances found","","","",""]);
   return rowsToCSV(rows);
 }
