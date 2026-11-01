@@ -53,7 +53,9 @@ advisor finding names these objects. No edge worker, domain, secret or delivery
 change.
 
 Still open: signed-in owner/manager/employee acceptance and true separate-session
-save/reversal races; reversal cancellation/undo; replacement or corrected source
-for the same invoice line; split allocations, case attachments, mixed fixed and
+save/reversal races; reversal cancellation/undo; correction against the same reserved invoice line; split allocations, case attachments, mixed fixed and
 estimated orders, taxes/freight/credits/additional lines and complete settlement;
 full supplier acceptance. Task 1 remains code/database complete awaiting domains.
+
+Follow-on: `a2_estimated_receipt_replacements.md` now documents audited replacement
+using a different saved invoice source. Original invoice reservations remain.

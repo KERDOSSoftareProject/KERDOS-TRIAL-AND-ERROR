@@ -4,7 +4,7 @@ begin;
 set local lock_timeout='3s';
 set local statement_timeout='20s';
 do $$
-declare o uuid:=gen_random_uuid(); v uuid:=gen_random_uuid(); ci uuid:=gen_random_uuid(); category uuid:=gen_random_uuid(); vi uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); doc uuid:=gen_random_uuid(); inv1 uuid:=gen_random_uuid(); inv2 uuid:=gen_random_uuid(); il1 uuid:=gen_random_uuid(); il2 uuid:=gen_random_uuid(); qs jsonb; u uuid; source jsonb; proof jsonb;
+declare o uuid:=gen_random_uuid(); v uuid:=gen_random_uuid(); ci uuid:=gen_random_uuid(); category uuid:=gen_random_uuid(); vi uuid:=gen_random_uuid(); m uuid:=gen_random_uuid(); doc uuid:=gen_random_uuid(); inv1 uuid:=gen_random_uuid(); inv2 uuid:=gen_random_uuid(); inv3 uuid:=gen_random_uuid(); il1 uuid:=gen_random_uuid(); il2 uuid:=gen_random_uuid(); il3 uuid:=gen_random_uuid(); qs jsonb; u uuid; source jsonb; proof jsonb;
 begin
  select om.user_id into u from public.organization_members om join auth.users au on au.id=om.user_id where om.role='owner' limit 1;
  if u is null then raise exception 'An existing test owner is required'; end if;
@@ -19,17 +19,18 @@ begin
  insert into public.vendor_items(id,organization_id,vendor_id,vendor_item_code,description,brand,pack_size,price,selling_unit,price_basis,price_unavailable,last_updated,import_row)
  values(vi,o,v,'SYN-ORDER','Synthetic order rollback material','Example','2/6-8 LBA',4,'LB','measure',true,current_timestamp,jsonb_build_object('sourceDocumentId',doc,'rowKey','row:0','row',source,'reviewRequired',true,'reviewFields',jsonb_build_array('pack_size')));
  insert into public.item_mappings(id,organization_id,vendor_item_id,catalog_item_id,comparison_track,confidence_score) values(m,o,vi,ci,'exact',100);
- insert into public.invoices(id,organization_id,vendor_id,invoice_number,invoice_date,total_amount,raw_text,status) values(inv1,o,v,'SYN-RECEIPT-1',current_date,56,'Controlled invoice with explicitly printed billed weight, price and total','recorded'),(inv2,o,v,'SYN-RECEIPT-2',current_date,70,'Controlled second partial invoice','recorded');
+ insert into public.invoices(id,organization_id,vendor_id,invoice_number,invoice_date,total_amount,raw_text,status) values(inv1,o,v,'SYN-RECEIPT-1',current_date,56,'Controlled invoice with explicitly printed billed weight, price and total','recorded'),(inv2,o,v,'SYN-RECEIPT-2',current_date,70,'Controlled second partial invoice','recorded'),(inv3,o,v,'SYN-RECEIPT-CORRECTED',current_date,84,'Controlled corrected invoice source','recorded');
  qs:=jsonb_build_object('kind','quantity-column','header','Billed Weight','rawValue','14','columnIndex',2,'headerLine',E'Code\tPrice Unit\tBilled Weight\tUnit Price\tExtended Price');
  insert into public.invoice_lines(id,invoice_id,vendor_item_id,vendor_item_code,description,quantity,unit_price,line_total,selling_unit,source_line,billing_unit_evidence,quantity_source,match_confidence,match_method) values
  (il1,inv1,vi,'SYN-ORDER','Synthetic order rollback material',14,4,56,'LB',E'SYN-ORDER\tLB\t14\t4\t56',jsonb_build_object('kind','pricing-unit-header','header','Price Unit','unit','LB'),qs,100,'code'),
- (il2,inv2,vi,'SYN-ORDER','Synthetic order rollback material',14,5,70,'LB',E'SYN-ORDER\tLB\t14\t5\t70',jsonb_build_object('kind','pricing-unit-header','header','Price Unit','unit','LB'),qs,100,'code');
+ (il2,inv2,vi,'SYN-ORDER','Synthetic order rollback material',14,5,70,'LB',E'SYN-ORDER\tLB\t14\t5\t70',jsonb_build_object('kind','pricing-unit-header','header','Price Unit','unit','LB'),qs,100,'code'),
+ (il3,inv3,vi,'SYN-ORDER','Synthetic order rollback material',14,6,84,'LB',E'SYN-ORDER\tLB\t14\t6\t84',jsonb_build_object('kind','pricing-unit-header','header','Price Unit','unit','LB'),qs,100,'code');
  perform set_config('request.jwt.claim.sub',u::text,true);
- perform set_config('kerdos.order_smoke',jsonb_build_object('org',o,'vendor',v,'vi',vi,'mapping',m,'il1',il1,'il2',il2)::text,true);
+ perform set_config('kerdos.order_smoke',jsonb_build_object('org',o,'vendor',v,'vi',vi,'mapping',m,'il1',il1,'il2',il2,'il3',il3)::text,true);
 end $$;
 set local role authenticated;
 do $$
-declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; ol uuid;
+declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; ol uuid;
 begin
  terms:=public.kerdos_variable_weight_terms(o,vi,m);
  a:=public.kerdos_approve_variable_weight(o,vi,m,0,jsonb_build_object('kind','variable_weight_approval_intent','version',1,'requestedBy',auth.uid(),'finalChargeKnown',false,'terms',terms));
@@ -66,7 +67,15 @@ begin
  if not blocked then raise exception 'Reversed invoice reservation was lost';end if;
  blocked:=false;begin delete from public.estimated_receipt_reversals where receipt_id=(receipt1->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
  if not blocked then raise exception 'Reversal deletion was not denied';end if;
+ replacement_review:=public.kerdos_review_estimated_receipt(o,ol,(c->>'il3')::uuid,1);
+ replaced:=public.kerdos_replace_estimated_receipt(o,(receipt1->>'id')::uuid,ol,(c->>'il3')::uuid,1,replacement_review,'Corrected invoice source supplied by vendor',true,true,true);
+ if public.kerdos_replace_estimated_receipt(o,(receipt1->>'id')::uuid,ol,(c->>'il3')::uuid,1,replacement_review,'Corrected invoice source supplied by vendor',true,true,true)<>replaced then raise exception 'Replacement replay changed identity';end if;
+ history:=public.kerdos_estimated_receipt_history(o,(saved->>'id')::uuid);
+ if jsonb_array_length(history->'receipts')<>3 or jsonb_array_length(history->'reversals')<>1 or jsonb_array_length(history->'replacements')<>1 or history->'replacements'->0->>'predecessorId'<>receipt1->>'id' then raise exception 'Replacement lineage was not retained';end if;
+ if (select sum((er.snapshot->>'actualCharge')::numeric) from public.estimated_order_receipts er where er.order_id=(saved->>'id')::uuid and not exists(select 1 from public.estimated_receipt_reversals rv where rv.receipt_id=er.id))<>154 then raise exception 'Replacement charge summary failed';end if;
+ blocked:=false;begin delete from public.estimated_receipt_replacements where predecessor_id=(receipt1->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
+ if not blocked then raise exception 'Replacement deletion was not denied';end if;
  set constraints all immediate;
 end $$;
 rollback;
-select (select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
+select (select count(*) from public.estimated_receipt_replacements) as replacements,(select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
