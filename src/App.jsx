@@ -27,6 +27,8 @@ import {VendorDetail} from "./pages/VendorDetail.jsx";
 import {EmailInboxPanel} from "./pages/EmailInboxPanel.jsx";
 import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
 import TabHeading from "./ui/TabHeading.jsx";
+import {pageName} from "./ui/workspace-pages.js";
+import VendorConnectPage from "./pages/VendorConnectPage.jsx";
 import {listMessages} from "./services/email-routing.js";
 import {PALETTE,btn,inp} from "./ui/styles.js";
 
@@ -101,6 +103,8 @@ export default function App() {
   const [accountMenuOpen,setAccountMenuOpen]=useState(false);
   const [inboxAttentionCount,setInboxAttentionCount]=useState(0);
   const [showPaste,setShowPaste]=useState(false);
+  const [companionImport,setCompanionImport]=useState(null);
+  useEffect(()=>{setCompanionImport(null);},[org?.id,org?.role]);
   // One plain line after an import finishes on its own; it clears itself.
   const [importNotice,setImportNotice]=useState(null);
   // Who is on the team, by user id, so a cell someone edited can show their
@@ -333,9 +337,9 @@ export default function App() {
   }
 
   useEffect(()=>{
-    if(!org||showPaste) return;
+    if(!org||showPaste||companionImport) return;
     return backend.realtime.subscribeToOrganization(org.id,()=>{void loadData();});
-  },[org?.id,showPaste]);
+  },[org?.id,showPaste,companionImport]);
 
   const vendorColors=useMemo(()=>new Map(vendors.map((v,i)=>[v.id,PALETTE[i%PALETTE.length]])),[vendors]);
 
@@ -891,7 +895,12 @@ export default function App() {
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
-        <TabHeading title={({order:"Order Guide",catalog:"Item Catalog",priceSheets:"Price Sheets",invoices:"Invoices",inbox:"Inbox",team:"Admin",vendorDetail:"Vendor Details"})[tab]||"Workspace"} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+        <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+
+        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} onCompanionImport={payload=>{
+          if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
+          setCompanionImport(payload);
+        }} />}
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -1453,7 +1462,8 @@ export default function App() {
         )}
       </div>}
 
-      {showPaste&&org.role!=="employee"&&<PasteModal industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setShowPaste(false)} onDone={loadData} onFinished={setImportNotice} initialVendorId={selectedVendorId} initialMode={importMode} />}
+      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onFinished={setImportNotice} initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
+      {showPaste&&!companionImport&&org.role!=="employee"&&<PasteModal industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setShowPaste(false)} onDone={loadData} onFinished={setImportNotice} initialVendorId={selectedVendorId} initialMode={importMode} />}
       {importNotice&&(
         <div role="status" onClick={()=>setImportNotice(null)} style={{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",background:"#1B5E20",color:"white",padding:"12px 18px",borderRadius:8,fontSize:13,fontWeight:700,boxShadow:"0 6px 20px rgba(0,0,0,0.25)",zIndex:1000,cursor:"pointer"}}>
           {importNotice.message}

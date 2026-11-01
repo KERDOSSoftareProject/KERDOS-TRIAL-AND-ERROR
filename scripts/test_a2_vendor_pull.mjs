@@ -235,5 +235,18 @@ try{
   assert.equal(assessment.evidence.unitCost.value,2);assert.equal(assessment.ready,false);assert.deepEqual(assessment.blockers,['category']);
   await pull();assert.equal(state.calls.applyQuote.length,3);assert.equal(Object.keys(state.importDocs).length,3);assert.equal(state.calls.createMapping.length,1);
  });
+ await check('new adapter result contract pauses sources without changing stored price observations',async()=>{
+  await db.exec(readFileSync('knowledge/a2_vendor_adapter_results_draft.sql','utf8'));
+  for(const reason of ['unsupported_adapter','verification_needed','execution_unavailable']){
+   await db.query('UPDATE kerdos_private.vendor_price_sources SET is_active=true WHERE id=$1',[chainedSource]);
+   const claimed=(await db.query('SELECT public.kerdos_claim_vendor_pulls($1) jobs',[chainedSource])).rows[0].jobs[0];
+   assert.ok(claimed);
+   assert.equal(await scalar("SELECT public.kerdos_finish_vendor_pull($1,$2,'failed',$3,NULL) result",[chainedSource,claimed.lease_token,reason]),true);
+   const row=(await db.query('SELECT is_active,last_reason,content_revision FROM kerdos_private.vendor_price_sources WHERE id=$1',[chainedSource])).rows[0];
+   assert.equal(row.is_active,false);assert.equal(row.last_reason,reason);assert.equal(row.content_revision,3);
+   assert.deepEqual(await chain.claim(chainedSource),[]);
+  }
+  assert.equal(state.calls.applyQuote.length,3);
+ });
  console.log(`${passed}/${passed} A2 executed adapter/SQL/importer checks passed. HTTP/storage/catalog writes and Vault are simulated locally; no hosted or live vendor acceptance is implied.`);
 }finally{await db.close();}

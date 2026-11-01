@@ -44,6 +44,7 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
       },
     },
     inbox:createSupabaseInbox(client),
+    vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
     orders:{submit(row){return providerResult(client.rpc("kerdos_submit_order",row),"Record order");}},
     documents:{
       upload(path,file,options){return providerResult(client.storage.from("documents").upload(path,file,options),"Upload document");},

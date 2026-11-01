@@ -1,13 +1,6 @@
 import {useEffect,useState} from "react";
 
-const destinations=[
-  {id:"order",name:"Order Guide",hint:"Build orders from current vendor prices",icon:"▤"},
-  {id:"catalog",name:"Item Catalog",hint:"Your products and vendor listings",icon:"◇"},
-  {id:"priceSheets",name:"Price Sheets",hint:"View current and past price sheets",icon:"▦"},
-  {id:"invoices",name:"Invoices",hint:"Review invoices and purchase history",icon:"▤"},
-  {id:"inbox",name:"Inbox",hint:"Review incoming documents",icon:"✉",restricted:true},
-  {id:"team",name:"Admin",hint:"Manage your team and account",icon:"⚙",restricted:true},
-];
+import {navigationPages} from "../ui/workspace-pages.js";
 
 export function welcomeGreeting(date){
   const hour=date.getHours();
@@ -31,7 +24,6 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
     const timer=setInterval(()=>setNow(new Date()),30000);
     return ()=>clearInterval(timer);
   },[]);
-  const canManage=role==="owner"||role==="manager";
   const hints={
     catalog:undefined,
     invoices:invoiceReviewCount>0?`${invoiceReviewCount} invoice lines to review`:undefined,
@@ -55,9 +47,10 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
       @media (max-width:380px) { .welcome-grid { grid-template-columns:1fr; } .welcome-tile { min-height:116px; } }
     `}</style>
     <div className="welcome-inner">
+      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome</p>
       <h1 className="welcome-greeting">{welcomeGreeting(now)}{orgName?` ${orgName}`:""}!</h1>
       <div className="welcome-grid">
-        {destinations.filter(item=>!item.restricted||canManage).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
+        {navigationPages(role).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
           <span className="welcome-icon" aria-hidden="true">{item.icon}</span>
           <span className="welcome-name">{item.name}{item.id==="inbox"&&inboxCount>0?<span className="welcome-badge" aria-label={`${inboxCount} attachments need attention`}>{inboxCount}</span>:null}</span>
           <span className="welcome-hint">{hints[item.id]||item.hint}</span>

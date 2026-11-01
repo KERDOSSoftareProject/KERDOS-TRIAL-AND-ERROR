@@ -1,15 +1,14 @@
 // Module A, Task 2: a read-only supplier export adapter. Never logs credentials,
 // response bodies or request URLs. Interactive/cookie-based portals require a
 // separately verified adapter; an HTML login page is not a price export.
+import {PullError,retrieveVendorExport,safePullReason} from "./adapter.mjs";
+export {PullError} from "./adapter.mjs";
 const MAX_BYTES=5*1024*1024;
 const TYPES=new Map([
   ['text/csv',['csv']],['text/plain',['txt','csv']],
   ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',['xlsx']],
   ['application/pdf',['pdf']],['image/png',['png']],['image/jpeg',['jpg','jpeg']],
 ]);
-export class PullError extends Error{
-  constructor(code){super(code);this.code=code;}
-}
 export async function retainExport(storage,path,bytes,contentType){
   const {error}=await storage.upload(path,bytes,{contentType,upsert:false});
   if(!error)return;
@@ -75,12 +74,12 @@ export async function downloadExport(source,{fetchImpl=fetch,resolveHost,signal}
   if(/<\s*(!doctype\s+html|html|form)\b/i.test(new TextDecoder().decode(bytes.slice(0,1024))))throw new PullError('portal_login_page');
   return {bytes,contentType:type};
 }
-export async function pullVendorSources(backend,{sourceId=null,fetchImpl=fetch,resolveHost,digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(b=>b.toString(16).padStart(2,'0')).join('')}={}){
+export async function pullVendorSources(backend,{sourceId=null,fetchImpl=fetch,resolveHost,portalAdapters=new Map(),digest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(b=>b.toString(16).padStart(2,'0')).join('')}={}){
   const sources=await backend.claim(sourceId);
   const results=await Promise.all(sources.map(async source=>{
     let status='failed',reason='pull_failed',attachmentId=null;
     try{
-      const {bytes,contentType}=await downloadExport(source,{fetchImpl,resolveHost,signal:AbortSignal.timeout(30000)});
+      const {bytes,contentType}=await retrieveVendorExport(source,{httpsExport:downloadExport,portalAdapters,fetchImpl,resolveHost,signal:AbortSignal.timeout(30000)});
       const hash=await digest(bytes);
       const previousRevision=Number(source.content_revision||0);
       if(!Number.isSafeInteger(previousRevision)||previousRevision<0||previousRevision>=Number.MAX_SAFE_INTEGER)throw new PullError('invalid_source');
@@ -96,7 +95,7 @@ export async function pullVendorSources(backend,{sourceId=null,fetchImpl=fetch,r
       catch{throw new PullError('dispatch_failed');}
       if(!['auto_imported','needs_review','skipped'].includes(outcome?.outcome))throw new PullError('dispatch_failed');
       status='received';reason=outcome.outcome;
-    }catch(error){reason=error instanceof PullError?error.code:'pull_failed';}
+    }catch(error){reason=safePullReason(error);}
     const accepted=await backend.finish(source,status,reason,attachmentId);
     return {sourceId:source.id,status:accepted?status:'lease_lost',reason:accepted?reason:'lease_lost',attachmentId};
   }));

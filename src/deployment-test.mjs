@@ -21,7 +21,9 @@ const pageSources=fs.readdirSync(path.join(root,"src/pages")).filter(file=>file.
   .map(file=>fs.readFileSync(path.join(root,"src/pages",file),"utf8")).join("\n");
 // Inbox procedures are deployed separately from the legacy combined SQL bundle.
 const inboxMigrations=["migration_032_email_routing.sql","migration_032_email_routing_addendum.sql","migration_035_partial_import_recovery.sql","migration_037_manual_review_claim_draft.sql","migration_038_receipt_vendor_snapshot_draft.sql"];
-const migrationSql=[...requiredMigrations,...inboxMigrations].map(file=>fs.readFileSync(path.join(root,"knowledge",file),"utf8")).join("\n");
+// Vendor Connect has separately reviewed SQL and fails closed until installed.
+const vendorConnectMigrations=["a2_vendor_connect_draft.sql"];
+const migrationSql=[...requiredMigrations,...inboxMigrations,...vendorConnectMigrations].map(file=>fs.readFileSync(path.join(root,"knowledge",file),"utf8")).join("\n");
 for(const rpc of [...adapter.matchAll(/client\.rpc\("([^"]+)"/g)].map(match=>match[1]))
   assert.match(migrationSql,new RegExp(`function\\s+(?:public\\.)?${rpc}\\b`,`i`),`adapter RPC ${rpc} has no migration`);
 
