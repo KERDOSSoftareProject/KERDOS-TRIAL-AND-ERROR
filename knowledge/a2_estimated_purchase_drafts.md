@@ -60,7 +60,7 @@ recovery and immutable inputs.
 
 Real concurrent database-session acceptance remains open; sequential tests and
 written locking rules do not establish live concurrency behavior. Also open:
-client basket/draft controls, fresh validation before submission, mixed exact
+signed-in client draft acceptance, fresh validation before submission, mixed exact
 and estimated order presentation, final order persistence/export, delivery
 minimum semantics, explicit invoice matching, partial receipts and final-charge
 reconciliation. No real client approvals or drafts are created by local tests.
@@ -103,8 +103,38 @@ Separate journal tests verify actor/client isolation and per-request records.
 These are local interaction checks, not live supplier, signed-in client,
 multibrowser, or true concurrent-tab/database acceptance.
 
-Still open: transaction-proven abandonment of an unresolved save attempt, signed-in save/reload/recovery/cancellation acceptance; actual
+Still open: signed-in save/reload/recovery/cancellation acceptance; actual
 concurrent-tab/database testing; final order submission, delivery minimums,
 mixed exact/estimated orders, exports and invoice/partial-receipt reconciliation.
 No client approvals, drafts or supplier orders are created by this increment's
 local tests or release.
+
+## Closing an unresolved save attempt
+
+The client now offers Close save attempt with a separate confirmation. The
+SECURITY INVOKER closure transaction takes the same organization/request lock
+as saving. If a matching draft exists, it returns that historical draft without
+cancelling it. Otherwise it inserts an immutable closure record binding the
+organization, vendor, creator and exact retained lines. Repeating closure returns
+the same receipt. Reuse by another actor or different terms is rejected.
+
+Before-insert triggers take that same lock on both draft and closure tables.
+They prevent late saves (including direct inserts from older clients) after a
+closure and reject closure records for existing drafts. RLS restricts closure
+to purchasing members; client roles cannot update/delete the fence. Anonymous
+execution is revoked; no SECURITY DEFINER privilege is added. Invalidated source
+terms do not prevent closing an unsaved attempt.
+
+The independent service verifies the closure receipt or recovered draft against
+the authenticated creator and exact intent. Only verified server success settles
+the local journal. Network errors, missing capability, invalid responses and
+local journal-write failure retain recovery. Closing an unsaved attempt preserves
+quantities but clears consent; recovering an existing saved draft uses normal
+history. No order or email is sent.
+
+Local actual-SQL tests cover both sequential save/close orders, repeated closure,
+late RPC/direct inserts, actor/client isolation, immutable fences and anonymous
+denial. Rendered controls cover confirmation, keeping an attempt, closure failure,
+retained selections and recovery of an existing draft without cancellation.
+Service tests reject malformed/mismatched receipts. These tests do not claim
+true concurrent database sessions or signed-in browser acceptance.

@@ -11,7 +11,7 @@ export function createDraftRecoveryStore(storage,organizationId,userId){
     saveConfirmations(rows){return rows.every(a=>a.terms?.organizationId===organizationId)&&write('confirmations',{organizationId,userId,rows});},
     saveBasket(model){return write('basket',{version:1,organizationId,userId,...model});},
     retain(intent){const entry={version:1,organizationId,userId,intent,status:'pending',createdAt:new Date().toISOString()};return valid(entry)&&write('request:'+intent.requestId,entry);},
-    settle(entry,status,draftId=null){return valid(entry)&&['saved','failed'].includes(status)&&write('request:'+entry.intent.requestId,{version:1,organizationId,userId,requestId:entry.intent.requestId,status,draftId,settledAt:new Date().toISOString()});},
+    settle(entry,status,draftId=null){return valid(entry)&&['saved','failed','closed'].includes(status)&&write('request:'+entry.intent.requestId,{version:1,organizationId,userId,requestId:entry.intent.requestId,status,draftId,settledAt:new Date().toISOString()});},
     pending(){try{const rows=[];for(let i=0;i<storage.length;i++){const key=storage.key(i);if(!key?.startsWith(prefix+'request:'))continue;const entry=read(key.slice(prefix.length));if(valid(entry)&&entry.status==='pending')rows.push(entry);}return rows.sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt)));}catch{return [];}},
   };
 }
