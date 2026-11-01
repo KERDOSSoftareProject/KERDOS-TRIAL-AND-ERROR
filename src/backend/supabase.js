@@ -45,6 +45,12 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    estimatedDrafts:{
+      getByRequest(organizationId,requestId){return providerResult(client.from('estimated_purchase_drafts').select('*').eq('organization_id',organizationId).eq('request_id',requestId).maybeSingle(),'Recover estimated draft');},
+      save(input){return providerResult(client.rpc('kerdos_save_estimated_draft',{p_organization_id:input.organizationId,p_vendor_id:input.vendorId,p_request_id:input.requestId,p_lines:input.lines}),'Save estimated draft');},
+      get(organizationId,draftId){return providerResult(client.from('estimated_purchase_drafts').select('*').eq('organization_id',organizationId).eq('id',draftId).maybeSingle(),'Load estimated draft');},
+      cancel(organizationId,draftId){return providerResult(client.rpc('kerdos_cancel_estimated_draft',{p_organization_id:organizationId,p_draft_id:draftId}),'Cancel estimated draft');},
+    },
     orders:{submit(row){return providerResult(client.rpc("kerdos_submit_order",row),"Record order");}},
     documents:{
       upload(path,file,options){return providerResult(client.storage.from("documents").upload(path,file,options),"Upload document");},

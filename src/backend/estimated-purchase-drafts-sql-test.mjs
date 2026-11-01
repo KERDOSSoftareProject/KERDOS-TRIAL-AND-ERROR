@@ -1,0 +1,75 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {variableWeightFixture} from './fixtures/variable-weight-db.mjs';
+import {prepareVariableWeightApproval,prepareVariableWeightReceipt} from '../core/variable-weight-purchasing.js';
+import {prepareEstimatedPurchaseDraft} from '../core/estimated-purchase-drafts.js';
+import {estimateCaseCost} from '../procurement.js';
+const {db,org,owner,manager,employee,outsider,vendor,vi,map,otherOrg,doc,ci,source,proof,importRow,actor,admin,loadInput}=await variableWeightFixture();
+const sql=fs.readFileSync(new URL('../../supabase/migrations/20261101201348_estimated_purchase_drafts.sql',import.meta.url),'utf8');
+await db.exec(sql);await db.exec(sql);
+const input=await loadInput(owner),intent=prepareVariableWeightApproval(input);await actor(owner);
+const approval=(await db.query('select kerdos_approve_variable_weight($1,$2,$3,0,$4) as saved',[org,vi,map,JSON.stringify(intent)])).rows[0].saved;
+const receipt={kind:'variable_weight_approval',version:1,id:approval.id,terms:approval.terms,approvedBy:owner,approvedAt:approval.approved_at};
+const request='11111111-0000-0000-0000-000000000001';
+const draft=prepareEstimatedPurchaseDraft({organizationId:org,vendorId:vendor,requestId:request,confirmed:true,now:new Date().toISOString(),lines:[{...input,approval:receipt,quantity:2,orderUnit:'case'}]});
+const save=(lines=draft.lines,key=request,organization=org,v=vendor)=>db.query('select kerdos_save_estimated_draft($1,$2,$3,$4) as saved',[organization,v,key,JSON.stringify(lines)]);
+await actor(employee);const saved=(await save()).rows[0].saved;
+assert.equal(saved.status,'draft');assert.equal(saved.final_charge,null);assert.equal(saved.created_by,employee);
+assert.deepEqual(saved.estimate,draft.estimate);assert.deepEqual(saved.estimate,{amount:null,minimum:96,maximum:128,estimated:true,guaranteed:false});
+assert.equal(saved.lines[0].kind,'estimated_purchase_draft_line');assert.equal(saved.lines[0].actualCharge,null);
+assert.equal((await save()).rows[0].saved.id,saved.id,'retry preserves draft and line identities');
+assert.throws(()=>prepareVariableWeightReceipt({orderLine:saved.lines[0]}),/saved estimated purchase line/,'draft cannot masquerade as a submitted order');
+await assert.rejects(db.query('update variable_weight_approvals set revoked_at=current_timestamp,revoked_by=auth.uid() where id=$1',[approval.id]),/row-level security/,'locked member reads must not grant employee revocation');
+const newKey='11111111-0000-0000-0000-000000000002';
+await assert.rejects(save([{...draft.lines[0],quantity:3}]),/another request/);
+await assert.rejects(save([{...draft.lines[0],estimate:{...draft.lines[0].estimate,minimum:1}}],newKey),/authoritative/);
+await assert.rejects(save([{...draft.lines[0],actualCharge:96}],newKey),/authoritative/);
+await assert.rejects(save([...draft.lines,...draft.lines],newKey),/Duplicate/);
+await assert.rejects(save([{...draft.lines[0],quantity:1.5}],newKey),/whole cases/);
+await assert.rejects(save([{...draft.lines[0],quantity:2147483648}],newKey),/supported quantity/);
+await assert.rejects(save([],newKey),/one to one hundred/);
+await assert.rejects(save(draft.lines,newKey,otherOrg),/membership/);
+await assert.rejects(db.query('update estimated_purchase_drafts set estimate=$1 where id=$2',[JSON.stringify({amount:1}),saved.id]),/permission denied/);
+await assert.rejects(db.query('update estimated_purchase_drafts set final_charge=0 where id=$1',[saved.id]),/permission denied/);
+await assert.rejects(db.query('delete from estimated_purchase_drafts where id=$1',[saved.id]),/permission denied/);
+// Direct INSERT is protected by the same authoritative checks as the RPC.
+const injectedId='22222222-0000-0000-0000-000000000001',injectedLines=saved.lines.map(l=>({...l,orderId:injectedId}));
+await assert.rejects(db.query('insert into estimated_purchase_drafts(id,organization_id,vendor_id,request_id,created_by,requested_lines,lines,estimate) values($1,$2,$3,$4,$5,$6,$7,$8)',[injectedId,org,vendor,newKey,employee,JSON.stringify(draft.lines),JSON.stringify(injectedLines),JSON.stringify({...saved.estimate,minimum:1})]),/row-level security/);
+// Two approved lines retain distinct snapshots and produce a labeled mixed estimate.
+const secondVi='44444444-0000-0000-0000-000000000001',secondMap='44444444-0000-0000-0000-000000000002';
+const source2={...source,code:'TEST-2',packSize:'3/7 LBA'};
+await admin('update import_documents set source_rows=$1 where id=$2',[JSON.stringify({version:1,rows:[proof,{...proof,key:'row:1',values:proof.values.map((v,i)=>i===0?'TEST-2':i===3?'3/7 LBA':v)}]}),doc]);
+await admin("insert into vendor_items(id,organization_id,vendor_id,vendor_item_code,description,brand,pack_size,price,selling_unit,price_basis,price_unavailable,last_updated,import_row) select $1,organization_id,vendor_id,'TEST-2',description,brand,'3/7 LBA',price,selling_unit,price_basis,price_unavailable,last_updated,$2 from vendor_items where id=$3",[secondVi,JSON.stringify({...importRow,rowKey:'row:1',row:source2}),vi]);
+await admin("insert into item_mappings values($1,$2,$3,$4,'exact',100)",[secondMap,org,secondVi,ci]);
+const secondInput={...input,listing:(await admin('select * from vendor_items where id=$1',[secondVi])).rows[0],mapping:(await admin('select * from item_mappings where id=$1',[secondMap])).rows[0],now:new Date().toISOString()};
+await actor(owner);const secondApproval=(await db.query('select kerdos_approve_variable_weight($1,$2,$3,0,$4) as saved',[org,secondVi,secondMap,JSON.stringify(prepareVariableWeightApproval(secondInput))])).rows[0].saved;
+const batch=prepareEstimatedPurchaseDraft({organizationId:org,vendorId:vendor,requestId:'11111111-0000-0000-0000-000000000003',confirmed:true,now:new Date().toISOString(),lines:[{...input,approval:receipt,quantity:2,orderUnit:'case'},{...secondInput,approval:{...receipt,id:secondApproval.id,terms:secondApproval.terms,approvedAt:secondApproval.approved_at},quantity:1,orderUnit:'case'}]});
+await actor(employee);const batchSaved=(await save(batch.lines,batch.requestId)).rows[0].saved;
+assert.deepEqual(batchSaved.estimate,{amount:null,minimum:180,maximum:212,estimated:true,guaranteed:false});assert.equal(new Set(batchSaved.lines.map(l=>l.id)).size,2);assert.ok(batchSaved.lines.every(l=>l.orderId===batchSaved.id&&l.actualCharge===null));
+await assert.rejects(save([draft.lines[0],{...batch.lines[1],terms:{...batch.lines[1].terms,vendorItemId:org}}],newKey),/listing is outside/);
+await actor(outsider);assert.equal((await db.query('select count(*) from estimated_purchase_drafts')).rows[0].count,0);
+await assert.rejects(db.query('select kerdos_cancel_estimated_draft($1,$2)',[otherOrg,saved.id]),/outside/);
+await actor(null,'anon');await assert.rejects(save(),/permission denied/);await assert.rejects(db.query('select * from estimated_purchase_drafts'),/permission denied/);
+// A peer employee can read a draft but cannot cancel another creator's draft.
+const peer='33333333-0000-0000-0000-000000000001';await admin('insert into organization_members values($1,$2,$3)',[org,peer,'employee']);await actor(peer);
+await assert.rejects(db.query('select kerdos_cancel_estimated_draft($1,$2)',[org,saved.id]),/Only the creator|outside/);
+await actor(manager);const cancelled=(await db.query('select kerdos_cancel_estimated_draft($1,$2) as saved',[org,saved.id])).rows[0].saved;
+assert.equal(cancelled.status,'cancelled');assert.deepEqual(cancelled.lines,saved.lines);assert.deepEqual(cancelled.estimate,saved.estimate);
+assert.equal((await db.query('select kerdos_cancel_estimated_draft($1,$2) as saved',[org,saved.id])).rows[0].saved.id,saved.id);
+await assert.rejects(db.query("update estimated_purchase_drafts set status='draft',cancelled_at=null,cancelled_by=null where id=$1",[saved.id]),/immutable/);
+await actor(employee);assert.equal((await save()).rows[0].saved.status,'cancelled','retry never resurrects a cancelled draft');
+await admin('update vendor_items set row_revision=1 where id=$1',[vi]);await actor(employee);await assert.rejects(save(draft.lines,newKey),/listing changed/);
+await admin('update vendor_items set row_revision=0,price=5 where id=$1',[vi]);await actor(employee);await assert.rejects(save(draft.lines,newKey),/source rate/);
+await admin('update vendor_items set price=4 where id=$1',[vi]);await actor(owner);await db.query('select kerdos_revoke_variable_weight($1,$2)',[org,approval.id]);
+await actor(employee);await assert.rejects(save(draft.lines,newKey),/active approval/);
+assert.equal((await save()).rows[0].saved.id,saved.id,'historical retry survives revocation without claiming a current usable order');
+assert.equal((await db.query('select count(*) from estimated_purchase_drafts')).rows[0].count,2,'failed writes leave no partial drafts');
+const unchanged=(await admin('select price_unavailable,import_row from vendor_items where id=$1',[vi])).rows[0];assert.equal(unchanged.price_unavailable,true);assert.equal(unchanged.import_row.reviewRequired,true);
+// Compare actual SQL calculations against the shared estimate for compatible units,
+// nominal averages, explicit ranges, nested counts and supported marker aliases.
+for(const [pack,unit,price] of [['2/6-8 LBA','LB',4],['3/7 LB AVG','LB',4],['2/3/5 KG AVG','LB',1.2345],['4/16 OZ AVG','LB',2.55],['2/8-12 KG RW','KG',3.125],['2/7 LBAV','LB',4],['2/7 LBSAVG','LB',4]]){
+ const terms={packSize:pack,quotedUnit:unit,quotedRate:price};const e=estimateCaseCost(price,'measure',unit,pack);assert.ok(e,pack);
+ const expected={amount:e.amount==null?null:Math.round((e.amount*2+Number.EPSILON)*100)/100,minimum:e.minimum==null?null:Math.round((e.minimum*2+Number.EPSILON)*100)/100,maximum:e.maximum==null?null:Math.round((e.maximum*2+Number.EPSILON)*100)/100,estimated:true,guaranteed:false};
+ const actual=(await db.query('select kerdos_estimated_weight_cost($1,2) as estimate',[JSON.stringify(terms)])).rows[0].estimate;assert.deepEqual(actual,expected,pack);
+}
+await db.close();console.log('PASS actual estimated-draft SQL: scoped approval/source/revision checks, server estimates, safe retries, immutable snapshots, cancellation, direct-write RLS and unchanged quotation holds.');
