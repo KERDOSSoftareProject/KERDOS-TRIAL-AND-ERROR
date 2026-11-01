@@ -45,6 +45,10 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    estimatedReceiptReversals:{
+      history(organizationId,orderId){return providerResult(client.rpc('kerdos_estimated_receipt_history',{p_organization_id:organizationId,p_order_id:orderId}),'Load receipt and reversal history');},
+      reverse(organizationId,receiptId,reason){return providerResult(client.rpc('kerdos_reverse_estimated_receipt',{p_organization_id:organizationId,p_receipt_id:receiptId,p_reason:reason,p_confirmed:true}),'Reverse receipt');},
+    },
     estimatedReceipts:{
       candidates(organizationId,orderLineId,offset){return providerResult(client.rpc('kerdos_receipt_candidates',{p_organization_id:organizationId,p_order_line_id:orderLineId,p_offset:offset}),'Load invoice candidates');},
       review(organizationId,orderLineId,invoiceLineId,cases){return providerResult(client.rpc('kerdos_review_estimated_receipt',{p_organization_id:organizationId,p_order_line_id:orderLineId,p_invoice_line_id:invoiceLineId,p_received_cases:cases}),'Review invoice receipt');},

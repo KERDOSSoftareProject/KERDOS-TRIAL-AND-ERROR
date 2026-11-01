@@ -29,7 +29,7 @@ begin
 end $$;
 set local role authenticated;
 do $$
-declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; ol uuid;
+declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; ol uuid;
 begin
  terms:=public.kerdos_variable_weight_terms(o,vi,m);
  a:=public.kerdos_approve_variable_weight(o,vi,m,0,jsonb_build_object('kind','variable_weight_approval_intent','version',1,'requestedBy',auth.uid(),'finalChargeKnown',false,'terms',terms));
@@ -56,7 +56,17 @@ begin
  if (select sum(received_cases) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>2 or (select sum((snapshot->>'actualCharge')::numeric) from public.estimated_order_receipts where order_id=(saved->>'id')::uuid)<>126 then raise exception 'Complete linked item charges failed';end if;
  blocked:=false;begin update public.invoice_lines set unit_price=5 where id=(c->>'il1')::uuid;exception when raise_exception then if sqlerrm like '%immutable%' then blocked:=true;else raise;end if;end;
  if not blocked then raise exception 'Receipt invoice mutation was not blocked';end if;
+ reversal:=public.kerdos_reverse_estimated_receipt(o,(receipt1->>'id')::uuid,'Incorrect physical case confirmation',true);
+ if public.kerdos_reverse_estimated_receipt(o,(receipt1->>'id')::uuid,'Incorrect physical case confirmation',true)<>reversal then raise exception 'Reversal replay changed identity';end if;
+ history:=public.kerdos_estimated_receipt_history(o,(saved->>'id')::uuid);
+ if jsonb_array_length(history->'receipts')<>2 or jsonb_array_length(history->'reversals')<>1 then raise exception 'Reversal audit history failed';end if;
+ if (select sum(er.received_cases) from public.estimated_order_receipts er where er.order_id=(saved->>'id')::uuid and not exists(select 1 from public.estimated_receipt_reversals rv where rv.receipt_id=er.id))<>1 then raise exception 'Reversal did not restore case capacity';end if;
+ if (select sum((er.snapshot->>'actualCharge')::numeric) from public.estimated_order_receipts er where er.order_id=(saved->>'id')::uuid and not exists(select 1 from public.estimated_receipt_reversals rv where rv.receipt_id=er.id))<>70 then raise exception 'Reversal did not exclude charges';end if;
+ blocked:=false;begin perform public.kerdos_review_estimated_receipt(o,ol,(c->>'il1')::uuid,1);exception when raise_exception then if sqlerrm like '%already linked%' then blocked:=true;else raise;end if;end;
+ if not blocked then raise exception 'Reversed invoice reservation was lost';end if;
+ blocked:=false;begin delete from public.estimated_receipt_reversals where receipt_id=(receipt1->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
+ if not blocked then raise exception 'Reversal deletion was not denied';end if;
  set constraints all immediate;
 end $$;
 rollback;
-select (select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
+select (select count(*) from public.estimated_receipt_reversals) as reversals,(select count(*) from public.estimated_order_receipts) as receipts,(select count(*) from public.purchase_orders) as orders,(select count(*) from public.invoices) as invoices,(select count(*) from public.invoice_lines) as invoice_lines,(select count(*) from public.organizations where name='KERDOS rollback receipt fixture') as fixture_organizations;
