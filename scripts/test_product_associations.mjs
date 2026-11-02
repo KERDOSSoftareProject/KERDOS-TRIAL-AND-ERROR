@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {configureProcurement} from '../src/procurement.js';
-import {buildProductAssociations,productGroupApproved} from '../src/core/product-associations.js';
+import {buildProductAssociations,productGroupApproved,productAssociationIdentity,associationProfile} from '../src/core/product-associations.js';
 import {productGroupRequest} from '../src/services/product-associations.js';
 import {orderGuideAssessment} from '../src/core/catalog-fields.js';
 configureProcurement({industry:'restaurant'});
+for(const brand of ['Heinz',"Ken's",'Daisy','Windex'])assert.equal(productAssociationIdentity({description:brand},associationProfile('restaurant')).key,null,'brand-only text never creates a product group');
+for(const [description,label] of [['Heinz Ketchup','ketchup'],['Bounty Paper Towels','Paper Towels'],['B3339XH H.D TUFF LINER','Trash Bags'],['(275) GRN HERTG. T.TISS','Toilet Tissue']])assert.equal(productAssociationIdentity({description},associationProfile('restaurant')).label.toLowerCase(),label.toLowerCase());
 const row=(id,description,pack_size='4/1 GAL',brand='')=>({id,description,pack_size,brand,price:20,selling_unit:'CASE',vendor_id:'vendor'+id,row_revision:0,field_resolutions:{}});
 const a=row('a','OIL POMACE 100%'),b=row('b','POMACE OIL 100% ANTONIO','4/3 LITER'),c=row('c','( POMACE ) OIL 100 %','46174 CT');
 const honey=[row('h1','DRESS HONEY MUSTARD'),row('h2','(DRESSING) HONEY MUSTRD'),row('h3',"HONEY MUSTARD KEN'S",undefined,"KEN'S"),row('h4','DRESSING HONEY MUSTARD SHELF STABLE PLASTIC JAR')];

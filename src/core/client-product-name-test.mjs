@@ -18,4 +18,9 @@ const row={description:'Original vendor wording',brand:'ACME',pack_size:'4/1 GAL
 const before=JSON.stringify(row);assert.equal(clientProductName({name:'ACME Widget'},[row],''),'Widget');assert.equal(JSON.stringify(row),before,'display naming cannot edit source/price/field records');
 assert.equal(clientProductName({name:'My house dressing'},[{field_resolutions:{item_name:{confirmedBy:'client'}}}],'restaurant'),'My house dressing','deliberate client names are retained');
 assert.equal(clientProductName({name:'orzo'},[],'hardware'),'Orzo','restaurant-specific labels never leak to another industry');
+for(const name of ['Heinz',"Ken's",'Kens','Daisy','Windex','24CT (USA) (ANDY BOY)'])assert.equal(clientProductName({name},[],'restaurant'),null,name+' is a brand, not an item');
+assert.equal(clientProductName({name:'Heinz Ketchup'},[{description:'Ketchup',brand:'Heinz'}],'restaurant'),'Ketchup');
+assert.equal(clientProductName({name:'Hilldale'},[{description:'American Cheese Hilldale',brand:'Hilldale'}],'restaurant'),'American Cheese','use stated product identity rather than the brand heading');
+assert.equal(clientProductName({name:'ACME'},[{description:'ACME',brand:'ACME'}],'restaurant'),null,'source-defined brands work without an industry-specific name list');
+for(const [name,expected] of [['B3339XH -H.D TUFF LINER','Trash Bags'],['B385813 BLACK LINER 60-G','Trash Bags'],['Bounty Paper Towels','Paper Towels'],['( 275 ) GRN HERTG. T.TISS','Toilet Tissue'],['PAPER CUP 12OZ','Paper Cups']])assert.equal(clientProductName({name},[],'restaurant'),expected);
 console.log('PASS client names: exact screenshot examples, plain product vocabulary, unidentifiable fragments kept for review, explicit client names and original source fields preserved.');

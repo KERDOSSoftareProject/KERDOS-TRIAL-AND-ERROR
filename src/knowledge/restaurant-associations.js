@@ -1,4 +1,5 @@
 import {restaurantDictionaries} from './restaurant-dictionaries.js';
+import {restaurantClientNames} from './restaurant-client-names.js';
 
 // Product vocabulary, not vendor/customer rules. Additional industries can
 // supply the same data contract without adding branches to the grouping engine.
@@ -33,6 +34,10 @@ const extra=[
  ['Tuna',['tuna']],['Cod',['cod']],['Haddock',['haddock']],['Clams',['clam']],['Scallops',['scallop']],
  ['Aluminum Foil',['aluminum foil','alum foil']],['Plastic Wrap',['plastic wrap','film wrap']],
  ['Napkins',['napkin']],['Paper Plates',['paper plate']],['Paper Cups',['paper cup']],
+ ['Toilet Tissue',['toilet tissue','bath tissue','toilet paper','t tiss','t tissu','ttiss']],
+ ['Paper Towels',['paper towel','towel paper','multifold towel','towel multifold','roll towel','towel roll','hand towel']],
+ ['Trash Bags',['trash bag','trash liner','can liner','tuff liner','black liner','garbage bag']],
+ ['Food Tray',['food tray']],['Food Container',['food container']],
 ];
 const terms=new Map();
 for(const group of ['food','ingredient','hospitality'])for(const entry of restaurantDictionaries[group]||[]){
@@ -40,6 +45,7 @@ for(const group of ['food','ingredient','hospitality'])for(const entry of restau
 }
 for(const [label,aliases] of extra)terms.set(label.toLowerCase(),{label,terms:aliases});
 export const restaurantAssociations={version:'restaurant-associations-2',concepts:[...terms.values()],
+ brandTerms:restaurantClientNames.brands,
  // Group by the product alone. Cut, portion, brand, pack and percentages
  // remain on the source listing; they do not create client-facing groups.
  groupDetails:false,

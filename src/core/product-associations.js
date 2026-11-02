@@ -14,7 +14,9 @@ export function associationProfile(industry){return String(industry||'').toLower
 
 export function productAssociationIdentity(row,profile=associationProfile('')){
  const brand=new Set(tokens(row.brand)),pack=new Set(tokens(row.pack_size));
- const words=tokens(row.description).filter(w=>!brand.has(w)&&!pack.has(w));
+ let description=' '+tokens(row.description).join(' ')+' ';
+ for(const value of profile.brandTerms||[]){const phrase=tokens(value).join(' ');if(phrase)description=description.split(' '+phrase+' ').join(' ');}
+ const words=description.trim().split(/\s+/).filter(w=>w&&!brand.has(w)&&!pack.has(w));
  const usable=words.filter(w=>!profile.fragments?.includes(w));
  const percentages=[...String(row.description||'').matchAll(/\b(\d+(?:\.\d+)?)\s*%/g)].map(m=>m[1]+'%').sort();
  if(!usable.length||!/[a-z]{3}/i.test(usable.join(' ')))return {key:null,label:row.description||'Missing description',reason:'No identifiable product description'};
