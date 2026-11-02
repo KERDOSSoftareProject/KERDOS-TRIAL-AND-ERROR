@@ -24,7 +24,7 @@ export function validateSummaryRequest(plan){
 export function createSummaryClassificationService(backend,{requestId=()=>crypto.randomUUID()}={}){
  const supported=!!backend.invoiceSummaryClassification;
  async function actor(){if(!supported)throw Error('Summary classification is unavailable');const id=(await backend.session.get())?.user?.id;if(!id)throw Error('Sign in before summary classification');return id;}
- return {supported,closureSupported:!!backend.invoiceSummaryClassification?.closeAttempt,
+ return {supported,recoveryActor:actor,closureSupported:!!backend.invoiceSummaryClassification?.closeAttempt,
   async review(organizationId,invoiceId){const user=await actor();return {...validateSummaryContext(await backend.invoiceSummaryClassification.review(organizationId,invoiceId),organizationId,invoiceId),actorId:user};},
   prepare(context,mappings,reason,{confirmed}={}){
    const source=context?.source;validateSummaryContext(context,source?.organizationId,source?.invoiceId);
