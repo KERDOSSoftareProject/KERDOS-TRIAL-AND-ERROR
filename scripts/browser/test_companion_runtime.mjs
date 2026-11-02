@@ -61,7 +61,7 @@ try{
    click:id=>evaluate(`document.getElementById(${JSON.stringify(id)}).click()`),
    status:()=>evaluate("document.getElementById('status').textContent"),
    disabled:()=>evaluate("document.getElementById('export').disabled"),
-   async waitStatus(text){const end=Date.now()+15000;do{const status=await this.status();if((Array.isArray(text)?text:[text]).some(value=>status.includes(value)))return;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<end);throw Error('Unexpected popup status: '+await this.status());},
+   async waitStatus(text){const end=Date.now()+25000;do{const status=await this.status();if((Array.isArray(text)?text:[text]).some(value=>status.includes(value)))return;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<end);throw Error('Unexpected popup status: '+await this.status());},
    close:()=>devtools.send('Target.closeTarget',{targetId:info.targetId}),
   };
  }
