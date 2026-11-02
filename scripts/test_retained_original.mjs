@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {verifyOriginalBytes,MAX_VERIFIED_ORIGINAL_BYTES} from '../src/core/retained-original.js';
+import {createDocumentService} from '../src/services/documents.js';
+import {createSupabaseBackend} from '../src/backend/supabase.js';
+const bytes=Buffer.from('\ufeffCode,Description,Price\r\n001,Δοκιμή,41.25\r\n');
+const evidence={kind:'browser_companion',sha256:createHash('sha256').update(bytes).digest('hex'),byte_length:bytes.length};
+const org='10000000-0000-0000-0000-000000000001',vendor='20000000-0000-0000-0000-000000000001';
+const doc={organization_id:org,vendor_id:vendor,file_path:org+'/'+vendor+'/original.csv',retrieval_evidence:evidence};
+for(const input of [new Blob([bytes]),bytes,new Uint8Array(bytes),bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)])assert.deepEqual(await verifyOriginalBytes(input,evidence),{sha256:evidence.sha256,byteLength:bytes.length});
+await assert.rejects(verifyOriginalBytes(new Blob([bytes.toString().replaceAll('\r\n','\n')]),evidence),/byte length differs/);
+const changed=Buffer.from(bytes);changed[changed.length-4]=57;await assert.rejects(verifyOriginalBytes(changed,evidence),/SHA-256 differs/);
+for(const patch of [{kind:'manual'},{sha256:'bad'},{sha256:[evidence.sha256]},{byte_length:0},{byte_length:-1},{byte_length:1.5},{byte_length:MAX_VERIFIED_ORIGINAL_BYTES+1}])await assert.rejects(verifyOriginalBytes(bytes,{...evidence,...patch}),/no valid transfer-byte evidence/);
+await assert.rejects(verifyOriginalBytes('not bytes',evidence),/byte length differs/);
+await assert.rejects(verifyOriginalBytes(bytes,evidence,{cryptoApi:{}}),/verification is unavailable/);
+let active=true,hashed=false;
+await assert.rejects(verifyOriginalBytes({size:bytes.length,arrayBuffer:async()=>{active=false;return bytes.buffer;}},evidence,{assertActive:()=>{if(!active)throw Error('workspace changed');},cryptoApi:{subtle:{digest:async()=>{hashed=true;}}}}),/workspace changed/);assert.equal(hashed,false);
+const reads=[];const backend={documents:{download:async path=>{reads.push(path);return new Blob([bytes]);}},records:{}};
+const service=createDocumentService(backend);assert.equal((await service.verifyCompanionOriginal({organizationId:org,vendorId:vendor,document:doc})).sha256,evidence.sha256);assert.deepEqual(reads,[doc.file_path]);
+for(const patch of [{organization_id:'other'},{vendor_id:'other'},{file_path:'other/'+vendor+'/original.csv'},{file_path:org+'/'+vendor+'/../original.csv'},{retrieval_evidence:{}}])await assert.rejects(service.verifyCompanionOriginal({organizationId:org,vendorId:vendor,document:{...doc,...patch}}));assert.equal(reads.length,1,'ownership/path/proof failures must not request a file');
+backend.documents.download=async()=>{throw Error('Storage access denied');};await assert.rejects(service.verifyCompanionOriginal({organizationId:org,vendorId:vendor,document:doc}),/Storage access denied/);
+await assert.rejects(createDocumentService({records:{},documents:{}}).verifyCompanionOriginal({organizationId:org,vendorId:vendor,document:doc}),/unavailable from this storage provider/);
+const priorWindow=globalThis.window;globalThis.window={localStorage:{removeItem(){}},sessionStorage:{}};
+try{
+ const calls=[];let fail=false;
+ const adapter=createSupabaseBackend({url:'https://example.invalid',anonKey:'public-test-key'},()=>({storage:{from:bucket=>({download:async(...args)=>{calls.push({bucket,args});return fail?{error:{message:'Download denied'}}:{data:new Blob([bytes])};}})}}));
+ assert.equal((await adapter.documents.download(doc.file_path)).size,bytes.length);assert.deepEqual(calls[0],{bucket:'documents',args:[doc.file_path,{}, {cache:'no-store'}]});
+ fail=true;await assert.rejects(adapter.documents.download(doc.file_path),/Verify original document: Download denied/);
+}finally{if(priorWindow===undefined)delete globalThis.window;else globalThis.window=priorWindow;}
+console.log('PASS retained original: raw BOM/CRLF/Unicode bytes, SHA-256/length, invalid evidence, cancellation, owned path, storage failures and authenticated no-store adapter; controlled persistence only');

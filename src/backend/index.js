@@ -11,7 +11,7 @@ function unconfigured(reason){
     kind:"unconfigured",
     session:{get:async()=>null,subscribe:()=>()=>{},signIn:fail,signUp:fail,signOut:fail},
     workspace:{memberships:fail,snapshot:fail},
-    documents:{upload:fail,signedUrl:fail,remove:fail,deletePriceSheet:fail,deleteInvoiceRecord:fail},
+    documents:{download:fail,upload:fail,signedUrl:fail,remove:fail,deletePriceSheet:fail,deleteInvoiceRecord:fail},
     realtime:{subscribeToOrganization:()=>()=>{}},
     pricing:{applyQuote:fail},
     catalog:{saveRow:fail},
