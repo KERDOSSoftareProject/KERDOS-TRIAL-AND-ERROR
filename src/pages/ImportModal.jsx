@@ -512,7 +512,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           }
         }
         if(existingDoc){
-          try{verifyResumeRows(group.rows,[...completedKeys],await importService.resumeSources(orgId,vendorId,existingDoc.id),existingDoc.source_rows??null);}
+          try{verifyResumeRows(group.rows,[...new Set([...completedKeys,...Object.keys(existingDoc.staged_row_receipts||{})])],await importService.resumeSources(orgId,vendorId,existingDoc.id),existingDoc.source_rows??null);}
           catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
         }
         sourceFilePath=existingDoc?.file_path||sourceFilePath;
@@ -558,7 +558,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const rowNeedsReview=!!rowIssues.length&&!acceptedIssues.has(rowKey);
         try{
         if(!rowNeedsReview&&!row.priceUnavailable&&(!Number.isFinite(Number(row.price))||Number(row.price)<=0)) throw new Error("No confirmed positive unit price");
+        const stagedReceipt=existingDoc?.staged_row_receipts?.[completedKey]||null;
         let ex=row.code?currentVendorByCode.get(row.code)||null:null;
+        if(stagedReceipt){
+          ex=await importService.vendorItemById(orgId,vendorId,stagedReceipt.vendorItemId);
+          if(!ex)throw new Error('The retained source-row listing is no longer available. Existing source was kept for review.');
+        }
         if(row.selectedVendorItemId){
           const selected=await importService.vendorItemById(orgId,vendorId,row.selectedVendorItemId);
           if(!selected||selected.vendor_item_code&&selected.vendor_item_code!==row.code)
@@ -583,7 +588,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const priorMapping=ex?await importService.mapping(orgId,ex.id):null;
         const {vendorItemId,needsBasis,match,savedMapping}=await importPriceRow({
           backend,importService,catalogService,
-          sourceRow,row,ex,priorMapping,rowIssues,rowNeedsReview,invoiceSources,
+          sourceRow,row,ex,priorMapping,rowIssues,rowNeedsReview,invoiceSources,stagedReceipt,replayStagedObservation:!!stagedReceipt&&!inboxReview,
           orgId,vendorId,sourceDocumentId,completedKey,importBatchTime,group,sourceFilePath,
           workingCatalogItems,workingCategories,workingVendorItems,workingMappings,
           applySelectedCategory,assertActive,
