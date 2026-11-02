@@ -2,6 +2,7 @@ import {useMemo,useState,useEffect} from 'react';
 import {buildProductAssociations} from '../core/product-associations.js';
 import {productGroupRequest} from '../services/product-associations.js';
 import {backend} from '../backend/index.js';
+import {clientProductName} from '../core/client-product-name.js';
 import {btn,inp} from '../ui/styles.js';
 
 export function ProductAssociationTrial({industry,orgId,vendorItems,catalogItems,mappings,vendors,onUpdated,provider=backend,canManage=false}){
@@ -14,6 +15,8 @@ export function ProductAssociationTrial({industry,orgId,vendorItems,catalogItems
  },[orgId,open,historyEpoch,provider]);
  const preview=useMemo(()=>open?buildProductAssociations({industry,vendorItems,catalogItems,mappings}):null,[open,industry,vendorItems,catalogItems,mappings]);
  const vendorNames=useMemo(()=>new Map(vendors.map(v=>[v.id,v.name])),[vendors]);
+ const namedGroups=useMemo(()=>preview?.groups.map(g=>({...g,clientName:clientProductName({name:g.label},g.rows,industry),number:catalogItems.find(item=>item.id===g.targetCatalogItemId)?.master_item_number})).sort((a,b)=>String(a.clientName||'').localeCompare(String(b.clientName||''),undefined,{sensitivity:'base'}))||[],[preview,industry,catalogItems]);
+ const unnamed=namedGroups.filter(g=>!g.clientName);
  async function save(group){
   setBusy(true);setError('');setNotice('');
   try{
@@ -55,12 +58,13 @@ export function ProductAssociationTrial({industry,orgId,vendorItems,catalogItems
    <input style={inp} aria-label="Search proposed groups" placeholder="Search product or vendor description" value={query} onChange={e=>setQuery(e.target.value)}/>
    {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" style={{color:'#B42318'}}>{error}</p>}
    {canManage&&<details style={{padding:8}}><summary>My saved grouping trials ({history.length})</summary>{history.map(event=><div key={event.request_id} style={{padding:6}}>{event.payload.name} · {event.result.associated} listings · {new Date(event.created_at).toLocaleString()} {event.restored_at?'· restored':<button disabled={busy} onClick={()=>restore(event.request_id)}>Restore previous associations</button>}</div>)}</details>}
-   {preview.groups.filter(g=>[g.label,...g.rows.map(v=>v.description)].some(t=>String(t).toLowerCase().includes(query.toLowerCase()))).map(g=><details key={g.key} style={{borderTop:'1px solid #DEE7F0',padding:8}}>
-    <summary>{g.label} · {g.rows.length} listing{g.rows.length===1?'':'s'}{g.saved?' · associated':g.protected?' · existing decision retained':''}</summary>
+   {namedGroups.filter(g=>g.clientName&&[g.clientName,g.label,...g.rows.map(v=>v.description)].some(t=>String(t).toLowerCase().includes(query.toLowerCase()))).map(g=><details key={g.key} style={{borderTop:'1px solid #DEE7F0',padding:8}}>
+    <summary>{g.clientName} {g.number!=null&&<small style={{marginLeft:8,color:'#667085'}}>KERDOS #{g.number}</small>}</summary>
     <p style={{fontSize:12}}>{g.reason}</p>
     {g.rows.map(row=><div key={row.id} style={{padding:6,borderBottom:'1px solid #EDF2F7'}}><strong>{vendorNames.get(row.vendor_id)||'Vendor'}</strong> · {row.vendor_item_code||'No item code'} · {row.description}<br/>{row.brand||'Brand not stated'} · {row.pack_size||'Pack missing'} · {row.price==null?'Price not stated':String(row.price)} · {row.selling_unit||'Quoted unit not stated'}</div>)}
     {canManage&&g.canSave&&<button style={{...btn('#003584','white'),marginTop:8}} disabled={busy||!!batch||(pending&&pending.groupKey!==g.key)} onClick={()=>save(g)}>{pending?.groupKey===g.key?'Retry same group save':'Confirm this product identity'}</button>}
    </details>)}
+   {unnamed.length>0&&<details style={{padding:8}}><summary>Needs a product name ({unnamed.reduce((n,g)=>n+g.rows.length,0)} listings)</summary>{unnamed.flatMap(g=>g.rows).map(row=><p key={row.id}>{vendorNames.get(row.vendor_id)} · {row.description||'Missing description'}</p>)}</details>}
    <details style={{padding:8}}><summary>Unresolved source rows ({preview.unresolved.length})</summary>{preview.unresolved.map(({row,reason})=><p key={row.id}>{vendorNames.get(row.vendor_id)} · {row.description||'Missing description'} · {reason}</p>)}</details>
   </div>}
  </section>;

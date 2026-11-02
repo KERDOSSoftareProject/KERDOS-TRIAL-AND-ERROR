@@ -14,7 +14,9 @@ import { createOperationsService } from "./services/operations.js";
 import { loadSnapshot, saveSnapshot } from "./offline-store.js";
 import { configureProcurement, priceBasisFor, eachPrice, pricePerUnit, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
 import { blockReason, orderable, priceForOffer, rankVendorOffers, offerDollarDifference, solveOrder } from "./core/ordering.js";
-import { compareItems, itemMatchesSearch } from "./core/catalog-browse.js";
+import {orderGuideGroups,orderGuideCategories} from './core/order-guide-groups.js';
+import {associationProfile,productAssociationIdentity} from './core/product-associations.js';
+import {clientProductName} from './core/client-product-name.js';
 import { configureLocale, formatDate, formatMoney } from "./localization.js";
 import { buildVarianceReportCSV, downloadTextFile } from "./reporting.js";
 import {InvoicesPage,PriceSheetsPage} from "./pages/DocumentPages.jsx";
@@ -168,7 +170,7 @@ export default function App() {
   // but the same "browse by item type, order by code/alpha" idea applies.
   const [orderCategoryFilter,setOrderCategoryFilter]=useState("");
   const [orderVendorFilter,setOrderVendorFilter]=useState("");
-  const [orderSortMode,setOrderSortMode]=useState("alpha"); // "alpha" | "itemNumber" | "vendorCode"
+  const [orderSortMode,setOrderSortMode]=useState("alphabetical");
   function openOrderGuide(){setSearch("");setOrderCategoryFilter("");setOrderVendorFilter("");setTab("order");}
 
   // Startup and session transitions are owned by sessionController (see
@@ -414,6 +416,7 @@ export default function App() {
     const mappingsByCatalog=new Map();
     for(const mapping of mappings){const group=mappingsByCatalog.get(mapping.catalog_item_id)||[];group.push(mapping);mappingsByCatalog.set(mapping.catalog_item_id,group);}
     const categoriesById=new Map(categories.map(category=>[category.id,category]));
+    const groupProfile=associationProfile(org?.industry);
     return catalogItems.filter(ci=>!ci.merged_into_id||mappingsByCatalog.has(ci.id)).map(ci=>{
       const ciMappings=mappingsByCatalog.get(ci.id)||[];
       const lockedBrand=ci.brand_locked?(ci.locked_brand||null):null;
@@ -503,7 +506,8 @@ export default function App() {
       return {
         catalogItemId:ci.id,
         masterItemNumber:ci.master_item_number,
-        name:ci.name,
+        name:clientProductName(ci,ciMappings.map(m=>viMap.get(m.vendor_item_id)).filter(Boolean),org?.industry)||'Product name needed',
+        hasProductIdentity:!!clientProductName(ci,ciMappings.map(m=>viMap.get(m.vendor_item_id)).filter(Boolean),org?.industry)&&ciMappings.some(m=>{const row=viMap.get(m.vendor_item_id);return row&&productAssociationIdentity(row,groupProfile).key!==null;}),
         category:ci.catalog_categories?.name||penName,
         categoryReview:!!ci.category_review, categoryReason:ci.category_reason||null,
         createdAt:ci.created_at,
@@ -678,31 +682,8 @@ export default function App() {
   const totalSpend=baskets.reduce((s,b)=>s+b.dollar,0);
   const totalUnits=baskets.reduce((s,b)=>s+b.units,0);
 
-  const orderCategoryList=useMemo(()=>{
-    // Order Guide only ever lists items with a vendor price (see the
-    // options.length>0 filter below) - the category chip list is scoped
-    // to that same orderable set, not the full catalog, so a category
-    // that's entirely unpriced doesn't show an empty chip here. Order
-    // Guide's categories are alphabetical - not the number-range order
-    // Item Catalog uses, since this screen is for FINDING something to
-    // order, not for working the numbering itself.
-    const set=new Set(productList.filter(i=>i.options.some(orderable)).map(p=>p.category));
-    return [...set].sort((a,b)=>a.localeCompare(b));
-  },[productList]);
-
-  const filtered=useMemo(()=>{
-    // Order Guide is for ORDERING - a client-created item with no vendor
-    // price mapped to it yet has nothing to order, so it's excluded here
-    // even though it's fully visible in Item Catalog.
-    const matches=productList.filter(i=>{
-      if(!i.options.some(orderable)) return false;
-      if(orderCategoryFilter&&i.category!==orderCategoryFilter) return false;
-      if(orderVendorFilter&&!i.options.some(o=>o.vendorId===orderVendorFilter&&orderable(o))) return false;
-      return itemMatchesSearch(i,search);
-    });
-    const items=matches.map(item=>({...item,linkedOptions:item.options,options:item.options.filter(orderable)}));
-    return items.length?[{category:"all",items:items.sort((a,b)=>compareItems(a,b,orderSortMode))}]:[];
-  },[productList,search,orderCategoryFilter,orderVendorFilter,orderSortMode]);
+  const orderCategoryList=useMemo(()=>orderGuideCategories(productList),[productList]);
+  const filtered=useMemo(()=>orderGuideGroups(productList,{search,category:orderCategoryFilter,vendor:orderVendorFilter,sort:orderSortMode}),[productList,search,orderCategoryFilter,orderVendorFilter,orderSortMode]);
 
   async function handleLogoUpload(file) {
     if (!file) return;
@@ -935,7 +916,6 @@ export default function App() {
                   {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
                 <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="alpha">Sort</option>
                   <option value="alphabetical">Item A–Z</option>
                   <option value="added">Date Added</option>
                   <option value="itemNumber">Item #</option>
@@ -957,8 +937,8 @@ export default function App() {
 
               {productList.length>0&&filtered.length===0&&(
                 <div style={{background:"white",borderRadius:10,padding:24,color:"#24436B",marginBottom:12}}>
-                  <b>{search||orderCategoryFilter||orderVendorFilter?"No ready items match this filter":"Your Order Guide has no ready items yet"}</b>
-                  <p style={{margin:"8px 0",fontSize:13}}>{search||orderCategoryFilter||orderVendorFilter?"Clear the search or choose All in both menus to see all ready items.":"Imported invoice items and vendor listings appear in Item Catalog first. Confirm the product, pack, association and quoted price there; ready items from every vendor then appear here together."}</p>
+                  <b>{search||orderCategoryFilter||orderVendorFilter?"No KERDOS items match this filter":"Your Order Guide has no product groups yet"}</b>
+                  <p style={{margin:"8px 0",fontSize:13}}>{search||orderCategoryFilter||orderVendorFilter?"Clear the search or choose All in both menus to see your product groups.":"Product groups with vendor listings appear here alphabetically. Unidentified source rows remain in Item Catalog."}</p>
                   {search||orderCategoryFilter||orderVendorFilter?<button onClick={()=>{setSearch("");setOrderCategoryFilter("");setOrderVendorFilter("");}} style={btn("#003584")}>Show Full List</button>:<button onClick={()=>setTab("catalog")} style={btn("#003584")}>Open Item Catalog</button>}
                 </div>
               )}
@@ -985,7 +965,7 @@ export default function App() {
                         const selectedUnit=hasEach?(unitSelection[item.catalogItemId]||"case"):"case";
                         const activeKey=selectedUnit==="case"?caseKey:eachKey;
                         const activeQty=selectedUnit==="case"?caseQty:eachQty;
-                        const activePackSize=selectedUnit==="case"?(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[caseKey])?.packSize||cheapest?.packSize:(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[eachKey])?.eachSize||cheapest?.eachSize;
+                        const activePackSize=selectedUnit==="case"?(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[caseKey])?.packSize||cheapest?.packSize||item.linkedOptions?.[0]?.packSize:(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[eachKey])?.eachSize||cheapest?.eachSize;
                         const cartItemIdForActive=selectedUnit==="case"?item.catalogItemId:item.catalogItemId+"_each";
                         const assignment=assignMap.get(cartItemIdForActive);
                         const negotiation=negotiatedPrices[activeKey];
@@ -997,8 +977,8 @@ export default function App() {
                         const selectedReadyOption=rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey]);
                         const displayOption=selectedHeldOption||selectedReadyOption||(
                           assignment?unitOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId):null
-                        )||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0];
-                        const activePrice=selectedHeldOption?selectedHeldOption.casePrice:selectedReadyOption?selectedReadyOption.unitPrice:assignment?assignment.price:displayOption?.unitPrice;
+                        )||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0]||heldOptions[0];
+                        const activePrice=selectedHeldOption?selectedHeldOption.casePrice:selectedReadyOption?selectedReadyOption.unitPrice:assignment?assignment.price:displayOption?.unitPrice??displayOption?.casePrice;
                         const activeVendorName=displayOption?.vendorName||assignment?.assignedVendorName;
                         const activeVendorId=displayOption?.vendorId||assignment?.assignedVendorId;
                         const vc=vendorColors.get(activeVendorId)||PALETTE[0];
@@ -1006,7 +986,7 @@ export default function App() {
                         const negotiationVendorId=negotiatedVendorDrafts[activeKey]||activeVendorId||rankedOptions[0]?.vendorId||"";
                         const customPriceValue=negotiation?.[negotiationVendorId];
                         const menuOpen=openPriceMenu===activeKey;
-                        const activeBlocked=!!selectedHeldOption||!displayOption||(!!assignment?.unorderable&&!selectedReadyOption);
+                        const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
                         const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
                         const activeOption=displayOption||cheapest;
                         const activeMatchTrack=activeOption?.matchTrack;
@@ -1031,7 +1011,7 @@ export default function App() {
                             title={activeBlocked?undefined:"Drag onto a vendor basket to order from that vendor"}
                             style={{minWidth:0,padding:"8px 8px 8px 2px",borderTop:"1px solid #F2F2F2",cursor:activeBlocked?"default":"grab",opacity:dragItem?.key===activeKey?0.5:1}}>
                             <div style={{fontWeight:600,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                              {displayOption?.description||item.name}
+                              {item.name}
                               {hasEach&&<span title="Available by case or by each" style={{marginLeft:5,fontSize:9,background:"#E0F2F1",color:"#00695C",padding:"2px 5px",borderRadius:4,fontWeight:800}}>CASE + EACH</span>}
                               {totalLinkedVendors>1&&(()=>{
                                 const heldCount=totalLinkedVendors-readyVendorCount;
@@ -1061,7 +1041,7 @@ export default function App() {
                               )}
                             </div>
                             <div style={{fontSize:10,color:"#AAA"}}>
-                              {activePackSize||""}
+                              <span style={{marginRight:6,color:'#52647A'}}>KERDOS #{item.masterItemNumber}</span>{activePackSize||""}
                               {!activeBlocked&&activeOption?.perUnit&&<span style={{marginLeft:6,color:"#666",fontWeight:600}}>{formatMoney(activeOption.perUnit.price)}/{activeOption.perUnit.unit}</span>}
                             </div>
                           </div>,
