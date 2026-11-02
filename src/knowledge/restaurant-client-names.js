@@ -20,5 +20,5 @@ export const restaurantClientNames={
   {label:'American Cheese',terms:['american sliced']},
  ],
  displayNoise:['usa','can','mex','per','hnd','bel','chn','col','cos','gtm','mor','ny','fl','ga'],
- nonProducts:['baby','mini','aseptic','andy','boy','nj','qrt','qt','print','chn','col','cos','gtm','mor','usa','mex','can','per','hnd','bel','ny','fl','ga','plastic','lb','lbs','oz','ct','count','ea','case','cs','gallon','gallons','gal','liter','liters','kg','g','ml','price','list','total','subtotal','page','of','invoice','thank','you'],
+ nonProducts:['bagged','baby','mini','aseptic','andy','boy','nj','qrt','qt','print','chn','col','cos','gtm','mor','usa','mex','can','per','hnd','bel','ny','fl','ga','plastic','lb','lbs','oz','ct','count','ea','case','cs','gallon','gallons','gal','liter','liters','kg','g','ml','price','list','total','subtotal','page','of','invoice','thank','you'],
 };

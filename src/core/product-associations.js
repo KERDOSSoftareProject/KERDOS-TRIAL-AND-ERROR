@@ -23,7 +23,9 @@ export function productAssociationIdentity(row,profile=associationProfile('')){
  const rules=compiled(profile);
  const matches=rules.concepts.map(c=>({...c,matched:c.phrases.filter(t=>contains(words,t)).sort((a,b)=>b.length-a.length)[0]})).filter(c=>c.matched);
  // Prefer a complete specific phrase over its contained generic nouns.
- const distinct=matches.filter(c=>!matches.some(other=>other!==c&&other.matched.length>c.matched.length&&contains(other.matched,c.matched)));
+ const distinct=matches.filter(c=>!matches.some(other=>other!==c&&(
+  other.matched.length>c.matched.length&&contains(other.matched,c.matched)||
+  profile.broaderConcepts?.[other.label.toLowerCase()]?.includes(c.label.toLowerCase()))));
  const identities=new Map(distinct.map(c=>[keyOf(c.matched),c]));
  if(identities.size>1)return {key:'literal:'+keyOf(words),label:row.description,reason:'Multiple product concepts; retain separately for review'};
  const concept=[...identities.values()][0];

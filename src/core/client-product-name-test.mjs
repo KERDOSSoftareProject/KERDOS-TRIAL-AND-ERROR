@@ -23,4 +23,6 @@ assert.equal(clientProductName({name:'Heinz Ketchup'},[{description:'Ketchup',br
 assert.equal(clientProductName({name:'Hilldale'},[{description:'American Cheese Hilldale',brand:'Hilldale'}],'restaurant'),'American Cheese','use stated product identity rather than the brand heading');
 assert.equal(clientProductName({name:'ACME'},[{description:'ACME',brand:'ACME'}],'restaurant'),null,'source-defined brands work without an industry-specific name list');
 for(const [name,expected] of [['B3339XH -H.D TUFF LINER','Trash Bags'],['B385813 BLACK LINER 60-G','Trash Bags'],['Bounty Paper Towels','Paper Towels'],['( 275 ) GRN HERTG. T.TISS','Toilet Tissue'],['PAPER CUP 12OZ','Paper Cups']])assert.equal(clientProductName({name},[],'restaurant'),expected);
+assert.equal(clientProductName({name:'BACON, PORK 18-22 COUNT SLICED LAID OUT HICKORY SMOKED CURED RAW 1-DIAMOND'},[{brand:'PATUXENT FARMS'}],'restaurant'),'Bacon');
+assert.equal(clientProductName({name:'BAGGED (CAN)'},[],'restaurant'),null,'packaging alone is not an identified item');
 console.log('PASS client names: exact screenshot examples, plain product vocabulary, unidentifiable fragments kept for review, explicit client names and original source fields preserved.');
