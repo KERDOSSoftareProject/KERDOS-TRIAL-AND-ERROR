@@ -30,7 +30,7 @@ begin
 end $$;
 set local role authenticated;
 do $$
-declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; approval_review jsonb; approval jsonb; withdrawal jsonb; withdrawn_approval jsonb; request_id uuid:=gen_random_uuid(); pay_request1 uuid:=gen_random_uuid(); pay_request2 uuid:=gen_random_uuid(); pay_review1 jsonb; pay_review2 jsonb; payment1 jsonb; payment2 jsonb; payment3 jsonb; payment_reversal jsonb; payment_ledger jsonb; ol uuid;
+declare c jsonb:=current_setting('kerdos.order_smoke')::jsonb; o uuid:=(c->>'org')::uuid; v uuid:=(c->>'vendor')::uuid; vi uuid:=(c->>'vi')::uuid; m uuid:=(c->>'mapping')::uuid; terms jsonb; a jsonb; line jsonb; d jsonb; r jsonb; saved jsonb; replay jsonb; blocked boolean:=false; review1 jsonb; review2 jsonb; receipt1 jsonb; receipt2 jsonb; reversal jsonb; history jsonb; replacement_review jsonb; replaced jsonb; invoice_review jsonb; approval_review jsonb; approval jsonb; withdrawal jsonb; withdrawn_approval jsonb; request_id uuid:=gen_random_uuid(); pay_request1 uuid:=gen_random_uuid(); pay_request2 uuid:=gen_random_uuid(); pay_review1 jsonb; pay_review2 jsonb; payment1 jsonb; payment2 jsonb; payment3 jsonb; payment_reversal jsonb; payment_ledger jsonb; corrected_review jsonb; corrected_payment jsonb; correction_request_id uuid:=gen_random_uuid(); ol uuid;
 begin
  terms:=public.kerdos_variable_weight_terms(o,vi,m);
  a:=public.kerdos_approve_variable_weight(o,vi,m,0,jsonb_build_object('kind','variable_weight_approval_intent','version',1,'requestedBy',auth.uid(),'finalChargeKnown',false,'terms',terms));
@@ -79,9 +79,17 @@ begin
  if public.kerdos_reverse_invoice_payment(o,(payment2->>'id')::uuid,'Correcting synthetic recorded payment',true)<>payment_reversal then raise exception 'Payment reversal replay changed identity';end if;
  blocked:=false;begin perform public.kerdos_review_invoice_payment(o,(approval->>'invoiceId')::uuid,(approval->>'id')::uuid,1,current_date,'check','syn-check-2');exception when raise_exception then if sqlerrm like '%reference is already%' then blocked:=true;else raise;end if;end;
  if not blocked then raise exception 'Reversed payment reference reservation was lost';end if;
- payment3:=public.kerdos_save_invoice_payment(o,gen_random_uuid(),public.kerdos_review_invoice_payment(o,(approval->>'invoiceId')::uuid,(approval->>'id')::uuid,3600,current_date,'check','SYN-CHECK-3'),true);
+
+ corrected_review:=public.kerdos_review_invoice_payment_correction(o,(approval->>'invoiceId')::uuid,(approval->>'id')::uuid,(payment2->>'id')::uuid,3500,current_date,'check','Correcting amount under original reference');
+ corrected_payment:=public.kerdos_save_invoice_payment_correction(o,correction_request_id,corrected_review,true,true);
+ if public.kerdos_save_invoice_payment_correction(o,correction_request_id,corrected_review,true,true)<>corrected_payment or corrected_payment->>'reference'<>payment2->>'reference' or corrected_payment->'sourceReview'->'correction'->>'paymentId'<>payment2->>'id' then raise exception 'Same-reference correction audit or replay failed';end if;
+ if (select sum(p.paid_cents) from public.invoice_payments p where p.invoice_id=(approval->>'invoiceId')::uuid and not exists(select 1 from public.invoice_payment_reversals r where r.payment_id=p.id))<>5500 then raise exception 'Corrected partial balance failed';end if;
+ perform public.kerdos_reverse_invoice_payment(o,(corrected_payment->>'id')::uuid,'A second correction needs a fresh record',true);
+ payment3:=public.kerdos_save_invoice_payment_correction(o,gen_random_uuid(),public.kerdos_review_invoice_payment_correction(o,(approval->>'invoiceId')::uuid,(approval->>'id')::uuid,(corrected_payment->>'id')::uuid,3600,current_date,'check','Second correction under original reference'),true,true);
+ if public.kerdos_save_invoice_payment_correction(o,correction_request_id,corrected_review,true,true)<>corrected_payment then raise exception 'Historical correction replay changed identity';end if;
+
  payment_ledger:=public.kerdos_invoice_payment_ledger(o,(approval->>'invoiceId')::uuid);
- if jsonb_array_length(payment_ledger->'payments')<>3 or jsonb_array_length(payment_ledger->'reversals')<>1 or (select sum(p.paid_cents) from public.invoice_payments p where p.invoice_id=(approval->>'invoiceId')::uuid and not exists(select 1 from public.invoice_payment_reversals r where r.payment_id=p.id))<>5600 then raise exception 'Full recorded payment coverage failed';end if;
+ if jsonb_array_length(payment_ledger->'payments')<>4 or jsonb_array_length(payment_ledger->'reversals')<>2 or (select sum(p.paid_cents) from public.invoice_payments p where p.invoice_id=(approval->>'invoiceId')::uuid and not exists(select 1 from public.invoice_payment_reversals r where r.payment_id=p.id))<>5600 then raise exception 'Full recorded payment coverage failed';end if;
  blocked:=false;begin delete from public.invoice_payments where id=(payment1->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
  if not blocked then raise exception 'Payment deletion was not denied';end if;
 
@@ -103,7 +111,7 @@ begin
  blocked:=false;begin perform public.kerdos_save_invoice_approval(o,(approval_review->'source'->>'invoiceId')::uuid,gen_random_uuid(),approval_review->'source','',true);exception when raise_exception then if sqlerrm like '%does not pass%' then blocked:=true;else raise;end if;end;
  if not blocked then raise exception 'Incomplete invoice approval was not denied';end if;
  payment_ledger:=public.kerdos_invoice_payment_ledger(o,(approval->>'invoiceId')::uuid);
- if payment_ledger->'approvalReview'->'gate'->'eligible' is distinct from 'false'::jsonb or jsonb_array_length(payment_ledger->'payments')<>3 then raise exception 'Payment history was lost after receipt reversal';end if;
+ if payment_ledger->'approvalReview'->'gate'->'eligible' is distinct from 'false'::jsonb or jsonb_array_length(payment_ledger->'payments')<>4 then raise exception 'Payment history was lost after receipt reversal';end if;
 
  blocked:=false;begin delete from public.invoice_accounting_approvals where id=(approval->>'id')::uuid;exception when insufficient_privilege then blocked:=true;end;
  if not blocked then raise exception 'Approval deletion was not denied';end if;

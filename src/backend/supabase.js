@@ -45,6 +45,10 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     inbox:createSupabaseInbox(client),
     vendorConnect:{request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    invoicePaymentCorrections:{
+      review(organizationId,invoiceId,approvalId,paymentId,input,reason){return providerResult(client.rpc('kerdos_review_invoice_payment_correction',{p_organization_id:organizationId,p_invoice_id:invoiceId,p_approval_id:approvalId,p_payment_id:paymentId,p_paid_cents:input.amountCents,p_paid_on:input.paidOn,p_method:input.method,p_reason:reason}),'Review payment correction');},
+      save(request){return providerResult(client.rpc('kerdos_save_invoice_payment_correction',{p_organization_id:request.review.organizationId,p_request_id:request.requestId,p_review:request.review,p_confirmed:true,p_correction_confirmed:true}),'Record payment correction');},
+    },
     invoicePayments:{
       ledger(organizationId,invoiceId){return providerResult(client.rpc('kerdos_invoice_payment_ledger',{p_organization_id:organizationId,p_invoice_id:invoiceId}),'Load invoice payment ledger');},
       review(organizationId,invoiceId,approvalId,input){return providerResult(client.rpc('kerdos_review_invoice_payment',{p_organization_id:organizationId,p_invoice_id:invoiceId,p_approval_id:approvalId,p_paid_cents:input.amountCents,p_paid_on:input.paidOn,p_method:input.method,p_reference:input.reference}),'Review invoice payment record');},

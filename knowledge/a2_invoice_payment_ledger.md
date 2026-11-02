@@ -20,8 +20,9 @@ cent amount may not exceed the remaining approved total. Method and real calenda
 date are explicit inputs. Request identity prevents duplicate retries; trimmed,
 case-insensitive reference identity is unique within an invoice, including
 reversed history, so remounting or using a new request cannot duplicate that
-reference. A reference remains reserved after reversal; correction using the same
-reference needs a later audited replacement workflow, not an invented reference.
+reference. A reference stays reserved for its chain. Audited same-reference correction is
+now documented in `a2_same_reference_payment_corrections.md`; unrelated duplicate
+records remain denied.
 
 Saving locks all associated recorded order lines in deterministic order before
 the invoice header, matching approval/receipt lock order. It reloads current
@@ -78,7 +79,7 @@ eight invoker-only anonymous/worker-denied functions verified with no new relate
 security-advisor finding. No actual payment, refund or external-bank call occurred.
 
 Still open: signed-in and true separate-session payment/approval/reversal races;
-audited payment correction/replacement with the same reference; bank evidence /
+same-reference correction acceptance; bank evidence /
 verification, refunds/credits and cross-invoice allocations; missing/ambiguous
 invoice-summary correction and mixed fixed/estimated coverage; complete supplier
 end-to-end and bank settlement acceptance. Task 1 stays code/database complete
