@@ -2,6 +2,8 @@
 // only on the provider's generic table capability; UI code never names or
 // imports a database vendor.
 import {prepareCatalogCorrection} from "./catalog-rows.js";
+import {productAssociationIdentity} from '../core/product-associations.js';
+import {industryAssociationProfile} from '../knowledge/category-profiles.js';
 import {bestPurchasingMatch,bestPurchasingSuggestion,suggestCategory,nextCategoryRange,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,brandsMatch,parsePackSize,abbreviationPairs} from "../procurement.js";
 
 // An association is a customer's assertion about identity. Ordering eligibility
@@ -178,7 +180,7 @@ export function createCatalogService(backend){
   return {
     async matchOrCreate({organizationId,vendorId,description,packSize,brand=null,gtin=null,manufacturerCode=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
       const byId=new Map(vendorItems.map(vi=>[vi.id,vi]));
-      const candidates=catalogItems.map(ci=>{
+      const candidates=catalogItems.filter(ci=>!ci.merged_into_id).map(ci=>{
         const linked=mappings.map(m=>m.catalog_item_id===ci.id?byId.get(m.vendor_item_id):null).filter(Boolean);
         const knownPack=commonPurchasingPack(linked.map(vi=>vi.pack_size));
         const knownBrands=[...new Set(linked.map(vi=>vi.brand).filter(Boolean))];
@@ -186,7 +188,16 @@ export function createCatalogService(backend){
           linkedVendorItems:linked,
           otherVendorPresent:!!vendorId&&linked.some(vi=>vi.vendor_id&&vi.vendor_id!==vendorId)};
       });
-      // Identifiers come first: they settle identity without wording.
+      // Once a product group exists, incoming listings join that product
+      // concept across packs/brands. Purchasing evidence remains independent.
+      const profile=industryAssociationProfile();
+      const identity=productAssociationIdentity({description,pack_size:packSize,brand},profile);
+      if(identity.key?.startsWith('concept:')){
+        const groups=candidates.filter(ci=>!ci.brand_locked&&ci.comparison_mode!=='exact'&&ci.linkedVendorItems?.length&&ci.linkedVendorItems.some(v=>v.field_resolutions?.product_group)&&
+          ci.linkedVendorItems.every(v=>productAssociationIdentity(v,profile).key===identity.key));
+        if(groups.length===1)return {catalogItemId:groups[0].id,track:'review',score:0.7,method:'product_group',reason:'Associated by product concept; verify this listing’s own purchasing evidence'};
+      }
+      // Identifiers come first among the remaining ungrouped candidates.
       // Same GTIN or manufacturer code + same pack = same item, same KERDOS number.
       // Multiple vendors on the same entry is the goal.
       const proven=identifierMatch({gtin,manufacturerCode,brand,packSize,vendorId},candidates);
