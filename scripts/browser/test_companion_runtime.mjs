@@ -1,7 +1,7 @@
 // Real Chromium extension/runtime; synthetic pages and transport only.
 // No live supplier, signed-in KERDOS, Supabase or purchasing acceptance.
 import assert from 'node:assert/strict';
-import {mkdtemp,cp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,cp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -18,9 +18,7 @@ try{
  await cp(resolve('companion/chrome'),extension,{recursive:true});
  const manifest=JSON.parse(await readFile(join(extension,'manifest.json'),'utf8'));
  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.equal(manifest.host_permissions,undefined);
- // Test fixture grants allow automated action opening. They NEVER enter the shipped ZIP.
- manifest.host_permissions=[appOrigin+'/*',vendorOrigin+'/*'];
- await writeFile(join(extension,'manifest.json'),JSON.stringify(manifest));
+ // Run the exact shipped manifest: no fixture host grants or extra permissions.
  context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
  context.setDefaultTimeout(15000);
  const devtools=await context.browser().newBrowserCDPSession();
@@ -115,5 +113,5 @@ try{
  console.log('PASS native extension: forced worker stop/start retains unconfirmed status, clears pairing, admits no pending file, never auto-replays and allows one newly prepared transfer.');
  await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
- console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
+ console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. No fixture host grants; actual human activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
