@@ -27,7 +27,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       },onStateChange:state=>{
         if(token!==transferGeneration.current)return;
         setArmed(['exporting','receiving'].includes(state));
-        const messages={exporting:'Companion is checking your vendor account and exporting the selected list. This does not confirm received or saved prices.',receiving:'CSV is being handed to import review. Prices are not confirmed saved.',received:'CSV received for import review. Check the import result before treating prices as saved.',expired:'Browser transfer expired. Prepare and pair a new transfer; no new file can be accepted by this transfer.',rejected:'Browser transfer was not accepted for import review. Prepare and pair a new transfer to retry. No completed import has been confirmed.'};
+        const messages={exporting:'Companion is checking your vendor account and exporting the selected list. This does not confirm received or saved prices.',receiving:'Pricing is being handed to automatic ingestion. Prices are not confirmed saved.',received:'Pricing received for automatic ingestion. The transfer receipt alone does not confirm saved prices.',expired:'Browser transfer expired. Prepare and pair a new transfer; no new file can be accepted by this transfer.',rejected:'Browser transfer was not accepted for import review. Prepare and pair a new transfer to retry. No completed import has been confirmed.'};
         if(messages[state])setMessage(messages[state]);
       }});
       setArmed(true);setMessage('Transfer ready for ten minutes. Click the K companion on this KERDOS tab and choose Pair this KERDOS tab.');
@@ -69,7 +69,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       <button style={{...button,marginTop:14}} disabled={busy||!vendorId||!adapterKey||selectedRequest?.state==='setup_requested'} onClick={()=>change(()=>service.request({organizationId,vendorId,adapterKey}))}>Prepare connection</button>
       {transferEligible&&<div style={{marginTop:20}}>
         <h3>Transfer a pricing list from your browser</h3>
-        <p>Sign in with your vendor directly. This pilot transfers one CSV into the normal import review for the selected vendor.</p>
+        <p>Sign in with your vendor directly. After retrieval, KERDOS processes the pricing file automatically for the selected vendor and retains unresolved details for review.</p>
         <label style={{display:'grid',gap:6,marginBottom:12}}>Account name shown by your vendor<input aria-label="Portal account name" maxLength={200} style={control} value={account} onChange={e=>setAccount(e.target.value)}/></label>
         <label style={{display:'grid',gap:6,marginBottom:12}}>Pricing list name<input aria-label="Portal list name" maxLength={200} style={control} value={list} onChange={e=>setList(e.target.value)}/></label>
         <button style={button} disabled={!account.trim()||!list.trim()||busy} onClick={prepareTransfer}>Prepare browser transfer</button>

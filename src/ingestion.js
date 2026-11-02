@@ -1,4 +1,5 @@
 // ════════════════════════════════════════════════════════════════════
+import {isSourceMetadataHeader} from "./core/source-metadata.js";
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
@@ -555,9 +556,8 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // correct any of it in Item Catalog.
   // Explicit organizational/storage/customer-reference fields remain source
   // metadata. They are not product description or culinary vocabulary evidence.
-  const metadataHeader=/^(?:line (?:number|no)|group (?:name|description)|customer product (?:number|no)|storage description|(?:[a-z0-9]+ )*class description)$/i;
   const sourceMetadata=cells.map((value,index)=>({header:sourceHeaders[index]||"",value:value.trim(),columnIndex:index}))
-    .filter(cell=>cell.value&&metadataHeader.test(cell.header.trim()));
+    .filter(cell=>cell.value&&isSourceMetadataHeader(cell.header));
   const metadataIndices=new Set(sourceMetadata.map(cell=>cell.columnIndex));
   let details=cells.map((value,index)=>({value:value.trim(),index}))
     .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value))
