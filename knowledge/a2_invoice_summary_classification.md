@@ -55,3 +55,8 @@ summary/item extraction, edit invoice totals, settle bank payments, apply credit
 notes, allocate across invoices or handle mixed fixed/estimated receipt coverage.
 Actual signed-in hosted/browser and supplier end-to-end acceptance remain open.
 Task1 remains code/database complete awaiting domains; Task2 remains open.
+
+Follow-up guard: SQL normalizes the explicit JavaScript whitespace set before
+checking recognized labels. NBSP, EM SPACE, narrow NBSP, BOM and tab cannot
+reassign Tax to freight; same-category classification preserves the exact token.
+Both embedded parity and real PostgreSQL verify this rule.
