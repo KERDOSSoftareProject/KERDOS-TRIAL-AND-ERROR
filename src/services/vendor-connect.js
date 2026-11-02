@@ -33,12 +33,22 @@ export function createVendorConnectService(backend){
       const rows=await run(backend.records.query('vendor_connection_requests').update(expected)
         .eq('organization_id',organizationId).eq('vendor_id',vendorId).eq('adapter_key',adapterKey)
         .eq('id',requestId).eq('state','setup_requested')
-        .select('id,organization_id,vendor_id,adapter_key,state,portal_account_label,portal_list_label'));
+        .select('id,organization_id,vendor_id,adapter_key,state,portal_account_label,portal_list_label,transfer_revision'));
       const row=rows?.length===1?rows[0]:null;
       if(!row||row.id!==requestId||row.organization_id!==organizationId||row.vendor_id!==vendorId||row.adapter_key!==adapterKey||row.state!=='setup_requested'||
         row.portal_account_label!==expected.portal_account_label||row.portal_list_label!==expected.portal_list_label)
         throw new Error('This vendor connection is no longer available. Refresh the page.');
       return row;
+    },
+    async verifySelection({organizationId,vendorId,requestId,adapterKey,revision,account,list,portalOrigin}){
+      if(!organizationId||!vendorId||!requestId||!adapterKey||!Number.isSafeInteger(revision)||revision<0||
+        typeof account!=='string'||!account.trim()||typeof list!=='string'||!list.trim()||!portalOrigin)
+        throw new Error('A current saved vendor selection is required.');
+      if(!backend.vendorConnect?.verifySelection)throw new VendorConnectUnavailable();
+      let current=false;
+      try{current=await backend.vendorConnect.verifySelection({organizationId,vendorId,requestId,adapterKey,revision,account:account.trim(),list:list.trim(),portalOrigin});}catch{}
+      if(current!==true)throw new Error('This pending vendor transfer is no longer available. Prepare a new transfer.');
+      return true;
     },
     async cancel({organizationId,requestId}){
       if(!organizationId||!requestId)throw new Error('Select a connection setup request.');

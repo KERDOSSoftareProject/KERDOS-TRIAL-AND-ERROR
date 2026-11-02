@@ -29,10 +29,19 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     setBusy(true);setMessage('Preparing browser transfer…');
     try{
       const saved=await service.saveSelection(selected);
+      const portalOrigin=scopedData.adapters.find(a=>a.adapter_key===adapterKey).portal_origin;
+      const binding=Object.freeze({...selected,revision:saved.transfer_revision,portalOrigin});
+      const validateTransfer=async()=>{
+        if(token!==transferGeneration.current||current!==generation.current)throw new Error('Transfer no longer available');
+        await service.verifySelection(binding);
+        if(token!==transferGeneration.current||current!==generation.current)throw new Error('Transfer no longer available');
+        return true;
+      };
+      await validateTransfer();
       if(token!==transferGeneration.current||current!==generation.current)return;
       setData(previous=>previous?.organizationId===organizationId&&previous?.backend===backend
         ? {...previous,requests:previous.requests.map(r=>r.id===saved.id?saved:r)}:previous);
-      handoff.current=createCompanionHandoff({selection:{organizationId,vendorId,adapterKey,portalOrigin:scopedData.adapters.find(a=>a.adapter_key===adapterKey).portal_origin,account:account.trim(),list:list.trim()},onReceive:async payload=>{
+      handoff.current=createCompanionHandoff({selection:{organizationId,vendorId,adapterKey,portalOrigin,account:account.trim(),list:list.trim()},onValidate:validateTransfer,onReceive:async payload=>{
         if(token!==transferGeneration.current||!receive.current)throw new Error('Transfer no longer available');
         await receive.current(payload);
       },onStateChange:state=>{

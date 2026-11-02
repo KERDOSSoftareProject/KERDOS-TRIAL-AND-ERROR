@@ -20,23 +20,38 @@ try{
  await db.exec(readFileSync('supabase/migrations/20261101135440_vendor_connect_setup.sql','utf8'));
  await actor(owner);const request=(await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[org,vendor,'us-foods-moxe'])).rows[0].id;
  await actor(outsider);const otherRequest=(await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[other,otherVendor,'us-foods-moxe'])).rows[0].id;
- await db.exec('reset role');const sql=readFileSync('supabase/migrations/20261102144952_vendor_portal_selection.sql','utf8');await db.exec(sql);await db.exec(sql);
+ await db.exec('reset role');const sql=readFileSync('supabase/migrations/20261102144952_vendor_portal_selection.sql','utf8');await db.exec(sql);await db.exec(sql);const revocation=readFileSync('supabase/migrations/20261102152622_pending_vendor_transfer_revocation.sql','utf8');await db.exec(revocation);await db.exec(revocation);
+ const verify=async(id,client,vendorId,revision,account,list,origin='https://order.usfoods.com')=>(await db.query('select kerdos_verify_pending_vendor_transfer($1,$2,$3,$4,$5,$6,$7,$8) as current',[client,vendorId,id,'us-foods-moxe',revision,account,list,origin])).rows[0].current;
  await actor(owner);assert.equal((await db.query('select portal_account_label from vendor_connection_requests')).rows[0].portal_account_label,null,'migration must not infer an existing account selection');
  await db.query('update vendor_connection_requests set portal_account_label=$1,portal_list_label=$2 where id=$3',['Δοκιμή account','Main list',request]);
+ const firstRevision=(await db.query('select transfer_revision from vendor_connection_requests where id=$1',[request])).rows[0].transfer_revision;
+ assert.equal(Number(firstRevision),1);assert.equal(await verify(request,org,vendor,firstRevision,'Δοκιμή account','Main list'),true);
+ await db.query('update vendor_connection_requests set portal_list_label=$1 where id=$2',['Main list',request]);assert.equal((await db.query('select transfer_revision from vendor_connection_requests where id=$1',[request])).rows[0].transfer_revision,firstRevision,'saving the same selection must not invalidate other identical preparations');
+ assert.equal(await verify(request,org,vendor,firstRevision,'Δοκιμή account','Main list','https://wrong.example'),false);
+ assert.equal(await verify(request,other,vendor,firstRevision,'Δοκιμή account','Main list'),false);
+ await assert.rejects(db.query('update vendor_connection_requests set transfer_revision=0 where id=$1',[request]),/permission denied/);
  await actor(manager);assert.equal((await db.query('select portal_account_label from vendor_connection_requests where id=$1',[request])).rows[0].portal_account_label,'Δοκιμή account');
  await db.query('update vendor_connection_requests set portal_list_label=$1 where id=$2',['Second list',request]);
+ const secondRevision=(await db.query('select transfer_revision from vendor_connection_requests where id=$1',[request])).rows[0].transfer_revision;
+ assert.equal(Number(secondRevision),2);assert.equal(await verify(request,org,vendor,firstRevision,'Δοκιμή account','Main list'),false);
+ assert.equal(await verify(request,org,vendor,secondRevision,'Δοκιμή account','Second list'),true);
  for(const [account,list] of [[null,'x'],['x',null],['','x'],['\u00a0\u202f\ufeff','x'],['x'.repeat(201),'x']])await assert.rejects(db.query('update vendor_connection_requests set portal_account_label=$1,portal_list_label=$2 where id=$3',[account,list,request]),/check constraint/);
  await assert.rejects(db.query('update vendor_connection_requests set organization_id=$1 where id=$2',[other,request]),/permission denied/);
  await assert.rejects(db.query('update vendor_connection_requests set vendor_id=$1 where id=$2',[otherVendor,request]),/permission denied/);
  await assert.rejects(db.query("update vendor_connection_requests set adapter_key='https-export' where id=$1",[request]),/permission denied/);
  await actor(outsider);assert.deepEqual((await db.query('select id,portal_account_label from vendor_connection_requests')).rows,[{id:otherRequest,portal_account_label:null}]);
  assert.equal((await db.query("update vendor_connection_requests set portal_account_label='Wrong account',portal_list_label='Wrong list' where id=$1 returning id",[request])).rows.length,0);
+ assert.equal(await verify(request,org,vendor,secondRevision,'Δοκιμή account','Second list'),false);
  await db.query("update vendor_connection_requests set portal_account_label='Other account',portal_list_label='Other list' where id=$1",[otherRequest]);
  await actor(employee);assert.equal((await db.query('select * from vendor_connection_requests')).rows.length,0);assert.equal((await db.query("update vendor_connection_requests set portal_account_label='No access',portal_list_label='No access' where id=$1 returning id",[request])).rows.length,0);
  await actor(owner);await db.query("update vendor_connection_requests set state='cancelled' where id=$1",[request]);await assert.rejects(db.query("update vendor_connection_requests set portal_list_label='Late change' where id=$1",[request]),/cancelled vendor setup/);
  assert.equal((await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[org,vendor,'us-foods-moxe'])).rows[0].id,request);assert.equal((await db.query('select portal_list_label from vendor_connection_requests where id=$1',[request])).rows[0].portal_list_label,'Second list');
+ const reopenedRevision=(await db.query('select transfer_revision from vendor_connection_requests where id=$1',[request])).rows[0].transfer_revision;
+ assert.equal(Number(reopenedRevision),4);assert.equal(await verify(request,org,vendor,secondRevision,'Δοκιμή account','Second list'),false,'cancel/reopen must never revive an old ticket');assert.equal(await verify(request,org,vendor,reopenedRevision,'Δοκιμή account','Second list'),true);
  const serverRequest=(await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[org,vendor,'https-export'])).rows[0].id;await assert.rejects(db.query("update vendor_connection_requests set portal_account_label='x',portal_list_label='y' where id=$1",[serverRequest]),/browser connection provider/);
  await db.exec('reset role');await db.query('update vendors set is_active=false where id=$1',[vendor]);await actor(owner);await assert.rejects(db.query("update vendor_connection_requests set portal_list_label='Inactive' where id=$1",[request]),/row-level security/);
+ assert.equal(await verify(request,org,vendor,reopenedRevision,'Δοκιμή account','Second list'),false,'inactive vendor must stop a pending transfer');
+ await db.exec('reset role');await db.query('update vendors set is_active=true where id=$1',[vendor]);await db.exec("update vendor_connection_adapters set portal_origin='https://changed.example' where adapter_key='us-foods-moxe'");await actor(owner);assert.equal(await verify(request,org,vendor,reopenedRevision,'Δοκιμή account','Second list'),false,'provider origin changes invalidate old tickets');
  await db.exec('reset role');await db.exec('set role anon');await assert.rejects(db.query('select * from vendor_connection_requests'),/permission denied/);await db.exec('reset role');
  assert.equal((await db.query("select prosecdef from pg_proc where oid='public.kerdos_check_portal_selection()'::regprocedure")).rows[0].prosecdef,false);
  // Verify the service forwards only the two labels and every binding, not credentials.
@@ -46,5 +61,5 @@ try{
  await service.saveSelection(selection);assert.deepEqual(calls[0].value,{portal_account_label:'Account',portal_list_label:'List'});assert.deepEqual(calls[0].filters.map(f=>f.column),['organization_id','vendor_id','adapter_key','id','state']);
  for(const patch of [{account:' '},{list:'x'.repeat(201)},{account:null},{requestId:null}])await assert.rejects(service.saveSelection({...selection,...patch}));assert.equal(calls.length,1);
  await assert.rejects(createVendorConnectService({records:createRecords(()=>({data:[{...bound,organization_id:other,portal_account_label:'Account',portal_list_label:'List'}]}))}).saveSelection(selection),/no longer available/);
- console.log('PASS connection selection SQL/service: repeated migration, exact nullable/length/Unicode rules, owner/manager, cross-client shared provider, employee/anonymous denial, identity-column grants, cancellation/reprepare, inactive vendor/provider rejection and safe service payload');
+ console.log('PASS connection selection SQL/service/revocation: current revision, no-op stability, cancel/reopen fencing, fresh origin/role/vendor checks, immutable revision grant; repeated migration, exact nullable/length/Unicode rules, owner/manager, cross-client shared provider, employee/anonymous denial, identity-column grants, cancellation/reprepare, inactive vendor/provider rejection and safe service payload');
 }finally{await db.close();}
