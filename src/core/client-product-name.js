@@ -14,6 +14,7 @@ export function clientProductName(item,rows=[],industry=''){
  if(!sourceWords.some(word=>/[a-z]/i.test(word)&&!vocabulary.nonProducts?.includes(word)))return null;
  const identity=productAssociationIdentity({description:current},profile);
  if(identity.key?.startsWith('concept:')){
+  if(vocabulary.labels?.[identity.label])return vocabulary.labels[identity.label];
   const [base,...details]=identity.label.split(' — ');
   const name=vocabulary.labels?.[base]||base;
   return title(name)+(details.length?' — '+title(details.join(' — ')):'');

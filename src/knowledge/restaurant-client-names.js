@@ -1,7 +1,7 @@
 // Client display vocabulary only. These labels do not change product grouping,
 // field evidence, supplier descriptions, pricing or purchasing eligibility.
 export const restaurantClientNames={
- labels:{'Honey Mustard Dressing':'Honey Mustard','avocado':'Avocados','provolone':'Provolone Cheese','vinyl glove':'Vinyl Gloves','nitrile glove':'Nitrile Gloves'},
+ labels:{'Honey Mustard Dressing':'Honey Mustard','Pomace Oil — 100%':'Pomace Oil','avocado':'Avocados','provolone':'Provolone Cheese','vinyl glove':'Vinyl Gloves','nitrile glove':'Nitrile Gloves'},
  aliases:[
   {label:'Orzo Pasta',terms:['orzo']},
   {label:'Toilet Tissue',terms:['toilet tissue','toilet paper','t tiss','t tissu','ttiss']},

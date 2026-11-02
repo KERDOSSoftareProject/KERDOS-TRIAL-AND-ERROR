@@ -9,6 +9,7 @@ const examples=[
  ['(( FULL )) SHALLOW PAN','Shallow Food Pan'],['/ RP-200 \\ 2-LB FOOD TRAY','Food Tray'],
  ['1-PC ONLY BOURBON SAUCE','Bourbon Sauce'],['1-PC ONLY TZATZIKI SAUCE','Tzatziki'],
  ['Honey Mustard Dressing','Honey Mustard'],['DRESS HONEY MUSTARD','Honey Mustard'],['avocado','Avocados'],
+ ['Pomace Oil — 100%','Pomace Oil'],
  ['ANISE (USA)','Anise'],['APPLE (NY) 4','Apple'],['ARCADIAN MIX (USA)','Arcadian Mix'],
 ];
 for(const [name,expected] of examples)assert.equal(clientProductName({name},[],'restaurant'),expected,name);
