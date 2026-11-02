@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
-const {chromium}=await import(process.env.KERDOS_PLAYWRIGHT_MODULE?pathToFileURL(process.env.KERDOS_PLAYWRIGHT_MODULE).href:'playwright');
+const {chromium}=await import(process.env.KERDOS_PLAYWRIGHT_MODULE?pathToFileURL(process.env.KERDOS_PLAYWRIGHT_MODULE).href:'playwright-core');
 const scratch=await mkdtemp(join(tmpdir(),'kerdos-extension-runtime-'));
 const extension=join(scratch,'companion');
 const appOrigin='https://kerdossoftareproject.github.io',appUrl=appOrigin+'/KERDOS-TRIAL-AND-ERROR/';
@@ -83,5 +83,5 @@ try{
  console.log('PASS native extension: a newly prepared transfer preserves changed synthetic prices as new source bytes; no saved-catalog-price claim.');
  await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
- console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual action-bubble/activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
+ console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
