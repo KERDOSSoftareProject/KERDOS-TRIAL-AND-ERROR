@@ -16,13 +16,12 @@ import {blockReason,orderable} from "../core/ordering.js";
 import {itemMatchesSearch,compareItems} from "../core/catalog-browse.js";
 import {formatMoney} from "../localization.js";
 import {buildCatalogExportCSV,downloadTextFile} from "../reporting.js";
-import {btn,chipStyle,inp} from "../ui/styles.js";
+import {btn,inp} from "../ui/styles.js";
 
 const catalogService=createCatalogService(backend);
 const categoryService=createCategoryService(backend);
 const importService=createImportService(backend);
 
-const MULTI_VENDOR_FILTER="__multi_vendor__";
 const CATEGORY_REVIEW_FILTER="__category_review__";
 
 export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
@@ -35,6 +34,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
   const [showReview,setShowReview]=useState(false);
   const [mappedOnly,setMappedOnly]=useState(false);
   const [categoryFilter,setCategoryFilter]=useState("");
+  const [vendorFilter,setVendorFilter]=useState("");
   const [catalogSortMode,setCatalogSortMode]=useState("alphabetical");
   const [remapOpenFor,setRemapOpenFor]=useState(null);
   const [remapSearch,setRemapSearch]=useState("");
@@ -92,9 +92,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
     return {packs,vendorsCount,brands:[...new Set(linked.map(v=>v.brand||"Brand not stated"))],descriptions:[...new Set(linked.map(v=>v.description))],warning:!commonPack&&packs.length>1?"Mixed or incomplete existing packs — inspect first":compared?.status!=="same"?"Pack needs verification":null};
   }
 
-  // Categories are ordered alphabetically - same as Order Guide, so both screens'
-  // category chips read the same way. Internal KERDOS item identifiers
-  // are retained in the data but never shown to customers.
+  // Keep the category menu alphabetized, matching the Order Guide.
   const categoryList=useMemo(()=>{
     const set=new Set(productList.map(p=>p.category));
     return [...set].sort((a,b)=>a.localeCompare(b));
@@ -114,31 +112,26 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
     return suggested?.category?.id&&suggested.category.id!==item.category_id&&
       suggested.reason?.includes("Prepared product form")?[[item.id,suggested]]:[];
   })),[catalogItems,categories,vocabulary]);
-  const uncategorizedName=categories.find(c=>c.is_holding_pen)?.name||"Uncategorized";
-  const uncategorizedItems=productList.filter(item=>item.category===uncategorizedName);
 
-  // Full List is one alphabetical client catalog. Selecting a product type
-  // narrows that same alphabetized list without changing item identity or
-  // client master numbers. Vendor codes remain mappings beneath each item.
+  // Browse saved KERDOS items by category and linked vendor without changing
+  // their identity or the vendor listings beneath each item.
   const groupedItems=useMemo(()=>{
     const items=productList.filter(item=>{
       if(mappedOnly&&!isMapped(item))return false;
-      if(categoryFilter===MULTI_VENDOR_FILTER){if(new Set(item.options.map(o=>o.vendorId)).size<2)return false;}
-      else if(categoryFilter===CATEGORY_REVIEW_FILTER){if(!categoryCorrections.has(item.catalogItemId))return false;}
+      if(vendorFilter&&!item.options.some(option=>option.vendorId===vendorFilter))return false;
+      if(categoryFilter===CATEGORY_REVIEW_FILTER){if(!categoryCorrections.has(item.catalogItemId))return false;}
       else if(categoryFilter&&item.category!==categoryFilter) return false;
       return itemMatchesSearch(item,search);
     });
-    // Sort by name within each category so related products (all chicken, all lettuce)
-    // cluster together — makes cross-vendor linking visible without any extra filtering.
+    // Apply the selected sort to the filtered KERDOS item list.
     const sorted=[...items].sort((a,b)=>compareItems(a,b,catalogSortMode));
-    // When a filter is active, return one group with that label.
-    // When showing everything, group by category so the category headers are visible.
+    // Product details uses a single heading for the current category.
     if(categoryFilter){
-      const label=categoryFilter===MULTI_VENDOR_FILTER?"Multiple Vendors":categoryFilter===CATEGORY_REVIEW_FILTER?"Review categories":categoryFilter;
+      const label=categoryFilter===CATEGORY_REVIEW_FILTER?"Review categories":categoryFilter;
       return sorted.length?[{category:label,items:sorted}]:[];
     }
-    return sorted.length?[{category:'Full List',items:sorted}]:[];
-  },[productList,search,categoryFilter,mappedOnly,categoryCorrections,catalogSortMode]);
+    return sorted.length?[{category:'Items',items:sorted}]:[];
+  },[productList,search,categoryFilter,vendorFilter,mappedOnly,categoryCorrections,catalogSortMode]);
 
   function statusFor(item){
     if(!isMapped(item))return {label:"Not mapped",color:"#B26A00",bg:"#FFF3E0"};
@@ -403,7 +396,16 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
+        {!showReview&&<select aria-label="Vendors" value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+          <option value="">Vendors</option>
+          {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>}
+        {!showReview&&<select aria-label="Item Categories" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
+          <option value="">Item Categories</option>
+          {categoryList.map(category=><option key={category} value={category}>{category}</option>)}
+          {categoryFilter===CATEGORY_REVIEW_FILTER&&<option value={CATEGORY_REVIEW_FILTER}>Review categories</option>}
+        </select>}
         {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
           <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
         </select>}
@@ -555,26 +557,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
       {!showReview&&<>
       <input style={{...inp,marginBottom:10}} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />
-
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18}}>
-        <button onClick={()=>setCategoryFilter("")} style={chipStyle(!categoryFilter)}>
-          Full List
-        </button>
-        {uncategorizedItems.length>0&&<button onClick={()=>{setCategoryFilter(uncategorizedName);setShowReview(false);}} style={chipStyle(categoryFilter===uncategorizedName)}>
-          Needs a category ({uncategorizedItems.length})
-        </button>}
-        {multiVendorItems.length>0&&<button onClick={()=>setCategoryFilter(categoryFilter===MULTI_VENDOR_FILTER?"":MULTI_VENDOR_FILTER)} style={chipStyle(categoryFilter===MULTI_VENDOR_FILTER)}>
-          Multiple Vendors ({multiVendorItems.length})
-        </button>}
-        {categoryList.filter(c=>c!==uncategorizedName).map(c=>{
-          const isSelected=categoryFilter===c;
-          return (
-            <button key={c} onClick={()=>setCategoryFilter(isSelected?"":c)} style={chipStyle(isSelected)}>
-              {c}
-            </button>
-          );
-        })}
-      </div>
 
       {canManage&&teach&&(
         <div style={{background:"#E8F5E9",border:"2px solid #2E7D32",borderRadius:10,padding:14,marginBottom:12}}>
