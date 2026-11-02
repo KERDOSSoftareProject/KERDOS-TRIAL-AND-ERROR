@@ -18,7 +18,9 @@ local-browser provider. The function is security invoker with fixed search path;
 PUBLIC/anonymous execute is revoked. The SDK uses its normal authenticated RPC
 POST, without credentials, codes, session tokens or new extension permissions.
 
-The updated app validates after saving a preparation, then the handoff validates
+The prepared binding is an immutable copy of scalar values, including for local
+providers returning live row objects. Later row mutations cannot refresh its
+revision. The updated app validates after saving a preparation, then the handoff validates
 again before pairing, before granting the export claim, and after hashing the
 returned file but before ingestion admission. A cancelled/reopened connection,
 changed selection/provider, lost role or unavailable service rejects the pending

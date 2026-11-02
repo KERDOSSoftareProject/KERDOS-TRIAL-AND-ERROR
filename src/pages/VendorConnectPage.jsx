@@ -30,9 +30,10 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     try{
       const saved=await service.saveSelection(selected);
       const portalOrigin=scopedData.adapters.find(a=>a.adapter_key===adapterKey).portal_origin;
+      const binding=Object.freeze({...selected,revision:saved.transfer_revision,portalOrigin});
       const validateTransfer=async()=>{
         if(token!==transferGeneration.current||current!==generation.current)throw new Error('Transfer no longer available');
-        await service.verifySelection({...selected,revision:saved.transfer_revision,portalOrigin});
+        await service.verifySelection(binding);
         if(token!==transferGeneration.current||current!==generation.current)throw new Error('Transfer no longer available');
         return true;
       };
