@@ -1,3 +1,4 @@
+import {assertOriginalEvidence,verifyOriginalBytes} from '../core/retained-original.js';
 // Provider-neutral document operations used by KERDOS screens.
 // Paths are KERDOS conventions; storage mechanics belong to the adapter.
 export function createDocumentService(backend){
@@ -13,6 +14,18 @@ export function createDocumentService(backend){
       const path=`${organizationId}/logo/${Date.now()}_${file.name}`;
       try{await backend.documents.upload(path,file,{upsert:true});return {path,error:null};}
       catch(error){return {path:null,error};}
+    },
+    async verifyCompanionOriginal({organizationId,vendorId,document,assertActive=()=>{}}){
+      assertActive();
+      if(document?.organization_id!==organizationId||document?.vendor_id!==vendorId)
+        throw new Error('The retained original belongs to a different organization or vendor.');
+      const path=document.file_path;
+      if(typeof path!=='string'||!path.startsWith(`${organizationId}/${vendorId}/`)||path.split('/').some(part=>!part||part==='.'||part==='..'))
+        throw new Error('The retained original path does not match this organization and vendor.');
+      assertOriginalEvidence(document.retrieval_evidence);
+      if(typeof backend.documents?.download!=='function')throw new Error('Original-file verification is unavailable from this storage provider.');
+      const data=await backend.documents.download(path);assertActive();
+      return verifyOriginalBytes(data,document.retrieval_evidence,{assertActive});
     },
     async signedUrl(path,seconds=3600){
       if(!path)return null;

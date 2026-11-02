@@ -417,7 +417,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     }
     setSaveReview("");setLoading(true);
     const vendor=vendors.find(v=>v.id===vendorId);
-    let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0,unchangedDocuments=0;
+    let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0,unchangedDocuments=0,verifiedOriginals=0;
     const identified=[];
     let saveError=null;
     let lastSourceDocumentId=null;
@@ -484,7 +484,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
         // is safe to repeat.
-        if(automaticImport&&existingDoc?.status==="complete"){unchangedDocuments++;lastSourceDocumentId=existingDoc.id;continue;}
+        if(automaticImport&&existingDoc?.status==="complete"){
+          if(existingDoc.retrieval_evidence?.kind==='browser_companion'){
+            try{await documents.verifyCompanionOriginal({organizationId:orgId,vendorId,document:existingDoc,assertActive});verifiedOriginals++;}
+            catch(error){assertActive();failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+error.message].filter(Boolean).join(' ');continue;}
+          }
+          unchangedDocuments++;lastSourceDocumentId=existingDoc.id;continue;
+        }
         if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
         savedSourceRows+=completedKeys.size;
@@ -532,6 +538,11 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           sourceDocumentId=storedDoc.id;lastSourceDocumentId=sourceDocumentId;
         }
         assertActive();
+        if(automaticImport){
+          try{await documents.verifyCompanionOriginal({organizationId:orgId,vendorId,
+            document:existingDoc||{organization_id:orgId,vendor_id:vendorId,file_path:sourceFilePath,retrieval_evidence:companionEvidence},assertActive});verifiedOriginals++;}
+          catch(error){assertActive();failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+error.message].filter(Boolean).join(' ');await importService.finalizeDocument(sourceDocumentId,'partial',[...completedKeys]);continue;}
+        }
         if(automaticImport&&group.automaticException){failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+group.automaticException].filter(Boolean).join(' ');await importService.finalizeDocument(sourceDocumentId,'partial',[...completedKeys]);continue;}
         // row:N uses the per-group ordinal (rowIndex from entries()).  For manual
         // imports each group has its own document, so per-group keys are unique
@@ -815,7 +826,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     setResult(summary);setStep(cleanFinish?4:3);setLoading(false);setRefreshingCatalog(true);
     try{
       await onDone();assertActive();
-      if(cleanFinish&&automaticImport)onFinished?.({message:unchangedDocuments===parsedGroups.length?`Pricing already up to date for ${vendor?.name||'vendor'} — no duplicate rows saved.`:`Pricing received automatically — ${allRows.length} rows retained for ${vendor?.name||'vendor'}${basisReview?`; ${basisReview} flagged in Item Catalog`:''}`,importDocumentId:lastSourceDocumentId||null});
+      if(cleanFinish&&automaticImport)onFinished?.({message:(unchangedDocuments===parsedGroups.length?`Pricing already up to date for ${vendor?.name||'vendor'} — no duplicate rows saved.`:`Pricing received automatically — ${allRows.length} rows retained for ${vendor?.name||'vendor'}${basisReview?`; ${basisReview} flagged in Item Catalog`:''}`)+(verifiedOriginals===parsedGroups.length?' Stored original verified.':''),importDocumentId:lastSourceDocumentId||null});
       else if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
     }catch(error){
       setResult(previous=>({...previous,error:[previous.error,`Saved, but the catalog could not refresh: ${error.message||String(error)}. Reload the app to see the saved items.`].filter(Boolean).join(" ")}));

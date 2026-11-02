@@ -107,7 +107,7 @@ export function createPriceImportFixture({text:CSV_TEXT}) {
         const fpFilter = filters.find(f => f.column === 'fingerprint');
         if (fpFilter && importDocs[fpFilter.value]) {
           const doc = importDocs[fpFilter.value];
-          const row = { id: doc.id, status: doc.status, completed_keys: doc.completed_keys,source_rows:doc.source_rows,file_path:doc.file_path,staged_row_receipts:doc.staged_row_receipts };
+          const row = { id: doc.id, status: doc.status, completed_keys: doc.completed_keys,source_rows:doc.source_rows,file_path:doc.file_path,staged_row_receipts:doc.staged_row_receipts,organization_id:doc.organization_id,vendor_id:doc.vendor_id,retrieval_evidence:doc.retrieval_evidence };
           return Promise.resolve({ data: row, error: null });
         }
         return Promise.resolve({ data: null, error: null });

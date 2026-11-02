@@ -15,11 +15,11 @@ export function createImportService(backend){
       }
       return documents;
     },
-    findPriceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status,completed_keys,source_rows,file_path,staged_row_receipts").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").eq("fingerprint",fingerprint).maybeSingle(),"Could not verify whether the file was already imported");},
+    findPriceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status,completed_keys,source_rows,file_path,staged_row_receipts,organization_id,vendor_id,retrieval_evidence").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").eq("fingerprint",fingerprint).maybeSingle(),"Could not verify whether the file was already imported");},
     // Resume a partial import document by its known ID (A1.7.a).
     // Validates organization_id and vendor_id ownership so a stale or spoofed
     // ID from the inbox cannot resume a document belonging to another org or vendor.
-    findPriceDocumentById({organizationId,vendorId,documentId}){return run(table("import_documents").select("id,status,completed_keys,source_rows,file_path,staged_row_receipts").eq("id",documentId).eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").maybeSingle(),"Could not load the partial import document");},
+    findPriceDocumentById({organizationId,vendorId,documentId}){return run(table("import_documents").select("id,status,completed_keys,source_rows,file_path,staged_row_receipts,organization_id,vendor_id,retrieval_evidence").eq("id",documentId).eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").maybeSingle(),"Could not load the partial import document");},
     // A1.2.g: check for a previously stored invoice document (duplicate Postmark delivery guard).
     findInvoiceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","invoice").eq("fingerprint",fingerprint).maybeSingle(),"Could not check for duplicate invoice");},
     createPriceDocument(row){return run(table("import_documents").insert({...row,staged_receipts_version:1}).select("id").single(),"Could not preserve the source document");},

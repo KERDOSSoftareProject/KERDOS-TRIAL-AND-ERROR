@@ -98,6 +98,7 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     orders:{submit(row){return providerResult(client.rpc("kerdos_submit_order",row),"Record order");}},
     documents:{
+      download(path){return providerResult(client.storage.from("documents").download(path,{}, {cache:"no-store"}),"Verify original document");},
       upload(path,file,options){return providerResult(client.storage.from("documents").upload(path,file,options),"Upload document");},
       signedUrl(path,seconds=3600){return providerResult(client.storage.from("documents").createSignedUrl(path,seconds),"Open document");},
       remove(paths){return providerResult(client.storage.from("documents").remove(paths),"Remove document");},
