@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {setTimeout as pause} from 'node:timers/promises';
 import {Client,types} from 'pg';
+import {receivingRaces} from './task2-receiving-races.mjs';
 import {estimatedReceiptFixture} from '../src/backend/fixtures/estimated-receipts-db.mjs';
 
 const url=new URL(process.env.KERDOS_CONCURRENCY_DATABASE_URL||'postgresql://postgres:postgres@127.0.0.1:5432/postgres');
@@ -59,8 +60,8 @@ try{
    (select count(*) from invoice_approval_withdrawals where invoice_id=$1) as withdrawals`,[s.iid]);
   assert.deepEqual(r,{payments,reversals,active:activeCents,withdrawals});
  }
- async function overlap(label,first,second,{error,rollbackFirst=false,same=false,rightActor=manager}={}){
-  await as(left,owner);await as(right,rightActor);
+ async function overlap(label,first,second,{error,rollbackFirst=false,same=false,leftActor=owner,rightActor=manager}={}){
+  await as(left,leftActor);await as(right,rightActor);
   await left.query('begin');await right.query('begin');
   let pending;
   try{
@@ -128,6 +129,8 @@ try{
   await overlap('payment reversal invalidates waiting save',reverse(p),payment(stale),{error:/ledger history changed/});
   await counts(s,{payments:1,reversals:1,activeCents:0});
  }
+ await receivingRaces({setup,f,q,call,overlap});
+ assert.equal(passed,35,'All payment and receiving race cases must execute');
  console.log(`Task 2 PostgreSQL concurrency: ${passed} races passed; browser sign-in and hosted acceptance remain separate.`);
 }finally{
  for(const c of connections.filter(c=>c!==admin))await c.end();
