@@ -99,6 +99,20 @@ try{
  await view.waitStatus(['Transfer unavailable','The vendor export did not complete']);assert.equal(await appPage.evaluate(()=>window.received.length),2);await view.close();
  vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await vendorPage.evaluate(()=>window.finishExport());await view.waitStatus('KERDOS received the CSV');assert.equal(await appPage.evaluate(()=>window.received.length),3);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
  console.log('PASS native extension: exporting-tab interruption admits no file; a fresh preparation recovers with one delivery and no automatic replay.');
+ // Force-stop only the worker in this disposable browser profile while the
+ // provider is awaiting its Blob. Session status must survive without a replay.
+ await appPage.evaluate(()=>window.prepare());await pair();view=await start(csv);await view.close();
+ const lifecycle=await context.newCDPSession(appPage);await lifecycle.send('ServiceWorker.enable');
+ const oldTarget=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.type==='service_worker'&&t.url==='chrome-extension://'+extensionId+'/background.mjs');assert.ok(oldTarget);
+ await lifecycle.send('ServiceWorker.stopAllWorkers');
+ const stoppedBy=Date.now()+10000;let oldRunning=true;do{oldRunning=(await devtools.send('Target.getTargets')).targetInfos.some(t=>t.targetId===oldTarget.targetId);if(!oldRunning)break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<stoppedBy);assert.equal(oldRunning,false,'the native worker actually stopped');
+ await vendorPage.close();await lifecycle.send('ServiceWorker.startWorker',{scopeURL:'chrome-extension://'+extensionId+'/'});
+ // Playwright's MV3 worker handle resumes across a worker stop/start.
+ await worker.evaluate(()=>true);view=await popup(appPage);await view.waitStatus('The companion restarted during a transfer');assert.match(await view.status(),/result is unconfirmed/);assert.equal(await view.disabled(),false);assert.equal(await appPage.evaluate(()=>window.received.length),3);
+ const recoveredState=await worker.evaluate(()=>globalThis.chrome.storage.session.get(['pairing','transferStatus']));assert.equal(recoveredState.pairing,undefined);assert.equal(recoveredState.transferStatus.busy,false);await view.close();
+ vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);view=await popup(vendorPage);assert.match(await view.status(),/nothing will be resent automatically/);assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);await view.close();
+ await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await vendorPage.evaluate(()=>window.finishExport());await view.waitStatus('KERDOS received the CSV');assert.equal(await appPage.evaluate(()=>window.received.length),4);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();await lifecycle.detach();
+ console.log('PASS native extension: forced worker stop/start retains unconfirmed status, clears pairing, admits no pending file, never auto-replays and allows one newly prepared transfer.');
  await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
  console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
