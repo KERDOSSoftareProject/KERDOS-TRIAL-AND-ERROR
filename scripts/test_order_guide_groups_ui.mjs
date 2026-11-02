@@ -65,6 +65,16 @@ store.set('kerdos.basket.org',JSON.stringify({quantities:{'former-honey_case':2}
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 assert.equal(tree.root.findAllByProps({'aria-label':'Price choices for Honey Mustard'}).length,1,'merged old number adds no duplicate row');
 const keptBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(keptBasket,/Sample Vendor/);assert.match(keptBasket,/40.00/,'existing basket quantity and chosen supplier survive grouping under a former number');
+await act(async()=>tree.unmount());
+// A confirmed product can offer different purchasing dimensions without one
+// valid listing disabling another. Each still needs its own pack/unit/price.
+store.delete('kerdos.basket.org');catalogItems.find(c=>c.id==='ci1').name='Honey Mustard';
+for(const row of vendorItems.filter(v=>v.id==='vi1'||v.id==='honey-second'))row.field_resolutions={row_approval:true,product_group:{catalogItemId:'ci1',description:row.description,brand:row.brand??null,confirmedBy:'reviewer'}};
+Object.assign(vendorItems.find(v=>v.id==='honey-second'),{pack_size:'1/10 LB',selling_unit:'CASE',price_basis:'case'});
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());
+await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
+assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='+')[1].props.disabled,false,'a valid confirmed listing remains purchasable when another supplier quotes a different dimension');
 await act(async()=>tree.unmount());console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);
  process.stdout.write(execFileSync(process.execPath,[runner],{encoding:'utf8',env:process.env}));

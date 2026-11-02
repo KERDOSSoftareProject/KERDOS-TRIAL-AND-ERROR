@@ -497,7 +497,7 @@ export default function App() {
         o.perUnit=o.costOverride?{price:Number(o.costOverride.price),unit:o.costOverride.unit}:(orderable(o)&&displayUnit)?pricePerUnit(o.casePrice,o.packSize,displayUnit):null;
         // Never represent unlike dimensions as competing per-unit offers.
         if(o.perUnit && o.perUnit.unit!==displayUnit) o.perUnit=null;
-        if(orderable(o)&&options.filter(orderable).length>1&&!o.perUnit){
+        if(orderable(o)&&options.filter(orderable).length>1&&!o.perUnit&&!o.automaticAlternative){
           o.unverified=true;o.qualificationReason="Choose a shared comparison measurement or correct the pack before ranking alternatives";
         }
       }
