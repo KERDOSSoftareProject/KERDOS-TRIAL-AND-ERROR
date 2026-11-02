@@ -59,6 +59,20 @@ try{
  await act(async()=>{tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{blocked++;throw new Error('another import is open');}}));});
  await act(async()=>{await send({type:'pair'});});const currentNonce=replies.at(-1).ticket.nonce;
  await act(async()=>{await send({type:'deliver',nonce:currentNonce,artifact:{origin:'https://order.usfoods.com',base64:btoa('Code,Price\\nA,1\\n')}});});assert.equal(replies.at(-1).ok,false);assert.equal(accepted.length,0);assert.equal(blocked,1);
+
+ assert.match(text(tree.toJSON()),/Browser transfer was not accepted/);assert.equal(button('Cancel browser transfer'),undefined);
+ // The visible ten-minute state expires without needing an incoming message.
+ const actualTimer=globalThis.setTimeout,actualClear=globalThis.clearTimeout;let expireTransfer;const fakeTimer={unref(){}};
+ globalThis.setTimeout=(fn,ms,...args)=>ms===600000?(expireTransfer=fn,fakeTimer):actualTimer(fn,ms,...args);globalThis.clearTimeout=id=>{if(id!==fakeTimer)actualClear(id);};
+ try{await act(async()=>button('Prepare browser transfer').props.onClick());assert.ok(button('Cancel browser transfer'));await act(async()=>expireTransfer());assert.match(text(tree.toJSON()),/Browser transfer expired/);assert.equal(button('Cancel browser transfer'),undefined);await act(async()=>send({type:'pair'}));assert.equal(replies.at(-1).ok,false);}finally{globalThis.setTimeout=actualTimer;globalThis.clearTimeout=actualClear;}
+ // Reprepare after expiry; a late admitted callback must not overwrite its successor.
+ let finishImport;await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>new Promise(resolve=>{finishImport=resolve;})})));
+ await act(async()=>button('Prepare browser transfer').props.onClick());await act(async()=>send({type:'pair'}));const delayedNonce=replies.at(-1).ticket.nonce;let delivery;
+ await act(async()=>{delivery=send({type:'deliver',nonce:delayedNonce,artifact:{origin:'https://order.usfoods.com',base64:btoa('Code,Price\\nA,1\\n')}});while(!finishImport)await new Promise(resolve=>setImmediate(resolve));});assert.match(text(tree.toJSON()),/being handed to import review/);
+ await act(async()=>button('Prepare browser transfer').props.onClick());await act(async()=>{finishImport();await delivery;});assert.match(text(tree.toJSON()),/Transfer ready for ten minutes/);assert.doesNotMatch(text(tree.toJSON()),/CSV received for import review/);
+ await act(async()=>button('Cancel browser transfer').props.onClick());assert.equal(events.size,0);assert.match(text(tree.toJSON()),/Browser transfer cancelled/);
+ // Context changes revoke a ticket even when the client/vendor IDs are unchanged.
+ await act(async()=>button('Prepare browser transfer').props.onClick());await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,vendors:[{id:'vendor-a',name:'Client vendor',is_active:false}],onCompanionImport:()=>{}})));assert.equal(events.size,0);assert.equal(button('Prepare browser transfer'),undefined);assert.match(text(tree.toJSON()),/Browser transfer cancelled/);
  await act(async()=>{tree.unmount();});assert.equal(events.size,0);delete globalThis.window;
  console.log('PASS rendered pilot arming, selected-list invalidation, latest callback guard and unmount cleanup');
  const missing={records:createRecords(async()=>({error:{code:'42P01',message:'internal secret backend diagnostics'}}))};
