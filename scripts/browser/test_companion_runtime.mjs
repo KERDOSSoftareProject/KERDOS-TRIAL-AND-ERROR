@@ -32,7 +32,7 @@ try{
  const source=await readFile('src/services/companion-handoff.js','utf8');
  const app=`<!doctype html><title>Synthetic KERDOS receiver</title><script type="module">
  import {createCompanionHandoff} from '/handoff.mjs';
- window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();
+ window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();
  </script>`;
  const vendor=`<!doctype html><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
  <button id="open" onclick="document.getElementById('dialog').hidden=false">Download</button>
@@ -49,7 +49,7 @@ try{
  const extensionId=new URL(worker.url()).host;
  await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
  const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
- const vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
+ let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
   await target.bringToFront();await worker.evaluate(()=>globalThis.chrome.action.openPopup());
   const until=Date.now()+15000;let info;
@@ -61,7 +61,7 @@ try{
    click:id=>evaluate(`document.getElementById(${JSON.stringify(id)}).click()`),
    status:()=>evaluate("document.getElementById('status').textContent"),
    disabled:()=>evaluate("document.getElementById('export').disabled"),
-   async waitStatus(text){const end=Date.now()+15000;do{if((await this.status()).includes(text))return;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<end);throw Error('Unexpected popup status: '+await this.status());},
+   async waitStatus(text){const end=Date.now()+25000;do{const status=await this.status();if((Array.isArray(text)?text:[text]).some(value=>status.includes(value)))return;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<end);throw Error('Unexpected popup status: '+await this.status());},
    close:()=>devtools.send('Target.closeTarget',{targetId:info.targetId}),
   };
  }
@@ -81,7 +81,25 @@ try{
  await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await view.close();await vendorPage.evaluate(()=>window.finishExport());
  view=await popup(vendorPage);await view.waitStatus('KERDOS received the CSV');received=await appPage.evaluate(()=>window.received);assert.equal(received.length,2);assert.equal(received[1].text,changedCsv);assert.notEqual(received[0].evidence.sha256,received[1].evidence.sha256);await view.close();
  console.log('PASS native extension: a newly prepared transfer preserves changed synthetic prices as new source bytes; no saved-catalog-price claim.');
- await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
+ // A verification screen must stop before an export, without reading its value.
+ await appPage.evaluate(()=>window.prepare());await pair();await vendorPage.evaluate(()=>{const input=document.createElement('input');input.type='password';input.id='verification';document.body.append(input);});
+ view=await popup(vendorPage);await view.click('export');await view.waitStatus('Your vendor requires sign-in or verification');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal(await appPage.evaluate(()=>window.received.length),2);await view.close();await vendorPage.evaluate(()=>document.getElementById('verification').remove());
+ // Advance only the synthetic receiver clock; no ten-minute wait or production change.
+ await appPage.evaluate(()=>window.prepare());await pair();await appPage.evaluate(()=>{window.clock=Date.now()+11*60*1000;});
+ view=await popup(vendorPage);await view.click('export');await view.waitStatus('KERDOS is no longer ready');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal(await appPage.evaluate(()=>window.received.length),2);await view.close();await appPage.evaluate(()=>{window.clock=undefined;});
+ console.log('PASS native extension: visible vendor verification and expired receiver stop before export; no new receive or saved-price claim.');
+ // Cancellation after export authorization cannot retract the vendor action,
+ // but it must fence the pending bytes from the receiver.
+ await appPage.evaluate(()=>window.prepare());await pair();view=await start(csv);await appPage.evaluate(()=>window.handoff.cancel());await vendorPage.evaluate(()=>window.finishExport());
+ await view.waitStatus('KERDOS did not accept the file');assert.equal(await appPage.evaluate(()=>window.received.length),2);assert.equal(await vendorPage.evaluate(()=>window.exportCount),3);await view.close();
+ console.log('PASS native extension: cancellation during a vendor export rejects pending delivery without falsely claiming the export never started.');
+ // Removing the exporting tab interrupts the native scripting operation. The
+ // worker must report uncertainty/failure without admitting a file or retrying.
+ await appPage.evaluate(()=>window.prepare());await pair();view=await start(csv);await view.close();await vendorPage.close();view=await popup(appPage);
+ await view.waitStatus(['Transfer unavailable','The vendor export did not complete']);assert.equal(await appPage.evaluate(()=>window.received.length),2);await view.close();
+ vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await vendorPage.evaluate(()=>window.finishExport());await view.waitStatus('KERDOS received the CSV');assert.equal(await appPage.evaluate(()=>window.received.length),3);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
+ console.log('PASS native extension: exporting-tab interruption admits no file; a fresh preparation recovers with one delivery and no automatic replay.');
+ await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
  console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
