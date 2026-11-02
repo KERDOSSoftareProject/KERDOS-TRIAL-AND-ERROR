@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {setTimeout as pause} from 'node:timers/promises';
 import {Client,types} from 'pg';
+import {summaryRaces} from './task2-summary-races.mjs';
 import {receivingRaces} from './task2-receiving-races.mjs';
 import {estimatedReceiptFixture} from '../src/backend/fixtures/estimated-receipts-db.mjs';
 
@@ -130,7 +131,8 @@ try{
   await counts(s,{payments:1,reversals:1,activeCents:0});
  }
  await receivingRaces({setup,f,q,call,overlap});
- assert.equal(passed,35,'All payment and receiving race cases must execute');
+ await summaryRaces({setup,f,q,call,overlap,scenario,payReview,payment});
+ assert.equal(passed,42,'All payment and receiving race cases must execute');
  console.log(`Task 2 PostgreSQL concurrency: ${passed} races passed; browser sign-in and hosted acceptance remain separate.`);
 }finally{
  for(const c of connections.filter(c=>c!==admin))await c.end();

@@ -79,3 +79,9 @@ and confirmation of missing/ambiguous invoice summary evidence; standalone credi
 notes and credit allocation; mixed fixed/estimated receipt coverage and split
 allocations; explicit accounting approval, payment and complete settlement;
 supplier end-to-end acceptance. Task 1 stays code/database complete awaiting domains.
+
+Current follow-on: retained whole monetary source lines can now receive audited
+owner/manager summary classification. Original text and amount tokens stay intact;
+recognized categories cannot be reassigned. New classification requires fresh
+accounting approval. Absent/unsupported source and other open acceptance gates
+remain held; see a2_invoice_summary_classification.md.

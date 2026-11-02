@@ -76,3 +76,9 @@ remains code/database complete awaiting domains.
 
 Follow-on: `a2_invoice_approval_withdrawal.md` documents append-only withdrawal,
 current-status filtering, preserved audit and fresh reapproval.
+
+Current follow-on: retained whole monetary source lines can now receive audited
+owner/manager summary classification. Original text and amount tokens stay intact;
+recognized categories cannot be reassigned. New classification requires fresh
+accounting approval. Absent/unsupported source and other open acceptance gates
+remain held; see a2_invoice_summary_classification.md.

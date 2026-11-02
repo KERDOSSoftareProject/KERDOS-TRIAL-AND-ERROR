@@ -38,6 +38,7 @@ export function assertBackendContract(backend) {
   if(backend.estimatedReceiptReversals)for(const name of ['history','reverse'])
     if(typeof backend.estimatedReceiptReversals[name]!=='function')throw new Error(`KERDOS backend estimatedReceiptReversals.${name} is not implemented`);
   if(backend.estimatedReceiptReplacements&&typeof backend.estimatedReceiptReplacements.replace!=='function')throw new Error('KERDOS backend estimatedReceiptReplacements.replace is not implemented');
+  if(backend.invoiceSummaryClassification)for(const name of ['review','save'])if(typeof backend.invoiceSummaryClassification[name]!=='function')throw new Error(`KERDOS backend invoiceSummaryClassification.${name} is not implemented`);
   if(backend.invoiceReconciliation&&typeof backend.invoiceReconciliation.review!=='function')throw new Error('KERDOS backend invoiceReconciliation.review is not implemented');
   if(backend.invoiceApprovals)for(const name of ['review','save'])if(typeof backend.invoiceApprovals[name]!=='function')throw new Error(`KERDOS backend invoiceApprovals.${name} is not implemented`);
   if(backend.invoiceApprovalWithdrawals&&typeof backend.invoiceApprovalWithdrawals.withdraw!=='function')throw new Error('KERDOS backend invoiceApprovalWithdrawals.withdraw is not implemented');
