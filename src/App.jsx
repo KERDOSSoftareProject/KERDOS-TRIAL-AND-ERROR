@@ -18,6 +18,7 @@ import { blockReason, orderable, priceForOffer, rankVendorOffers, solveOrder } f
 import {orderGuideGroups,orderGuideCategories} from './core/order-guide-groups.js';
 import {associationProfile,productAssociationIdentity,productGroupApproved} from './core/product-associations.js';
 import {clientProductName} from './core/client-product-name.js';
+import {sourceOnlyListings} from './core/source-only-listings.js';
 import { configureLocale, formatDate, formatMoney } from "./localization.js";
 import { buildVarianceReportCSV, downloadTextFile } from "./reporting.js";
 import {InvoicesPage,PriceSheetsPage} from "./pages/DocumentPages.jsx";
@@ -415,7 +416,7 @@ export default function App() {
     for(const mapping of mappings){const group=mappingsByCatalog.get(mapping.catalog_item_id)||[];group.push(mapping);mappingsByCatalog.set(mapping.catalog_item_id,group);}
     const categoriesById=new Map(categories.map(category=>[category.id,category]));
     const groupProfile=associationProfile(org?.industry);
-    const products=catalogItems.filter(ci=>!ci.merged_into_id||mappingsByCatalog.has(ci.id)).map(ci=>{
+    const products=catalogItems.filter(ci=>(!ci.merged_into_id||mappingsByCatalog.has(ci.id))&&!sourceOnlyListings((mappingsByCatalog.get(ci.id)||[]).map(m=>viMap.get(m.vendor_item_id)).filter(Boolean))).map(ci=>{
       const ciMappings=mappingsByCatalog.get(ci.id)||[];
       const lockedBrand=ci.brand_locked?(ci.locked_brand||null):null;
       const options=ciMappings.map(m=>{

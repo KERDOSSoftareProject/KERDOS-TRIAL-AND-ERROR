@@ -12,7 +12,7 @@ import {createCatalogService,mappingVerification,mappingGap,GAP_LABELS} from "..
 import {createCategoryService} from "../services/categories.js";
 import {bestCatalogMatch,bestPurchasingSuggestion,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,parsePackSize,unitsForDimension,contextualCategorySuggestion,priceBasisFor} from "../procurement.js";
 import {blockReason,orderable} from "../core/ordering.js";
-import {itemMatchesSearch} from "../core/catalog-browse.js";
+import {itemMatchesSearch,compareItems} from "../core/catalog-browse.js";
 import {formatMoney} from "../localization.js";
 import {buildCatalogExportCSV,downloadTextFile} from "../reporting.js";
 import {btn,chipStyle,inp} from "../ui/styles.js";
@@ -31,6 +31,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
   const [showReview,setShowReview]=useState(false);
   const [mappedOnly,setMappedOnly]=useState(false);
   const [categoryFilter,setCategoryFilter]=useState("");
+  const [catalogSortMode,setCatalogSortMode]=useState("alphabetical");
   const [remapOpenFor,setRemapOpenFor]=useState(null);
   const [remapSearch,setRemapSearch]=useState("");
   const [busyMappingId,setBusyMappingId]=useState(null);
@@ -127,20 +128,15 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
     });
     // Sort by name within each category so related products (all chicken, all lettuce)
     // cluster together — makes cross-vendor linking visible without any extra filtering.
-    const sorted=[...items].sort((a,b)=>a.category.localeCompare(b.category)||a.name.localeCompare(b.name));
+    const sorted=[...items].sort((a,b)=>compareItems(a,b,catalogSortMode));
     // When a filter is active, return one group with that label.
     // When showing everything, group by category so the category headers are visible.
     if(categoryFilter){
       const label=categoryFilter===MULTI_VENDOR_FILTER?"Multiple Vendors":categoryFilter===CATEGORY_REVIEW_FILTER?"Review categories":categoryFilter;
       return sorted.length?[{category:label,items:sorted}]:[];
     }
-    // No filter: one group per category, each sorted by name.
-    const byCategory=new Map();
-    for(const item of sorted){
-      const list=byCategory.get(item.category)||[];list.push(item);byCategory.set(item.category,list);
-    }
-    return [...byCategory.entries()].map(([category,catItems])=>({category,items:catItems}));
-  },[productList,search,categoryFilter,mappedOnly,categoryCorrections]);
+    return sorted.length?[{category:'Full List',items:sorted}]:[];
+  },[productList,search,categoryFilter,mappedOnly,categoryCorrections,catalogSortMode]);
 
   function statusFor(item){
     if(!isMapped(item))return {label:"Not mapped",color:"#B26A00",bg:"#FFF3E0"};
@@ -550,6 +546,14 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
       )}
 
       {!showReview&&<>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
+        <select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+          <option value="alphabetical">Item A–Z</option>
+          <option value="added">Date Added</option>
+          <option value="itemNumber">Item #</option>
+          <option value="vendorCode">Vendor Code</option>
+        </select>
+      </div>
       <input style={{...inp,marginBottom:10}} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18}}>
@@ -638,7 +642,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"

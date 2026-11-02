@@ -146,7 +146,11 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   if(category&&!category.is_holding_pen){
     catAcc=item.category_review?GUESSED:item.category_reason?DERIVED:STATED;
     catWhy=item.category_review?(item.category_reason||"Best guess"):item.category_reason?item.category_reason:"Set or accepted";
-    const independent=categories.length?suggestCategory(vi.description,categories,[]):null;
+    // Once the listing's product identity is confirmed, its KERDOS item's
+    // category is authoritative. Do not reclassify each supplier's wording.
+    const grouped=productGroupApproved(vi,item,mapping);
+    if(grouped&&!item.category_review)catWhy='Category defined by the confirmed KERDOS item';
+    const independent=!grouped&&categories.length?suggestCategory(vi.description,categories,[]):null;
     if(item.category_review&&independent?.confidence==="confident"&&independent.category?.id===category.id){
       catAcc=DERIVED;catWhy=independent.reason;
     }
