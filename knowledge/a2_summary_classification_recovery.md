@@ -59,3 +59,21 @@ separate consent through a persistent server fence. A committed save is recovere
 instead; late legacy/direct saves cannot bypass closure. SQL save rejections keep
 the canonical request until saved, closed or superseded proof resolves it. See
 a2_summary_attempt_closure.md.
+
+
+Offline read-only recovery (November 2, 2026): when initial history or an explicit
+refresh fails, clear the current server context and both consents. Read the cached
+signed-in actor through the service, then validate only that actor/client/invoice
+journal. Display the original retained reason, source, mappings and interpreted
+text with outcome unknown. Do not infer saved, closed or superseded from the
+journal; no save, retry, server close or superseded-close control is available.
+A fresh successful history read resolves exact saved/closed results without a
+mutation, or restores a pending request requiring fresh confirmation. Late actor
+lookups are fenced to their invoice/view. Signed-out, corrupt and unavailable
+storage fail closed. Browser storage is not a substitute for server membership
+or current history. Active-tab write failures retain their existing explicit
+retry/closure flow; offline fallback occurs on reload or explicit history refresh.
+Rendered coverage includes unknown requests, remotely saved/closed outcomes,
+read-only reload, failed refresh, fresh reconnect consent, wrong/signed-out actor,
+corrupt/blocked storage and late identity responses. No database change is needed.
+Actual signed-in browser/supplier acceptance remains open.

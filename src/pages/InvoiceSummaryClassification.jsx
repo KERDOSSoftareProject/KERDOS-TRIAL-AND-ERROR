@@ -17,6 +17,16 @@ export function InvoiceSummaryClassification({organizationId,invoiceId,service=d
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;sequence.current++;};},[]);
  function journal(c){return createSummaryRecoveryStore(storage,organizationId,c.actorId);}
  function selectAttempt(plan){setCloseConfirmed(false);setPending(plan);setMappings(plan.review.mappings);setReason(plan.review.reason);const text=classifyInvoiceSummary(plan.review.basis,plan.review.mappings);setPreview({text,evidence:invoiceSummaryEvidence(text,plan.review.basis.itemSources)});setConfirmed(false);}
+ async function retainOfflineReview(cause,isCurrent){
+  if(!isCurrent())return;
+  setContext(null);setRecoveryReady(false);setCloseConfirmed(false);setConfirmed(false);setPending(null);setAttempts([]);setPreview(null);setNotice('');setError(cause.message);
+  if(!service.recoveryActor)return;
+  try{
+   const actorId=await service.recoveryActor();if(!isCurrent())return;
+   const retained=journal({actorId}).pending(invoiceId).map(entry=>({...entry,resolution:{status:'pending'}}));
+   setAttempts(retained);if(retained.length)selectAttempt(retained[0].plan);
+  }catch(e){if(isCurrent())setError(cause.message+' · '+e.message);}
+ }
  function acceptContext(c,preferred=pending){
   setContext(c);setCloseConfirmed(false);setRecoveryReady(false);
   if(!c.actorId){if(c.canClassify)throw Error('Sign in again before classification recovery');setAttempts([]);setPending(null);setRecoveryReady(true);return;}
@@ -27,23 +37,23 @@ export function InvoiceSummaryClassification({organizationId,invoiceId,service=d
   if(active)selectAttempt(active.plan);else{setPending(null);setMappings(currentMappings(c));setPreview(null);setConfirmed(false);setReason('');}
   if(recovered||closed){setNotice(closed?'Closed classification attempt recovered. This request cannot apply.':'Classification recovered from saved history. Review the current latest source.');notify();}
  }
- useEffect(()=>{let active=true;const token=++sequence.current;setContext(null);setCloseConfirmed(false);setMappings([]);setPreview(null);setConfirmed(false);setPending(null);setAttempts([]);setRecoveryReady(false);setReason('');setError('');setNotice('');if(service.supported)service.review(organizationId,invoiceId).then(c=>{if(active&&alive.current&&token===sequence.current)acceptContext(c,null);}).catch(e=>{if(active&&alive.current&&token===sequence.current)setError(e.message);});return()=>{active=false;};},[organizationId,invoiceId,service,storage]);
+ useEffect(()=>{let active=true;const token=++sequence.current;setContext(null);setCloseConfirmed(false);setMappings([]);setPreview(null);setConfirmed(false);setPending(null);setAttempts([]);setRecoveryReady(false);setReason('');setError('');setNotice('');if(service.supported)service.review(organizationId,invoiceId).then(c=>{if(active&&alive.current&&token===sequence.current){try{acceptContext(c,null);}catch(e){setError(e.message);}}},e=>retainOfflineReview(e,()=>active&&alive.current&&token===sequence.current));return()=>{active=false;};},[organizationId,invoiceId,service,storage]);
  function invalidate(){setCloseConfirmed(false);setPreview(null);setConfirmed(false);setError('');}
  function notify(){if(onUpdated)Promise.resolve().then(()=>onUpdated()).catch(()=>{});}
  async function refresh(){
   if(working.current)return;working.current=true;setBusy(true);setError('');setConfirmed(false);setCloseConfirmed(false);const token=++sequence.current;
-  try{const c=await service.review(organizationId,invoiceId);if(alive.current&&token===sequence.current){acceptContext(c);notify();}}
-  catch(e){if(alive.current&&token===sequence.current){setRecoveryReady(false);setError(e.message);}}
+  try{const c=await service.review(organizationId,invoiceId);if(alive.current&&token===sequence.current){try{acceptContext(c);notify();}catch(e){setError(e.message);}}}
+  catch(e){await retainOfflineReview(e,()=>alive.current&&token===sequence.current);}
   finally{working.current=false;if(alive.current)setBusy(false);}
  }
  async function closeSuperseded(){
-  if(working.current||!pending)return;const request=pending,token=++sequence.current;working.current=true;setBusy(true);setError('');setConfirmed(false);
+  if(working.current||!pending||!context||!recoveryReady)return;const request=pending,token=++sequence.current;working.current=true;setBusy(true);setError('');setConfirmed(false);
   try{const c=await service.review(organizationId,invoiceId),resolution=resolveSummaryRequest(request,c);if(resolution.status==='pending')throw Error('This attempt is still unresolved. Retry the identical request or refresh history.');journal(c).settle(request,resolution.status,resolution.recordId||null);if(alive.current&&token===sequence.current){acceptContext(c,null);setNotice(resolution.status==='saved'?'Classification found in saved history.':resolution.status==='closed'?'Classification attempt is permanently closed.':'Superseded attempt closed. Its earlier review cannot apply after the newer revision.');notify();}}
   catch(e){if(alive.current&&token===sequence.current)setError(e.message);}
   finally{working.current=false;if(alive.current)setBusy(false);}
  }
  async function closeUnconfirmed(){
-  if(working.current||!pending||!closeConfirmed)return;const request=pending,token=++sequence.current;working.current=true;setBusy(true);setError('');setConfirmed(false);setCloseConfirmed(false);
+  if(working.current||!pending||!closeConfirmed||!context||!recoveryReady)return;const request=pending,token=++sequence.current;working.current=true;setBusy(true);setError('');setConfirmed(false);setCloseConfirmed(false);
   try{const result=await service.closeAttempt(request,{confirmed:true});const c=await service.review(organizationId,invoiceId),resolution=resolveSummaryRequest(request,c);if(resolution.status!==result.status||resolution.recordId!==result.record.id)throw Error('Closure result is missing from refreshed history; retain this request');journal(c).settle(request,result.status,result.record.id);if(alive.current&&token===sequence.current){acceptContext(c,null);setNotice(result.status==='saved'?'The classification was already saved. Its historical result was recovered.':'Classification attempt permanently closed. A late save of this request is blocked.');notify();}}
   catch(e){if(alive.current&&token===sequence.current){setError(e.message);setNotice('Closure is unconfirmed. The original request remains retained; refresh history or retry closure.');}}
   finally{working.current=false;if(alive.current)setBusy(false);}
@@ -64,7 +74,8 @@ export function InvoiceSummaryClassification({organizationId,invoiceId,service=d
  const locked=busy||!!pending;
  return <section aria-label="Invoice summary classification" style={{borderTop:'1px solid #CBDCF2',marginTop:18,paddingTop:12}}><h4>Clarify summary source</h4><p>Classify a complete monetary line already printed in the retained invoice text. Amounts and original text stay intact. Unstated amounts remain unknown; classification does not approve or pay the invoice.</p>
  <button style={btn('#E8F1FB','#003584')} disabled={busy} onClick={refresh}>Refresh summary history</button>{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
- {attempts.length>0&&<div><h5>Unconfirmed classifications</h5><p>Resolve retained attempts before starting another classification.</p>{attempts.map((e,i)=><p key={e.requestId}>{e.plan.review.reason} · {new Date(e.createdAt).toLocaleString()} · {e.resolution.status==='superseded'?'Superseded by a newer revision':'Result still unknown'} <button disabled={busy} onClick={()=>selectAttempt(e.plan)}>Review retained attempt {i+1}</button></p>)}{superseded&&<button disabled={busy} onClick={closeSuperseded}>Close superseded classification attempt</button>}</div>}
+ {attempts.length>0&&<div><h5>Unconfirmed classifications</h5><p>Resolve retained attempts before starting another classification.</p>{attempts.map((e,i)=><p key={e.requestId}>{e.plan.review.reason} · {new Date(e.createdAt).toLocaleString()} · {e.resolution.status==='superseded'?'Superseded by a newer revision':'Result still unknown'} <button disabled={busy} onClick={()=>selectAttempt(e.plan)}>Review retained attempt {i+1}</button></p>)}{superseded&&context&&recoveryReady&&<button disabled={busy} onClick={closeSuperseded}>Close superseded classification attempt</button>}</div>}
+ {!context&&pending&&<div aria-label="Offline retained summary review"><h5>Retained reviewed classification — result unknown</h5><p>Server history is unavailable. This is the original retained review, not current server evidence. Refresh summary history before saving, retrying or closing this request.</p><p>{pending.review.reason}</p><details><summary>Original retained invoice text</summary><pre style={{maxHeight:300,overflow:'auto',whiteSpace:'pre-wrap'}}>{pending.review.basis.rawText}</pre></details><ul>{pending.review.mappings.map(m=><li key={m.lineNumber}>Line {m.lineNumber} → {summaryKinds[m.kind]}</li>)}</ul><h5>Retained interpreted text</h5><pre style={{maxHeight:220,overflow:'auto',whiteSpace:'pre-wrap'}}>{preview?.text}</pre></div>}
  {context&&<div><details><summary>Retained invoice text with line numbers</summary><pre style={{maxHeight:300,overflow:'auto',whiteSpace:'pre-wrap'}}>{String(context.source.header.rawText||'').replaceAll('\r','').split('\n').map((t,i)=>`${i+1}: ${t}`).join('\n')}</pre></details>
  {!context.canClassify&&<p>An owner or manager must classify summary source.</p>}
  {(context.canClassify||pending)&&<div><label>Source line number <input aria-label="Summary source line number" type="number" min="1" value={line} disabled={locked} style={inp} onChange={e=>{setLine(e.target.value);invalidate();}}/></label><label>Category <select aria-label="Summary source category" value={kind} disabled={locked} onChange={e=>{setKind(e.target.value);invalidate();}}>{Object.entries(summaryKinds).map(([k,label])=><option key={k} value={k}>{label}</option>)}</select></label><button disabled={locked||!line} onClick={add}>Classify selected source line</button>
