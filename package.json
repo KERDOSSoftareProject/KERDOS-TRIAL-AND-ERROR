@@ -21,7 +21,8 @@
     "test:b4": "node src/core/sheet-layout-test.mjs && node scripts/test_b4_field_identification.mjs",
     "test:b2-ocr": "node scripts/verify_b2_mixed_ocr.mjs",
     "test:b5": "node scripts/test_b5_retained_rows.mjs && node scripts/test_b5_retained_rows_ui.mjs",
-    "test:welcome": "node scripts/test_welcome_screen.mjs"
+    "test:welcome": "node scripts/test_welcome_screen.mjs",
+    "test:task2-concurrency": "node scripts/test_task2_concurrency.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
@@ -40,6 +41,7 @@
     "eslint-plugin-react": "^7.37.5",
     "globals": "^15.15.0",
     "jpeg-js": "0.4.4",
+    "pg": "8.23.1",
     "react-test-renderer": "18.3.1",
     "tesseract.js-core": "7.0.0",
     "upng-js": "2.1.0",

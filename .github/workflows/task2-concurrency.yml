@@ -1,0 +1,38 @@
+name: Task 2 PostgreSQL Concurrency
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  independent-sessions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify separate-session payment and approval races
+        env:
+          KERDOS_CONCURRENCY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: npm run test:task2-concurrency
