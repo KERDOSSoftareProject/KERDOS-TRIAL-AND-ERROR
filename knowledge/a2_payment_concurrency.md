@@ -1,4 +1,4 @@
-# Task 2: independent PostgreSQL payment sessions
+# Task 2: independent PostgreSQL purchasing and payment sessions
 
 `npm run test:task2-concurrency` exercises the actual migration functions with
 three distinct PostgreSQL backend PIDs: two authenticated-role sessions and a
@@ -28,6 +28,20 @@ payment, and payment reversal invalidating a waiting stale save. Independent
 queries check record/reversal counts and exact active cents; correction lineage,
 reference retention, historical replay, withdrawal counts and source eligibility
 are checked where relevant. Owner and manager roles participate explicitly.
+
+Twenty-two further races cover draft save versus permanent attempt closure in
+both operation orders with commit and rollback, identical draft-save retries,
+different-actor request reuse, identical order submission after commit/rollback,
+conflicting submission actors, and cancellation before/after submission. Receipt
+cases cover same-source retries after commit/rollback, conflicting actors,
+competing quantities on one order, one invoice line claimed by different orders,
+reversal invalidating a waiting receipt review, and receipt replacement branching,
+exact replay and rollback. Creator employees, owners and managers participate.
+Independent queries check draft/closure exclusivity, order/submission/line counts,
+rolled-back identities, receipt/reversal/replacement counts, active case quantities,
+actual charge cents, retained/released source reservations and replacement lineage.
+A stale receipt is saved only after a new review; reversal does not reactivate it.
+The suite requires all 35 cases to run, so accidental omission cannot silently pass.
 
 The new CI workflow runs on pull requests and main, and may be run manually.
 The ordinary full test/build suite remains separate. This evidence covers actual
