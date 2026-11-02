@@ -28,10 +28,17 @@ try{
  events.clear();const resultView=await load();assert.match(resultView.status.textContent,/KERDOS received the CSV/);assert.equal(exports,1,'opening result never replays');
  // Restarted executor retains uncertainty and removes one-use metadata, not auto-resume.
  storage.transferStatus={busy:true,message:'Delivering'};storage.pairing={...ticket};const recovered=registerCompanionWorker({...api,runtime:{...api.runtime,onMessage:{addListener(){}}}});const status=await recovered.runner.status();assert.equal(status.busy,false);assert.match(status.message,/result is unconfirmed/);assert.equal(storage.pairing,undefined);assert.equal(exports,1);assert.deepEqual(Object.keys(storage).sort(),['transferStatus'],'CSV and account secrets are never persisted as a job');
+ // React to the terminal status immediately, before its storage promise resolves.
+ // The preceding command must already have released execution ownership.
+ page=await scenario('success');let repairPair,finishPair;const execute=api.scripting.executeScript;
+ api.scripting.executeScript=async spec=>{if(spec.func.name==='pairKerdosTab')await new Promise(resolve=>{finishPair=resolve;});return execute(spec);};
+ events.add(changes=>{if(changes.transferStatus?.newValue?.message?.includes('KERDOS received the CSV')&&!repairPair){mode='pair';repairPair=worker.runner.run('pair',2);}});
+ await page.export.click();assert.ok(repairPair);for(let i=0;i<10&&!finishPair;i++)await tick();assert.equal(typeof finishPair,'function','immediate re-pair starts after terminal publication');assert.equal((await worker.runner.status()).busy,true,'older completion cannot clear the new command lock');
+ await worker.runner.run('export',2);assert.equal(exports,1,'a third command cannot bypass the new pairing lock');finishPair();await repairPair;assert.equal(storage.pairing?.tabId,2);assert.equal((await worker.runner.status()).busy,false);assert.match(storage.transferStatus.message,/Paired for one export/);
  // Only this extension popup can direct the worker; no content or external sender.
  const denied=()=>assert.fail('untrusted command replied');for(const sender of [{id:'other',url:api.runtime.getURL('popup.html')},{id:'companion',url:api.runtime.getURL('popup.html'),tab:{id:2}},{id:'companion',url:'https://order.usfoods.com/'}])assert.equal(worker.listener({type:'kerdos-companion-control',action:'export',tabId:2},sender,denied),false);
  assert.equal(worker.listener({type:'kerdos-companion-control',action:'unknown'},{id:'companion',url:api.runtime.getURL('popup.html')},denied),false);
  await assert.rejects(worker.runner.run('export',-1),/Invalid companion command/);
  page=await scenario('pair');await page.pair.click();assert.equal(storage.pairing.tabId,2);assert.match(page.status.textContent,/Paired for one export/);
- console.log('PASS companion worker + actual popup: popup closure/reopen, busy/result persistence, one export winner, restart uncertainty/no replay, sender guard, pairing, closed/rejected/expired receiver, exact claim, verification guidance and unchanged receipt semantics. Controlled browser APIs; installed acceptance remains open.');
+ console.log('PASS companion worker + actual popup: popup closure/reopen, completion ownership/immediate re-pair, busy/result persistence, one export winner, restart uncertainty/no replay, sender guard, pairing, closed/rejected/expired receiver, exact claim, verification guidance and unchanged receipt semantics. Controlled browser APIs; installed acceptance remains open.');
 }finally{delete globalThis.document;delete globalThis.chrome;}
