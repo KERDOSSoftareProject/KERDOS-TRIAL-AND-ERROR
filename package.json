@@ -25,7 +25,7 @@
     "test:task2-concurrency": "node scripts/test_task2_concurrency.mjs && node scripts/test_price_quote_concurrency.mjs",
     "test:associations": "node scripts/test_product_associations.mjs && node scripts/test_product_associations_sql.mjs && node scripts/test_product_associations_ui.mjs",
     "test:order-guide-groups": "node src/core/client-product-name-test.mjs && node src/core/order-guide-groups-test.mjs && node scripts/test_order_guide_groups_ui.mjs && node scripts/test_order_guide_listing_prices.mjs",
-    "test:catalog-row-layout": "node scripts/test_restored_catalog_rows.mjs"
+    "test:catalog-row-layout": "node scripts/test_restored_catalog_rows.mjs && node scripts/test_catalog_header.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
