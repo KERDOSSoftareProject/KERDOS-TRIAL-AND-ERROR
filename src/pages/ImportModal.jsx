@@ -1,3 +1,4 @@
+import {automaticPriceGroups} from "../core/source-metadata.js";
 import {invoiceBilledQuantityEvidence} from '../core/invoice-quantity-evidence.js';
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useMemo,useRef,useState} from "react";
@@ -38,8 +39,12 @@ const r2=value=>Math.round(value*100)/100;
 // document by ID + ownership instead of re-fingerprinting — ensuring the user's
 // PasteModal session resumes the SAME partial document the worker created rather
 // than creating a duplicate under the content fingerprint.
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,inboxImportDocumentId=null}) {
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,automaticCompanion=false,inboxImportDocumentId=null}) {
   const inboxReview=typeof onBeforeSave==="function";
+  const automaticImport=!!(automaticCompanion&&companionEvidence&&!inboxReview&&initialMode==='pricelist'&&initialFiles?.length===1);
+  const importActive=useRef(true);
+  useEffect(()=>{importActive.current=true;return()=>{importActive.current=false;};},[]);
+  const assertActive=()=>{if(automaticImport&&!importActive.current)throw new Error('Automatic intake stopped after the workspace changed. Retained progress remains recoverable.');};
   // The vendor is a choice, never a default: the box opens on "Select
   // vendor" unless you arrived from a specific vendor's page. Nothing can
   // be dropped in until a vendor is chosen, so a sheet can't land under
@@ -99,8 +104,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     (async()=>{
       const newGroups=await Promise.all(initialFiles.map(async file=>{
         let reading;
-        const text=await fileToText(file,{onRead:result=>{reading=result;}});
-        return {reading,id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text};
+        let text,automaticException;
+        try{text=await fileToText(file,{onRead:result=>{reading=result;}});}catch(error){if(!automaticImport)throw error;text=await file.text();automaticException=`Could not read source: ${error.message||String(error)}`;}
+        return {reading,id:`${file.name}_${file.size}_${Date.now()}_${Math.random()}`,file,name:file.name,text,automaticException};
       }));
       if(active) setFileGroups(newGroups);
     })().catch(err=>setParseError(`Could not read attached file: ${err.message||String(err)}`));
@@ -277,6 +283,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   // Otherwise apply any auto-remembered answers and advance to step 2.
   async function settleUnknownHeaders(groups){
     const toAsk=gatherUnknownsForConfirmation(groups);
+    if(automaticImport){
+      setParsedGroups(automaticPriceGroups(groups,toAsk));setStep(2);return;
+    }
     if(toAsk.length){
       setStagedGroups(groups);
       setPendingUnknowns(toAsk);
@@ -331,8 +340,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         try{
           const parsed=parseWithLayout(d.text,d.reading);
           groups.push({...d,rows:parsed.rows.map(settleRow),skipped:parsed.skipped,documentKind:parsed.documentKind,quoteValidUntil:parsed.quoteValidUntil,invoiceDate:findDate(d.text)||"",layout:parsed.layout,columnMap:parsed.columnMap,parts:parsed.parts,structure:parsed.structure});
-        }catch(error){throw new Error(`${d.name}: ${error.message||String(error)}`);}
+        }catch(error){if(!automaticImport)throw new Error(`${d.name}: ${error.message||String(error)}`);groups.push({...d,rows:[],skipped:[],automaticException:`Could not parse source: ${error.message||String(error)}`});}
         await new Promise(resolve=>setTimeout(resolve,0));
+      }
+      if(automaticImport){
+        if(!importActive.current)return;
+        await settleUnknownHeaders(groups.map(g=>(g.automaticException||!g.rows.length||g.documentKind==='mixed'||g.documentKind==='invoice')?{...g,automaticException:g.automaticException||(!g.rows.length?'No product rows could be read; original retained for review.':'Source type needs review before pricing can be applied.')}:g));return;
       }
       if(!groups.some(group=>group.rows.length)){
         setParseError(`No product rows could be read from ${docs.map(d=>d.name).join(", ")}. Check that the file contains item lines, or paste a sample of its text for review.`);
@@ -390,9 +403,10 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   }
 
   async function saveImport(){
+    assertActive();
     if(mode==="pricelist"&&invoiceLoad==="loading"){setSaveReview("Checking existing invoices. Try again in a moment.");return;}
     if(missingInvoiceDates.length){setSaveReview("Confirm the invoice date for each document before recording invoice charges.");return;}
-    if(unsafeDocuments.length){setSaveReview("This file identifies itself as an invoice and/or a price update inconsistent with the selected import mode. Split mixed documents, or select the correct mode before saving.");return;}
+    if(unsafeDocuments.length&&!automaticImport){setSaveReview("This file identifies itself as an invoice and/or a price update inconsistent with the selected import mode. Split mixed documents, or select the correct mode before saving.");return;}
     if(mode==="invoice"&&needsReview.length){setSaveReview(`${needsReview.length} ambiguous row(s) still need a deliberate correction or approval. No unreviewed amount will change a current vendor quote.`);return;}
     // Inbox preview does not reserve the attachment. The same row lock used by
     // the worker is acquired here, immediately before any save-side effects.
@@ -403,7 +417,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     }
     setSaveReview("");setLoading(true);
     const vendor=vendors.find(v=>v.id===vendorId);
-    let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0;
+    let updated=0,created=0,invoiceTotal=0,invoicesCreated=0,mapped=0,packsFilled=0,basisReview=0,invoiceLinks=0,unchangedDocuments=0;
     const identified=[];
     let saveError=null;
     let lastSourceDocumentId=null;
@@ -438,7 +452,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
       let failedRows=0,savedSourceRows=0;
       for(const group of parsedGroups){
-        if(!group.rows.length)continue;
+        assertActive();
+        if(!group.rows.length&&!automaticImport)continue;
         let sourceFilePath=null;
         // Stable SHA-256 of the original extracted text: re-importing the
         // same vendor quotation cannot silently append duplicate history.
@@ -469,6 +484,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
         // is safe to repeat.
+        if(automaticImport&&existingDoc?.status==="complete"){unchangedDocuments++;lastSourceDocumentId=existingDoc.id;continue;}
         if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
         savedSourceRows+=completedKeys.size;
@@ -503,16 +519,20 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         let sourceDocumentId=existingDoc?.id||null;
         lastSourceDocumentId=sourceDocumentId;
         if(!existingDoc){
+          assertActive();
           if(group.file){
             const uploaded=await documents.uploadOriginal(orgId,vendorId,group.file);
             if(uploaded.error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`Could not preserve the original ${group.name}: ${uploaded.error.message}. Prices from that file were not applied.`;continue;}
             sourceFilePath=uploaded.path;
           }
+          assertActive();
           let storedDoc;
           try{storedDoc=await importService.createPriceDocument({organization_id:orgId,vendor_id:vendorId,document_kind:"pricelist",fingerprint,original_text:group.text,file_name:group.name,file_path:sourceFilePath,status:"processing",source_rows:createSourceRowSnapshot(group.rows),...(companionEvidence?{retrieval_evidence:companionEvidence}:{})});}
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
-          sourceDocumentId=storedDoc.id;
+          sourceDocumentId=storedDoc.id;lastSourceDocumentId=sourceDocumentId;
         }
+        assertActive();
+        if(automaticImport&&group.automaticException){failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+group.automaticException].filter(Boolean).join(' ');await importService.finalizeDocument(sourceDocumentId,'partial',[...completedKeys]);continue;}
         // row:N uses the per-group ordinal (rowIndex from entries()).  For manual
         // imports each group has its own document, so per-group keys are unique
         // within that document and verifyResumeRows can safely index rows[N].
@@ -522,6 +542,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // worker stored without needing a separate global counter.
         const failuresBeforeGroup=failedRows;
       for(const [rowIndex,sourceRow] of group.rows.entries()){
+        assertActive();
         const completedKey=`row:${rowIndex}`;
         if(completedKeys.has(completedKey))continue;
         let row=enrichFromInvoices(sourceRow,invoiceSources);
@@ -565,7 +586,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           sourceRow,row,ex,priorMapping,rowIssues,rowNeedsReview,invoiceSources,
           orgId,vendorId,sourceDocumentId,completedKey,importBatchTime,group,sourceFilePath,
           workingCatalogItems,workingCategories,workingVendorItems,workingMappings,
-          applySelectedCategory,
+          applySelectedCategory,assertActive,
         });
         if(ex&&!needsBasis) updated++; else if(!ex) created++;
         if(needsBasis)basisReview++;
@@ -576,6 +597,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // Inbox resolution must preserve the worker's saved-row contract.
         // Staging an unresolved quote is not completion of that source row.
         if(!inboxReview||!needsBasis){
+          assertActive();
           await importService.recordProgress(sourceDocumentId,[...completedKeys,completedKey]);
           completedKeys.add(completedKey);
           savedSourceRows++;
@@ -597,6 +619,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         }
         saveProgress.current?.update({saved:savedSourceRows,failed:failedRows});
       }
+        assertActive();
         const finalStatus=priceDocumentStatus({failedRows,failuresBeforeGroup,completedKeys,rowCount:group.rows.length});
         try{await importService.finalizeDocument(sourceDocumentId,finalStatus,[...completedKeys]);}
         catch(err){saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;}
@@ -779,14 +802,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
     }
 
-    const summary={mode,vendor:vendor?.name,updated,created,mapped,basisReview,invoiceLinks,invoiceTotal:r2(invoiceTotal),invoicesCreated,count:allRows.length,error:saveError,identified,packsFilled};
+    assertActive();
+    const summary={unchangedDocuments,mode,vendor:vendor?.name,updated,created,mapped,basisReview,invoiceLinks,invoiceTotal:r2(invoiceTotal),invoicesCreated,count:allRows.length,error:saveError,identified,packsFilled};
     const cleanFinish=!saveError&&mode==="pricelist"&&(!inboxReview||basisReview===0);
     // Persistence has finished. Show its result before refreshing the parent
     // workspace; a slow refresh must not masquerade as an unfinished save.
     setResult(summary);setStep(cleanFinish?4:3);setLoading(false);setRefreshingCatalog(true);
     try{
-      await onDone();
-      if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
+      await onDone();assertActive();
+      if(cleanFinish&&automaticImport)onFinished?.({message:unchangedDocuments===parsedGroups.length?`Pricing already up to date for ${vendor?.name||'vendor'} — no duplicate rows saved.`:`Pricing received automatically — ${allRows.length} rows retained for ${vendor?.name||'vendor'}${basisReview?`; ${basisReview} flagged in Item Catalog`:''}`,importDocumentId:lastSourceDocumentId||null});
+      else if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
     }catch(error){
       setResult(previous=>({...previous,error:[previous.error,`Saved, but the catalog could not refresh: ${error.message||String(error)}. Reload the app to see the saved items.`].filter(Boolean).join(" ")}));
       setStep(3);
@@ -799,8 +824,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     // The inbox path waits for an explicit Save so closing a preview cannot
     // reserve pending work or race with the automatic processor.
     if(onBeforeSave)return;
-    if(step!==2||autoSaveStarted||loading||!allRows.length) return;
-    if(unsafeDocuments.length) return;
+    if(step!==2||!importActive.current||autoSaveStarted||loading||(!allRows.length&&!automaticImport)) return;
+    if(unsafeDocuments.length&&!automaticImport) return;
     // Price sheets save automatically with issues attached to their rows.
     // Invoices still wait: an unreviewed charge must never alter a quote.
     if(mode==="invoice"&&(missingInvoiceDates.length||needsReview.length)) return;
@@ -808,6 +833,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     setAutoSaveStarted(true);
     doSave();
   },[mode,step,autoSaveStarted,loading,allRows.length,unsafeDocuments.length,missingInvoiceDates.length,needsReview.length,invoiceLoad,invoiceConflicts.length]);
+
+  if(automaticImport)return <aside role="status" aria-label="Automatic vendor pricing intake" style={{position:'fixed',bottom:24,right:24,zIndex:1000,maxWidth:480,padding:18,borderRadius:12,background:'white',border:'1px solid #CBDCF2',color:'#00204F'}}><b>{result?.error||saveReview||parseError?'Pricing retained or stopped — needs attention':'Receiving vendor pricing automatically'}</b><p>{result?.error||saveReview||parseError||'The original and source details are being retained. You do not need to confirm columns or click Save.'}</p>{!loading&&(result?.error||saveReview||parseError)&&<button onClick={onClose}>Dismiss notice</button>}</aside>;
 
   return (
     <MovableDialog label="Import document" maxWidth={mode==="pricelist"&&step===2?1450:600} zIndex={1000}>

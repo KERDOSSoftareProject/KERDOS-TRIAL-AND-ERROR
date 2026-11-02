@@ -274,7 +274,43 @@ await check('native 87-row companion CSV asks only about genuine metadata headin
  await act(async()=>{await button(p,'Continue →').props.onClick();});
  assert.ok(button(p,'Save Import →'));assert.match(text(p.tree.toJSON()),/87 product rows read/);assert.equal(writes(f),0);p.tree.unmount();
 });
-console.log(passed+'/23 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+// Automatic companion delivery uses the real importer without any UI action.
+const autoProof={kind:'browser_companion',adapter_key:'synthetic-provider',origin:'https://supplier.example',account_label:'Synthetic Client',list_label:'Synthetic List',sha256:'a'.repeat(64),byte_length:123,received_at:'2026-11-02T12:00:00Z',assurance:'user_approved_browser_session'};
+async function autoOpen(content=csv,overrides={}){const input=file('vendor-prices.csv',content),reader=createDocumentReader({loadWorkbook:async()=>XLSX});input.reading=await reader(input);return open(vendor,'pricelist',{initialFiles:[input],companionEvidence:autoProof,automaticCompanion:true,...overrides});}
+async function automaticResult(p){for(let i=0;i<300&&!p.finished.length&&!text(p.tree.toJSON()).includes('Dismiss notice');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});}
+await check('automatic companion intake saves original/evidence and prices with zero column/Continue/Save actions',async()=>{
+ const f=fixture();const p=await autoOpen();await automaticResult(p);assert.equal(p.finished.length,1,text(p.tree.toJSON()));assert.equal(button(p,'Save Import →'),undefined);assert.equal(button(p,'Continue →'),undefined);assert.equal(f.uploads.length,1);assert.equal(f.uploads[0].bytes,csv);assert.deepEqual(f.calls.insertImportDoc[0].retrieval_evidence,autoProof);assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.applyQuote[0].price,41.25);assert.equal(f.calls.applyQuote[0].priceUnavailable,false);assert.match(p.finished[0].message,/Pricing received automatically/);assert.ok(p.finished[0].importDocumentId);p.tree.unmount();
+ const before=writes(f),again=await autoOpen();await automaticResult(again);assert.equal(writes(f),before);assert.equal(again.finished.length,1);assert.match(again.finished[0].message,/already up to date/);again.tree.unmount();
+ const changed=await autoOpen(csv.replace('41.25','43.25'));await automaticResult(changed);assert.equal(changed.finished.length,1,text(changed.tree.toJSON()));assert.equal(f.calls.applyQuote.length,2);assert.deepEqual(f.calls.applyQuote.map(q=>q.price),[41.25,43.25]);assert.equal(Object.values(f.importDocs).length,2);assert.equal(f.uploads[0].bytes,csv);changed.tree.unmount();
+});
+await check('automatic native metadata export retains all 87 rows and source metadata without confirming a layout',async()=>{
+ const header=['Line Number','Group Name','Product Number','Product Description','Product Brand','Product Package Size','Customer Product Number','Product Price','Product UOM','USF Class Description','Storage Description'];
+ const content=[header,...Array.from({length:87},(_,i)=>[i+1,'Example Group','AUTO-'+i,'Sample cooked product '+i,i===84?'PRICE PRODUCT NAME':'Example brand','2/10 LB','','41.25','CS','Example class','Dry'])].map(row=>row.join(',')).join('\n');
+ const f=fixture(),p=await autoOpen(content);await automaticResult(p);assert.equal(p.finished.length,1,text(p.tree.toJSON()));const d=Object.values(f.importDocs)[0];assert.equal(d.status,'complete');assert.equal(d.source_rows.rows.length,87);assert.equal(d.completed_keys.length,87);assert.equal(f.calls.applyQuote.length,87);assert.ok(f.calls.applyQuote.every(q=>q.organizationId===org&&q.vendorId===vendor));assert.deepEqual(f.calls.applyQuote.map(q=>q.vendorItemCode),Array.from({length:87},(_,i)=>'AUTO-'+i));assert.ok(f.calls.applyQuote.every(q=>q.importRow.row.sourceMetadata.some(m=>m.header==='Storage Description'&&m.value==='Dry')));assert.equal(f.uploads[0].bytes,content);assert.equal(button(p,'Continue →'),undefined);p.tree.unmount();
+});
+await check('automatic unresolved headers are retained for review without creating usable quotes or invented layout confirmations',async()=>{
+ const content=csv.replace('Price Unit,Price','Price Unit,Price,Unfamiliar Fee').replace('CASE,41.25','CASE,41.25,6.00');const f=fixture(),p=await autoOpen(content);await automaticResult(p);assert.equal(p.finished.length,1,text(p.tree.toJSON()));assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.applyQuote[0].priceUnavailable,true);assert.ok(f.calls.applyQuote[0].importRow.conflicts.some(reason=>/Unconfirmed source columns/.test(reason)));assert.equal(f.calls.applyQuote[0].importRow.row.columnReview[0].label,'Unfamiliar Fee');assert.equal(f.uploads[0].bytes,content);assert.equal(button(p,'Continue →'),undefined);p.tree.unmount();
+});
+await check('automatic nonpricing source is retained as an exception without any price or invoice write',async()=>{
+ const f=fixture(),p=await autoOpen('Hello,there\nNo pricing,here\n');await automaticResult(p);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.invoices.length,0);assert.equal(f.uploads.length,1);const d=Object.values(f.importDocs)[0];assert.equal(d.status,'partial');assert.equal(d.retrieval_evidence.kind,'browser_companion');assert.equal(p.finished.length,0);assert.match(text(p.tree.toJSON()),/No product rows could be read|Source type needs review/);p.tree.unmount();
+});
+await check('automatic original/evidence failure blocks price writes and does not emit success',async()=>{
+ const f=fixture();f.backend.documents.upload=async()=>{throw Error('original unavailable');};const p=await autoOpen();await automaticResult(p);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.insertImportDoc.length,0);assert.equal(p.finished.length,0);assert.match(text(p.tree.toJSON()),/original unavailable/);p.tree.unmount();
+});
+await check('automatic unmount during original preservation prevents later document/price writes',async()=>{
+ const f=fixture();let release,started=false;f.backend.documents.upload=async()=>{started=true;await new Promise(resolve=>{release=resolve;});};const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,20));});assert.equal(f.calls.insertImportDoc.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(p.finished.length,0);
+});
+await check('automatic unknown incoming fields preserve an existing accepted quote',async()=>{
+ const f=fixture(),first=await autoOpen();await automaticResult(first);assert.equal(f.calls.applyQuote.length,1);first.tree.unmount();const content=csv.replace('Price Unit,Price','Price Unit,Price,Unfamiliar Fee').replace('CASE,41.25','CASE,43.25,6.00');const next=await autoOpen(content);await automaticResult(next);assert.equal(next.finished.length,1,text(next.tree.toJSON()));assert.equal(f.calls.applyQuote.length,1);assert.equal(f.vendorItems[0].price,41.25);assert.equal(f.vendorItems[0].import_row.reviewRequired,true);assert.equal(f.vendorItems[0].import_row.row.price,43.25);next.tree.unmount();
+});
+await check('automatic evidence-schema failure and refresh failure do not claim success or repeat saving',async()=>{
+ const f=fixture(),query=f.backend.records.query;f.backend.records.query=name=>name==='import_documents'?{select:(...args)=>query(name).select(...args),insert:()=>({select:()=>({single:async()=>({data:null,error:{message:'retrieval_evidence column not installed'}})})})}:query(name);const missing=await autoOpen();await automaticResult(missing);assert.equal(f.calls.applyQuote.length,0);assert.equal(missing.finished.length,0);assert.match(text(missing.tree.toJSON()),/retrieval_evidence column not installed/);missing.tree.unmount();
+ const g=fixture(),refresh=await autoOpen(csv,{onDone:async()=>{throw Error('refresh unavailable');}});await automaticResult(refresh);assert.equal(g.calls.applyQuote.length,1);assert.equal(refresh.finished.length,0);assert.match(text(refresh.tree.toJSON()),/Saved, but the catalog could not refresh/);await act(async()=>{await new Promise(r=>setTimeout(r,30));});assert.equal(g.calls.applyQuote.length,1);refresh.tree.unmount();
+});
+await check('automatic reader failure retains original and provenance as a partial exception',async()=>{
+ const f=fixture(),p=await autoOpen(csv,{initialFiles:[{...file(),readingError:'reader unavailable'}]});await automaticResult(p);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.uploads.length,1);assert.equal(f.uploads[0].bytes,csv);assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.match(text(p.tree.toJSON()),/Could not read source/);p.tree.unmount();
+});
+console.log(passed+'/33 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
@@ -283,7 +319,7 @@ try{
   b.onResolve({filter:/import-evidence\.js$/},args=>args.namespace==='evidence-spy'?({path:args.path,namespace:'file'}):({path:'spy',namespace:'evidence-spy'}));
   b.onLoad({filter:/spy/,namespace:'evidence-spy'},()=>({contents:`import {explainImportRow as real} from ${JSON.stringify(process.cwd()+'/src/core/import-evidence.js')};export function explainImportRow(...args){globalThis.__evidenceCalls=(globalThis.__evidenceCalls||0)+1;return real(...args);}`}));
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
-  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.reading)onRead?.(file.reading);return file.text();}'}));
+  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.readingError)throw new Error(file.readingError);if(file.reading)onRead?.(file.reading);return file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
   b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});

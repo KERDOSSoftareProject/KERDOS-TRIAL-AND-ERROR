@@ -54,8 +54,9 @@ export async function importPriceRow({
   sourceRow, row, ex, priorMapping, rowIssues, rowNeedsReview, invoiceSources,
   orgId, vendorId, sourceDocumentId, completedKey, importBatchTime, group, sourceFilePath,
   workingCatalogItems, workingCategories, workingVendorItems, workingMappings,
-  applySelectedCategory,
+  applySelectedCategory,assertActive=()=>{},
 }) {
+  assertActive();
   if (!rowNeedsReview && !row.priceUnavailable && (!Number.isFinite(Number(row.price)) || Number(row.price) <= 0))
     throw new Error('No confirmed positive unit price');
 
@@ -72,6 +73,7 @@ export async function importPriceRow({
   if (needsBasis && ex) {
     vendorItemId = ex.id;
     // Still write the import_row so Item Catalog shows what needs resolving.
+    assertActive();
     const {error} = await backend.records.query('vendor_items')
       .update({import_row: {
         row: {...sourceRow, ...(sourceRow.originalFields||{})},
@@ -91,6 +93,7 @@ export async function importPriceRow({
       .eq('organization_id', orgId);
     if (error) throw new Error(`Could not save the incoming quote for review: ${error.message}`);
   } else {
+    assertActive();
     vendorItemId = await backend.pricing.applyQuote({
       vendorItemId: ex?.id || null, organizationId: orgId, vendorId,
       vendorItemCode: row.code,
@@ -134,6 +137,7 @@ export async function importPriceRow({
       const identity = needsBasis && ex
         ? {description: ex.description, packSize: ex.pack_size, brand: ex.brand, gtin: ex.gtin, manufacturerCode: ex.manufacturer_code}
         : row;
+      assertActive();
       match = await catalogService.matchOrCreate({
         organizationId: orgId, vendorId,
         description: identity.description,
@@ -148,6 +152,7 @@ export async function importPriceRow({
         mappings: workingMappings,
       });
       if (match) {
+        assertActive();
         savedMapping = await importService.createMapping({
           organization_id: orgId,
           catalog_item_id: match.catalogItemId,
