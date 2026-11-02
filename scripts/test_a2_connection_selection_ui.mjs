@@ -33,7 +33,7 @@ try{
  let release;pauseSave=new Promise(resolve=>{release=resolve;});let pending;
  await fill('Pending old account','Pending old list');await act(async()=>{pending=button('Prepare browser transfer').props.onClick();await Promise.resolve();});assert.equal(events.size,0);
  await act(async()=>tree.update(React.createElement(VendorConnectPage,b)));await choose('v3');await act(async()=>{release();await pending;});pauseSave=null;assert.equal(events.size,0);assert.equal(control('Portal account name').props.value,'Other account');assert.doesNotMatch(text(tree.toJSON()),/Transfer ready|Pending old/);
- 
+
  // Editing while persistence is pending invalidates the captured transfer.
  pauseSave=new Promise(resolve=>{release=resolve;});await act(async()=>{pending=button('Prepare browser transfer').props.onClick();await Promise.resolve();});await fill('Edited account','Edited list');await act(async()=>{release();await pending;});pauseSave=null;assert.equal(events.size,0);assert.equal(control('Portal account name').props.value,'Edited account');assert.equal(button('Prepare browser transfer').props.disabled,false);
  await act(async()=>{await button('Prepare browser transfer').props.onClick();});assert.equal(events.size,1);
