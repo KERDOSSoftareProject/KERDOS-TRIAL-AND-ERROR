@@ -1,0 +1,38 @@
+name: Companion Chromium Runtime
+on:
+  pull_request:
+    paths:
+      - 'companion/chrome/**'
+      - 'src/services/companion-handoff.js'
+      - 'scripts/browser/test_companion_runtime.mjs'
+      - '.github/workflows/companion-browser.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'companion/chrome/**'
+      - 'src/services/companion-handoff.js'
+      - 'scripts/browser/test_companion_runtime.mjs'
+      - '.github/workflows/companion-browser.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: companion-browser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  chromium-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install pinned browser test tools outside application dependencies
+        run: npm install --prefix "$RUNNER_TEMP/kerdos-browser" --no-package-lock --ignore-scripts playwright@1.62.1
+      - name: Install Chromium runtime
+        run: node "$RUNNER_TEMP/kerdos-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify real extension runtime against synthetic pages only
+        env:
+          KERDOS_PLAYWRIGHT_MODULE: ${{ runner.temp }}/kerdos-browser/node_modules/playwright/index.mjs
+        run: node scripts/browser/test_companion_runtime.mjs
