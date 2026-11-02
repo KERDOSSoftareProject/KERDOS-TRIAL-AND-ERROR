@@ -34,5 +34,6 @@ jobs:
         run: node "$RUNNER_TEMP/kerdos-browser/node_modules/playwright/cli.js" install --with-deps chromium
       - name: Verify real extension runtime against synthetic pages only
         env:
+          KERDOS_BROWSER_HEADED: '1'
           KERDOS_PLAYWRIGHT_MODULE: ${{ runner.temp }}/kerdos-browser/node_modules/playwright/index.mjs
-        run: node scripts/browser/test_companion_runtime.mjs
+        run: xvfb-run -a node scripts/browser/test_companion_runtime.mjs

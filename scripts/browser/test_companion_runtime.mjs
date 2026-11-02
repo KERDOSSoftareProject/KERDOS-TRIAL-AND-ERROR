@@ -21,8 +21,13 @@ try{
  // Test fixture grants allow automated action opening. They NEVER enter the shipped ZIP.
  manifest.host_permissions=[appOrigin+'/*',vendorOrigin+'/*'];
  await writeFile(join(extension,'manifest.json'),JSON.stringify(manifest));
- context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:true,acceptDownloads:true,args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
+ context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
  context.setDefaultTimeout(15000);
+ const devtools=await context.browser().newBrowserCDPSession();
+ let protocolId=0;const replies=new Map();
+ devtools.on('Target.receivedMessageFromTarget',event=>{const message=JSON.parse(event.message),key=event.sessionId+':'+message.id;const pending=replies.get(key);if(pending){replies.delete(key);if(message.error)pending.reject(Error(message.error.message));else pending.resolve(message.result);}});
+ const call=(sessionId,method,params={})=>new Promise((resolve,reject)=>{const id=++protocolId,key=sessionId+':'+id;replies.set(key,{resolve,reject});devtools.send('Target.sendMessageToTarget',{sessionId,message:JSON.stringify({id,method,params})}).catch(error=>{replies.delete(key);reject(error);});});
+
  const unexpected=[];
  const source=await readFile('src/services/companion-handoff.js','utf8');
  const app=`<!doctype html><title>Synthetic KERDOS receiver</title><script type="module">
@@ -46,32 +51,37 @@ try{
  const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  const vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
-  const tabId=await worker.evaluate(async url=>(await globalThis.chrome.tabs.query({url}))[0]?.id,target.url());
-  assert.ok(Number.isInteger(tabId));
-  const page=await context.newPage();await page.goto('chrome-extension://'+extensionId+'/popup.html');
-  // Chromium does not expose its action bubble as a Playwright Page. Load the
-  // real popup document and supply only its selected active-tab lookup; all
-  // runtime messaging, worker execution, injection and tab delivery stay native.
-  await page.evaluate(id=>{globalThis.chrome.tabs.query=async()=>[{id}];},tabId);
-  return page;
+  await target.bringToFront();await worker.evaluate(()=>globalThis.chrome.action.openPopup());
+  const until=Date.now()+15000;let info;
+  do{info=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.url==='chrome-extension://'+extensionId+'/popup.html');if(info)break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<until);
+  assert.ok(info,'native action popup target was not created');
+  const {sessionId}=await devtools.send('Target.attachToTarget',{targetId:info.targetId,flatten:false});
+  const evaluate=async expression=>{const value=await call(sessionId,'Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(value.exceptionDetails)throw Error(value.exceptionDetails.text);return value.result.value;};
+  return {
+   click:id=>evaluate(`document.getElementById(${JSON.stringify(id)}).click()`),
+   status:()=>evaluate("document.getElementById('status').textContent"),
+   disabled:()=>evaluate("document.getElementById('export').disabled"),
+   async waitStatus(text){const end=Date.now()+15000;do{if((await this.status()).includes(text))return;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<end);throw Error('Unexpected popup status: '+await this.status());},
+   close:()=>devtools.send('Target.closeTarget',{targetId:info.targetId}),
+  };
  }
- async function pair(){const view=await popup(appPage);await view.locator('#pair').click();try{await view.locator('#status').filter({hasText:'Paired for one export'}).waitFor();}catch(error){console.error('Pair diagnostics',await view.locator('#status').innerText(),await worker.evaluate(()=>globalThis.__runtimeCommands),unexpected);throw error;}await view.close();}
+ async function pair(){const view=await popup(appPage);await view.click('pair');await view.waitStatus('Paired for one export');await view.close();}
  async function start(text){
   await vendorPage.evaluate(value=>{window.csv=value;window.finishExport=undefined;document.getElementById('dialog').hidden=true;},text);
-  const view=await popup(vendorPage);await view.locator('#export').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');return view;
+  const view=await popup(vendorPage);await view.click('export');await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');return view;
  }
  await pair();let view=await start(csv);await view.close();
- view=await popup(vendorPage);assert.equal(await view.locator('#export').isDisabled(),true);assert.match(await view.locator('#status').innerText(),/may close this popup/);
+ view=await popup(vendorPage);assert.equal(await view.disabled(),true);assert.match(await view.status(),/may close this popup/);
  await vendorPage.evaluate(()=>window.finishExport());
- await view.locator('#status').filter({hasText:'KERDOS received the CSV'}).waitFor();assert.match(await view.locator('#status').innerText(),/does not confirm saved prices/);
- assert.equal(await view.locator('#export').isDisabled(),false);
+ await view.waitStatus('KERDOS received the CSV');assert.match(await view.status(),/does not confirm saved prices/);
+ assert.equal(await view.disabled(),false);
  let received=await appPage.evaluate(()=>window.received);assert.equal(received.length,1);assert.equal(received[0].text,csv);assert.equal(received[0].vendorId,'synthetic-vendor');assert.equal(received[0].evidence.sha256,createHash('sha256').update(csv).digest('hex'));
- await view.close();view=await popup(vendorPage);assert.match(await view.locator('#status').innerText(),/KERDOS received the CSV/);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
- console.log('PASS native extension: real popup document close/reopen, worker continuation, status recovery, provider DOM/Blob capture, exact bytes/SHA-256, original ownership and no replay.');
+ await view.close();view=await popup(vendorPage);assert.match(await view.status(),/KERDOS received the CSV/);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
+ console.log('PASS native extension: native action popup close/reopen, worker continuation, status recovery, provider DOM/Blob capture, exact bytes/SHA-256, original ownership and no replay.');
  await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await view.close();await vendorPage.evaluate(()=>window.finishExport());
- view=await popup(vendorPage);await view.locator('#status').filter({hasText:'KERDOS received the CSV'}).waitFor();received=await appPage.evaluate(()=>window.received);assert.equal(received.length,2);assert.equal(received[1].text,changedCsv);assert.notEqual(received[0].evidence.sha256,received[1].evidence.sha256);await view.close();
+ view=await popup(vendorPage);await view.waitStatus('KERDOS received the CSV');received=await appPage.evaluate(()=>window.received);assert.equal(received.length,2);assert.equal(received[1].text,changedCsv);assert.notEqual(received[0].evidence.sha256,received[1].evidence.sha256);await view.close();
  console.log('PASS native extension: a newly prepared transfer preserves changed synthetic prices as new source bytes; no saved-catalog-price claim.');
- await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.locator('#export').click();await view.locator('#status').filter({hasText:'Transfer unavailable'}).waitFor();assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
+ await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
  console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual action-bubble/activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
