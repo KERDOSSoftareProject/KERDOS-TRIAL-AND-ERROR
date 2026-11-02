@@ -6,10 +6,24 @@ import {productKnowledge} from '../procurement.js';
 const title=value=>String(value||'').replace(/\b[a-z]+/g,word=>word[0].toUpperCase()+word.slice(1));
 const text=value=>dictionaryTokens(value).join(' ');
 export function clientProductName(item,rows=[],industry=''){
- const current=String(item.name||'').trim();
- // A deliberately entered client name takes precedence over display vocabulary.
- if(rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
+ let current=String(item.name||'').trim();
  const vocabulary=industryClientNames(industry),profile=associationProfile(industry);
+ // A brand is metadata, never the item identity. Remove exact brand phrases
+ // supplied by the listings or industry vocabulary before interpreting names.
+ const brands=[...new Set([...(vocabulary.brands||[]),...rows.map(row=>row.brand).filter(Boolean)])];
+ let withoutBrands=' '+text(current)+' ';
+ for(const brand of brands){const phrase=text(brand);if(phrase)withoutBrands=withoutBrands.split(' '+phrase+' ').join(' ');}
+ if(text(withoutBrands)!==text(current)){
+  const meaningful=dictionaryTokens(withoutBrands).filter(word=>!/^\d/.test(word)&&!vocabulary.nonProducts?.includes(word));
+  if(!meaningful.length){
+   const identities=rows.map(row=>productAssociationIdentity(row,profile)).filter(identity=>identity.key?.startsWith('concept:'));
+   const labels=[...new Set(identities.map(identity=>identity.label))];
+   if(labels.length!==1)return null;
+   current=labels[0];
+  }else current=withoutBrands.trim();
+ }
+ // Deliberately entered client names still take precedence over synonyms.
+ if(rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
  const sourceWords=dictionaryTokens(current);
  if(!sourceWords.some(word=>/[a-z]/i.test(word)&&!vocabulary.nonProducts?.includes(word)&&!/^\d/.test(word)))return null;
  const identity=productAssociationIdentity({description:current},profile);

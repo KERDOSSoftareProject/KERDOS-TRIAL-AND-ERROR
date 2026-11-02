@@ -1,7 +1,9 @@
 // Client display vocabulary only. These labels do not change product grouping,
 // field evidence, supplier descriptions, pricing or purchasing eligibility.
 export const restaurantClientNames={
- labels:{'Honey Mustard Dressing':'Honey Mustard','Pomace Oil — 100%':'Pomace Oil','avocado':'Avocados','provolone':'Provolone Cheese','vinyl glove':'Vinyl Gloves','nitrile glove':'Nitrile Gloves'},
+ // Brand vocabulary identifies names to remove, never a product to infer.
+ brands:['Andy Boy','Andyboy',"Ken's",'Ken S','Kens','Heinz',"Hellmann's",'Hellmanns','Hellmann','Daisy','Kraft','Hilldale','Schreiber','Schrbr','Glenview Farms','Patuxent Farms','Windex','Bounty','Dawn','Sysco','US Foods'],
+ labels:{'Honey Mustard Dressing':'Honey Mustard','Pomace Oil — 100%':'Pomace Oil','avocado':'Avocados','provolone':'Provolone Cheese','vinyl glove':'Vinyl Gloves','nitrile glove':'Nitrile Gloves','paper towel':'Paper Towels','trash liner':'Trash Bags'},
  aliases:[
   {label:'Grill Pad',terms:['grill pad']},
   {label:'Orzo Pasta',terms:['orzo']},
