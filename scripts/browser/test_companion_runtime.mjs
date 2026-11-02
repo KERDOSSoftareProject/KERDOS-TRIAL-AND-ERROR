@@ -51,7 +51,7 @@ try{
  let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
   await target.bringToFront();
-  const pageTarget=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url===target.url());assert.ok(pageTarget);
+  const pageTarget=(await devtools.send('Target.getTargets',{filter:[{type:'tab'},{exclude:true}]})).targetInfos.find(t=>t.type==='tab'&&t.url===target.url());assert.ok(pageTarget);
   // The isolated test browser invokes the real toolbar action, which lets
   // Chromium grant activeTab normally; opening a popup alone is insufficient.
   await devtools.send('Extensions.triggerAction',{id:extensionId,targetId:pageTarget.targetId});
