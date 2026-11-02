@@ -59,7 +59,10 @@ try{
   do{info=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.url==='chrome-extension://'+extensionId+'/popup.html');if(info)break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<until);
   assert.ok(info,'native action popup target was not created');
   const {sessionId}=await devtools.send('Target.attachToTarget',{targetId:info.targetId,flatten:false});
-  const evaluate=async expression=>{const value=await call(sessionId,'Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(value.exceptionDetails)throw Error(value.exceptionDetails.text);return value.result.value;};
+  const evaluate=async expression=>{const value=await call(sessionId,'Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(value.exceptionDetails)throw Error(value.exceptionDetails.exception?.description||value.exceptionDetails.text);return value.result.value;};
+  const readyBy=Date.now()+15000;let ready=false;
+  do{ready=await evaluate("document.readyState==='complete'&&!!document.getElementById('pair')&&!!document.getElementById('export')&&!!document.getElementById('status')");if(ready)break;await new Promise(resolve=>setTimeout(resolve,50));}while(Date.now()<readyBy);
+  assert.equal(ready,true,'native popup document and module are loaded before its controls are used');
   return {
    click:id=>evaluate(`document.getElementById(${JSON.stringify(id)}).click()`),
    status:()=>evaluate("document.getElementById('status').textContent"),
