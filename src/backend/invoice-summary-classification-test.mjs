@@ -42,6 +42,10 @@ try{
   [{rawText:'Item,14,4,56.00',itemSources:['Item\t14\t4\t56.00']},[{lineNumber:1,kind:'total'}],false],
   [{rawText:'Bill 56.00',itemSources:[]},[{lineNumber:1,kind:'unknown'}],false],
   [{rawText:'Tax 5.00',itemSources:[]},[{lineNumber:1,kind:'freight'}],false],
+  ...['\u00a0','\u2003','\u202f','\ufeff','\t'].flatMap(space=>[
+   [{rawText:'Tax'+space+' 5.00',itemSources:[]},[{lineNumber:1,kind:'freight'}],false],
+   [{rawText:'Tax'+space+' 5.00',itemSources:[]},[{lineNumber:1,kind:'tax'}],true],
+  ]),
   [{rawText:'Bill 56.000',itemSources:[]},[{lineNumber:1,kind:'total'}],false],
   [{rawText:'Bill €56.00',itemSources:[]},[{lineNumber:1,kind:'total'}],false],
   [{rawText:'Bill (-56.00)',itemSources:[]},[{lineNumber:1,kind:'total'}],false],

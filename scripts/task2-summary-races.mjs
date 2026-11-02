@@ -3,6 +3,13 @@ import {randomUUID} from 'node:crypto';
 import {invoiceSummaryBasis} from '../src/core/invoice-summary-classification.js';
 export async function summaryRaces({setup,f,q,call,overlap,scenario,payReview,payment}){
  const {org,owner,actor}=f;
+ await actor(owner);
+ for(const space of ['\u00a0','\u2003','\u202f','\ufeff','\t']){
+  const basis={rawText:'Tax'+space+' 5.00',itemSources:[]};
+  await assert.rejects(call(setup,q('kerdos_classified_invoice_summary',[basis,[{lineNumber:1,kind:'freight'}]])),/Recognized summary labels/);
+  assert.equal(await call(setup,q('kerdos_classified_invoice_summary',[basis,[{lineNumber:1,kind:'tax'}]])),'Tax 5.00');
+ }
+ console.log('PASS summary label whitespace: SQL retains recognized categories across JavaScript whitespace');
  async function plan(s,reason='Classify retained summary source'){
   await actor(owner);const c=await call(setup,q('kerdos_review_summary_classification',[org,s.iid]));
   return q('kerdos_save_summary_classification',[org,s.iid,randomUUID(),{kind:'invoice_summary_classification_review',version:1,organizationId:org,invoiceId:s.iid,basis:invoiceSummaryBasis(c.source),previousId:c.history.at(-1)?.id??null,mappings:[],reason},true]);
