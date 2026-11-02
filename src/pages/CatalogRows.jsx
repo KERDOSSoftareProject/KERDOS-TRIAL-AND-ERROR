@@ -1,5 +1,4 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
-import {ProductAssociationTrial} from './ProductAssociationTrial.jsx';
 import {AssociateAlternatives} from './AssociateAlternatives.jsx';
 import {clientProductName} from '../core/client-product-name.js';
 import {compareItems} from '../core/catalog-browse.js';
@@ -8,12 +7,12 @@ import {editablePack,serializePack} from "../core/pack-editor.js";
 import {QuotedPerControl} from "./QuotedPerControl.jsx";
 import {calculatedUnitCost,comparisonUnits,defaultComparisonUnit} from "../core/quote-controls.js";
 import {buildCategoryDropdown} from "../services/categories.js";
-import {useState,useMemo,useEffect} from "react";
+import {useState,useEffect} from "react";
 import {backend} from "../backend/index.js";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {createVariableWeightService} from '../services/variable-weight.js';
 import {VariableWeightConfirmation} from './VariableWeightConfirmation.jsx';
-import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,qualificationSummary,BLOCKER_LABELS} from "../core/catalog-fields.js";
+import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOCKER_LABELS} from "../core/catalog-fields.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost} from "../procurement.js";
 import {formatMoney} from "../localization.js";
 import {btn,inp} from "../ui/styles.js";
@@ -190,11 +189,9 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
   </>;
 }
 export function CatalogRows({sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
-  const summary=useMemo(()=>qualificationSummary({catalogItems,vendorItems,mappings,vendors,categories,settings}),[catalogItems,vendorItems,mappings,vendors,categories,settings]);
   const [selected,setSelected]=useState(new Set());
   const [expanded,setExpanded]=useState(new Set());
   const [sort,setSort]=useState({key:"itemName",direction:1});
-  const [showAssociationTools,setShowAssociationTools]=useState(false);
   const [variableApprovals,setVariableApprovals]=useState({}),[approvalError,setApprovalError]=useState('');
   const variableIds=vendorItems.filter(v=>parsePackSize(v.pack_size)?.catchWeight&&priceBasisFor(v.selling_unit)?.basis==='measure').map(v=>v.id).sort().join('|');
   useEffect(()=>{
@@ -235,18 +232,9 @@ export function CatalogRows({sortMode="alphabetical",industry="",orgId,items,cat
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div style={{borderRadius:10,background:"white",marginBottom:16}}>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
-    <div style={{padding:12,fontSize:12}}>Correct any cell, then save its row. Missing fields can be completed later.
-      <details style={{marginTop:8}}><summary>{summary.ready} of {summary.total} vendor rows meet Order Guide requirements · {summary.blocked} need evidence</summary>
-        <p>All required fields need at least 90%, a verified product association and a current quote. A row can have more than one blocker.</p>
-        <ul>{summary.blockers.map(blocker=><li key={blocker.code}>{blocker.label}: {blocker.count}</li>)}</ul>
-      </details>
-    </div>
-    {canManage&&<AssociateAlternatives orgId={orgId} selectedVendorIds={[...selected]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelected(new Set())}/>}
-    <details onToggle={event=>setShowAssociationTools(event.currentTarget.open)}><summary style={{padding:12,cursor:'pointer'}}>Grouping tools</summary>
-      {showAssociationTools&&<ProductAssociationTrial key={orgId} industry={industry} orgId={orgId} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} canManage={canManage}/>}
-    </details>
     {orderedGroups.map(group=><details key={group.id} data-catalog-group={group.id} open={expanded.has(group.id)} onToggle={event=>{const open=event.currentTarget.open;setExpanded(prior=>{if(prior.has(group.id)===open)return prior;const next=new Set(prior);if(open)next.add(group.id);else next.delete(group.id);return next;});}} style={{borderTop:'1px solid #DEE7F0'}}>
       <summary style={{padding:'14px 16px',color:'#003584',background:'#E8F0FA',cursor:'pointer',fontWeight:700}}>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></summary>
+      {canManage&&selected.size>0&&group.rows.some(row=>selected.has(row.vendorItem.id))&&<div style={{padding:10}}><AssociateAlternatives showSuggestionTools={false} orgId={orgId} selectedVendorIds={[...selected]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelected(new Set())}/></div>}
       <div style={{overflowX:'auto'}}><table aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}<th style={cellStyle}>Actions</th></tr></thead>
       <tbody>{group.rows.map(row=><EditableRow selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
       {!group.rows.length&&<tr><td colSpan={CATALOG_COLUMNS.length+1} style={cellStyle}>No vendor listing linked yet.</td><td><button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}

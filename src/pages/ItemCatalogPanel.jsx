@@ -1,4 +1,5 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
+import {ProductAssociationTrial} from "./ProductAssociationTrial.jsx";
 import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
 import {useMemo,useState} from "react";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
@@ -28,6 +29,9 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
   const canManage=role==="owner"||role==="manager";
   const [search,setSearch]=useState("");
   const [rowView,setRowView]=useState(true);
+  const [actionsOpen,setActionsOpen]=useState(false);
+  const [catalogTool,setCatalogTool]=useState(null);
+  const [sourceReviewOpen,setSourceReviewOpen]=useState(false);
   const [showReview,setShowReview]=useState(false);
   const [mappedOnly,setMappedOnly]=useState(false);
   const [categoryFilter,setCategoryFilter]=useState("");
@@ -98,8 +102,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
   const multiVendorItems=useMemo(()=>productList.filter(item=>new Set(item.options.map(o=>o.vendorId)).size>=2),[productList]);
   const isMapped=item=>item.options.length>0&&item.options.every(o=>!o.unverified);
-  const mappedCount=productList.filter(isMapped).length;
-  const notMappedCount=productList.length-mappedCount;
   const comparableItems=useMemo(()=>multiVendorItems.filter(item=>{
     const eligible=item.options.filter(orderable);
     return eligible.some((a,i)=>eligible.slice(i+1).some(b=>a.vendorId!==b.vendorId&&comparePurchasingPack(a.packSize,b.packSize).status==="same"));
@@ -401,21 +403,40 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <h3 style={{margin:0,fontSize:16,color:"white"}}>Item Catalog</h3>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/>
-          {canManage&&<button onClick={()=>setAddingItem(true)} style={{...btn("#003584","white",{fontSize:12,padding:"8px 14px"})}}>+ Add Item</button>}
-          <button onClick={()=>downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv")}
-            disabled={!productList.length} style={{...btn("#2E7D32","white",{fontSize:12,padding:"8px 14px"})}}>
-            📄 Export (CSV)
-          </button>
-        </div>
-      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
+        {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+          <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
+        </select>}
 
-      <div style={{display:"flex",gap:8,marginBottom:12}}><button onClick={()=>setRowView(true)} style={btn(rowView?"#003584":"#EEE",rowView?"white":"#333")}>Edit catalog rows</button><button onClick={()=>setRowView(false)} style={btn(!rowView?"#003584":"#EEE",!rowView?"white":"#333")}>Product details</button></div>
+        <details aria-label="Item catalog actions" open={actionsOpen} onToggle={e=>setActionsOpen(e.currentTarget.open)} onKeyDown={e=>{if(e.key==='Escape')setActionsOpen(false);}} style={{position:'relative',marginLeft:'auto'}}>
+          <summary style={{...btn('#E8F1FB','#003584'),listStyle:'none'}}>Actions ▾</summary>
+          <div className="catalog-actions-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',zIndex:20,background:'white',color:'#173C70',border:'1px solid #CCD9EC',borderRadius:8,padding:10,width:'min(300px, calc(100vw - 40px))',maxHeight:'55vh',overflowY:'auto',boxShadow:'0 6px 18px #102B4930'}}>
+            <style>{`.catalog-actions-menu button { width:100%; text-align:left; margin:3px 0; } .catalog-actions-menu hr { border:0; border-top:1px solid #DEE7F0; margin:8px 0; }`}</style>
+            <div onClick={()=>setActionsOpen(false)}><EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/></div>
+            {canManage&&<button onClick={()=>{setActionsOpen(false);setAddingItem(true);}} style={btn('#E8F1FB','#003584')}>+ Add Item</button>}
+            <button disabled={!productList.length} onClick={()=>{setActionsOpen(false);downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv");}} style={btn('#E8F1FB','#003584')}>Export (CSV)</button>
+            <hr/>
+            <button onClick={()=>{setActionsOpen(false);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Item list</button>
+            <button onClick={()=>{setActionsOpen(false);setRowView(false);setShowReview(false);}} style={btn('#EEE','#173C70')}>Product details</button>
+            <button onClick={()=>{setActionsOpen(false);setSourceReviewOpen(true);}} style={btn('#EEE','#173C70')}>Review incoming rows</button>
+            {canManage&&<>
+              <hr/>
+              <button onClick={()=>{setActionsOpen(false);setShowReview(true);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Review listings</button>
+              <button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(true);}} style={btn('#EEE','#173C70')}>Verified listings</button>
+              {categoryCorrections.size>0&&<button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={btn('#EEE','#173C70')}>Review categories</button>}
+              <button onClick={()=>{setActionsOpen(false);setCatalogTool('associations');}} style={btn('#EEE','#173C70')}>Review suggested associations</button>
+              <button onClick={()=>{setActionsOpen(false);setCatalogTool('groups');}} style={btn('#EEE','#173C70')}>Grouping review</button>
+              {unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={()=>{setActionsOpen(false);handleSetCaseBasis();}} style={btn('#EEE','#173C70')}>{settingBasis?'Setting…':'Set missing quote units to case'}</button>}
+            </>}
+          </div>
+        </details>
+      </div>
       {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
-      <RetainedImportRows orgId={orgId} vendors={vendors} service={importService} search={search}/>
+      {sourceReviewOpen&&<MovableDialog label="Incoming source review" maxWidth={900}><div style={{background:'white',padding:20}}><button onClick={()=>setSourceReviewOpen(false)} style={btn('#EEE','#173C70')}>Close</button><RetainedImportRows orgId={orgId} vendors={vendors} service={importService} search={search}/></div></MovableDialog>}
+      {canManage&&catalogTool&&<MovableDialog label="Catalog maintenance" maxWidth={1000}><div style={{background:'white',padding:20}}>
+        <button onClick={()=>setCatalogTool(null)} style={btn('#EEE','#173C70')}>Close</button>
+        {catalogTool==='groups'?<ProductAssociationTrial key={orgId} industry={industry} orgId={orgId} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} canManage={canManage}/>:<AssociateAlternatives orgId={orgId} selectedVendorIds={[]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>{}}/>}
+      </div></MovableDialog>}
 
       {canManage&&addingItem&&(
         <MovableDialog label="Add a catalog item" maxWidth={428} zIndex={1000}>
@@ -434,19 +455,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
           </div>
         </MovableDialog>
       )}
-
-      <div style={{display:"flex",gap:8,marginBottom:14}}>
-        <button onClick={()=>{setShowReview(false);setMappedOnly(false);}} style={{...btn(showReview||mappedOnly?"#E8F1FB":"white","#003584",{fontSize:12,padding:"9px 14px",fontWeight:800})}}>All products ({productList.length})</button>
-        <button onClick={()=>{setShowReview(false);setMappedOnly(true);}} style={{...btn(mappedOnly?"#E8F5E9":"white","#2E7D32",{fontSize:12,padding:"9px 14px",fontWeight:800})}}>Mapped ({mappedCount})</button>
-        {canManage&&notMappedCount>0&&<button onClick={()=>{setShowReview(true);setMappedOnly(false);}} style={{...btn(showReview?"#E65100":"#FFF3E0",showReview?"white":"#B26A00",{fontSize:12,padding:"9px 14px",fontWeight:800})}}>Not mapped ({notMappedCount})</button>}
-        {canManage&&unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={handleSetCaseBasis} title="Rows with a price but no stated unit" style={{...btn("#EDE7F6","#4527A0",{fontSize:12,padding:"9px 14px",fontWeight:800,marginLeft:"auto"})}}>{settingBasis?"Setting…":`Quoted per case: ${unstatedBasisRows.length} row${unstatedBasisRows.length===1?"":"s"} without a unit`}</button>}
-      </div>
-
-      {categoryCorrections.size>0&&<div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-        {categoryCorrections.size>0&&<button onClick={()=>{setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={{background:"#FFF8E1",border:"1px solid #E8D79B",borderRadius:9,padding:"11px 14px",cursor:"pointer",textAlign:"left",minWidth:220}}>
-          <b style={{display:"block",fontSize:20,color:"#8D6E00"}}>{categoryCorrections.size}</b><span style={{fontSize:12,color:"#405A76"}}>Older category placements to review</span>
-        </button>}
-      </div>}
 
       {canManage&&showReview&&totalCount>0&&(
         <div style={{marginBottom:24,paddingBottom:4}}>
@@ -546,14 +554,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
       )}
 
       {!showReview&&<>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
-        <select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-          <option value="alphabetical">Item A–Z</option>
-          <option value="added">Date Added</option>
-          <option value="itemNumber">Item #</option>
-          <option value="vendorCode">Vendor Code</option>
-        </select>
-      </div>
       <input style={{...inp,marginBottom:10}} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />
 
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18}}>

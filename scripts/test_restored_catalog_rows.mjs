@@ -18,6 +18,7 @@ try{
  assert.deepEqual(groups().map(n=>n.props['data-catalog-group']),['a','h'],'KERDOS groups are alphabetical');
  assert.ok(groups().every(n=>n.props.open===false),'all groups start collapsed');
  const table=tree.root;
+ const initialText=JSON.stringify(tree.toJSON());assert.ok(!initialText.includes('Correct any cell'));assert.ok(!initialText.includes('vendor rows meet Order Guide requirements'));assert.equal(tree.root.findAllByType('button').filter(b=>(b.children||[]).join('').includes('suggested associations')).length,0,'maintenance tools do not occupy the main catalog header');
  await act(async()=>groups()[1].props.onToggle({currentTarget:{open:true}}));assert.equal(groups()[1].props.open,true);assert.equal(groups()[0].props.open,false,'groups open independently');
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
  const headers=table.findAllByType('thead')[0].findAllByType('th').map(text);for(const [,label] of CATALOG_COLUMNS)assert.ok(headers.some(h=>h.startsWith(label)),label+' column retained');assert.ok(headers.includes('Actions'));assert.ok(headers.includes('Select'));
