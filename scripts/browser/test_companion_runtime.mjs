@@ -44,11 +44,14 @@ try{
  const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  const vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
-  await target.bringToFront();
-  const opened=context.waitForEvent('page');
-  await worker.evaluate(()=>globalThis.chrome.action.openPopup());
-  const page=await opened;await page.waitForLoadState();
-  assert.equal(page.url(),'chrome-extension://'+extensionId+'/popup.html');return page;
+  const tabId=await worker.evaluate(async url=>(await globalThis.chrome.tabs.query({url}))[0]?.id,target.url());
+  assert.ok(Number.isInteger(tabId));
+  const page=await context.newPage();await page.goto('chrome-extension://'+extensionId+'/popup.html');
+  // Chromium does not expose its action bubble as a Playwright Page. Load the
+  // real popup document and supply only its selected active-tab lookup; all
+  // runtime messaging, worker execution, injection and tab delivery stay native.
+  await page.evaluate(id=>{globalThis.chrome.tabs.query=async()=>[{id}];},tabId);
+  return page;
  }
  async function pair(){const view=await popup(appPage);await view.locator('#pair').click();await view.locator('#status').filter({hasText:'Paired for one export'}).waitFor();await view.close();}
  async function start(text){
@@ -62,11 +65,11 @@ try{
  assert.equal(await view.locator('#export').isDisabled(),false);
  let received=await appPage.evaluate(()=>window.received);assert.equal(received.length,1);assert.equal(received[0].text,csv);assert.equal(received[0].vendorId,'synthetic-vendor');assert.equal(received[0].evidence.sha256,createHash('sha256').update(csv).digest('hex'));
  await view.close();view=await popup(vendorPage);assert.match(await view.locator('#status').innerText(),/KERDOS received the CSV/);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
- console.log('PASS native extension: real popup close/reopen, worker continuation, status recovery, provider DOM/Blob capture, exact bytes/SHA-256, original ownership and no replay.');
+ console.log('PASS native extension: real popup document close/reopen, worker continuation, status recovery, provider DOM/Blob capture, exact bytes/SHA-256, original ownership and no replay.');
  await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await view.close();await vendorPage.evaluate(()=>window.finishExport());
  view=await popup(vendorPage);await view.locator('#status').filter({hasText:'KERDOS received the CSV'}).waitFor();received=await appPage.evaluate(()=>window.received);assert.equal(received.length,2);assert.equal(received[1].text,changedCsv);assert.notEqual(received[0].evidence.sha256,received[1].evidence.sha256);await view.close();
  console.log('PASS native extension: a newly prepared transfer preserves changed synthetic prices as new source bytes; no saved-catalog-price claim.');
  await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.locator('#export').click();await view.locator('#status').filter({hasText:'Transfer unavailable'}).waitFor();assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
- console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
+ console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual action-bubble/activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
