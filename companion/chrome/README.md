@@ -1,9 +1,9 @@
-# Vendor Connect local browser pilot — 0.2.1
+# Vendor Connect local browser pilot — 0.2.2
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS
-tab. The app changes and database drafts must be deployed before testing it.
+tab. It uses the existing deployed protocol-v2 KERDOS app and its connection checks.
 The previous 0.1.0 export-only pilot remains historical evidence; installing
-0.2.1 alone does not upgrade the live KERDOS application.
+0.2.2 does not change the live KERDOS application.
 
 The client signs into the vendor directly and completes verification there.
 The selected client/vendor comes from KERDOS, with account/list labels entered
@@ -19,8 +19,8 @@ No AI calls, paid service, login automation or order actions are involved.
 4. Open the signed-in selected vendor pricing list. Click K, then Send pricing
    to KERDOS. The companion first reserves the still-valid app ticket. A closed,
    reloaded, cancelled, expired or incompatible receiver stops before vendor
-   export. Keep the popup open until it reports a result.
-5. Return to KERDOS for the normal import review/save result. A receipt means
+   export. The companion continues the bounded transfer if its popup closes; reopen K to see the current result. Keep the KERDOS and vendor tabs open.
+5. Return to KERDOS for the automatic import result. A receipt means
    received for review, not that prices were saved.
 
 This pilot still requires installing/reloading the unpacked extension through
@@ -31,7 +31,7 @@ installation experience.
 
 Permissions are activeTab, scripting and storage. Pairing metadata lives in
 chrome.storage.session, which is restricted to trusted extension contexts by
-default. There are no cookies, download-history, background, all-sites or
+default. The extension uses a module service worker for the explicitly started transfer. There are no cookies, download-history, all-sites or
 remote-script permissions. Storage contains no passwords, auth tokens or CSV.
 No permanent content script or externally_connectable endpoint is registered.
 The approved KERDOS deployment URL is in bridge.mjs; other installations require
@@ -77,7 +77,7 @@ Official API references: [scripting](https://developer.chrome.com/docs/extension
 
 Use the new reviewed 0.2.1 folder for the existing unpacked pilot and reload it
 on Chrome's Extensions page. Permissions remain activeTab, scripting and storage;
-no new site access, background process or credential storage is requested.
+no new site access or credential storage is requested. Version 0.2.2 adds the bounded transfer service worker described below.
 Refresh the deployed KERDOS app, then prepare and pair again. Old pairing metadata
 is not upgraded automatically. This developer pilot update is not a universal
 extension installation/update experience.
@@ -94,3 +94,41 @@ upgraded app's protocol acknowledgement and stops safely against older app tabs.
 The reservation is a point-in-time check. If the app closes or is cancelled
 after the acknowledgement, supplier export may already be underway; the
 existing nonce/expiry/cancellation fences still prevent an invalid import.
+
+
+## Popup-independent transfer — 0.2.2
+
+Replace the existing pilot folder with this complete 0.2.2 folder and reload the
+unpacked extension. No KERDOS app, database, worker endpoint or provider setup
+change is needed. Refreshing the website alone does not update the companion.
+
+An explicitly started pair/export is now owned by the extension service worker.
+The popup sends a command and observes session-stored status. Closing/reopening
+the popup neither cancels nor resends the operation. Only one command can own the
+executor at a time; a second popup sees its current status. Provider execution,
+pre-export app reservation, one-use claim, source checks and delivery remain the
+same. The worker accepts commands only from this extension's exact popup URL;
+content scripts and other extensions cannot direct it.
+
+Only status text and the existing pairing metadata are retained in session
+storage. CSV bytes stay in memory during delivery; passwords, cookies, MFA codes
+and session tokens are not read or stored. The manifest retains only activeTab,
+scripting and storage permissions. This is still the Chrome pilot behind the
+shared transfer contract, not the completed universal desktop companion.
+
+The browser may stop the service worker. On restart, an unfinished status becomes
+an unconfirmed result and any pairing is removed. It does not resume or resend
+an export or claim prices saved. Check KERDOS before preparing another transfer;
+existing import replay protection remains responsible for an admitted file.
+There is no keep-alive, scheduler or unattended supplier access. Closing the app
+or vendor tab is different from closing the popup and may stop the operation.
+
+Controlled tests use the real worker, runner and popup modules: closure/reopen,
+status/result continuity, concurrent commands, restart uncertainty, sender
+restrictions, rejected/closed/expired receiver and MFA guidance. All A.2 tests
+pass locally. Actual installed 0.2.2 popup closure and supplier acceptance remain
+open, as do fresh/changed-price and private original-byte live checks.
+
+Implementation references:
+- https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle
+- https://developer.chrome.com/docs/extensions/develop/concepts/messaging

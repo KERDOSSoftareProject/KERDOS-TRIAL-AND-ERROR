@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {exportSelectedMoxeList} from '../companion/chrome/adapters/moxe.mjs';
 const manifest=JSON.parse(readFileSync('companion/chrome/manifest.json','utf8'));
-assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.ok(!manifest.host_permissions);assert.ok(!manifest.content_scripts);assert.ok(!manifest.background);assert.ok(!manifest.externally_connectable);
+assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.ok(!manifest.host_permissions);assert.ok(!manifest.content_scripts);assert.deepEqual(manifest.background,{service_worker:'background.mjs',type:'module'});assert.ok(!manifest.externally_connectable);
 let clicks=[];let shown=false,options=false,checked=false;
 const element=(text,click=()=>{},extra={})=>({textContent:text,innerText:text,click,contains:()=>false,getClientRects:()=>[{}],getAttribute:()=>null,...extra});
 const account=element('Sample Client (12345678)');
