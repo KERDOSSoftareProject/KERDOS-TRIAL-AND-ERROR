@@ -1,5 +1,7 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {ProductAssociationTrial} from './ProductAssociationTrial.jsx';
+import {AssociateAlternatives} from './AssociateAlternatives.jsx';
+import {clientProductName} from '../core/client-product-name.js';
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
 import {QuotedPerControl} from "./QuotedPerControl.jsx";
@@ -28,7 +30,7 @@ function Evidence({field}){
   const color=field.accuracy>=90?"#38704E":field.accuracy>=70?"#8D5900":"#B03A2E";
   return <small title={field.reason} style={{display:"block",marginTop:4,color}}>{field.accuracy}%{field.by?<span style={{marginLeft:6,fontWeight:800,color:"#003584"}}>{field.by}</span>:null}</small>;
 }
-function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
+function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
   const [draft,setDraft]=useState({});
   const [nameDraft,setNameDraft]=useState(null);
   const [numberDraft,setNumberDraft]=useState(null);
@@ -127,7 +129,7 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
           </>}
           {!parsedPack?.parsed&&current.pack_size&&!/^(CASE|EACH):/.test(current.pack_size)&&<small style={{display:"block"}}>From sheet: {current.pack_size}</small>}
         </>;
-        else if(key==="itemName")content=<input aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy||linkDirty} value={linkDirty?displayItem.name:nameDraft??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);setNameDraft(e.target.value);setSaved(false);setError("");}} />;
+        else if(key==="itemName")content=<input aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy||linkDirty} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);setNameDraft(e.target.value);setSaved(false);setError("");}} />;
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={current[fields[key]]??""} placeholder={key==="brand"?"Blank if absent":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else if(key==="sellingUnit")content=<>
           <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={current.selling_unit||""} onChange={value=>edit("selling_unit",value)}/>
@@ -189,7 +191,8 @@ function EditableRow({selected,onSelect,industry,allCatalogItems,allVendorItems,
 export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
   const summary=useMemo(()=>qualificationSummary({catalogItems,vendorItems,mappings,vendors,categories,settings}),[catalogItems,vendorItems,mappings,vendors,categories,settings]);
   const [selected,setSelected]=useState(new Set());
-  const [sort,setSort]=useState({key:"product",direction:1});
+  const [sort,setSort]=useState({key:"itemName",direction:1});
+  const [showAssociationTools,setShowAssociationTools]=useState(false);
   const [variableApprovals,setVariableApprovals]=useState({}),[approvalError,setApprovalError]=useState('');
   const variableIds=vendorItems.filter(v=>parsePackSize(v.pack_size)?.catchWeight&&priceBasisFor(v.selling_unit)?.basis==='measure').map(v=>v.id).sort().join('|');
   useEffect(()=>{
@@ -206,11 +209,14 @@ export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,ma
     const vendor=vendorById.get(vendorItem.vendor_id),category=categories.find(c=>c.id===item.category_id);
     // The other vendors' rows on this item, for cross-vendor checks.
     const peers=mappings.filter(o=>o.catalog_item_id===mapping.catalog_item_id&&o.id!==mapping.id).map(o=>viById.get(o.vendor_item_id)).filter(Boolean);
-    return [{mapping,item,vendorItem,vendor,peers,evidence:catalogRowEvidence({item,vendorItem,vendor,mapping,category,peers,categories})}];
+    const clientName=clientProductName(item,[vendorItem,...peers],industry)||'Product name needed';
+    return [{mapping,item,vendorItem,vendor,peers,clientName,evidence:catalogRowEvidence({item,vendorItem,vendor,mapping,category,peers,categories})}];
   }).sort((a,b)=>{
-    const av=a.evidence[sort.key].value,bv=b.evidence[sort.key].value;
+    const av=sort.key==='itemName'?a.clientName:a.evidence[sort.key].value,bv=sort.key==='itemName'?b.clientName:b.evidence[sort.key].value;
     if(av==null)return bv==null?0:1;if(bv==null)return -1;
-    return sort.direction*(typeof av==="number"&&typeof bv==="number"?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true}));
+    const compared=typeof av==="number"&&typeof bv==="number"?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'});
+    if(compared)return sort.direction*compared;
+    return Number(a.item.master_item_number)-Number(b.item.master_item_number)||a.item.id.localeCompare(b.item.id)||String(a.vendor?.name||'').localeCompare(String(b.vendor?.name||''))||a.vendorItem.id.localeCompare(b.vendorItem.id);
   });
   const linked=new Set(rows.map(r=>r.item.id));
   return <div style={{overflowX:"auto",borderRadius:10,background:"white",marginBottom:16}}>
@@ -221,12 +227,14 @@ export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,ma
         <ul>{summary.blockers.map(blocker=><li key={blocker.code}>{blocker.label}: {blocker.count}</li>)}</ul>
       </details>
     </div>
-    <ProductAssociationTrial key={orgId} industry={industry} orgId={orgId} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} canManage={canManage}/>
-    <details><summary style={{padding:12,cursor:'pointer'}}>Edit vendor listing details</summary>
+    {canManage&&<AssociateAlternatives orgId={orgId} selectedVendorIds={[...selected]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelected(new Set())}/>}
+    <details onToggle={event=>setShowAssociationTools(event.currentTarget.open)}><summary style={{padding:12,cursor:'pointer'}}>Grouping tools</summary>
+      {showAssociationTools&&<ProductAssociationTrial key={orgId} industry={industry} orgId={orgId} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} canManage={canManage}/>}
+    </details>
     <table style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}<th style={cellStyle}>Actions</th></tr></thead>
       <tbody>{rows.map(row=><EditableRow selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
       {items.filter(i=>!linked.has(i.catalogItemId)).map(i=><tr key={i.catalogItemId}><td style={cellStyle}/><td style={cellStyle}>#{i.masterItemNumber}</td><td colSpan={CATALOG_COLUMNS.length-1} style={cellStyle}>{i.name} · No vendor listing linked yet.</td><td><button onClick={()=>onDetails(i.catalogItemId)}>Details</button></td></tr>)}
       </tbody>
-    </table></details>
+    </table>
   </div>;
 }
