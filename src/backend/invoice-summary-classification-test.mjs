@@ -3,11 +3,11 @@ import {randomUUID} from 'node:crypto';
 import {estimatedReceiptFixture} from './fixtures/estimated-receipts-db.mjs';
 import {classifyInvoiceSummary,invoiceSummaryBasis,validateSummaryClassification} from '../core/invoice-summary-classification.js';
 import {reconcileInvoice} from '../core/invoice-reconciliation.js';
-import {createSummaryClassificationService} from '../services/invoice-summary-classification.js';
+import {createSummaryClassificationService,resolveSummaryRequest} from '../services/invoice-summary-classification.js';
 const f=await estimatedReceiptFixture();const {db,org,owner,manager,employee,outsider,ol,actor,admin,invoice}=f;
 const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0].value;
-let signedIn=true;
-const service=createSummaryClassificationService({session:{get:async()=>signedIn?{user:{id:owner}}:null},invoiceSummaryClassification:{review:(o,i)=>one('select kerdos_review_summary_classification($1,$2) as value',[o,i]),save:p=>one('select kerdos_save_summary_classification($1,$2,$3,$4,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review)])}});
+let signedIn=true,sessionUser=owner,backendSaves=0;
+const service=createSummaryClassificationService({session:{get:async()=>signedIn?{user:{id:sessionUser}}:null},invoiceSummaryClassification:{review:(o,i)=>one('select kerdos_review_summary_classification($1,$2) as value',[o,i]),save:p=>{backendSaves++;return one('select kerdos_save_summary_classification_as_actor($1,$2,$3,$4,$5,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review),p.requestedBy]);}}});
 try{
  const s=await invoice(),raw='Subtotal 56.00\nTax 0.00\nTransportation 0.00\nCredits 0.00\nInvoice Total 56.00';
  await admin('update invoices set raw_text=$1 where id=$2',[raw,s.iid]);await actor(employee);
@@ -18,6 +18,7 @@ try{
  assert.throws(()=>service.prepare(c,mappings,'Classify retained transportation charge'),/confirmation/);
  await actor(employee);await assert.rejects(one('select kerdos_save_summary_classification($1,$2,$3,$4,true) as value',[org,s.iid,plan.requestId,JSON.stringify(plan.review)]),/Owner or manager/);
  await actor(owner);await assert.rejects(one('select kerdos_save_summary_classification($1,$2,$3,$4,false) as value',[org,s.iid,plan.requestId,JSON.stringify(plan.review)]),/confirm/);
+ await assert.rejects(one('select kerdos_save_summary_classification_as_actor($1,$2,$3,$4,$5,true) as value',[org,s.iid,plan.requestId,JSON.stringify(plan.review),manager]),/another signed-in user/);
  const saved=await service.save(plan,{confirmed:true});validateSummaryClassification(saved,org,s.iid);assert.equal(saved.revision,1);assert.deepEqual(await service.save(plan,{confirmed:true}),saved);
  c=await service.review(org,s.iid);assert.equal(c.source.header.rawText,raw);assert.equal(c.history.length,1);assert.equal(reconcileInvoice(c.source,{organizationId:org,invoiceId:s.iid}).status,'reconciled');
  assert.equal((await one('select kerdos_invoice_approval_gate($1) as value',[JSON.stringify(c.source)])).eligible,true);
@@ -58,9 +59,15 @@ try{
   else{assert.throws(()=>classifyInvoiceSummary(basis,m));await assert.rejects(one('select kerdos_classified_invoice_summary($1,$2) as value',[JSON.stringify(basis),JSON.stringify(m)]));}
  }
  const next=await invoice();await actor(owner);const nc=await service.review(org,next.iid),np=service.prepare(nc,[],'Review current original source only',{confirmed:true});await admin("update invoices set raw_text=raw_text||E'\nUnknown fee 1.00' where id=$1",[next.iid]);await actor(owner);await assert.rejects(service.save(np,{confirmed:true}),/source or classification history changed/);
+ assert.equal(resolveSummaryRequest(np,await service.review(org,next.iid)).status,'pending','Source changes alone do not prove permanent closure');await admin('update invoices set raw_text=$1 where id=$2',[np.review.basis.rawText,next.iid]);await actor(owner);assert.equal((await service.save(np,{confirmed:true})).revision,1,'Original request can apply if its unchanged predecessor and original source return');
  // Late failure does not reserve a request or advance the revision chain.
  c=await service.review(org,s.iid);const late=service.prepare(c,[],'Controlled late classification failure',{confirmed:true});
  await admin("create function fail_summary() returns trigger language plpgsql as $$begin raise exception 'controlled summary failure';end;$$;");await admin("create trigger zz_fail_summary after insert on invoice_summary_classifications for each row execute function fail_summary();");await actor(owner);await assert.rejects(service.save(late,{confirmed:true}),/controlled summary failure/);assert.equal((await service.review(org,s.iid)).history.length,3);await admin('drop trigger zz_fail_summary on invoice_summary_classifications');await actor(owner);assert.equal((await service.save(late,{confirmed:true})).revision,4);
+ // Recovery closure is proven by append-only predecessor advancement, not source changes.
+ const rc=await service.review(org,s.iid),unknown=service.prepare(rc,[],'Unknown request retained before another revision',{confirmed:true}),winner=service.prepare(rc,[],'Competing revision advances immutable predecessor',{confirmed:true});
+ assert.equal(resolveSummaryRequest(unknown,rc).status,'pending');await service.save(winner,{confirmed:true});assert.equal(resolveSummaryRequest(unknown,await service.review(org,s.iid)).status,'superseded');await assert.rejects(service.save(unknown,{confirmed:true}),/history changed/);
+ const nextContext=await service.review(org,s.iid),resetAgain=service.prepare(nextContext,[],'Another reset cannot restore the old predecessor',{confirmed:true});await service.save(resetAgain,{confirmed:true});assert.equal(resolveSummaryRequest(unknown,await service.review(org,s.iid)).status,'superseded');await assert.rejects(service.save(unknown,{confirmed:true}),/history changed/);assert.equal(resolveSummaryRequest(winner,await service.review(org,s.iid)).status,'saved');
+ const beforeActorChange=backendSaves;sessionUser=manager;await assert.rejects(service.save(unknown,{confirmed:true}),/another signed-in user/);assert.equal(backendSaves,beforeActorChange,'Actor mismatch rejects before RPC');sessionUser=owner;
  // Independent core refuses source-bound and text tampering.
  assert.throws(()=>reconcileInvoice({...freshSource,summaryClassification:{...third,classifiedText:'Tax 0.00'}},{organizationId:org,invoiceId:s.iid}),/Invalid.*audit/);
  assert.throws(()=>reconcileInvoice({...freshSource,header:{...freshSource.header,rawText:'Changed source'}},{organizationId:org,invoiceId:s.iid}),/source changed/);

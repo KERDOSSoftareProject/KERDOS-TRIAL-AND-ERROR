@@ -60,3 +60,8 @@ Follow-up guard: SQL normalizes the explicit JavaScript whitespace set before
 checking recognized labels. NBSP, EM SPACE, narrow NBSP, BOM and tab cannot
 reassign Tax to freight; same-category classification preserves the exact token.
 Both embedded parity and real PostgreSQL verify this rule.
+
+Current follow-on: unconfirmed classification requests now have actor-scoped,
+per-request durable browser recovery. Fresh immutable history can resolve saved
+requests or prove a missing request permanently superseded; source changes alone
+cannot. See a2_summary_classification_recovery.md.
