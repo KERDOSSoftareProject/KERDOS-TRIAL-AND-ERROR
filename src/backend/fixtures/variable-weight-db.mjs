@@ -1,7 +1,6 @@
 import {PGlite} from '@electric-sql/pglite';
 import fs from 'node:fs';
-export async function variableWeightFixture(){
-const db=new PGlite();
+export async function variableWeightFixture({db=new PGlite()}={}){
 const ids=Array.from({length:12},(_,i)=>`00000000-0000-0000-0000-${String(i+1).padStart(12,'0')}`);
 const [org,owner,manager,employee,outsider,vendor,ci,vi,map,doc,otherOrg,otherVendor]=ids;
 await db.exec(`create schema auth;create role authenticated;create role anon;
