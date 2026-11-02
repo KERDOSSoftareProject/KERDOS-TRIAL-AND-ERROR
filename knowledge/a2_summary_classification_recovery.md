@@ -10,8 +10,9 @@ blocked write or failed read-back prevents a new RPC from starting.
 
 The service attaches the authenticated actor to read contexts and prepared
 requests. Retried requests must belong to the same currently signed-in user,
-checked before the RPC. It preserves the existing database review payload and
-save signature. The recovery journal validates scope/identity/evidence, keeps
+checked before the RPC and again against auth.uid() in an additive invoker-only
+save wrapper. The original save RPC and database review payload stay compatible.
+An account switch after browser preflight cannot persist under another actor. The recovery journal validates scope/identity/evidence, keeps
 independent tab requests, refuses conflicting request reuse and detects malformed
 entries. Settled entries become small result markers without retained invoice
 text. Failed settlement never removes the pending request.
@@ -44,8 +45,9 @@ an old request can apply after source-only reversion, but cannot apply after
 successive immutable classification revisions; switching actors rejects before
 RPC. The 42-session PostgreSQL suite now also exercises that closure proof.
 
-No new migration, table, RPC, credential, domain, worker or supplier/bank operation
-is introduced. It reuses deployed immutable classification history and predecessor
+An additive actor-bound save wrapper is the only database change; anonymous and
+worker execution is revoked. No new table, credential, domain, worker or supplier/
+bank operation is introduced. It reuses deployed immutable classification history and predecessor
 checks. Browser storage may be cleared externally; recovery cannot preserve data
 after external deletion or transfer unsaved requests between devices. Actual
 signed-in browser/supplier acceptance, missing invoice source, remaining source

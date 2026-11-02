@@ -7,7 +7,7 @@ import {createSummaryClassificationService,resolveSummaryRequest} from '../servi
 const f=await estimatedReceiptFixture();const {db,org,owner,manager,employee,outsider,ol,actor,admin,invoice}=f;
 const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0].value;
 let signedIn=true,sessionUser=owner,backendSaves=0;
-const service=createSummaryClassificationService({session:{get:async()=>signedIn?{user:{id:sessionUser}}:null},invoiceSummaryClassification:{review:(o,i)=>one('select kerdos_review_summary_classification($1,$2) as value',[o,i]),save:p=>{backendSaves++;return one('select kerdos_save_summary_classification($1,$2,$3,$4,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review)]);}}});
+const service=createSummaryClassificationService({session:{get:async()=>signedIn?{user:{id:sessionUser}}:null},invoiceSummaryClassification:{review:(o,i)=>one('select kerdos_review_summary_classification($1,$2) as value',[o,i]),save:p=>{backendSaves++;return one('select kerdos_save_summary_classification_as_actor($1,$2,$3,$4,$5,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review),p.requestedBy]);}}});
 try{
  const s=await invoice(),raw='Subtotal 56.00\nTax 0.00\nTransportation 0.00\nCredits 0.00\nInvoice Total 56.00';
  await admin('update invoices set raw_text=$1 where id=$2',[raw,s.iid]);await actor(employee);
@@ -18,6 +18,7 @@ try{
  assert.throws(()=>service.prepare(c,mappings,'Classify retained transportation charge'),/confirmation/);
  await actor(employee);await assert.rejects(one('select kerdos_save_summary_classification($1,$2,$3,$4,true) as value',[org,s.iid,plan.requestId,JSON.stringify(plan.review)]),/Owner or manager/);
  await actor(owner);await assert.rejects(one('select kerdos_save_summary_classification($1,$2,$3,$4,false) as value',[org,s.iid,plan.requestId,JSON.stringify(plan.review)]),/confirm/);
+ await assert.rejects(one('select kerdos_save_summary_classification_as_actor($1,$2,$3,$4,$5,true) as value',[org,s.iid,plan.requestId,JSON.stringify(plan.review),manager]),/another signed-in user/);
  const saved=await service.save(plan,{confirmed:true});validateSummaryClassification(saved,org,s.iid);assert.equal(saved.revision,1);assert.deepEqual(await service.save(plan,{confirmed:true}),saved);
  c=await service.review(org,s.iid);assert.equal(c.source.header.rawText,raw);assert.equal(c.history.length,1);assert.equal(reconcileInvoice(c.source,{organizationId:org,invoiceId:s.iid}).status,'reconciled');
  assert.equal((await one('select kerdos_invoice_approval_gate($1) as value',[JSON.stringify(c.source)])).eligible,true);

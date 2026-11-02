@@ -13,11 +13,12 @@ export async function summaryRaces({setup,f,q,call,overlap,scenario,payReview,pa
  console.log('PASS summary label whitespace: SQL retains recognized categories across JavaScript whitespace');
  async function plan(s,reason='Classify retained summary source'){
   await actor(owner);const c=await call(setup,q('kerdos_review_summary_classification',[org,s.iid]));
-  return q('kerdos_save_summary_classification',[org,s.iid,randomUUID(),{kind:'invoice_summary_classification_review',version:1,organizationId:org,invoiceId:s.iid,basis:invoiceSummaryBasis(c.source),previousId:c.history.at(-1)?.id??null,mappings:[],reason},true]);
+  return q('kerdos_save_summary_classification_as_actor',[org,s.iid,randomUUID(),{kind:'invoice_summary_classification_review',version:1,organizationId:org,invoiceId:s.iid,basis:invoiceSummaryBasis(c.source),previousId:c.history.at(-1)?.id??null,mappings:[],reason},owner,true]);
  }
  async function count(s){await setup.query('reset role');assert.equal((await setup.query('select count(*) as count from invoice_summary_classifications where invoice_id=$1',[s.iid])).rows[0].count,1);}
  for(const mode of ['commit','rollback','conflict']){
   const s=await scenario(),cmd=await plan(s),competing=mode==='conflict'?await plan(s,'A different confirmed classification'):cmd;
+  if(mode==='commit'){const wrong={...cmd,args:cmd.args.map((v,i)=>i===4?f.manager:v)};await assert.rejects(call(setup,wrong),/another signed-in user/);console.log('PASS recovery actor guard: mismatched authenticated actor rejects before persistence');}
   const result=await overlap(`summary classification ${mode}`,cmd,competing,{rightActor:owner,rollbackFirst:mode==='rollback',same:mode==='commit',error:mode==='conflict'?/classification history changed/:undefined});
   await count(s);assert.equal((mode==='rollback'?result.second:result.first).revision,1);
   if(mode==='conflict'){
