@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {PGlite} from '@electric-sql/pglite';
+import {createVendorConnectService} from '../src/services/vendor-connect.js';
+import {createRecords} from '../src/backend/records.js';
+const db=new PGlite();
+const ids=Array.from({length:9},(_,i)=>'00000000-0000-0000-0000-'+String(i+1).padStart(12,'0'));
+const [org,other,owner,manager,employee,outsider,vendor,otherVendor,requestUser]=ids;
+async function actor(user){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]);await db.exec('set role authenticated');}
+try{
+ await db.exec(`create role authenticated;create role anon;create schema auth;
+ create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+ grant usage on schema auth to authenticated,anon;
+ create table organizations(id uuid primary key);
+ create table vendors(id uuid primary key,organization_id uuid references organizations(id),is_active boolean default true,unique(organization_id,id));
+ create table organization_members(organization_id uuid,user_id uuid,role text);
+ grant select on vendors,organization_members to authenticated;
+ insert into organizations values('${org}'),('${other}');insert into vendors values('${vendor}','${org}',true),('${otherVendor}','${other}',true);
+ insert into organization_members values('${org}','${owner}','owner'),('${org}','${manager}','manager'),('${org}','${employee}','employee'),('${other}','${outsider}','owner');`);
+ await db.exec(readFileSync('supabase/migrations/20261101135440_vendor_connect_setup.sql','utf8'));
+ await actor(owner);const request=(await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[org,vendor,'us-foods-moxe'])).rows[0].id;
+ await actor(outsider);const otherRequest=(await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[other,otherVendor,'us-foods-moxe'])).rows[0].id;
+ await db.exec('reset role');const sql=readFileSync('supabase/migrations/20261102144952_vendor_portal_selection.sql','utf8');await db.exec(sql);await db.exec(sql);
+ await actor(owner);assert.equal((await db.query('select portal_account_label from vendor_connection_requests')).rows[0].portal_account_label,null,'migration must not infer an existing account selection');
+ await db.query('update vendor_connection_requests set portal_account_label=$1,portal_list_label=$2 where id=$3',['Δοκιμή account','Main list',request]);
+ await actor(manager);assert.equal((await db.query('select portal_account_label from vendor_connection_requests where id=$1',[request])).rows[0].portal_account_label,'Δοκιμή account');
+ await db.query('update vendor_connection_requests set portal_list_label=$1 where id=$2',['Second list',request]);
+ for(const [account,list] of [[null,'x'],['x',null],['','x'],['\u00a0\u202f\ufeff','x'],['x'.repeat(201),'x']])await assert.rejects(db.query('update vendor_connection_requests set portal_account_label=$1,portal_list_label=$2 where id=$3',[account,list,request]),/check constraint/);
+ await assert.rejects(db.query('update vendor_connection_requests set organization_id=$1 where id=$2',[other,request]),/permission denied/);
+ await assert.rejects(db.query('update vendor_connection_requests set vendor_id=$1 where id=$2',[otherVendor,request]),/permission denied/);
+ await assert.rejects(db.query("update vendor_connection_requests set adapter_key='https-export' where id=$1",[request]),/permission denied/);
+ await actor(outsider);assert.deepEqual((await db.query('select id,portal_account_label from vendor_connection_requests')).rows,[{id:otherRequest,portal_account_label:null}]);
+ assert.equal((await db.query("update vendor_connection_requests set portal_account_label='Wrong account',portal_list_label='Wrong list' where id=$1 returning id",[request])).rows.length,0);
+ await db.query("update vendor_connection_requests set portal_account_label='Other account',portal_list_label='Other list' where id=$1",[otherRequest]);
+ await actor(employee);assert.equal((await db.query('select * from vendor_connection_requests')).rows.length,0);assert.equal((await db.query("update vendor_connection_requests set portal_account_label='No access',portal_list_label='No access' where id=$1 returning id",[request])).rows.length,0);
+ await actor(owner);await db.query("update vendor_connection_requests set state='cancelled' where id=$1",[request]);await assert.rejects(db.query("update vendor_connection_requests set portal_list_label='Late change' where id=$1",[request]),/cancelled vendor setup/);
+ assert.equal((await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[org,vendor,'us-foods-moxe'])).rows[0].id,request);assert.equal((await db.query('select portal_list_label from vendor_connection_requests where id=$1',[request])).rows[0].portal_list_label,'Second list');
+ const serverRequest=(await db.query('select kerdos_request_vendor_connection($1,$2,$3) as id',[org,vendor,'https-export'])).rows[0].id;await assert.rejects(db.query("update vendor_connection_requests set portal_account_label='x',portal_list_label='y' where id=$1",[serverRequest]),/browser connection provider/);
+ await db.exec('reset role');await db.query('update vendors set is_active=false where id=$1',[vendor]);await actor(owner);await assert.rejects(db.query("update vendor_connection_requests set portal_list_label='Inactive' where id=$1",[request]),/row-level security/);
+ await db.exec('reset role');await db.exec('set role anon');await assert.rejects(db.query('select * from vendor_connection_requests'),/permission denied/);await db.exec('reset role');
+ assert.equal((await db.query("select prosecdef from pg_proc where oid='public.kerdos_check_portal_selection()'::regprocedure")).rows[0].prosecdef,false);
+ // Verify the service forwards only the two labels and every binding, not credentials.
+ const calls=[];const bound={id:requestUser,organization_id:org,vendor_id:vendor,adapter_key:'provider',state:'setup_requested'};
+ const service=createVendorConnectService({records:createRecords(spec=>{calls.push(spec);return {data:[{...bound,...spec.value}],error:null};})});
+ const selection={organizationId:org,vendorId:vendor,adapterKey:'provider',requestId:requestUser,account:' Account ',list:' List ',password:'not-forwarded',session:'not-forwarded'};
+ await service.saveSelection(selection);assert.deepEqual(calls[0].value,{portal_account_label:'Account',portal_list_label:'List'});assert.deepEqual(calls[0].filters.map(f=>f.column),['organization_id','vendor_id','adapter_key','id','state']);
+ for(const patch of [{account:' '},{list:'x'.repeat(201)},{account:null},{requestId:null}])await assert.rejects(service.saveSelection({...selection,...patch}));assert.equal(calls.length,1);
+ await assert.rejects(createVendorConnectService({records:createRecords(()=>({data:[{...bound,organization_id:other,portal_account_label:'Account',portal_list_label:'List'}]}))}).saveSelection(selection),/no longer available/);
+ console.log('PASS connection selection SQL/service: repeated migration, exact nullable/length/Unicode rules, owner/manager, cross-client shared provider, employee/anonymous denial, identity-column grants, cancellation/reprepare, inactive vendor/provider rejection and safe service payload');
+}finally{await db.close();}

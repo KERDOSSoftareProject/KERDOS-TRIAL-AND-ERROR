@@ -9,19 +9,30 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
   const allowed=['owner','manager'].includes(role);
   const [data,setData]=useState(null),[message,setMessage]=useState(''),[unavailable,setUnavailable]=useState(false);
   const [vendorId,setVendorId]=useState(''),[adapterKey,setAdapterKey]=useState(''),[busy,setBusy]=useState(false);
-  const generation=useRef(0),transferGeneration=useRef(0),handoff=useRef(null),receive=useRef(onCompanionImport);
+  const generation=useRef(0),transferGeneration=useRef(0),prepareAttempt=useRef(0),handoff=useRef(null),receive=useRef(onCompanionImport);
   receive.current=onCompanionImport;
-  const [account,setAccount]=useState(''),[list,setList]=useState(''),[armed,setArmed]=useState(false);
-  const selectedRequest=data?.requests.find(r=>r.vendor_id===vendorId&&r.adapter_key===adapterKey);
-  const transferEligible=!!(allowed&&onCompanionImport&&data?.adapters.some(a=>a.adapter_key===adapterKey&&a.execution_model==='local_browser'&&a.portal_origin)&&selectedRequest?.state==='setup_requested'&&vendors.some(v=>v.id===vendorId&&v.is_active!==false));
+  const [selectionDraft,setSelectionDraft]=useState(null),[armed,setArmed]=useState(false);
+  const scopedData=data?.organizationId===organizationId&&data?.backend===backend?data:null;
+  const selectedRequest=scopedData?.requests.find(r=>r.organization_id===organizationId&&r.vendor_id===vendorId&&r.adapter_key===adapterKey);
+  const selectionScope=JSON.stringify([organizationId,vendorId,adapterKey,selectedRequest?.id||null]);
+  const account=selectionDraft?.scope===selectionScope?selectionDraft.account:selectedRequest?.portal_account_label||'';
+  const list=selectionDraft?.scope===selectionScope?selectionDraft.list:selectedRequest?.portal_list_label||'';
+  function editSelection(field,value){setSelectionDraft(previous=>({...((previous?.scope===selectionScope)?previous:{scope:selectionScope,account,list}),[field]:value}));}
+  const transferEligible=!!(allowed&&onCompanionImport&&scopedData?.adapters.some(a=>a.adapter_key===adapterKey&&a.execution_model==='local_browser'&&a.portal_origin)&&selectedRequest?.state==='setup_requested'&&vendors.some(v=>v.id===vendorId&&v.is_active!==false));
   function stopTransfer(){transferGeneration.current++;const existing=handoff.current;handoff.current=null;existing?.cancel();setArmed(false);return !!existing;}
   useEffect(()=>{if(stopTransfer())setMessage('Browser transfer cancelled. Prepare a new transfer for the current selection.');},[organizationId,vendorId,adapterKey,account,list,allowed,backend,transferEligible]);
   useEffect(()=>()=>{transferGeneration.current++;handoff.current?.cancel();},[]);
-  function prepareTransfer(){
+  async function prepareTransfer(){
     stopTransfer();if(!transferEligible)return;
-    const token=transferGeneration.current;
+    const token=transferGeneration.current,current=generation.current,attempt=++prepareAttempt.current;
+    const selected={organizationId,vendorId,adapterKey,requestId:selectedRequest.id,account:account.trim(),list:list.trim()};
+    setBusy(true);setMessage('Preparing browser transfer…');
     try{
-      handoff.current=createCompanionHandoff({selection:{organizationId,vendorId,adapterKey,portalOrigin:data.adapters.find(a=>a.adapter_key===adapterKey).portal_origin,account:account.trim(),list:list.trim()},onReceive:async payload=>{
+      const saved=await service.saveSelection(selected);
+      if(token!==transferGeneration.current||current!==generation.current)return;
+      setData(previous=>previous?.organizationId===organizationId&&previous?.backend===backend
+        ? {...previous,requests:previous.requests.map(r=>r.id===saved.id?saved:r)}:previous);
+      handoff.current=createCompanionHandoff({selection:{organizationId,vendorId,adapterKey,portalOrigin:scopedData.adapters.find(a=>a.adapter_key===adapterKey).portal_origin,account:account.trim(),list:list.trim()},onReceive:async payload=>{
         if(token!==transferGeneration.current||!receive.current)throw new Error('Transfer no longer available');
         await receive.current(payload);
       },onStateChange:state=>{
@@ -31,13 +42,14 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
         if(messages[state])setMessage(messages[state]);
       }});
       setArmed(true);setMessage('Transfer ready for ten minutes. Click the K companion on this KERDOS tab and choose Pair this KERDOS tab.');
-    }catch{setArmed(false);setMessage('Could not prepare browser transfer. Check the selected vendor, account and list, then try again.');}
+    }catch{if(token===transferGeneration.current&&current===generation.current){setArmed(false);setMessage('Could not prepare browser transfer. Refresh the connection or check the selected account and list, then try again.');}}
+    finally{if(current===generation.current&&attempt===prepareAttempt.current)setBusy(false);}
   }
   useEffect(()=>{
     const current=++generation.current;let active=true;
-    setData(null);setMessage('');setUnavailable(false);setVendorId('');setAdapterKey('');setBusy(false);
+    setData(null);setSelectionDraft(null);setMessage('');setUnavailable(false);setVendorId('');setAdapterKey('');setBusy(false);
     if(!service||!organizationId||!allowed){setUnavailable(true);return;}
-    service.list(organizationId).then(value=>{if(active&&generation.current===current)setData(value);}).catch(error=>{
+    service.list(organizationId).then(value=>{if(active&&generation.current===current)setData({...value,organizationId,backend});}).catch(error=>{
       if(active&&generation.current===current){setUnavailable(error instanceof VendorConnectUnavailable);setMessage(error.message);}
     });
     return ()=>{active=false;generation.current++;};
@@ -47,7 +59,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     const current=generation.current;setBusy(true);setMessage('');
     try{
       await action();const fresh=await service.list(organizationId);
-      if(generation.current===current)setData(fresh);
+      if(generation.current===current)setData({...fresh,organizationId,backend});
     }catch(error){if(generation.current===current)setMessage(error.message);}
     finally{if(generation.current===current)setBusy(false);}
   }
@@ -60,24 +72,24 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       <p style={{margin:'8px 0 0'}}>Preparing a connection saves your vendor and provider selection. It does not sign in or retrieve pricing yet. The browser transfer pilot below requires a separate action. Price Sheets and email delivery remain available.</p>
     </div>
     {message&&<p role="alert">{message}</p>}
-    {!unavailable&&!data&&!message&&<p role="status">Loading your vendor connections…</p>}
-    {!unavailable&&data&&<>
+    {!unavailable&&!scopedData&&!message&&<p role="status">Loading your vendor connections…</p>}
+    {!unavailable&&scopedData&&<>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:20}}>
         <label style={{display:'grid',gap:6}}>Vendor<select aria-label="Vendor account vendor" style={control} value={vendorId} disabled={busy} onChange={e=>setVendorId(e.target.value)}><option value="">Select your vendor</option>{vendors.filter(v=>v.is_active!==false).map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
-        <label style={{display:'grid',gap:6}}>Connection provider<select aria-label="Connection provider" style={control} value={adapterKey} disabled={busy} onChange={e=>setAdapterKey(e.target.value)}><option value="">Select a provider</option>{data.adapters.filter(a=>a.setup_available).map(a=><option key={a.adapter_key} value={a.adapter_key}>{a.display_name}</option>)}</select></label>
+        <label style={{display:'grid',gap:6}}>Connection provider<select aria-label="Connection provider" style={control} value={adapterKey} disabled={busy} onChange={e=>setAdapterKey(e.target.value)}><option value="">Select a provider</option>{scopedData.adapters.filter(a=>a.setup_available).map(a=><option key={a.adapter_key} value={a.adapter_key}>{a.display_name}</option>)}</select></label>
       </div>
       <button style={{...button,marginTop:14}} disabled={busy||!vendorId||!adapterKey||selectedRequest?.state==='setup_requested'} onClick={()=>change(()=>service.request({organizationId,vendorId,adapterKey}))}>Prepare connection</button>
       {transferEligible&&<div style={{marginTop:20}}>
         <h3>Transfer a pricing list from your browser</h3>
         <p>Sign in with your vendor directly. After retrieval, KERDOS processes the pricing file automatically for the selected vendor and retains unresolved details for review.</p>
-        <label style={{display:'grid',gap:6,marginBottom:12}}>Account name shown by your vendor<input aria-label="Portal account name" maxLength={200} style={control} value={account} onChange={e=>setAccount(e.target.value)}/></label>
-        <label style={{display:'grid',gap:6,marginBottom:12}}>Pricing list name<input aria-label="Portal list name" maxLength={200} style={control} value={list} onChange={e=>setList(e.target.value)}/></label>
+        <label style={{display:'grid',gap:6,marginBottom:12}}>Account name shown by your vendor<input aria-label="Portal account name" maxLength={200} style={control} value={account} onChange={e=>editSelection('account',e.target.value)}/></label>
+        <label style={{display:'grid',gap:6,marginBottom:12}}>Pricing list name<input aria-label="Portal list name" maxLength={200} style={control} value={list} onChange={e=>editSelection('list',e.target.value)}/></label>
         <button style={button} disabled={!account.trim()||!list.trim()||busy} onClick={prepareTransfer}>Prepare browser transfer</button>
         {armed&&<button style={{...control,marginLeft:8}} onClick={()=>{stopTransfer();setMessage('Browser transfer cancelled. Prepare a new transfer to retry.');}}>Cancel browser transfer</button>}
       </div>}
       {selectedRequest&&<p role="status">{selectedRequest.state==='cancelled'?'This setup request was cancelled.':'Setup requested. Account access is awaiting verification.'}</p>}
-      <ul style={{paddingLeft:20}}>{data.requests.map(r=><li key={r.id} style={{marginTop:16}}>
-        <strong>{vendors.find(v=>v.id===r.vendor_id)?.name||'Vendor'}</strong> · {data.adapters.find(a=>a.adapter_key===r.adapter_key)?.display_name||'Connection provider'}
+      <ul style={{paddingLeft:20}}>{scopedData.requests.map(r=><li key={r.id} style={{marginTop:16}}>
+        <strong>{vendors.find(v=>v.id===r.vendor_id)?.name||'Vendor'}</strong> · {scopedData.adapters.find(a=>a.adapter_key===r.adapter_key)?.display_name||'Connection provider'}
         <p style={{margin:'4px 0'}}>{r.state==='cancelled'?'Setup cancelled':'Setup requested · Account access is not active'}</p>
         {r.state==='setup_requested'&&<button style={control} disabled={busy} onClick={()=>change(()=>service.cancel({organizationId,requestId:r.id}))}>Cancel setup</button>}
       </li>)}</ul>

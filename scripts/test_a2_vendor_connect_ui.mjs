@@ -44,7 +44,8 @@ try{
  const appWindow={location:{origin:'https://kerdossoftareproject.github.io'},addEventListener:(_,fn)=>events.add(fn),removeEventListener:(_,fn)=>events.delete(fn),postMessage:msg=>replies.push(msg)};
  globalThis.window=appWindow;
  const pilotAdapter={adapter_key:'us-foods-moxe',display_name:'MOXe',setup_available:true,execution_model:'local_browser',portal_origin:'https://order.usfoods.com'};
- const pilotBackend={records:createRecords(async spec=>({data:spec.table==='vendor_connection_adapters'?[pilotAdapter]:[{id:'pilot',organization_id:'org-a',vendor_id:'vendor-a',adapter_key:'us-foods-moxe',state:'setup_requested'}]}))};
+ const pilotRequest={id:'pilot',organization_id:'org-a',vendor_id:'vendor-a',adapter_key:'us-foods-moxe',state:'setup_requested',portal_account_label:null,portal_list_label:null};
+ const pilotBackend={records:createRecords(async spec=>{if(spec.table==='vendor_connection_adapters')return {data:[pilotAdapter]};if(spec.action==='update')Object.assign(pilotRequest,spec.value);return {data:[{...pilotRequest}]};})};
  const accepted=[];let blocked=0;
  await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:payload=>accepted.push(payload)}));});
  await act(async()=>{tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.onChange({target:{value:'vendor-a'}});tree.root.findByProps({'aria-label':'Connection provider'}).props.onChange({target:{value:'us-foods-moxe'}});});
