@@ -17,11 +17,15 @@ assert.deepEqual(buildProductAssociations({...source,vendorItems:[...source.vend
 const group=preview.groups.find(g=>g.rows.length===3);assert.equal(group.canSave,true);assert.equal(group.targetCatalogItemId,'ca');
 const request=productGroupRequest(group,source.mappings,{organizationId:'org',requestId:'request'});assert.equal(request.members.length,3);assert.equal(request.confirmed,true);assert.equal(Object.hasOwn(request,'price'),false);
 assert.throws(()=>productGroupRequest(group,[],{organizationId:'org',requestId:'r'}),/current catalog/);
-for(const descriptions of [['CHICKEN BREAST BONELESS','CHICKEN THIGH BONELESS'],['TOMATO PASTE','TOMATO SAUCE'],['PEANUT BUTTER','BUTTER'],['MILK 1%','MILK 2%']]){
+for(const descriptions of [['CHICKEN BREAST BONELESS','CHICKEN THIGH BONELESS'],['TOMATO PASTE','TOMATO SAUCE'],['PEANUT BUTTER','BUTTER']]){
  const fixture=input(descriptions.map((d,i)=>row(String(i),d)));
- // Numeric formulation details must survive even though pack quantities do not.
+ // Different products remain separate; presentation details belong to listings.
  const result=buildProductAssociations(fixture);
  assert.equal(result.groups.length,2,descriptions.join(' vs '));
+}
+for(const descriptions of [['MILK 1%','MILK 2%'],['CHEESE AMERICAN SLICED','AMERICAN CHEESE'],['CHEESE PEPPER JACK LOAF','CHEESE PEPPER JACK'],["BLUE CHEESE CHUNKY KEN'S",'BLUE CHEESE DRESSING']]){
+ const grouped=buildProductAssociations(input(descriptions.map((description,i)=>row(String(i),description))));
+ assert.equal(grouped.groups.length,1,descriptions.join(' vs '));
 }
 for(const patch of [{brand_locked:true},{comparison_mode:'exact'},{preferred_brand:'A'}]){
  const fixture=input([a,b]);fixture.catalogItems[0]={...fixture.catalogItems[0],...patch};assert.equal(buildProductAssociations(fixture).groups.length,2);
@@ -39,4 +43,11 @@ assert.equal(productGroupApproved(approved,item,mapping),true);assert.equal(prod
 const category={id:'cat',name:'Dry Goods',is_holding_pen:false},fields={item,mapping,category,categories:[category],peers:[b]};
 const held=orderGuideAssessment({...fields,vendorItem:{...approved,pack_size:'',selling_unit:'',price:null,price_unavailable:true}});assert.equal(held.ready,false);assert.ok(held.blockers.includes('pack'));assert.ok(held.blockers.includes('quote'));assert.equal(held.blockers.includes('association'),false,'identity approval is separate from purchasing fields');
 const mismatch=orderGuideAssessment({...fields,vendorItem:{...approved,description:'Tomato paste'}});assert.ok(mismatch.blockers.includes('association'));
+// Explicitly accepted product groups permit different valid packs, without
+// granting missing quote/unit/pack fields any approval.
+const complete={...approved,organization_id:'org',vendor_id:'a',pack_size:'4/1 GAL',selling_unit:'CASE',price:20,price_basis:'case',price_source:'price_list',last_updated:new Date().toISOString(),import_row:{reviewRequired:false}};
+const different={...complete,id:'peer',vendor_id:'b',pack_size:'4/3 L',description:'OIL POMACE 100%',field_resolutions:{}};
+const groupedFields={...fields,item:{...item,category_reason:'confirmed'},vendorItem:complete,peers:[different]};
+assert.equal(orderGuideAssessment(groupedFields).evidence.pack.accuracy>=90,true,'accepted group does not treat different purchasing packs as a source conflict');
+assert.equal(orderGuideAssessment({...groupedFields,vendorItem:{...complete,selling_unit:null,price_basis:null}}).ready,false,'accepting identity does not supply a quoted unit');
 console.log('PASS product association engine/service/readiness: complete coverage, examples, deterministic ordering, restrictions/rejections, independent fields, stale identity and industry-neutral data contract.');

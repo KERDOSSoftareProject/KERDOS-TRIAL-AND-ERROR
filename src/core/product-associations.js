@@ -27,7 +27,7 @@ export function productAssociationIdentity(row,profile=associationProfile('')){
  const concept=[...identities.values()][0];
  if(!concept)return {key:'literal:'+keyOf(words),label:row.description,reason:'Literal description; product vocabulary has no unique concept'};
  const facets=rules.facets.filter(f=>f.phrases.some(phrase=>contains(words,phrase))).map(f=>f.label).sort();
- const details=[...facets,...percentages];
+ const details=profile.groupDetails===false?[]:[...facets,...percentages];
  return {key:'concept:'+concept.label.toLowerCase()+'|'+details.join('|'),label:concept.label+(details.length?' — '+details.join(', '):''),
   reason:'Shared product concept. Review all vendor details; packs and brands remain independent.'};
 }

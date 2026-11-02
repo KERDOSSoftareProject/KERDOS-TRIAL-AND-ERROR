@@ -68,7 +68,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const manual=vi.field_resolutions||{};
   const byClient=(key)=>Object.hasOwn(manual,key);
   const otherVendors=peers.filter(p=>p.vendor_id&&p.vendor_id!==vi.vendor_id);
-  const comparableAlternatives=automaticAlternativeVerified(vi,item,peers);
+  const comparableAlternatives=automaticAlternativeVerified(vi,item,peers)||(item.comparison_mode!=='exact'&&productGroupApproved(vi,item,mapping));
   const source=(key,rawKey)=>manual[key]?.sourceValue??row[rawKey];
   // A second vendor on the same catalog item is not automatically an
   // independent witness. Require a matching trade identifier first.

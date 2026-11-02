@@ -25,8 +25,46 @@ assert.equal(tree.root.findByProps({'aria-label':'Sort'}).props.value,'alphabeti
 const guideText=text(tree.toJSON());assert.ok(guideText.includes('KERDOS #501'));assert.ok(guideText.includes('Honey Mustard'));assert.ok(guideText.includes('KERDOS #502'));assert.ok(!guideText.includes('KERDOS #503'),'unresolved country row stays out');
 assert.ok(guideText.indexOf('Avocados')<guideText.indexOf('Honey Mustard'));assert.ok(guideText.indexOf('Honey Mustard')<guideText.indexOf('Zucchini'));
 const plus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equal(plus.length,3);assert.ok(plus.every(b=>b.props.disabled),'all candidate offers stay unorderable');
-const alternatives=tree.root.findByProps({'aria-label':'Power Ranked alternatives for Honey Mustard'});assert.match(text(alternatives),/2 vendor choices/);assert.equal(tree.root.findByProps({'aria-label':'Negotiated vendor for Honey Mustard'}).props.disabled,true);assert.equal(tree.root.findByProps({'aria-label':'Negotiated price for Honey Mustard'}).props.disabled,true);await act(async()=>alternatives.props.onClick());
-assert.ok(tree.root.findByProps({role:'listbox','aria-label':'Alternatives for Honey Mustard'}));assert.match(text(tree.toJSON()),/Selected for review only/);assert.equal(tree.root.findByProps({role:'listbox','aria-label':'Alternatives for Honey Mustard'}).findAllByProps({role:'option'}).length,2,'both vendor listings remain underneath one KERDOS row');
+const alternatives=tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});assert.match(text(alternatives),/Sample Vendor/);assert.match(text(alternatives),/20.00/);assert.equal(alternatives.props['aria-expanded'],false);
+assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'listings start collapsed');
+assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));
+const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
+await act(async()=>alternatives.props.onClick());
+const listingRegion=tree.root.findByProps({'aria-label':'Group listings'});assert.equal(listingRegion.findAllByType('input').length,2,'both source listings remain under one row');
+assert.equal(listingRegion.findAllByType('input').every(input=>input.props.disabled),true,'employee has selection but no price write permission');
+await act(async()=>listingRegion.findAllByType('button').find(button=>button.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
+assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'selection closes dropdown');assert.match(text(tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'})),/Second Vendor/);
+assert.equal(text(tree.root.findByProps({className:'order-aside'})),basketBefore,'selecting a held listing does not change baskets');
+await act(async()=>tree.unmount());
+// A second render exercises an actual owner edit through App's saved-data refresh,
+// followed by selecting an alternative and putting that exact listing in a basket.
+for(const key of [...store.keys()])if(key.includes('basket'))store.delete(key);
+backend.workspace.memberships=async()=>[{role:'owner',organizations:{id:'org',name:'Trial',industry:'restaurant',settings:{}}}];
+for(const ci of catalogItems){ci.category_reason='confirmed';ci.category_review=false;}
+for(const row of vendorItems)row.field_resolutions={row_approval:true};
+Object.assign(vendorItems.find(row=>row.id==='honey-second'),{pack_size:'4/1 GAL',description:'Honey Mustard Dressing'});
+for(const m of snapshot.mappings){m.organization_id='org';m.comparison_track='exact';m.confidence_score=100;m.match_method='manual';}
+backend.workspace.snapshot=async()=>structuredClone(snapshot);
+let savedRequest;
+backend.catalog.saveRow=async request=>{savedRequest=request;const row=vendorItems.find(v=>v.id===request.vendorItemId);row.price=request.patch.price;row.row_revision++;};
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+const priceButton=()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});
+assert.match(text(priceButton()),/Sample Vendor/);
+await act(async()=>priceButton().props.onClick());
+await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'10.00'}}));
+await act(async()=>tree.root.findByProps({'aria-label':'Apply price for listing honey-second'}).props.onClick());
+assert.equal(savedRequest.vendorItemId,'honey-second');assert.deepEqual(savedRequest.patch,{price:10});assert.match(text(priceButton()),/Second Vendor/);assert.match(text(priceButton()),/10.00/,'saved cheaper listing becomes displayed choice');
+await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Sample Vendor')).props.onClick());
+assert.match(text(priceButton()),/Sample Vendor/);assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0);
+const ownerPlus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equal(ownerPlus[1].props.disabled,false,priceButton().props.title);
+await act(async()=>ownerPlus[1].props.onClick());
+const populatedBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(populatedBasket,/Sample Vendor/);assert.match(populatedBasket,/Honey Mustard/);assert.match(populatedBasket,/20.00/,'basket uses the explicitly selected listing, not the other lowest quote');
+await act(async()=>tree.unmount());
+catalogItems.push({...catalogItems[1],id:'former-honey',master_item_number:400,merged_into_id:'ci1'});
+store.set('kerdos.basket.org',JSON.stringify({quantities:{'former-honey_case':2},unitSelection:{},vendorOverride:{'former-honey_case':'vi1'},negotiatedPrices:{},splitOrders:{}}));
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(tree.root.findAllByProps({'aria-label':'Price choices for Honey Mustard'}).length,1,'merged old number adds no duplicate row');
+const keptBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(keptBasket,/Sample Vendor/);assert.match(keptBasket,/40.00/,'existing basket quantity and chosen supplier survive grouping under a former number');
 await act(async()=>tree.unmount());console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);
  process.stdout.write(execFileSync(process.execPath,[runner],{encoding:'utf8',env:process.env}));
