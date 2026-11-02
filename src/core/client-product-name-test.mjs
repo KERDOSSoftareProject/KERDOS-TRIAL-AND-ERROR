@@ -9,11 +9,11 @@ const examples=[
  ['(( FULL )) SHALLOW PAN','Shallow Food Pan'],['/ RP-200 \\ 2-LB FOOD TRAY','Food Tray'],
  ['1-PC ONLY BOURBON SAUCE','Bourbon Sauce'],['1-PC ONLY TZATZIKI SAUCE','Tzatziki'],
  ['Honey Mustard Dressing','Honey Mustard'],['DRESS HONEY MUSTARD','Honey Mustard'],['avocado','Avocados'],
- ['Pomace Oil — 100%','Pomace Oil'],
+ ['Pomace Oil — 100%','Pomace Oil'],['CHEESE AMERICAN SLICED WHITE','American Cheese'],['CHEESE PEPPER JACK LOAF','Pepper Jack Cheese'],["BLUE CHEESE CHUNKY KEN'S",'Blue Cheese Dressing'],
  ['ANISE (USA)','Anise'],['APPLE (NY) 4','Apple'],['ARCADIAN MIX (USA)','Arcadian Mix'],
 ];
 for(const [name,expected] of examples)assert.equal(clientProductName({name},[],'restaurant'),expected,name);
-for(const name of ['(CHN)','(COL)','(COS)','(GTM)','(MOR) 10/3 lb.','(PLASTIC)','1/2 GALLON (USA)'])assert.equal(clientProductName({name},[],'restaurant'),null,name+' is an unidentified fragment, not a client product name');
+for(const name of ['10LB (GTM)','1GAL (USA)','1LB (COL)','1qrt','6CT (COS)','9CT (GTM)','ASEPTIC 360CT (USA)','BABY (USA)','(CHN)','(COL)','(COS)','(GTM)','(MOR) 10/3 lb.','(PLASTIC)','1/2 GALLON (USA)'])assert.equal(clientProductName({name},[],'restaurant'),null,name+' is an unidentified fragment, not a client product name');
 const row={description:'Original vendor wording',brand:'ACME',pack_size:'4/1 GAL',price:33,field_resolutions:{}};
 const before=JSON.stringify(row);assert.equal(clientProductName({name:'ACME Widget'},[row],''),'Widget');assert.equal(JSON.stringify(row),before,'display naming cannot edit source/price/field records');
 assert.equal(clientProductName({name:'My house dressing'},[{field_resolutions:{item_name:{confirmedBy:'client'}}}],'restaurant'),'My house dressing','deliberate client names are retained');

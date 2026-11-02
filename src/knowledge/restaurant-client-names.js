@@ -3,6 +3,7 @@
 export const restaurantClientNames={
  labels:{'Honey Mustard Dressing':'Honey Mustard','Pomace Oil — 100%':'Pomace Oil','avocado':'Avocados','provolone':'Provolone Cheese','vinyl glove':'Vinyl Gloves','nitrile glove':'Nitrile Gloves'},
  aliases:[
+  {label:'Grill Pad',terms:['grill pad']},
   {label:'Orzo Pasta',terms:['orzo']},
   {label:'Toilet Tissue',terms:['toilet tissue','toilet paper','t tiss','t tissu','ttiss']},
   {label:'Red Kidney Beans',terms:['red kidney','kidney bean']},
@@ -14,8 +15,8 @@ export const restaurantClientNames={
   {label:'Food Tray',terms:['food tray']},
   {label:'Bourbon Sauce',terms:['bourbon sauce']},
   {label:'Tzatziki',terms:['tzatziki']},
-  {label:'American Cheese — Sliced',terms:['american sliced']},
+  {label:'American Cheese',terms:['american sliced']},
  ],
  displayNoise:['usa','can','mex','per','hnd','bel','chn','col','cos','gtm','mor','ny','fl','ga'],
- nonProducts:['chn','col','cos','gtm','mor','usa','mex','can','per','hnd','bel','ny','fl','ga','plastic','lb','lbs','oz','ct','count','ea','case','cs','gallon','gallons','gal','liter','liters','kg','g','ml','price','list','total','subtotal','page','of','invoice','thank','you'],
+ nonProducts:['baby','mini','aseptic','andy','boy','nj','qrt','qt','print','chn','col','cos','gtm','mor','usa','mex','can','per','hnd','bel','ny','fl','ga','plastic','lb','lbs','oz','ct','count','ea','case','cs','gallon','gallons','gal','liter','liters','kg','g','ml','price','list','total','subtotal','page','of','invoice','thank','you'],
 };

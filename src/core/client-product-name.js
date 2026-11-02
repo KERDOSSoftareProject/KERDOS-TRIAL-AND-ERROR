@@ -11,13 +11,13 @@ export function clientProductName(item,rows=[],industry=''){
  if(rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
  const vocabulary=industryClientNames(industry),profile=associationProfile(industry);
  const sourceWords=dictionaryTokens(current);
- if(!sourceWords.some(word=>/[a-z]/i.test(word)&&!vocabulary.nonProducts?.includes(word)))return null;
+ if(!sourceWords.some(word=>/[a-z]/i.test(word)&&!vocabulary.nonProducts?.includes(word)&&!/^\d/.test(word)))return null;
  const identity=productAssociationIdentity({description:current},profile);
  if(identity.key?.startsWith('concept:')){
   if(vocabulary.labels?.[identity.label])return vocabulary.labels[identity.label];
   const [base,...details]=identity.label.split(' — ');
   const name=vocabulary.labels?.[base]||base;
-  return title(name)+(details.length?' — '+title(details.join(' — ')):'');
+  return title(name)+(profile.groupDetails!==false&&details.length?' — '+title(details.join(' — ')):'');
  }
  const normalized=' '+text(productKnowledge(current).text)+' ';
  const aliases=(vocabulary.aliases||[]).filter(entry=>entry.terms.some(term=>normalized.includes(' '+text(term)+' ')));

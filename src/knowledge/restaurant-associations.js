@@ -8,7 +8,7 @@ excluded.forEach(term=>modifiers.add(term));
 const extra=[
  ['Honey Mustard Dressing',['honey mustard','honey mustrd']],['Pomace Oil',['pomace oil','oil pomace']],
  ['Balsamic Vinaigrette',['balsamic vinaigrette','vinaigrette balsamic','balsamic vingre']],
- ['Ranch Dressing',['ranch dressing','dress ranch','dressing ranch']],['Blue Cheese Dressing',['blue cheese dressing','dress blue cheese']],
+ ['Ranch Dressing',['ranch dressing','dress ranch','dressing ranch']],['Blue Cheese Dressing',['blue cheese dressing','dress blue cheese','blue cheese chunky','bleu cheese dressing','blue chs dress']],
  ['Italian Dressing',['italian dressing','dress italian','dressing italian']],
  ['Chicken Breast',['chicken breast','breast chicken']],['Chicken Thigh',['chicken thigh','thigh chicken']],
  ['Chicken Wing',['chicken wing','wing chicken']],['Chicken Tender',['chicken tender','tender chicken']],
@@ -27,6 +27,7 @@ const extra=[
  ['Spinach',['spinach']],['Cilantro',['cilantro']],['Parsley',['parsley']],['Mint',['mint']],['Dill',['dill']],
  ['Garlic',['garlic']],['Ginger',['ginger']],['Leeks',['leek']],['Kale',['kale']],['Lettuce',['lettuce']],
  ['Butter',['butter']],['Milk',['milk']],['Eggs',['egg']],['Heavy Cream',['heavy cream','cream heavy']],
+ ['Pepper Jack Cheese',['pepper jack','pepperjack']],['American Cheese',['american cheese','amer cheese','cheese amer','american sliced']],
  ['Swiss Cheese',['swiss cheese','cheese swiss']],['Feta Cheese',['feta']],['Gouda Cheese',['gouda']],
  ['Salami',['salami']],['Ham',['ham']],['Roast Beef',['roast beef']],['Pastrami',['pastrami']],['Bologna',['bologna']],
  ['Tuna',['tuna']],['Cod',['cod']],['Haddock',['haddock']],['Clams',['clam']],['Scallops',['scallop']],
@@ -38,9 +39,10 @@ for(const group of ['food','ingredient','hospitality'])for(const entry of restau
  if(entry.kind==='product'&&!modifiers.has(entry.term))terms.set(entry.term,{label:entry.term,terms:[entry.term,...entry.aliases||[]]});
 }
 for(const [label,aliases] of extra)terms.set(label.toLowerCase(),{label,terms:aliases});
-export const restaurantAssociations={version:'restaurant-associations-1',concepts:[...terms.values()],
- // These differences remain separate proposals. Unstated detail never fills
- // itself in from another vendor. Other differences remain visible for review.
- facets:[['raw','uncooked'],['cooked','fully cooked','precooked'],['breaded'],['unbreaded'],['boneless'],['bone in'],['skinless'],['skin on'],['sliced'],['shredded'],['ground'],['whole'],['diced'],['chopped'],['smoked'],['low sodium'],['gluten free'],['organic'],['extra virgin'],['white'],['yellow'],['red'],['green'],['yellowfin'],['tongol'],['albacore']],
+export const restaurantAssociations={version:'restaurant-associations-2',concepts:[...terms.values()],
+ // Group by the product alone. Cut, portion, brand, pack and percentages
+ // remain on the source listing; they do not create client-facing groups.
+ groupDetails:false,
+ facets:[],
  fragments:['usa','mex','can','per','hnd','bel','ny','fl','ga','ct','lb','oz','case','total','subtotal','invoice','description','price','product prices'],
 };
