@@ -13,6 +13,7 @@ export async function exportSelectedMoxeList(selection){
  };
  const context=()=>{
   if(location.origin!=='https://order.usfoods.com')throw new Error('wrong_origin');
+  if(nodes('input[type="password"],input[autocomplete="one-time-code"]').length)throw new Error('verification_needed');
   if(!/^\/desktop\/lists\/view\/[^/]+\/?$/.test(location.pathname))throw new Error('open_selected_list');
   if(!selection?.account?.trim()||!selection?.list?.trim())throw new Error('selection_required');
   const names=nodes('button,ion-button,[role="button"]').map(el=>norm(el.textContent).replace(/\s*\(\d+\)$/,''));
@@ -20,7 +21,6 @@ export async function exportSelectedMoxeList(selection){
   const body=norm(document.body.innerText);
   const titles=nodes('[data-cy="list-banner-list-name-text"]');
   if(!body.includes('MY LIST')||titles.length!==1||norm(titles[0].textContent)!==norm(selection.list))throw new Error('list_mismatch');
-  if(nodes('input[type="password"],input[autocomplete="one-time-code"]').length)throw new Error('verification_needed');
  };
  const wait=async fn=>{
   const until=Date.now()+8000;

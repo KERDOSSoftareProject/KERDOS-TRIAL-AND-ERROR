@@ -41,11 +41,21 @@ assert.equal(ack.outcome,'received_for_review');assert.equal(received.length,2);
 await pairKerdosTab();assert.equal(runtimeListeners.size,1);handoff.cancel();delete globalThis.__kerdosCompanionListener;delete globalThis.window;delete globalThis.location;delete globalThis.chrome;
 assert.ok(approvedKerdosTab('https://kerdossoftareproject.github.io/KERDOS-TRIAL-AND-ERROR/'));
 for(const url of ['https://evil.example/KERDOS-TRIAL-AND-ERROR/','https://kerdossoftareproject.github.io/another-app/','https://kerdossoftareproject.github.io/KERDOS-TRIAL-AND-ERROR-phishing','not a URL'])assert.equal(approvedKerdosTab(url),false);
+// Pre-export claim is atomic, nonce-bound and cannot be bypassed by legacy delivery.
+time=1000;const beforeClaim=received.length;handoff=begin();await dispatch({type:'pair'});ticket=messages.at(-1).ticket;assert.equal(ticket.protocolVersion,2);const claimId=crypto.randomUUID();
+await dispatch({type:'claim',nonce:'wrong',claimId});assert.equal(messages.at(-1).ok,false);
+await dispatch({type:'claim',nonce:ticket.nonce,claimId});assert.equal(messages.at(-1).outcome,'ready_for_export');assert.equal(handoff.state,'exporting');
+await dispatch({type:'claim',nonce:ticket.nonce,claimId:crypto.randomUUID()});assert.equal(messages.at(-1).ok,false);await dispatch({type:'pair'});assert.equal(messages.at(-1).ok,false);
+for(const id of [undefined,crypto.randomUUID()]){await dispatch({type:'deliver',nonce:ticket.nonce,claimId:id,artifact});assert.equal(messages.at(-1).ok,false);assert.equal(received.length,beforeClaim);}
+await dispatch({type:'deliver',nonce:ticket.nonce,claimId,artifact});assert.equal(received.length,beforeClaim+1);assert.equal(messages.at(-1).outcome,'received_for_review');handoff.cancel();
+// The isolated bridge forwards claim IDs only for the same extension.
+handoff=begin();runtimeListeners.clear();globalThis.window=target;globalThis.location=target.location;globalThis.chrome={runtime:{id:'test-extension',onMessage:{addListener:fn=>runtimeListeners.add(fn),removeListener:fn=>runtimeListeners.delete(fn)}}};const newPair=await pairKerdosTab();const claimedBridge=[...runtimeListeners][0],bridgeClaimId=crypto.randomUUID();assert.equal(claimedBridge({type:'kerdos-claim',nonce:newPair.ticket.nonce,claimId:bridgeClaimId},{id:'other-extension'},()=>assert.fail()),false);const claimAck=await new Promise(resolve=>claimedBridge({type:'kerdos-claim',nonce:newPair.ticket.nonce,claimId:bridgeClaimId},{id:'test-extension'},resolve));assert.equal(claimAck.outcome,'ready_for_export');handoff.cancel();delete globalThis.__kerdosCompanionListener;delete globalThis.window;delete globalThis.location;delete globalThis.chrome;
+console.log('PASS pre-export reservation: one winner, wrong nonce/claim and legacy bypass denied, isolated sender guard, no import during claim');
 // A second provider uses the same receiver without modifying the shared core.
 const genericSelection={...selection,adapterKey:'another-provider',portalOrigin:'https://supplier.example'};
 handoff=begin({selection:genericSelection});await dispatch({type:'pair'});ticket=messages.at(-1).ticket;
 await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,origin:genericSelection.portalOrigin}});
-assert.equal(received.length,3);assert.equal(received.at(-1).evidence.adapter_key,'another-provider');handoff.cancel();
+assert.equal(received.length,beforeClaim+2);assert.equal(received.at(-1).evidence.adapter_key,'another-provider');handoff.cancel();
 console.log('PASS one-use app/bridge delivery preserves exact bytes, ignores payload ownership, blocks wrong origin/sender, replay, expiry, cancelled in-flight work and invalid exports');
 const db=new PGlite();
 try{

@@ -22,6 +22,8 @@ assert.deepEqual(await exportSelectedMoxeList({...selection,account:'Wrong Clien
 globalThis.location.origin='https://wrong.example.com';assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'wrong_origin'});assert.deepEqual(clicks,[]);
 globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/home'};assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'open_selected_list'});
 globalThis.location.pathname='/desktop/lists/view/another-selected-list';assert.deepEqual(await exportSelectedMoxeList({...selection,list:'Wrong list'}),{outcome:'list_mismatch'});
+// Verification is detected before list/account checks, including redirects off the list.
+const originalQuery=document.querySelectorAll;document.querySelectorAll=selector=>selector==='input[type="password"],input[autocomplete="one-time-code"]'?[element('')]:originalQuery(selector);globalThis.location.pathname='/login';clicks=[];assert.equal((await exportSelectedMoxeList(selection)).outcome,'verification_needed');assert.deepEqual(clicks,[]);document.querySelectorAll=originalQuery;
 // Exercise exact-byte capture against a controlled Blob-producing page.
 globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists/view/dynamic-client-list'};
 shown=false;options=false;checked=false;

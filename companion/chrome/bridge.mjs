@@ -13,8 +13,8 @@ export async function pairKerdosTab(){
  });
  if(globalThis.__kerdosCompanionListener)chrome.runtime.onMessage.removeListener(globalThis.__kerdosCompanionListener);
  const listener=(message,sender,respond)=>{
-  if(sender.id!==chrome.runtime.id||message?.type!=='kerdos-deliver')return false;
-  exchange('deliver',{nonce:message.nonce,artifact:message.artifact}).then(respond);return true;
+  if(sender.id!==chrome.runtime.id||!['kerdos-claim','kerdos-deliver'].includes(message?.type))return false;
+  exchange(message.type==='kerdos-claim'?'claim':'deliver',{nonce:message.nonce,claimId:message.claimId,...(message.type==='kerdos-deliver'?{artifact:message.artifact}:{})}).then(respond);return true;
  };
  globalThis.__kerdosCompanionListener=listener;
  chrome.runtime.onMessage.addListener(listener);
