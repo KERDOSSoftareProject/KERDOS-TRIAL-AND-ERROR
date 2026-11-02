@@ -19,7 +19,7 @@ try{
  const manifest=JSON.parse(await readFile(join(extension,'manifest.json'),'utf8'));
  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.equal(manifest.host_permissions,undefined);
  // Run the exact shipped manifest: no fixture host grants or extra permissions.
- context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
+ context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--enable-unsafe-extension-debugging','--disable-extensions-except='+extension,'--load-extension='+extension]});
  context.setDefaultTimeout(15000);
  const devtools=await context.browser().newBrowserCDPSession();
  let protocolId=0;const replies=new Map();
@@ -45,11 +45,16 @@ try{
  });
  let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  const extensionId=new URL(worker.url()).host;
+ const granted=await worker.evaluate(()=>globalThis.chrome.permissions.getAll());assert.deepEqual(granted.origins||[],[]);assert.deepEqual([...granted.permissions].sort(),['activeTab','scripting','storage'].sort());
  await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
  const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
-  await target.bringToFront();await worker.evaluate(()=>globalThis.chrome.action.openPopup());
+  await target.bringToFront();
+  const pageTarget=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.type==='page'&&t.url===target.url());assert.ok(pageTarget);
+  // The isolated test browser invokes the real toolbar action, which lets
+  // Chromium grant activeTab normally; opening a popup alone is insufficient.
+  await devtools.send('Extensions.triggerAction',{id:extensionId,targetId:pageTarget.targetId});
   const until=Date.now()+15000;let info;
   do{info=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.url==='chrome-extension://'+extensionId+'/popup.html');if(info)break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<until);
   assert.ok(info,'native action popup target was not created');
