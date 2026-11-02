@@ -1,3 +1,4 @@
+import {invoiceSummaryText,invoiceSummaryCategory} from './invoice-summary-classification.js';
 import {validateEstimatedReceipt,validateReceiptReversal} from '../services/estimated-receipts.js';
 // Exact cents only; missing evidence never becomes zero.
 export function invoiceMoneyCents(value){
@@ -12,21 +13,13 @@ export function invoiceMoneyCents(value){
 function sum(values){let total=0;for(const value of values){if(value==null)return null;total+=value;if(!Number.isSafeInteger(total))return null;}return total;}
 const labelKey=value=>value.trim().toLowerCase().replace(/[:\s]+$/,'').replace(/\s+/g,' ');
 const sourceKey=value=>String(value||'').trim().replace(/[,\t|]+/g,' ').replace(/\s+/g,' ');
-const category=label=>{
- if(/^(subtotal|sub total|merchandise subtotal|item subtotal)$/.test(label))return 'subtotal';
- if(/^(invoice total|grand total|total due|amount due|total)$/.test(label))return 'total';
- if(/^(tax|sales tax|vat|gst|hst)$/.test(label))return 'tax';
- if(/^(freight|shipping|shipping charge|delivery|delivery charge|delivery fee)$/.test(label))return 'freight';
- if(/^(credit|credits|discount|discounts)$/.test(label))return 'credits';
- if(/^(fuel surcharge|service charge|handling fee|other charges|other fees)$/.test(label))return 'other';
- return null;
-};
+
 export function invoiceSummaryEvidence(rawText,itemSources=[]){
  const entries=[],issues=[],seen=new Set(),itemKeys=new Set(itemSources.map(sourceKey));
  for(const [index,raw] of String(rawText||'').split(/\r?\n/).entries()){
   const match=raw.trim().match(/^(.+?)\s*[:\t, ]\s*(\(?-?\$?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{2})\)?)\s*$/);
   if(!match){if(!itemKeys.has(sourceKey(raw))&&((/\b(total|subtotal|tax|freight|credit|discount|surcharge|balance|fee|charges?)\b/i.test(raw)&&/[$\d]/.test(raw))||/\p{Sc}|\d+[.,]\d{2}\s*$/u.test(raw)))issues.push(`Summary source line ${index+1} needs clarification: ${raw}`);continue;}
-  const label=labelKey(match[1]),kind=category(label);
+  const label=labelKey(match[1]),kind=invoiceSummaryCategory(label);
   if(!kind){if(!itemKeys.has(sourceKey(raw)))issues.push(`Unclassified monetary source line ${index+1}: ${raw}`);continue;}
   if(itemKeys.has(sourceKey(raw)))issues.push(`Summary source line ${index+1} is also recorded as an item line.`);
   if(seen.has(label))issues.push(`Repeated summary label requires clarification: ${label}`);seen.add(label);
@@ -55,7 +48,7 @@ export function reconcileInvoice(source,{organizationId,invoiceId}={}){
  if(new Set(reversals.map(r=>r.receiptId)).size!==reversals.length||new Set(reversals.map(r=>r.id)).size!==reversals.length)throw new Error('Duplicate invoice reversal history');
  const active=receipts.filter(r=>!reversals.some(v=>v.receiptId===r.id));
  const lines=source.lines.map(line=>{const receipt=active.find(r=>r.invoiceLineId===line.id),historical=receipts.find(r=>r.invoiceLineId===line.id);return {...line,cents:invoiceMoneyCents(line.amount),coverage:receipt?'linked':historical?'reversed':'unlinked',receiptId:receipt?.id||null,orderId:receipt?.orderId||null,orderLineId:receipt?.orderLineId||null,rateVarianceCents:receipt?invoiceMoneyCents(receipt.rateVariance):null,weightOutsideStatedRange:receipt?.weightOutsideStatedRange===true};});
- const evidence=invoiceSummaryEvidence(source.header.rawText,lines.map(l=>l.sourceLine)),issues=[...evidence.issues],a=evidence.amounts;
+ const evidence=invoiceSummaryEvidence(invoiceSummaryText(source),lines.map(l=>l.sourceLine)),issues=[...evidence.issues],a=evidence.amounts;
  const lineCents=lines.length?sum(lines.map(l=>l.cents)):null,recordedCents=invoiceMoneyCents(source.header.recordedTotal);
  if(!lines.length)issues.push('No saved invoice item lines.');
  if(lineCents==null)issues.push('Item line amounts are missing or exceed supported monetary precision.');

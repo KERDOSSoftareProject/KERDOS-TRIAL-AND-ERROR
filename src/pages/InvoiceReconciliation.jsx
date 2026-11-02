@@ -1,3 +1,4 @@
+import {InvoiceSummaryClassification} from './InvoiceSummaryClassification.jsx';
 import {useEffect,useRef,useState} from 'react';
 import {InvoicePaymentLedger} from './InvoicePaymentLedger.jsx';
 import {InvoiceAccountingApproval} from './InvoiceAccountingApproval.jsx';
@@ -7,7 +8,7 @@ import {formatMoney} from '../localization.js';
 const defaultService=createInvoiceReconciliationService(backend);
 const money=cents=>cents==null?'Unknown':formatMoney(cents/100);
 const labels={subtotal:'Printed subtotal',tax:'Tax',freight:'Freight / delivery',credits:'Credits / discounts',other:'Other stated charges',total:'Printed invoice total'};
-export function InvoiceReconciliation({organizationId,invoiceId,service=defaultService,onClose,approvalService,paymentService}){
+export function InvoiceReconciliation({organizationId,invoiceId,service=defaultService,onClose,approvalService,paymentService,summaryService}){
  const [paymentRevision,setPaymentRevision]=useState(0);
  const [review,setReview]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);const sequence=useRef(0);
  async function load(){const request=++sequence.current;setLoading(true);setReview(null);setError('');try{const result=await service.review(organizationId,invoiceId);if(request===sequence.current)setReview(result);}catch(e){if(request===sequence.current)setError(e.message);}finally{if(request===sequence.current)setLoading(false);}}
@@ -21,8 +22,9 @@ export function InvoiceReconciliation({organizationId,invoiceId,service=defaultS
    <p>Active linked item charges: {money(review.linkedCents)} · Item charges without an active receipt: {money(review.unlinkedCents)}. Tax, freight and credit adjustments are shown separately.</p>
    {review.issues.length>0&&<div><h5>Source and amount review</h5><ul>{review.issues.map((issue,i)=><li key={i}>{issue}</li>)}</ul></div>}
    <h5>Every saved invoice line</h5><div style={{maxHeight:350,overflow:'auto'}}><table style={{width:'100%',textAlign:'left'}}><thead><tr><th>Item</th><th>Charge</th><th>Receipt</th><th>Order-rate variance</th></tr></thead><tbody>{review.lines.map(l=><tr key={l.id}><td>{l.description||'Unspecified item'}{l.weightOutsideStatedRange&&<div>Weight outside ordered estimate range</div>}</td><td>{money(l.cents)}</td><td>{l.coverage==='linked'?'Linked':l.coverage==='reversed'?'Reversed — needs review':'Unlinked — needs review'}</td><td>{l.rateVarianceCents==null?'Not linked':money(l.rateVarianceCents)}</td></tr>)}</tbody></table></div>
-   <h5>Retained summary source</h5>{review.evidence.entries.length?<pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{review.evidence.entries.map(e=>`Line ${e.lineNumber}: ${e.sourceLine}`).join('\n')}</pre>:<p>No supported explicit summary amounts found. Check the original invoice.</p>}
+   <h5>Retained summary source</h5>{review.evidence.entries.length?<pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{review.evidence.entries.map(e=>`Line ${e.lineNumber}: ${String(review.header.rawText||'').replaceAll('\r','').split('\n')[e.lineNumber-1]??e.sourceLine}${String(review.header.rawText||'').replaceAll('\r','').split('\n')[e.lineNumber-1]!==e.sourceLine?' → classified as '+e.sourceLine:''}`).join('\n')}</pre>:<p>No supported explicit summary amounts found. Check the original invoice.</p>}
   </div>}
+ <InvoiceSummaryClassification key={`summary:${invoiceId}`} organizationId={organizationId} invoiceId={invoiceId} service={summaryService} onUpdated={()=>{setPaymentRevision(v=>v+1);load();}}/>
  <InvoiceAccountingApproval key={`approval:${invoiceId}`} organizationId={organizationId} invoiceId={invoiceId} service={approvalService} evidence={review} onUpdated={()=>setPaymentRevision(v=>v+1)}/>
  <InvoicePaymentLedger key={`payments:${invoiceId}`} organizationId={organizationId} invoiceId={invoiceId} service={paymentService} evidence={review} revision={paymentRevision}/>
  </section>;
