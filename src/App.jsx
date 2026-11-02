@@ -1065,20 +1065,21 @@ export default function App() {
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
                               <div style={{fontSize:10,color:"#667085",marginBottom:4}}>Vendor price · Power Ranked</div>
                               <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Power Ranked alternatives for ${item.name}`} aria-haspopup="listbox" aria-expanded={menuOpen} title={totalLinkedVendors>1?`${totalLinkedVendors} linked vendors — open Power Ranked`:"Power Ranked alternatives"} style={{width:"100%",textAlign:"left",padding:"7px 9px",border:totalLinkedVendors>1?"2px solid #008577":"1px solid #CBD5E1",borderRadius:6,background:totalLinkedVendors>1?"#F0FAF8":"white",color:totalLinkedVendors>1?"#00695C":"inherit",fontWeight:totalLinkedVendors>1?700:400,cursor:"pointer",fontSize:12}}>
-                                {selectedHeldOption?`${activeVendorName} · ${activePrice==null?"Price unavailable":formatMoney(activePrice)} · HELD`:activeBlocked?activeBlockReason:`${activeVendorName} · ${formatMoney(activePrice)}${customPriceIsWinner?" negotiated":""}`} <span style={{float:"right"}}>{menuOpen?"▴":"▾"}</span>
+                                {selectedHeldOption?`${activeVendorName} · ${activePrice==null?"Price unavailable":formatMoney(activePrice)} · HELD`:activeBlocked?`${totalLinkedVendors} vendor choice${totalLinkedVendors===1?'':'s'}`:`${activeVendorName} · ${formatMoney(activePrice)}${customPriceIsWinner?" negotiated":""}`} <span style={{float:"right"}}>{menuOpen?"▴":"▾"}</span>
                               </button>
+                              {activeBlocked&&<div style={{fontSize:11,color:'#956515',marginTop:5}}>{activeBlockReason}</div>}
                               {vendorOverride[activeKey]&&<button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:"none",border:0,padding:"4px 0 0",cursor:"pointer"}}>Use lowest price</button>}
                               {alternativesMenu}
                               </div>
                               <div className="order-price-card" title="Price agreed with the vendor you select" style={{border:"1px solid #E3E7ED",background:"white"}}>
                                 <div style={{fontSize:10,fontWeight:400,color:"#667085",marginBottom:4}}>Negotiated price</div>
-                                <select aria-label={`Negotiated vendor for ${item.name}`} value={negotiationVendorId} onChange={e=>{setNegotiatedVendorDrafts(prev=>({...prev,[activeKey]:e.target.value}));setCustomPriceDrafts(prev=>{const next={...prev};delete next[activeKey];return next;});setNegotiationErrors(prev=>{const next={...prev};delete next[activeKey];return next;});}}
+                                <select aria-label={`Negotiated vendor for ${item.name}`} disabled={!rankedOptions.length} value={negotiationVendorId} onChange={e=>{setNegotiatedVendorDrafts(prev=>({...prev,[activeKey]:e.target.value}));setCustomPriceDrafts(prev=>{const next={...prev};delete next[activeKey];return next;});setNegotiationErrors(prev=>{const next={...prev};delete next[activeKey];return next;});}}
                                   style={{width:"100%",fontSize:10,border:"1px solid #CBD5E1",borderRadius:5,padding:"3px",marginBottom:4,background:"white"}}>
                                   {!rankedOptions.length&&<option value="">No eligible vendor</option>}
                                   {rankedOptions.map(opt=><option key={opt.vendorItemId} value={opt.vendorId}>{opt.vendorName}</option>)}
                                 </select>
                                 <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                                  <input type="number" min="0" step="0.01" aria-label={`Negotiated price for ${item.name}`}
+                                  <input type="number" min="0" step="0.01" disabled={!rankedOptions.length} aria-label={`Negotiated price for ${item.name}`}
                                     value={customPriceDrafts[activeKey]??String(customPriceValue??"")}
                                     onChange={e=>{setCustomPriceDrafts(prev=>({...prev,[activeKey]:e.target.value}));setNegotiationErrors(prev=>{const next={...prev};delete next[activeKey];return next;});}}
                                     onKeyDown={e=>{if(e.key==="Enter")e.currentTarget.nextElementSibling?.click();}}
