@@ -35,12 +35,14 @@ try{
  <script>window.exportCount=0;document.getElementById('download').onclick=()=>{window.exportCount++;window.finishExport=()=>{const url=URL.createObjectURL(new Blob([window.csv],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='Example List.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};};</script>`;
  await context.route('**/*',async route=>{
   const url=new URL(route.request().url());
+  if(url.protocol==='chrome-extension:')return route.continue();
   if(url.origin===appOrigin)return route.fulfill({contentType:url.pathname==='/handoff.mjs'?'text/javascript':'text/html',body:url.pathname==='/handoff.mjs'?source:app});
   if(url.origin===vendorOrigin)return route.fulfill({contentType:'text/html',body:vendor});
   unexpected.push(url.origin);await route.abort();
  });
  let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  const extensionId=new URL(worker.url()).host;
+ await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
  const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  const vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
@@ -53,7 +55,7 @@ try{
   await page.evaluate(id=>{globalThis.chrome.tabs.query=async()=>[{id}];},tabId);
   return page;
  }
- async function pair(){const view=await popup(appPage);await view.locator('#pair').click();await view.locator('#status').filter({hasText:'Paired for one export'}).waitFor();await view.close();}
+ async function pair(){const view=await popup(appPage);await view.locator('#pair').click();try{await view.locator('#status').filter({hasText:'Paired for one export'}).waitFor();}catch(error){console.error('Pair diagnostics',await view.locator('#status').innerText(),await worker.evaluate(()=>globalThis.__runtimeCommands),unexpected);throw error;}await view.close();}
  async function start(text){
   await vendorPage.evaluate(value=>{window.csv=value;window.finishExport=undefined;document.getElementById('dialog').hidden=true;},text);
   const view=await popup(vendorPage);await view.locator('#export').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');return view;
