@@ -16,9 +16,13 @@ Closing the receiver prevents another supplier export.
 
 All supplier and app pages are synthetic, intercepted before network access.
 There is no signed-in supplier, Supabase, saved catalog price or private storage
-in this check. Only the temporary extension copy has fixture-origin host grants
-to permit automated actions. The shipped companion remains activeTab/scripting/
-storage only. Human activeTab authorization, installed client acceptance,
+in this check. Earlier PR109–111 checks used fixture-origin host grants for automated popup
+opening. The current harness uses the exact shipped manifest, confirms its
+granted origin list starts empty, and invokes Chromium's native toolbar action
+on the selected tab. This exercises temporary activeTab authorization without
+adding host grants. The browser-control flag is restricted to the disposable CI
+profile and is never shipped to clients. The companion remains activeTab/
+scripting/storage only. Human installed-client acceptance,
 supplier authentication/MFA, fresh saved prices and private-original download
 verification remain open. Passing this check does not complete A.2.
 
@@ -35,3 +39,18 @@ No KERDOS app, schema, data, hosted worker or original ZIP was changed.
 References:
 - https://playwright.dev/docs/chrome-extensions
 - https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle
+
+
+## Shipped-permission test boundary
+
+Opening a popup programmatically did not grant activeTab in the native test.
+The harness now drives Extensions.triggerAction for the selected tab, allowing
+Chromium to perform its ordinary toolbar action and temporary grant. The suite
+retains its stop/restart, cancellation, expiry and interrupted-tab assertions.
+There is no test fallback to fixture-origin host grants. Browser actions remain
+automated against synthetic pages; supplier login, client installation and live
+price persistence remain separate acceptance requirements. These test changes
+add no production permission, model service, AI dependency or paid service.
+
+Browser-control command reference:
+https://chromedevtools.github.io/devtools-protocol/tot/Extensions/#method-triggerAction

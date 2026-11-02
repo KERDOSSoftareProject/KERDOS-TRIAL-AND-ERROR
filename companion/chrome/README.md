@@ -1,9 +1,9 @@
-# Vendor Connect local browser pilot — 0.2.2
+# Vendor Connect local browser pilot — 0.2.3
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS
 tab. It uses the existing deployed protocol-v2 KERDOS app and its connection checks.
 The previous 0.1.0 export-only pilot remains historical evidence; installing
-0.2.2 does not change the live KERDOS application.
+0.2.3 does not change the live KERDOS application.
 
 The client signs into the vendor directly and completes verification there.
 The selected client/vendor comes from KERDOS, with account/list labels entered
@@ -132,3 +132,21 @@ open, as do fresh/changed-price and private original-byte live checks.
 Implementation references:
 - https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle
 - https://developer.chrome.com/docs/extensions/develop/concepts/messaging
+
+
+## Completion ownership — 0.2.3
+
+Version 0.2.2 could publish a ready/terminal status while its previous execution
+lock was still held. An immediate Pair command could see the old busy state and
+leave the popup disabled. Version 0.2.3 releases that ownership before publishing
+ready, returns an immutable status snapshot, and never clears a newer command's
+lock from an older command's completion.
+
+Replace/reload the complete 0.2.3 pilot folder before installed acceptance.
+Permissions, app protocol, provider export, one-use claims and storage boundaries
+are unchanged. No KERDOS website, database or hosted-worker update is needed.
+A deterministic regression reacts immediately to the terminal storage event and
+pairs again before the old write promise resolves; it fails against 0.2.2.
+The native Chromium suite also uses the exact shipped manifest and native toolbar
+activation, with no fixture-origin host grants. Actual signed-in supplier and
+installed-client acceptance remain separate from synthetic browser tests.

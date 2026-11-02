@@ -1,7 +1,7 @@
 // Real Chromium extension/runtime; synthetic pages and transport only.
 // No live supplier, signed-in KERDOS, Supabase or purchasing acceptance.
 import assert from 'node:assert/strict';
-import {mkdtemp,cp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,cp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -18,10 +18,8 @@ try{
  await cp(resolve('companion/chrome'),extension,{recursive:true});
  const manifest=JSON.parse(await readFile(join(extension,'manifest.json'),'utf8'));
  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.equal(manifest.host_permissions,undefined);
- // Test fixture grants allow automated action opening. They NEVER enter the shipped ZIP.
- manifest.host_permissions=[appOrigin+'/*',vendorOrigin+'/*'];
- await writeFile(join(extension,'manifest.json'),JSON.stringify(manifest));
- context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--disable-extensions-except='+extension,'--load-extension='+extension]});
+ // Run the exact shipped manifest: no fixture host grants or extra permissions.
+ context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--enable-unsafe-extension-debugging','--disable-extensions-except='+extension,'--load-extension='+extension]});
  context.setDefaultTimeout(15000);
  const devtools=await context.browser().newBrowserCDPSession();
  let protocolId=0;const replies=new Map();
@@ -47,16 +45,24 @@ try{
  });
  let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  const extensionId=new URL(worker.url()).host;
+ const granted=await worker.evaluate(()=>globalThis.chrome.permissions.getAll());assert.deepEqual(granted.origins||[],[]);assert.deepEqual([...granted.permissions].sort(),['activeTab','scripting','storage'].sort());
  await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
  const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
-  await target.bringToFront();await worker.evaluate(()=>globalThis.chrome.action.openPopup());
+  await target.bringToFront();
+  const pageTarget=(await devtools.send('Target.getTargets',{filter:[{type:'tab'},{exclude:true}]})).targetInfos.find(t=>t.type==='tab'&&t.url===target.url());assert.ok(pageTarget);
+  // The isolated test browser invokes the real toolbar action, which lets
+  // Chromium grant activeTab normally; opening a popup alone is insufficient.
+  await devtools.send('Extensions.triggerAction',{id:extensionId,targetId:pageTarget.targetId});
   const until=Date.now()+15000;let info;
   do{info=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.url==='chrome-extension://'+extensionId+'/popup.html');if(info)break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<until);
   assert.ok(info,'native action popup target was not created');
   const {sessionId}=await devtools.send('Target.attachToTarget',{targetId:info.targetId,flatten:false});
-  const evaluate=async expression=>{const value=await call(sessionId,'Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(value.exceptionDetails)throw Error(value.exceptionDetails.text);return value.result.value;};
+  const evaluate=async expression=>{const value=await call(sessionId,'Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true,userGesture:true});if(value.exceptionDetails)throw Error(value.exceptionDetails.exception?.description||value.exceptionDetails.text);return value.result.value;};
+  const readyBy=Date.now()+15000;let ready=false;
+  do{ready=await evaluate("document.readyState==='complete'&&!!document.getElementById('pair')&&!!document.getElementById('export')&&!!document.getElementById('status')");if(ready)break;await new Promise(resolve=>setTimeout(resolve,50));}while(Date.now()<readyBy);
+  assert.equal(ready,true,'native popup document and module are loaded before its controls are used');
   return {
    click:id=>evaluate(`document.getElementById(${JSON.stringify(id)}).click()`),
    status:()=>evaluate("document.getElementById('status').textContent"),
@@ -115,5 +121,5 @@ try{
  console.log('PASS native extension: forced worker stop/start retains unconfirmed status, clears pairing, admits no pending file, never auto-replays and allows one newly prepared transfer.');
  await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
- console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Synthetic fixture host grants only; actual activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
+ console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. No fixture host grants; actual human activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
