@@ -53,3 +53,9 @@ after external deletion or transfer unsaved requests between devices. Actual
 signed-in browser/supplier acceptance, missing invoice source, remaining source
 corrections/allocations and bank settlement stay open. Task1 remains code/database
 complete awaiting domains; Task2 remains open.
+
+Current follow-on: a still-current unconfirmed request can now be closed with
+separate consent through a persistent server fence. A committed save is recovered
+instead; late legacy/direct saves cannot bypass closure. SQL save rejections keep
+the canonical request until saved, closed or superseded proof resolves it. See
+a2_summary_attempt_closure.md.
