@@ -1,4 +1,5 @@
 import {automaticAlternativeVerified} from "./alternative-groups.js";
+import {productGroupApproved} from './product-associations.js';
 import {vendorListingLabel} from "./vendor-listing.js";
 import {calculatedUnitCost} from "./quote-controls.js";
 import {casePriceFromQuote,parsePackSize,priceBasisFor,compareProductIdentity,comparePurchasingPack,suggestCategory,quoteStatus,brandsMatch,measuredQuoteRate} from "../procurement.js";
@@ -288,7 +289,8 @@ export function orderGuideAssessment(input){
   // to a tomato catalog item ("No shared defining product terms") does not qualify.
   const gap=!peers.length&&fieldsReady?mappingGap(vendorItem,item,[]):null;
   const standaloneQualified=!!gap&&gap.code==="single-vendor-ready";
-  const verification=approved&&((clientApproved&&item.comparison_mode!=="exact")||automaticAlternativeVerified(vendorItem,item,peers)||!peers.length)?mapping:mappingVerification(vendorItem,item,peers);
+  const identityApproved=productGroupApproved(vendorItem,item,mapping)&&item.comparison_mode!=="exact";
+  const verification=approved&&(identityApproved||(clientApproved&&item.comparison_mode!=="exact")||automaticAlternativeVerified(vendorItem,item,peers)||!peers.length)?mapping:mappingVerification(vendorItem,item,peers);
   if(!standaloneQualified&&verification.comparison_track!=="exact")blockers.push("association");
   return {ready:blockers.length===0,fieldsReady,blockers,evidence,verification};
 }

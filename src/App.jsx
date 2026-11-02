@@ -414,7 +414,7 @@ export default function App() {
     const mappingsByCatalog=new Map();
     for(const mapping of mappings){const group=mappingsByCatalog.get(mapping.catalog_item_id)||[];group.push(mapping);mappingsByCatalog.set(mapping.catalog_item_id,group);}
     const categoriesById=new Map(categories.map(category=>[category.id,category]));
-    return catalogItems.map(ci=>{
+    return catalogItems.filter(ci=>!ci.merged_into_id||mappingsByCatalog.has(ci.id)).map(ci=>{
       const ciMappings=mappingsByCatalog.get(ci.id)||[];
       const lockedBrand=ci.brand_locked?(ci.locked_brand||null):null;
       const options=ciMappings.map(m=>{

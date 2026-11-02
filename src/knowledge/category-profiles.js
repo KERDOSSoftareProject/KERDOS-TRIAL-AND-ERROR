@@ -5,12 +5,14 @@ import {restaurantPricingPriors} from "./restaurant-pricing-priors.js";
 import {restaurantQuoteContext} from "./restaurant-quote-context.js";
 import {restaurantProductContext} from "./restaurant-product-context.js";
 import {restaurantDictionaries,restaurantUnitVocabulary,RESTAURANT_DICTIONARY_VERSION} from "./restaurant-dictionaries.js";
+import {restaurantAssociations} from './restaurant-associations.js';
 
 // Profiles supply industry-specific interpretation; procurement stays generic.
 const profiles=new Map([["restaurant",{
   category:restaurantCategoryContext,quote:restaurantQuoteContext,product:restaurantProductContext,pack:restaurantPackContext,pricingPriors:restaurantPricingPriors,
   unitCostUnits:restaurantUnitCostUnits,
   dictionaries:restaurantDictionaries,vocabulary:restaurantUnitVocabulary,version:RESTAURANT_DICTIONARY_VERSION,
+  associations:restaurantAssociations,
 }]]);
 let activeProfile=null;
 
@@ -31,6 +33,7 @@ export function industryProductContext(text){
 }
 
 export function industryVocabulary(){return activeProfile?.vocabulary||[];}
+export function industryAssociationProfile(){return activeProfile?.associations||{version:'literal-1',concepts:[],facets:[],fragments:[]};}
 
 // Explicit industry lookup also makes the bundled knowledge inspectable in Admin.
 export function industryDictionary(industry){
