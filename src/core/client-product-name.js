@@ -23,7 +23,11 @@ export function clientProductName(item,rows=[],industry=''){
   }else current=withoutBrands.trim();
  }
  // Deliberately entered client names still take precedence over synonyms.
- if(rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
+ const confirmedGroup=rows.length>0&&rows.every(row=>{
+  const decision=row.field_resolutions?.product_group;
+  return decision?.confirmedBy&&decision.catalogItemId===item.id&&decision.description===row.description&&decision.brand===(row.brand??null);
+ });
+ if(confirmedGroup||rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
  const sourceWords=dictionaryTokens(current);
  if(!sourceWords.some(word=>/[a-z]/i.test(word)&&!vocabulary.nonProducts?.includes(word)&&!/^\d/.test(word)))return null;
  const identity=productAssociationIdentity({description:current},profile);

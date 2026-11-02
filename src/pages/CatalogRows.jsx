@@ -2,6 +2,7 @@ import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {ProductAssociationTrial} from './ProductAssociationTrial.jsx';
 import {AssociateAlternatives} from './AssociateAlternatives.jsx';
 import {clientProductName} from '../core/client-product-name.js';
+import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
 import {QuotedPerControl} from "./QuotedPerControl.jsx";
@@ -188,7 +189,7 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
     </td></tr>}
   </>;
 }
-export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
+export function CatalogRows({sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
   const summary=useMemo(()=>qualificationSummary({catalogItems,vendorItems,mappings,vendors,categories,settings}),[catalogItems,vendorItems,mappings,vendors,categories,settings]);
   const [selected,setSelected]=useState(new Set());
   const [expanded,setExpanded]=useState(new Set());
@@ -230,7 +231,8 @@ export function CatalogRows({industry="",orgId,items,catalogItems,vendorItems,ma
     const catalogItem=catalog.get(item.catalogItemId);
     groups.set(item.catalogItemId,{id:item.catalogItemId,name:clientProductName(catalogItem||{name:item.name},[],industry)||item.name||'Product name needed',number:catalogItem?.master_item_number??item.masterItemNumber,rows:[]});
   }
-  const orderedGroups=[...groups.values()].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'})||String(a.number??'').localeCompare(String(b.number??''),undefined,{numeric:true})||a.id.localeCompare(b.id));
+  const browseById=new Map(items.map(item=>[item.catalogItemId,item]));
+  const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div style={{borderRadius:10,background:"white",marginBottom:16}}>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     <div style={{padding:12,fontSize:12}}>Correct any cell, then save its row. Missing fields can be completed later.

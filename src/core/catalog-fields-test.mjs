@@ -83,3 +83,12 @@ const restaurantUnits=unitChoices([{kind:"unit",term:"yards",canonical:"YD"},{ki
 assert.deepEqual(restaurantUnits.map(u=>u.value),["CASE","EACH","LB","OZ","GAL","QT","PT","FLOZ","KG","G","L","ML","DOZ"]);
 assert.ok(!unitChoices([],true,"Restaurant").some(u=>["CASE","EACH","FT","IN","YD","M","CM","MM"].includes(u.value)));
 assert.ok(unitChoices([],false,"Construction").some(u=>u.value==="YD"),"nonfood industries retain length units");
+
+// A verified product takes its category from its KERDOS item, independently
+// of the supplier wording, while missing purchasing evidence remains blocked.
+const groupItem={id:'group-category',name:'Cheddar Cheese',category_id:'general',category_reason:'confirmed',category_review:false};
+const groupRow={...prior,id:'group-row',description:'CHEESE CHEDDAR',brand:null,pack_size:null,selling_unit:null,price_basis:null,field_resolutions:{product_group:{catalogItemId:groupItem.id,description:'CHEESE CHEDDAR',brand:null}}};
+const groupMapping={...mapping,vendor_item_id:groupRow.id,catalog_item_id:groupItem.id,match_method:'manual'};
+const groupEvidence=catalogRowEvidence({item:groupItem,vendorItem:groupRow,mapping:groupMapping,category:{id:'general',name:'General'},categories:[{id:'general',name:'General',keywords:[]},{id:'dairy',name:'Dairy',keywords:['cheese','cheddar']}]});
+assert.equal(groupEvidence.category.value,'General');assert.ok(groupEvidence.category.accuracy>=90);assert.match(groupEvidence.category.reason,/KERDOS item/);
+assert.equal(orderGuideAssessment({item:groupItem,vendorItem:groupRow,mapping:groupMapping,category:{id:'general',name:'General'}}).ready,false,'group category cannot approve missing pack and quote units');

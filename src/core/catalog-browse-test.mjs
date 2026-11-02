@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import {compareItems,itemMatchesSearch,comparisonReviewCandidates} from './catalog-browse.js';
 const items=[
  {name:"Ham Deli",masterItemNumber:7002,createdAt:"2026-09-02",options:[{description:"BOARS HEAD HAM",vendorItemCode:"B12"}]},
@@ -25,3 +26,11 @@ const review=comparisonReviewCandidates(guideItem,[
 ],[{catalog_item_id:"client-1",vendor_item_id:"a"}],[{id:"v1",name:"Minores"},{id:"v2",name:"Cityline"},{id:"v3",name:"Different pack"},{id:"v4",name:"Different item"}]);
 t("only a plausible same-pack vendor is proposed for review",review.length===1&&review[0].vendorName==="Cityline"&&review[0].price===56.9);
 console.log(`${ok} passed, ${bad} failed`);
+
+const {sourceOnlyListings}=await import('./source-only-listings.js');
+assert.equal(sourceOnlyListings([]),false,'an item without a supplier is not metadata');
+assert.equal(sourceOnlyListings([{description:'American Cheese'}]),false,'one supplier is a valid product');
+const sourceOnly={field_resolutions:{source_classification:{kind:'document_metadata',confirmedBy:'reviewer'}}};
+assert.equal(sourceOnlyListings([sourceOnly]),true);
+assert.equal(sourceOnlyListings([sourceOnly,{description:'American Cheese'}]),false,'a real listing preserves the item');
+assert.equal(sourceOnlyListings([{field_resolutions:{source_classification:{kind:'document_metadata'}}}]),false,'unconfirmed proposals cannot hide items');
