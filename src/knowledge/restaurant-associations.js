@@ -46,9 +46,11 @@ for(const group of ['food','ingredient','hospitality'])for(const entry of restau
 for(const [label,aliases] of extra)terms.set(label.toLowerCase(),{label,terms:aliases});
 export const restaurantAssociations={version:'restaurant-associations-2',concepts:[...terms.values()],
  brandTerms:restaurantClientNames.brands,
+ // A supplier may state both the product and its broader meat class.
+ broaderConcepts:{bacon:['pork']},
  // Group by the product alone. Cut, portion, brand, pack and percentages
  // remain on the source listing; they do not create client-facing groups.
  groupDetails:false,
  facets:[],
- fragments:['usa','mex','can','per','hnd','bel','ny','fl','ga','ct','lb','oz','case','total','subtotal','invoice','description','price','product prices'],
+ fragments:['bagged','usa','mex','can','per','hnd','bel','ny','fl','ga','ct','lb','oz','case','total','subtotal','invoice','description','price','product prices'],
 };
