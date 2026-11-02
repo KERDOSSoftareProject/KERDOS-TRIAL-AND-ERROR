@@ -310,7 +310,20 @@ await check('automatic evidence-schema failure and refresh failure do not claim 
 await check('automatic reader failure retains original and provenance as a partial exception',async()=>{
  const f=fixture(),p=await autoOpen(csv,{initialFiles:[{...file(),readingError:'reader unavailable'}]});await automaticResult(p);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.uploads.length,1);assert.equal(f.uploads[0].bytes,csv);assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.match(text(p.tree.toJSON()),/Could not read source/);p.tree.unmount();
 });
-console.log(passed+'/33 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+await check('automatic held-row recovery reuses retained identity after newer code/pack/review evidence replaces the listing',async()=>{
+ const content=csv.replace('Price Unit,Price','Price Unit,Price,Unfamiliar Fee').replace('CASE,41.25','CASE,41.25,6.00');
+ const f=fixture(),first=await autoOpen(content);await automaticResult(first);assert.equal(first.finished.length,1);first.tree.unmount();
+ const doc=Object.values(f.importDocs)[0],item=f.vendorItems[0];doc.status='partial';doc.completed_keys=[];
+ doc.staged_row_receipts={'row:0':{vendorItemId:item.id,sourceSha256:'a'.repeat(64)}};
+ Object.assign(item,{vendor_item_code:'CORRECTED-CODE',description:'Corrected product name',pack_size:'4/5 LB',price:44.25,price_unavailable:false,import_row:{sourceDocumentId:'newer-source',rowKey:'row:0',reviewRequired:false,row:{price:44.25}}});
+ const baseline=structuredClone(item),calls=f.calls.applyQuote.length,uploads=f.uploads.length;
+ const resumed=await autoOpen(content);await automaticResult(resumed);assert.equal(resumed.finished.length,1,text(resumed.tree.toJSON()));assert.equal(doc.status,'complete');assert.deepEqual(doc.completed_keys,['row:0']);assert.deepEqual(item,baseline,'resume must preserve the newer price, identity fields and review evidence');assert.equal(f.calls.applyQuote.length,calls);assert.equal(f.uploads.length,uploads);assert.equal(f.calls.insertImportDoc.length,1);resumed.tree.unmount();
+ doc.status='partial';doc.completed_keys=[];doc.source_rows.rows[0].values[1]='Mismatched retained source';
+ const shifted=await autoOpen(content);await automaticResult(shifted);assert.equal(shifted.finished.length,0);assert.match(text(shifted.tree.toJSON()),/saved row positions or values differ/);assert.deepEqual(item,baseline);shifted.tree.unmount();
+ doc.source_rows.rows[0].values[1]='Chicken Breast Boneless Skinless';f.vendorItems.length=0;
+ const missing=await autoOpen(content);await automaticResult(missing);assert.equal(missing.finished.length,0);assert.match(text(missing.tree.toJSON()),/retained source-row listing is no longer available/);assert.equal(f.calls.applyQuote.length,calls);missing.tree.unmount();
+});
+console.log(passed+'/34 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

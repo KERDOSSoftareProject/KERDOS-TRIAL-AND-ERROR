@@ -20,6 +20,11 @@ held retry cannot undo that resolution. A different positive price from an old
 held source cannot overwrite a newer source; it requires current evidence and
 review. The previous accepted-history replay guard remains in place.
 
+The browser resume path includes receipt keys in its source-snapshot checks,
+loads the saved listing by its owned ID even after identity fields change, and
+skips rewriting an already retained held observation over newer review data.
+Missing/deleted listings and changed retained source values stop for review.
+
 The browser document service explicitly stamps staged_receipts_version=1 for
 new source records. Existing documents and older producers remain unversioned;
 they are not bulk relabelled or guessed. For an unversioned held row, the RPC
@@ -37,8 +42,10 @@ correction, old retry after newer pricing, conflicting input, append-only and
 version integrity, atomic rollback, RLS isolation and exact/conservative legacy
 recovery. Migrations run twice in the fixture. Independent PostgreSQL CI adds
 held commit/rollback/conflict races to the three accepted races, with observed
-lock waits, correct listing/history/receipt counts and database cleanup. Existing
-rendered automatic-ingestion checks verify the browser's new-document marker.
+lock waits, correct listing/history/receipt counts and database cleanup. The34
+rendered upload checks verify the browser marker and actual resumed import: changed
+listing identity/latest pricing survive, and missing listings/source mismatches
+stop without writes.
 
 Refresh deployed KERDOS for the updated browser document contract. Companion
 0.2.1 needs no replacement. Existing completed exact-file pilot acceptance

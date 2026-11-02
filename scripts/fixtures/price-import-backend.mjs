@@ -34,7 +34,7 @@ export function createPriceImportFixture({text:CSV_TEXT}) {
     // ── vendor_items ─────────────────────────────────────────────────────────
     if (table === 'vendor_items') {
       // Initial load — empty (no pre-seeded items for NEW_CODE)
-      if (action === 'select') return Promise.resolve({ data: eqFilter(vendorItems, filters), error: null });
+      if (action === 'select') {const rows=eqFilter(vendorItems,filters);return Promise.resolve({data:cardinality==='single'||cardinality==='maybeSingle'?rows[0]??null:rows,error:null});}
       // update (import_row staging when needsBasis && ex — should NOT be called
       // for a brand-new item because ex is null)
       if (action === 'update') {
@@ -107,7 +107,7 @@ export function createPriceImportFixture({text:CSV_TEXT}) {
         const fpFilter = filters.find(f => f.column === 'fingerprint');
         if (fpFilter && importDocs[fpFilter.value]) {
           const doc = importDocs[fpFilter.value];
-          const row = { id: doc.id, status: doc.status, completed_keys: doc.completed_keys,source_rows:doc.source_rows,file_path:doc.file_path };
+          const row = { id: doc.id, status: doc.status, completed_keys: doc.completed_keys,source_rows:doc.source_rows,file_path:doc.file_path,staged_row_receipts:doc.staged_row_receipts };
           return Promise.resolve({ data: row, error: null });
         }
         return Promise.resolve({ data: null, error: null });

@@ -51,16 +51,22 @@ import {engineVerifiable} from '../services/catalog.js';
  */
 export async function importPriceRow({
   backend, importService, catalogService,
-  sourceRow, row, ex, priorMapping, rowIssues, rowNeedsReview, invoiceSources,
+  sourceRow, row, ex, priorMapping, rowIssues, rowNeedsReview, invoiceSources, stagedReceipt=null, replayStagedObservation=false,
   orgId, vendorId, sourceDocumentId, completedKey, importBatchTime, group, sourceFilePath,
   workingCatalogItems, workingCategories, workingVendorItems, workingMappings,
   applySelectedCategory,assertActive=()=>{},
 }) {
   assertActive();
+  if(stagedReceipt&&(!ex||stagedReceipt.vendorItemId!==ex.id))throw new Error('The retained source-row listing differs from this retry.');
   if (!rowNeedsReview && !row.priceUnavailable && (!Number.isFinite(Number(row.price)) || Number(row.price) <= 0))
     throw new Error('No confirmed positive unit price');
 
-  const prepared = preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId});
+  // Normal resume already proved this held source observation against its
+  // immutable snapshot. Recover its mapping/progress using the current listing;
+  // explicit Inbox review may still resolve a current held row deliberately.
+  const prepared = stagedReceipt&&replayStagedObservation
+    ? {row,requiresReview:true,resolved:null,reviewFields:[],reasons:[]}
+    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId});
   row = prepared.row;
   const resolved = prepared.resolved;
   const needsBasis = prepared.requiresReview;
@@ -72,26 +78,30 @@ export async function importPriceRow({
   let vendorItemId;
   if (needsBasis && ex) {
     vendorItemId = ex.id;
-    // Still write the import_row so Item Catalog shows what needs resolving.
-    assertActive();
-    const {error} = await backend.records.query('vendor_items')
-      .update({import_row: {
-        row: {...sourceRow, ...(sourceRow.originalFields||{})},
-        evidence: row,
-        rowKey: completedKey,
-        baseline: ex.import_row?.baseline || ex.import_row?.row || {
-          description: ex.description, brand: ex.brand, packSize: ex.pack_size,
-          sellingUnit: ex.selling_unit, gtin: ex.gtin, manufacturerCode: ex.manufacturer_code,
-        },
-        sourceDocumentId, sourceFileName: group.name,
-        reviewRequired: true,
-        reviewFields: prepared.reviewFields,
-        changes: row.changes || [],
-        conflicts: prepared.reasons,
-      }})
-      .eq('id', ex.id)
-      .eq('organization_id', orgId);
-    if (error) throw new Error(`Could not save the incoming quote for review: ${error.message}`);
+    // A verified receipt already retained this observation. Replaying it must
+    // not restore old review flags over a later correction or newer source.
+    if(!stagedReceipt){
+      // Still write the import_row so Item Catalog shows what needs resolving.
+      assertActive();
+      const {error} = await backend.records.query('vendor_items')
+        .update({import_row: {
+          row: {...sourceRow, ...(sourceRow.originalFields||{})},
+          evidence: row,
+          rowKey: completedKey,
+          baseline: ex.import_row?.baseline || ex.import_row?.row || {
+            description: ex.description, brand: ex.brand, packSize: ex.pack_size,
+            sellingUnit: ex.selling_unit, gtin: ex.gtin, manufacturerCode: ex.manufacturer_code,
+          },
+          sourceDocumentId, sourceFileName: group.name,
+          reviewRequired: true,
+          reviewFields: prepared.reviewFields,
+          changes: row.changes || [],
+          conflicts: prepared.reasons,
+        }})
+        .eq('id', ex.id)
+        .eq('organization_id', orgId);
+      if (error) throw new Error(`Could not save the incoming quote for review: ${error.message}`);
+    }
   } else {
     assertActive();
     vendorItemId = await backend.pricing.applyQuote({
