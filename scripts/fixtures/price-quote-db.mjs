@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {randomUUID} from 'node:crypto';
 export const retryMigration=new URL('../../supabase/migrations/20261102133527_price_quote_retry_guard.sql',import.meta.url);
 // Isolated synthetic database only: shared by embedded SQL and separate-session tests.
+export async function upgradePriceQuoteRecovery(db){for(const file of [retryMigration,new URL('../../supabase/migrations/20261102135151_staged_price_row_receipts.sql',import.meta.url)]){const sql=fs.readFileSync(file,'utf8');await db.exec(sql);await db.exec(sql);}}
 export async function priceQuoteFixture(db,{upgrade=true}={}){
  const org=randomUUID(),owner=randomUUID(),manager=randomUUID(),employee=randomUUID(),outsider=randomUUID(),vendor=randomUUID();
  await db.exec(`create schema auth;do $$begin if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated;end if;if not exists(select 1 from pg_roles where rolname='anon') then create role anon;end if;end$$;
@@ -20,10 +21,10 @@ export async function priceQuoteFixture(db,{upgrade=true}={}){
  await db.query('insert into vendors values($1,$2)',[vendor,org]);
  const original=fs.readFileSync(new URL('../../knowledge/migration_015_recoverable_imports.sql',import.meta.url),'utf8');
  await db.exec(original.slice(0,original.indexOf('create or replace function public.kerdos_save_catalog_row(')));
- if(upgrade){const sql=fs.readFileSync(retryMigration,'utf8');await db.exec(sql);await db.exec(sql);}
- async function document(){return (await db.query('insert into import_documents(organization_id,vendor_id) values($1,$2) returning id',[org,vendor])).rows[0].id;}
+ if(upgrade)await upgradePriceQuoteRecovery(db);
+ async function document(){const versioned=(await db.query("select exists(select 1 from information_schema.columns where table_schema='public' and table_name='import_documents' and column_name='staged_receipts_version') as available")).rows[0].available;return (await db.query(versioned?'insert into import_documents(organization_id,vendor_id,staged_receipts_version) values($1,$2,1) returning id':'insert into import_documents(organization_id,vendor_id) values($1,$2) returning id',[org,vendor])).rows[0].id;}
  function quote(doc,{item=null,price=41.25,key='row:0',line='TEST-1,Example product,2/10 LB,CS,41.25',description='Example product',unavailable=false}={}){
-  const args=[item,org,vendor,'TEST-1',description,'2/10 LB',price,unavailable,'2026-11-02T12:00:00Z',null,null,'Synthetic.csv',line,doc,'CS','case',null,null,JSON.stringify({rowKey:key,sourceDocumentId:doc,row:{price},reviewRequired:unavailable}),null,'Example'];
+  const args=[item,org,vendor,'TEST-1',description,'2/10 LB',price,unavailable,'2026-11-02T12:00:00Z',null,null,'Synthetic.csv',line,doc,'CS','case',null,null,JSON.stringify({rowKey:key,sourceDocumentId:doc,row:{price,sourceLine:line},reviewRequired:unavailable}),null,'Example'];
   return {sql:`select kerdos_apply_price_quote(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`,args};
  }
  async function actor(c,user){await c.query('reset role');await c.query("select set_config('request.jwt.claim.sub',$1,false)",[user]);await c.query('set role authenticated');}

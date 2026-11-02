@@ -22,7 +22,7 @@ export function createImportService(backend){
     findPriceDocumentById({organizationId,vendorId,documentId}){return run(table("import_documents").select("id,status,completed_keys,source_rows,file_path").eq("id",documentId).eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","pricelist").maybeSingle(),"Could not load the partial import document");},
     // A1.2.g: check for a previously stored invoice document (duplicate Postmark delivery guard).
     findInvoiceDocument({organizationId,vendorId,fingerprint}){return run(table("import_documents").select("id,status").eq("organization_id",organizationId).eq("vendor_id",vendorId).eq("document_kind","invoice").eq("fingerprint",fingerprint).maybeSingle(),"Could not check for duplicate invoice");},
-    createPriceDocument(row){return run(table("import_documents").insert(row).select("id").single(),"Could not preserve the source document");},
+    createPriceDocument(row){return run(table("import_documents").insert({...row,staged_receipts_version:1}).select("id").single(),"Could not preserve the source document");},
     async resumeSources(organizationId,vendorId,documentId){
       const quotes=[];
       for(let offset=0;;offset+=500){

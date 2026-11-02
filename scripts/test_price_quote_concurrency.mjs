@@ -14,8 +14,8 @@ try{
  const setup=await connect(),db={exec:sql=>setup.query(sql),query:(...args)=>setup.query(...args)};
  const f=await priceQuoteFixture(db);const left=await connect(),right=await connect(),monitor=await connect();
  const pids=await Promise.all([left,right,monitor].map(async c=>(await c.query('select pg_backend_pid() as id')).rows[0].id));assert.equal(new Set(pids).size,3);
- for(const mode of ['commit','rollback','conflict']){
-  const doc=await f.document(),cmd=f.quote(doc),competing=mode==='conflict'?f.quote(doc,{price:99}):cmd;
+ for(const unavailable of [false,true])for(const mode of ['commit','rollback','conflict']){
+  const doc=await f.document(),cmd=f.quote(doc,{unavailable}),competing=mode==='conflict'?f.quote(doc,{price:99,unavailable}):cmd;
   await f.actor(left,f.owner);await f.actor(right,f.manager);await left.query('begin');await right.query('begin');let pending;
   try{
    const first=await f.call(left,cmd);let settled=false;
@@ -26,12 +26,13 @@ try{
    await left.query(mode==='rollback'?'rollback':'commit');const second=await pending;
    if(mode==='conflict'){assert.ok(second.error);assert.match(second.error.message,/Saved source row differs/);await right.query('rollback');}
    else{if(second.error)throw second.error;await right.query('commit');if(mode==='commit')assert.equal(second.value,first);}
-   const rows=(await setup.query('select * from price_history where source_document_id=$1',[doc])).rows;assert.equal(rows.length,1);assert.equal(Number(rows[0].price),41.25);
+   const rows=(await setup.query('select * from price_history where source_document_id=$1',[doc])).rows;assert.equal(rows.length,unavailable?0:1);if(!unavailable)assert.equal(Number(rows[0].price),41.25);
+   if(unavailable){const receipt=(await setup.query('select staged_row_receipts from import_documents where id=$1',[doc])).rows[0].staged_row_receipts;assert.equal(Object.keys(receipt).length,1);assert.match(receipt['row:0'].sourceSha256,/^[a-f0-9]{64}$/);}
    assert.equal((await setup.query('select count(*)::int as n from vendor_items v where v.import_row->>\'sourceDocumentId\'=$1',[doc])).rows[0].n,1);
-   console.log('PASS accepted quote '+mode+': distinct sessions, observed lock wait, one listing/history entry');
+   console.log('PASS '+(unavailable?'held':'accepted')+' quote '+mode+': distinct sessions, observed lock wait, one listing; correct history/receipt count');
   }finally{await left.query('rollback');if(pending)await pending;await right.query('rollback');}
  }
- console.log('Accepted quote recovery: 3 separate-session races passed.');
+ console.log('Accepted/held quote recovery: 6 separate-session races passed.');
 }finally{
  for(const c of clients.filter(c=>c!==admin))await c.end();
  if(admin){try{if(created){await admin.query(`drop database ${database}`);assert.equal((await admin.query('select count(*)::int as n from pg_database where datname=$1',[database])).rows[0].n,0);console.log('PASS quote fixture database removed');}}finally{await admin.end();}}
