@@ -5,8 +5,8 @@ export function createCompanionHandoff({target=window,selection,onReceive,onStat
   if(!selection.organizationId||!selection.vendorId||!selection.account?.trim()||!selection.list?.trim()||selection.account.length>200||selection.list.length>200||!selection.adapterKey||!selection.portalOrigin)throw new Error('Select the client, vendor, account and list.');
   const approvedOrigin=new URL(selection.portalOrigin);
   if(approvedOrigin.protocol!=='https:'||approvedOrigin.origin!==selection.portalOrigin)throw new Error('Unsupported portal origin.');
-  const ticket=Object.freeze({...selection,nonce:cryptoApi.randomUUID(),expiresAt:now()+10*60*1000});
-  let active=true,claimed=false,state='ready',expiryTimer;
+  const ticket=Object.freeze({...selection,nonce:cryptoApi.randomUUID(),expiresAt:now()+10*60*1000,protocolVersion:2});
+  let active=true,claimed=false,exportClaim=null,state='ready',expiryTimer;
   const transition=next=>{state=next;onStateChange(next);};
   const clearExpiry=()=>{if(expiryTimer!==undefined){unschedule(expiryTimer);expiryTimer=undefined;}};
   const expire=()=>{if(!active||state==='receiving')return;active=false;clearExpiry();transition('expired');};
@@ -19,10 +19,14 @@ export function createCompanionHandoff({target=window,selection,onReceive,onStat
     if(typeof msg.requestId!=='string'||msg.requestId.length>80)return;
     if(active&&now()>=ticket.expiresAt)expire();
     if(msg.type==='pair'){
-      reply(msg.requestId,active&&!claimed&&now()<ticket.expiresAt?{ok:true,ticket}:{ok:false});return;
+      reply(msg.requestId,active&&!claimed&&!exportClaim&&now()<ticket.expiresAt?{ok:true,ticket}:{ok:false});return;
+    }
+    if(msg.type==='claim'){
+      if(!active||claimed||exportClaim||now()>=ticket.expiresAt||msg.nonce!==ticket.nonce||typeof msg.claimId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(msg.claimId)){reply(msg.requestId,{ok:false});return;}
+      exportClaim=msg.claimId;transition('exporting');reply(msg.requestId,{ok:true,outcome:'ready_for_export'});return;
     }
     if(msg.type!=='deliver')return;
-    if(!active||claimed||now()>=ticket.expiresAt||msg.nonce!==ticket.nonce){reply(msg.requestId,{ok:false});return;}
+    if(!active||claimed||now()>=ticket.expiresAt||msg.nonce!==ticket.nonce||(exportClaim!==null?msg.claimId!==exportClaim:msg.claimId!=null)){reply(msg.requestId,{ok:false});return;}
     claimed=true; // Reserve before any asynchronous byte work; replays never re-enter.
     try{
       const artifact=msg.artifact;

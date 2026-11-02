@@ -23,13 +23,19 @@ button.addEventListener('click',async()=>{
   const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
   const provider=tab?.url&&providers.find(p=>p.origin===new URL(tab.url).origin&&p.key===pairing.adapterKey&&p.origin===pairing.portalOrigin);
   if(!tab?.id||!provider)throw new Error('wrong_origin');
+  if(pairing.protocolVersion!==2){await chrome.storage.session.remove('pairing');status.textContent='Refresh KERDOS, prepare a new browser transfer and pair this companion again before exporting.';return;}
+  const claimId=crypto.randomUUID();
+  // The app atomically reserves this exact export attempt before any vendor action.
+  const ready=await chrome.tabs.sendMessage(pairing.tabId,{type:'kerdos-claim',nonce:pairing.nonce,claimId});
+  if(!ready?.ok||ready.outcome!=='ready_for_export'){await chrome.storage.session.remove('pairing');status.textContent='KERDOS is no longer ready for this transfer. Prepare and pair a new transfer. No vendor export was started.';return;}
   // Remove before export so this one-use selection cannot be replayed by popup.
   await chrome.storage.session.remove('pairing');
   status.textContent='Checking the selected account and exporting its pricing list… Keep this popup open.';
   const result=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:provider.execute,args:[{account:pairing.account,list:pairing.list,capture:true}]});
   const response=result[0]?.result;
+  if(response?.outcome==='verification_needed'){status.textContent='Your vendor requires sign-in or verification. Complete it directly with the vendor, then prepare and pair a new transfer. No file was sent to KERDOS.';return;}
   if(response?.outcome!=='export_captured'){status.textContent=`Stopped: ${response?.outcome||'page_unavailable'}. No file was sent to KERDOS. Prepare a new transfer to retry.`;return;}
-  const ack=await chrome.tabs.sendMessage(pairing.tabId,{type:'kerdos-deliver',nonce:pairing.nonce,artifact:response.artifact});
+  const ack=await chrome.tabs.sendMessage(pairing.tabId,{type:'kerdos-deliver',nonce:pairing.nonce,claimId,artifact:response.artifact});
   status.textContent=ack?.ok&&ack.outcome==='received_for_review'?'KERDOS received the CSV for import review. Return to its tab to check the import result. This receipt does not confirm saved prices.':'KERDOS did not accept the file. Prepare a new transfer and retry.';
  }catch{status.textContent='Transfer unavailable. Keep your signed-in KERDOS tab open and prepare/pair a new transfer. No completed import has been confirmed.';}
  finally{button.disabled=false;pair.disabled=false;}

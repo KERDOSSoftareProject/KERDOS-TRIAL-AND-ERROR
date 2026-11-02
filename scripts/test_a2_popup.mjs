@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+const ticket={protocolVersion:2,tabId:1,nonce:'one-use-transfer',expiresAt:Date.now()+600000,adapterKey:'us-foods-moxe',portalOrigin:'https://order.usfoods.com',account:'Sample Client',list:'Example List'};
+let pairing,mode,exports,commands,finishExport;
+function controls(){return Object.fromEntries(['export','pair','status'].map(id=>[id,{disabled:false,textContent:'',addEventListener(event,fn){this[event]=fn;}}]));}
+let ui;
+globalThis.document={getElementById:id=>ui[id]};
+globalThis.chrome={tabs:{query:async()=>[{id:2,url:'https://order.usfoods.com/desktop/lists/view/selected'}],sendMessage:async(id,msg)=>{commands.push(msg);assert.equal(id,1);if(mode==='closed')throw Error('No receiving tab');if(msg.type==='kerdos-claim')return mode==='rejected'?{ok:false}:{ok:true,outcome:'ready_for_export'};assert.equal(msg.claimId,commands[0].claimId);return mode==='delivery-rejected'?{ok:false}:{ok:true,outcome:'received_for_review'};}},storage:{session:{get:async()=>({pairing:pairing&&structuredClone(pairing)}),remove:async()=>{pairing=null;},set:async value=>{pairing=value.pairing;}}},scripting:{executeScript:async spec=>{exports++;assert.equal(spec.world,'MAIN');assert.deepEqual(spec.args,[{account:ticket.account,list:ticket.list,capture:true}]);if(mode==='interrupted')await new Promise(resolve=>{finishExport=resolve;});return [{result:mode==='verification'?{outcome:'verification_needed'}:{outcome:'export_captured',artifact:{origin:ticket.portalOrigin,base64:'YQ=='}}}];}}};
+let counter=0;
+async function load(){ui=controls();await import('../companion/chrome/popup.mjs?test='+counter++);return ui;}
+async function scenario(nextMode,overrides={}){mode=nextMode;pairing={...ticket,...overrides};exports=0;commands=[];finishExport=null;return load();}
+try{
+ for(const condition of ['closed','rejected']){const page=await scenario(condition);await page.export.click();assert.equal(exports,0);assert.doesNotMatch(page.status.textContent,/received the CSV/);assert.equal(page.export.disabled,false);assert.equal(page.pair.disabled,false);}
+ let page=await scenario('success',{expiresAt:Date.now()-1});await page.export.click();assert.equal(exports,0);assert.equal(commands.length,0);
+ page=await scenario('success',{protocolVersion:undefined});await page.export.click();assert.equal(exports,0);assert.equal(commands.length,0);assert.equal(pairing,null);assert.match(page.status.textContent,/Refresh KERDOS/);
+ page=await scenario('success');await page.export.click();assert.equal(exports,1);assert.deepEqual(commands.map(m=>m.type),['kerdos-claim','kerdos-deliver']);assert.match(commands[0].claimId,/^[0-9a-f-]{36}$/);assert.equal(pairing,null);assert.match(page.status.textContent,/does not confirm saved prices/);
+ for(const result of ['verification','delivery-rejected']){page=await scenario(result);await page.export.click();assert.equal(exports,1);assert.equal(pairing,null);if(result==='verification'){assert.equal(commands.length,1);assert.match(page.status.textContent,/Complete it directly with the vendor/);}else assert.match(page.status.textContent,/did not accept/);}
+ // Reopening after the export starts cannot reuse the consumed pairing.
+ const oldPage=await scenario('interrupted'),pending=oldPage.export.click();while(!finishExport)await new Promise(resolve=>setImmediate(resolve));assert.equal(pairing,null);const reopened=await load();await reopened.export.click();assert.equal(exports,1);assert.match(reopened.status.textContent,/prepare\/pair a new transfer/);finishExport();await pending;assert.deepEqual(commands.map(m=>m.type),['kerdos-claim','kerdos-deliver']);assert.doesNotMatch(reopened.status.textContent,/received the CSV/);
+ console.log('PASS actual popup module: closed/rejected/expired/incompatible receiver prevents export; claim precedes export; exact delivery claim; vendor verification guidance; consumed pairing prevents repeat after interrupted-popup reopen. Controlled Chrome APIs, not installed-browser acceptance.');
+}finally{delete globalThis.document;delete globalThis.chrome;}
