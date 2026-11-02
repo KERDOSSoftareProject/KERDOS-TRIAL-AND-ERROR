@@ -7,7 +7,7 @@ import {createSummaryClassificationService,resolveSummaryRequest} from '../servi
 const f=await estimatedReceiptFixture();const {db,org,owner,manager,employee,outsider,ol,actor,admin,invoice}=f;
 const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0].value;
 let signedIn=true,sessionUser=owner,backendSaves=0;
-const service=createSummaryClassificationService({session:{get:async()=>signedIn?{user:{id:sessionUser}}:null},invoiceSummaryClassification:{review:(o,i)=>one('select kerdos_review_summary_classification($1,$2) as value',[o,i]),save:p=>{backendSaves++;return one('select kerdos_save_summary_classification_as_actor($1,$2,$3,$4,$5,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review),p.requestedBy]);}}});
+const service=createSummaryClassificationService({session:{get:async()=>signedIn?{user:{id:sessionUser}}:null},invoiceSummaryClassification:{review:(o,i)=>one('select kerdos_review_summary_classification($1,$2) as value',[o,i]),save:p=>{backendSaves++;return one('select kerdos_save_summary_classification_as_actor($1,$2,$3,$4,$5,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review),p.requestedBy]);},closeAttempt:p=>one('select kerdos_close_summary_classification_attempt($1,$2,$3,$4,$5,true) as value',[p.review.organizationId,p.review.invoiceId,p.requestId,JSON.stringify(p.review),p.requestedBy])}});
 try{
  const s=await invoice(),raw='Subtotal 56.00\nTax 0.00\nTransportation 0.00\nCredits 0.00\nInvoice Total 56.00';
  await admin('update invoices set raw_text=$1 where id=$2',[raw,s.iid]);await actor(employee);
@@ -73,5 +73,24 @@ try{
  assert.throws(()=>reconcileInvoice({...freshSource,header:{...freshSource.header,rawText:'Changed source'}},{organizationId:org,invoiceId:s.iid}),/source changed/);
  assert.equal((await one('select kerdos_invoice_approval_gate($1) as value',[JSON.stringify({...freshSource,header:{...freshSource.header,rawText:'Changed source'}})])).eligible,false);
  assert.equal(invoiceSummaryBasis(freshSource).rawText,raw);
+ // Permanent closure works without advancing the current predecessor.
+ const closeContext=await service.review(org,s.iid),toClose=service.prepare(closeContext,[],'Close this exact unconfirmed original request',{confirmed:true});
+ await assert.rejects(service.closeAttempt(toClose),/Confirm closing/);
+ await assert.rejects(one('select kerdos_close_summary_classification_attempt($1,$2,$3,$4,$5,false) as value',[org,s.iid,toClose.requestId,JSON.stringify(toClose.review),owner]),/confirm/);
+ await assert.rejects(one('select kerdos_close_summary_classification_attempt($1,$2,$3,$4,$5,true) as value',[org,s.iid,toClose.requestId,JSON.stringify(toClose.review),manager]),/another signed-in user/);
+ const closed=await service.closeAttempt(toClose,{confirmed:true});assert.equal(closed.status,'closed');assert.deepEqual(await service.closeAttempt(toClose,{confirmed:true}),closed);
+ const afterClose=await service.review(org,s.iid);assert.deepEqual(afterClose.source,closeContext.source,'Closure must not change invoice reconciliation evidence');assert.deepEqual(resolveSummaryRequest(toClose,afterClose),{status:'closed',recordId:closed.record.id});
+ await assert.rejects(service.save(toClose,{confirmed:true}),/permanently closed/);
+ await assert.rejects(one('select kerdos_save_summary_classification($1,$2,$3,$4,true) as value',[org,s.iid,toClose.requestId,JSON.stringify(toClose.review)]),/permanently closed/);
+ await assert.rejects(db.query('insert into invoice_summary_classifications(organization_id,invoice_id,request_id,review,confirmed) values($1,$2,$3,$4,true)',[org,s.iid,toClose.requestId,JSON.stringify(toClose.review)]),/permanently closed/);
+ await assert.rejects(service.closeAttempt({...toClose,review:{...toClose.review,reason:'Changed retained request cannot replace closure'}},{confirmed:true}),/different confirmed evidence/);
+ for(const sql of ['update invoice_summary_closed_attempts set confirmed=false','delete from invoice_summary_closed_attempts'])await assert.rejects(db.exec(sql),/permission denied/);
+ await assert.rejects(db.query("insert into invoice_summary_closed_attempts(organization_id,invoice_id,request_id,review,confirmed,snapshot) values($1,$2,$3,$4,true,'{}')",[org,s.iid,randomUUID(),JSON.stringify(toClose.review)]),/permission denied/);
+ const completed=service.prepare(afterClose,[],'The saved result must win against closure',{confirmed:true}),completedRecord=await service.save(completed,{confirmed:true}),beforeSavedClose=(await service.review(org,s.iid)).closedAttempts.length;
+ assert.deepEqual(await service.closeAttempt(completed,{confirmed:true}),{status:'saved',record:completedRecord});assert.equal((await service.review(org,s.iid)).closedAttempts.length,beforeSavedClose);
+ const failContext=await service.review(org,s.iid),failClose=service.prepare(failContext,[],'Controlled closure rollback leaves no fence',{confirmed:true});
+ await admin("create function fail_summary_close() returns trigger language plpgsql as $$begin raise exception 'controlled close failure';end;$$;");await admin('create trigger zz_fail_summary_close after insert on invoice_summary_closed_attempts for each row execute function fail_summary_close()');await actor(owner);await assert.rejects(service.closeAttempt(failClose,{confirmed:true}),/controlled close failure/);assert.equal((await service.review(org,s.iid)).closedAttempts.length,beforeSavedClose);await admin('drop trigger zz_fail_summary_close on invoice_summary_closed_attempts');await actor(owner);await service.save(failClose,{confirmed:true});
+ await actor(employee);await assert.rejects(one('select kerdos_close_summary_classification_attempt($1,$2,$3,$4,$5,true) as value',[org,s.iid,randomUUID(),JSON.stringify(failClose.review),employee]),/Owner or manager/);await actor(manager);sessionUser=manager;const mc=await service.review(org,s.iid),mp=service.prepare(mc,[],'Manager closes only this manager request',{confirmed:true});assert.equal((await service.closeAttempt(mp,{confirmed:true})).record.closedBy,manager);sessionUser=owner;await actor(owner);
+ console.log('PASS permanent summary closure: consent/actor/role, exact replay, legacy/direct late-save fence, immutable protected marker, saved-result recovery, unchanged financial evidence and late rollback.');
  console.log('PASS summary classification SQL/core/service: retained tokens only, independent parity/gates, owner/manager consent, immutable linear audit, source/history CAS, exact/historical replay, approval invalidation, tamper denial and late rollback.');
 }finally{await db.close();}

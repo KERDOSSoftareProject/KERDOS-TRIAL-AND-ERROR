@@ -132,7 +132,7 @@ try{
  }
  await receivingRaces({setup,f,q,call,overlap});
  await summaryRaces({setup,f,q,call,overlap,scenario,payReview,payment});
- assert.equal(passed,42,'All payment and receiving race cases must execute');
+ assert.equal(passed,48,'All payment and receiving race cases must execute');
  console.log(`Task 2 PostgreSQL concurrency: ${passed} races passed; browser sign-in and hosted acceptance remain separate.`);
 }finally{
  for(const c of connections.filter(c=>c!==admin))await c.end();

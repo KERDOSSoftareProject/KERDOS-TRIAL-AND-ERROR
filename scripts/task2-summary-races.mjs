@@ -42,4 +42,19 @@ export async function summaryRaces({setup,f,q,call,overlap,scenario,payReview,pa
   await overlap(`summary classification ${classificationFirst?'before':'after'} payment`,classificationFirst?classification:save,classificationFirst?save:classification,{rightActor:owner,error:classificationFirst?/current clean/:undefined});
   await count(s);await setup.query('reset role');assert.equal((await setup.query('select count(*) as count from invoice_payments where invoice_id=$1',[s.iid])).rows[0].count,classificationFirst?0:1);
  }
+ // A persistent fence closes even a still-current predecessor; first committed outcome wins.
+ for(const closeFirst of [true,false])for(const rollbackFirst of [false,true]){
+  const s=await scenario(),save=await plan(s),close=q('kerdos_close_summary_classification_attempt',save.args);
+  const result=await overlap(`summary close ${closeFirst?'before':'after'} save ${rollbackFirst?'rollback':'commit'}`,closeFirst?close:save,closeFirst?save:close,{rightActor:owner,rollbackFirst,error:closeFirst&&!rollbackFirst?/permanently closed/:undefined});
+  const saved=closeFirst?rollbackFirst:!rollbackFirst;
+  await setup.query('reset role');const {rows:[r]}=await setup.query('select (select count(*) from invoice_summary_classifications where organization_id=$1 and request_id=$2) as saved,(select count(*) from invoice_summary_closed_attempts where organization_id=$1 and request_id=$2) as closed',[org,save.args[2]]);assert.deepEqual(r,{saved:saved?1:0,closed:saved?0:1});
+  await actor(owner);const c={...await call(setup,q('kerdos_review_summary_classification',[org,s.iid])),actorId:owner},retained={kind:'invoice_summary_classification_request',version:1,requestId:save.args[2],requestedBy:owner,review:JSON.parse(save.args[3])};assert.equal(resolveSummaryRequest(retained,c).status,saved?'saved':'closed');
+  if(!saved){await assert.rejects(call(setup,save),/permanently closed/);await assert.rejects(call(setup,q('kerdos_save_summary_classification',save.args.slice(0,4).concat(true))),/permanently closed/);}else if(!closeFirst&&!rollbackFirst)assert.equal(result.second.record.id,result.first.id);
+  if(!saved)await call(setup,payReview(s,1,'CLOSURE-LEAVES-APPROVAL-CURRENT'));
+ }
+ for(const rollbackFirst of [false,true]){
+  const s=await scenario(),save=await plan(s),close=q('kerdos_close_summary_classification_attempt',save.args),result=await overlap(`summary close identical ${rollbackFirst?'rollback':'commit'}`,close,close,{rightActor:owner,rollbackFirst,same:!rollbackFirst});
+  await setup.query('reset role');const {rows:[r]}=await setup.query('select (select count(*) from invoice_summary_classifications where invoice_id=$1) as saved,(select count(*) from invoice_summary_closed_attempts where invoice_id=$1) as closed',[s.iid]);assert.deepEqual(r,{saved:0,closed:1});if(rollbackFirst)assert.notEqual(result.first.attempt.id,result.second.attempt.id);
+ }
+
 }
