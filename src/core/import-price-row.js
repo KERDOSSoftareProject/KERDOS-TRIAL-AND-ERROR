@@ -21,6 +21,7 @@
 // counts failed rows.
 
 import {preparePriceImport} from './price-import-review.js';
+import {requireItemDescription} from './field-validation.js';
 import {importResolutions} from './catalog-fields.js';
 import {engineVerifiable} from '../services/catalog.js';
 
@@ -57,6 +58,7 @@ export async function importPriceRow({
   applySelectedCategory,assertActive=()=>{},
 }) {
   assertActive();
+  requireItemDescription(row);
   if(stagedReceipt&&(!ex||stagedReceipt.vendorItemId!==ex.id))throw new Error('The retained source-row listing differs from this retry.');
   if (!rowNeedsReview && !row.priceUnavailable && (!Number.isFinite(Number(row.price)) || Number(row.price) <= 0))
     throw new Error('No confirmed positive unit price');

@@ -17,6 +17,7 @@ import {rememberedLayout,withRememberedLayout,COLUMN_ROLE_LABELS,COLUMN_ROLES_FO
 import {formatMoney} from "../localization.js";
 import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
+import {requireItemDescription} from '../core/field-validation.js';
 import {importPriceRow} from "../core/import-price-row.js";
 import {verifyResumeRows,createSourceRowSnapshot} from "../core/import-resume.js";
 import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
@@ -568,6 +569,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const rowIssues=[...(sourceRow.issues||[]),...(!acceptedInvoiceConflicts.has(rowKey)?(invoiceClues.get(rowKey)?.conflicts||[]):[])];
         const rowNeedsReview=!!rowIssues.length&&!acceptedIssues.has(rowKey);
         try{
+        requireItemDescription(row);
         if(!rowNeedsReview&&!row.priceUnavailable&&(!Number.isFinite(Number(row.price))||Number(row.price)<=0)) throw new Error("No confirmed positive unit price");
         const stagedReceipt=existingDoc?.staged_row_receipts?.[completedKey]||null;
         let ex=row.code?currentVendorByCode.get(row.code)||null:null;
