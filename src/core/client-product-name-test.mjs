@@ -30,3 +30,5 @@ const deliberate={id:'jelly-item',name:'Grape Jelly'};
 const jelly={description:'JELLY GRAPE P.C.',brand:null,field_resolutions:{product_group:{catalogItemId:'jelly-item',description:'JELLY GRAPE P.C.',brand:null,confirmedBy:'reviewer'}}};
 assert.equal(clientProductName(deliberate,[jelly],'restaurant'),'Grape Jelly','confirmed client product types must not collapse back into an ingredient word');
 assert.notEqual(clientProductName(deliberate,[{...jelly,description:'GRAPE GREEN SEEDLESS'}],'restaurant'),'Grape Jelly','changed source identity invalidates the old naming decision');
+
+assert.equal(clientProductName({id:'orzo',name:'Orzo'},[{description:'-- ORZO - PASTA DRY 71',brand:'ORZO',field_resolutions:{product_group:{catalogItemId:'orzo',description:'-- ORZO - PASTA DRY 71',brand:'ORZO',confirmedBy:'reviewer'}}}],'restaurant'),'Orzo','a misplaced source brand cell cannot erase an explicitly identified KERDOS item');
