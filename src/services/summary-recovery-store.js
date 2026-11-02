@@ -1,0 +1,20 @@
+import {validateSummaryRequest} from './invoice-summary-classification.js';
+import {sameSummaryData} from '../core/invoice-summary-classification.js';
+// Each user/client/request has an independent durable entry. Never retain tokens.
+export function createSummaryRecoveryStore(storage,organizationId,userId){
+ const prefix=`kerdos:summary-recovery:${encodeURIComponent(userId)}:${encodeURIComponent(organizationId)}:`;
+ const key=plan=>prefix+plan.requestId;
+ const scope=plan=>{validateSummaryRequest(plan);if(plan.requestedBy!==userId||plan.review.organizationId!==organizationId)throw Error('Classification recovery scope differs from the request');};
+ function read(k){if(!storage)throw Error('Recovery storage is unavailable. Saving has not started.');const raw=storage.getItem(k);if(raw===null)return null;try{return JSON.parse(raw);}catch{throw Error('Retained classification recovery data could not be read');}}
+ function write(k,value){if(!storage)throw Error('Recovery storage is unavailable. Saving has not started.');const raw=JSON.stringify(value);try{storage.setItem(k,raw);if(storage.getItem(k)!==raw)throw Error('Recovery write did not persist');}catch{throw Error('The classification request could not be retained for recovery. Saving has not started or its existing recovery record remains pending.');}}
+ function validEntry(entry){if(entry?.version!==1||entry.organizationId!==organizationId||entry.userId!==userId||typeof entry.invoiceId!=='string'||typeof entry.requestId!=='string')throw Error('Invalid classification recovery record');if(entry.status==='pending'){scope(entry.plan);if(entry.requestId!==entry.plan.requestId||entry.invoiceId!==entry.plan.review.invoiceId||!Number.isFinite(Date.parse(entry.createdAt)))throw Error('Invalid retained classification request');}else if(!['saved','failed','superseded'].includes(entry.status)||!Number.isFinite(Date.parse(entry.resolvedAt))||(entry.status==='saved'&&(typeof entry.recordId!=='string'||!entry.recordId)))throw Error('Invalid classification recovery status');return entry;}
+ return {
+  pending(invoiceId){if(!storage)throw Error('Recovery storage is unavailable. Saving has not started.');const entries=[];try{for(let i=0;i<storage.length;i++){const k=storage.key(i);if(!k?.startsWith(prefix))continue;const entry=validEntry(read(k));if(k!==prefix+entry.requestId)throw Error('Invalid classification recovery identity');if(entry.status==='pending'&&entry.invoiceId===invoiceId)entries.push(entry);}}catch(e){throw Error('Classification recovery could not be loaded: '+e.message);}return entries.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)||a.requestId.localeCompare(b.requestId));},
+  retain(plan){scope(plan);const existing=read(key(plan));if(existing){validEntry(existing);if(existing.status!=='pending'||!sameSummaryData(existing.plan,plan))throw Error('Classification recovery request already belongs to different evidence or a resolved result');return existing;}
+   const entry={version:1,organizationId,userId,invoiceId:plan.review.invoiceId,requestId:plan.requestId,status:'pending',createdAt:new Date().toISOString(),plan:structuredClone(plan)};write(key(plan),entry);return entry;
+  },
+  settle(plan,status,recordId=null){scope(plan);if(!['saved','failed','superseded'].includes(status)||(status==='saved'&&!recordId))throw Error('Classification recovery needs a known result');const existing=read(key(plan));if(!existing)throw Error('Retained classification request is missing');validEntry(existing);if(existing.status!=='pending'){if(existing.status!==status||existing.recordId!==recordId)throw Error('Classification recovery already resolved differently');return;}
+   if(!sameSummaryData(existing.plan,plan))throw Error('Retained classification evidence changed');write(key(plan),{version:1,organizationId,userId,invoiceId:plan.review.invoiceId,requestId:plan.requestId,status,recordId,resolvedAt:new Date().toISOString()});
+  },
+ };
+}

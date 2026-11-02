@@ -1,3 +1,4 @@
+import {resolveSummaryRequest} from '../src/services/invoice-summary-classification.js';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {invoiceSummaryBasis} from '../src/core/invoice-summary-classification.js';
@@ -16,9 +17,16 @@ export async function summaryRaces({setup,f,q,call,overlap,scenario,payReview,pa
  }
  async function count(s){await setup.query('reset role');assert.equal((await setup.query('select count(*) as count from invoice_summary_classifications where invoice_id=$1',[s.iid])).rows[0].count,1);}
  for(const mode of ['commit','rollback','conflict']){
-  const s=await scenario(),cmd=await plan(s);
-  const result=await overlap(`summary classification ${mode}`,cmd,mode==='conflict'?await plan(s,'A different confirmed classification'):cmd,{rightActor:owner,rollbackFirst:mode==='rollback',same:mode==='commit',error:mode==='conflict'?/classification history changed/:undefined});
+  const s=await scenario(),cmd=await plan(s),competing=mode==='conflict'?await plan(s,'A different confirmed classification'):cmd;
+  const result=await overlap(`summary classification ${mode}`,cmd,competing,{rightActor:owner,rollbackFirst:mode==='rollback',same:mode==='commit',error:mode==='conflict'?/classification history changed/:undefined});
   await count(s);assert.equal((mode==='rollback'?result.second:result.first).revision,1);
+  if(mode==='conflict'){
+   await actor(owner);const retained={kind:'invoice_summary_classification_request',version:1,requestId:competing.args[2],requestedBy:owner,review:JSON.parse(competing.args[3])};
+   const context=async()=>({...await call(setup,q('kerdos_review_summary_classification',[org,s.iid])),actorId:owner});
+   assert.equal(resolveSummaryRequest(retained,await context()).status,'superseded');await assert.rejects(call(setup,competing),/classification history changed/);
+   await call(setup,await plan(s,'A later reset cannot restore a closed predecessor'));assert.equal(resolveSummaryRequest(retained,await context()).status,'superseded');await assert.rejects(call(setup,competing),/classification history changed/);
+   console.log('PASS recovery closure proof: missing old request cannot apply after later immutable revisions');
+  }
  }
  for(const classificationFirst of [true,false]){
   const s=await scenario(),classification=await plan(s);
