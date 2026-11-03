@@ -88,3 +88,25 @@ before calling that browser scenario verified. A worker restart before its
 first busy-status persistence is still a separate coverage opportunity; no
 supplier action has begun at that point. None of these test additions changes
 the production decoder, claim policy, catalog, database or companion package.
+
+
+## Worker interruption before durable busy status
+
+The controlled crash-boundary test exercises termination before the first busy
+write, while that write has not committed, and after it has committed. Each
+case reconstructs a fresh runner from persisted state only, retires the old
+API and checks that its late continuation cannot change the recovered state.
+No claim/export has begun at these boundaries. Without a durable busy flag,
+the existing unexpired pairing and prior status remain; a new explicit export
+claims once and delivers once. A durable busy flag instead reports uncertainty,
+clears pairing and never auto-replays. These are controlled persistence tests,
+not a claim about browser storage durability under an operating-system crash.
+
+The native harness separately stops the actual paired idle worker before any
+export command, verifies its target disappears, restarts it and checks the
+exact pairing/status remain without export or receipt. The next explicit
+command must still pass the existing full transfer assertions. It does not
+insert a production hook to pause the browser inside a storage write.
+
+No app, companion runtime, permissions, schema, data or 0.2.3 ZIP changes.
+Installed supplier acceptance and source-encoding investigation remain open.
