@@ -1277,6 +1277,8 @@ function parseDocumentRows(text, options={}) {
   const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
   const answered=applyLayoutAnswers(engineMap,options.layoutAnswers||{});
   let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart);
+  let fieldOrigins=Object.fromEntries(Object.entries(columnMap).map(([role,index])=>[role,
+    options.layoutAnswers?.[String(index)]===role?'remembered-client':engineMap[role]===index?'stated-header':'inferred']));
   // confirmedRoles: columns whose role is supported by explicit header text or client decision.
   // Inferred roles (data-shape guesses from fillMissingRolesFromData) are NOT confirmed.
   // Cell analysis only constrains confirmed columns; inferred roles remain challengeable.
@@ -1299,9 +1301,10 @@ function parseDocumentRows(text, options={}) {
     // preceding worksheet's price header into the next table.
     const header=mapColumnsFromHeader(cells);
     if(isTableHeader(cells,columnMap)){
-      columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;confirmedColIndices=new Set(Object.values(header));continue;
+      columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;confirmedColIndices=new Set(Object.values(header));
+      fieldOrigins=Object.fromEntries(Object.keys(header).map(role=>[role,'stated-header']));continue;
     }
-    const identified=identifyRowFields({cells,columnMap,sourceHeaders,confirmedColumns:confirmedColIndices,rowIndex:i});
+    const identified=identifyRowFields({cells,columnMap,sourceHeaders,confirmedColumns:confirmedColIndices,fieldOrigins,rowIndex:i});
     const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders,identified);
     if (!row) {
       skipped.push({ line, reason: "couldn't find a valid price or description" });

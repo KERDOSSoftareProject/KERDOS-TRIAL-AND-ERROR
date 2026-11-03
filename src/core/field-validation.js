@@ -20,7 +20,13 @@ export function assessBoundFields(identification){
   const result=checked?checkCell(role,raw):{ok:true};
   const competing=owners.get(binding.columnIndex)?.filter(other=>other!==role)||[];
   const status=competing.length?'conflict':empty?'missing':!result.ok?'invalid':binding.evidence==='inferred'?'inferred':'present';
+  // Confidence describes the field assignment and readable value, not product identity.
+  // A guessed layout has no independent corroboration, so it cannot earn 90.
+  const accuracy=empty?0:competing.length||!result.ok?null:
+   binding.evidence==='stated-header'||binding.evidence==='remembered-client'?100:
+   binding.evidence==='inferred'?70:null;
   fields[role]={status,columnIndex:binding.columnIndex,evidence:binding.evidence,
+   accuracy,
    ...(competing.length?{conflictsWith:competing}:{}),...(!result.ok?{reason:result.reason}:{})};
   // Preserve the existing cell warning contract for the import preview.
   if(checked&&!result.ok)cellIssues[role]=result.reason;
@@ -57,10 +63,10 @@ export function withRowValidation(row){
  if(!row?.fieldValidation)return row;
  const fields={...row.fieldValidation.fields};
  const conflicts=(row.cellConflicts||[]).map(({field,note})=>({field,note}));
- for(const {field} of conflicts)if(fields[field])fields[field]={...fields[field],status:'conflict'};
+ for(const {field} of conflicts)if(fields[field])fields[field]={...fields[field],status:'conflict',accuracy:null};
  const unitClues=row.quoteUnitEvidence||[];
  const unitConflict=unitClues.length>1&&new Set(unitClues.map(clue=>clue.unit)).size>1;
- if(unitConflict&&fields.sellingUnit)fields.sellingUnit={...fields.sellingUnit,status:'conflict'};
+ if(unitConflict&&fields.sellingUnit)fields.sellingUnit={...fields.sellingUnit,status:'conflict',accuracy:null};
  return {...row,fieldValidation:{...row.fieldValidation,fields,conflicts,
   unresolved:(row.cellUnresolved||[]).map(({field,reason})=>({field,reason})),
   quotedUnit:unitConflict?'conflict':unitClues.length?'evidenced':'missing'}};
