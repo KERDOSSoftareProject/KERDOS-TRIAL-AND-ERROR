@@ -62,6 +62,10 @@ try{
  await act(async()=>{await send({type:'deliver',nonce:currentNonce,artifact:{origin:'https://order.usfoods.com',base64:btoa('Code,Price\\nA,1\\n')}});});assert.equal(replies.at(-1).ok,false);assert.equal(accepted.length,0);assert.equal(blocked,1);
 
  assert.match(text(tree.toJSON()),/Browser transfer was not accepted/);assert.equal(button('Cancel browser transfer'),undefined);
+ // A captured-export failure clears the armed UI and permits a fresh preparation.
+ await act(async()=>button('Prepare browser transfer').props.onClick());await act(async()=>send({type:'pair'}));const failedTicket=replies.at(-1).ticket,failedClaim=crypto.randomUUID();
+ await act(async()=>send({type:'claim',nonce:failedTicket.nonce,claimId:failedClaim}));assert.ok(button('Cancel browser transfer'));
+ await act(async()=>send({type:'export-failed',nonce:failedTicket.nonce,claimId:failedClaim}));assert.equal(replies.at(-1).outcome,'export_stopped');assert.equal(button('Cancel browser transfer'),undefined);assert.match(text(tree.toJSON()),/Browser transfer was not accepted/);assert.equal(button('Prepare browser transfer').props.disabled,false);
  // The visible ten-minute state expires without needing an incoming message.
  const actualTimer=globalThis.setTimeout,actualClear=globalThis.clearTimeout;let expireTransfer;const fakeTimer={unref(){}};
  globalThis.setTimeout=(fn,ms,...args)=>ms===600000?(expireTransfer=fn,fakeTimer):actualTimer(fn,ms,...args);globalThis.clearTimeout=id=>{if(id!==fakeTimer)actualClear(id);};

@@ -31,7 +31,13 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
   if(transferStatus?.busy){await host.clearPairing();await save(false,'The companion restarted during a transfer. Its result is unconfirmed. Check KERDOS before preparing a new transfer; nothing will be resent automatically.');}
   else if(typeof transferStatus?.message==='string')current={busy:false,message:transferStatus.message};
  })();
+ const reportFailure=async reservation=>{
+  if(reservation?.pairing.exportFailureNotice===true&&typeof host.reportFailure==='function'){
+   try{await host.reportFailure(reservation.pairing,reservation.claimId);}catch{/* The original failure remains valid even when its receiver disappeared. */}
+  }
+ };
  async function execute(action,targetId){
+  let reservation=null,deliveryStarted=false;
   try{
    const target=await host.getTarget(targetId);
    if(action==='pair'){
@@ -51,14 +57,17 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
    const claimId=randomUUID();
    const ready=await host.reserve(pairing,claimId);
    if(!ready?.ok||ready.outcome!=='ready_for_export'){await host.clearPairing();return terminal('KERDOS is no longer ready for this transfer. Prepare and pair a new transfer. No vendor export was started.');}
+   reservation={pairing,claimId};
    await host.clearPairing();
    await save(true,'Checking the selected account and exporting its pricing list… You may close this popup and reopen it for the result.');
    const response=await host.retrieve(target,pairing);
-   if(response?.outcome!=='export_captured')return terminal(exportFailureMessage(response?.outcome));
+   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome));}
    await save(true,'Delivering the selected pricing file to KERDOS… Prices are not confirmed saved.');
+   deliveryStarted=true;
    const ack=await host.deliver(pairing,claimId,response.artifact);
    return terminal(ack?.ok&&ack.outcome==='received_for_review'?'KERDOS received the CSV. Return to its tab to check the automatic import result. This receipt does not confirm saved prices.':'KERDOS did not accept the file. Prepare a new transfer and retry.');
   }catch{
+   if(!deliveryStarted)await reportFailure(reservation);
    return terminal(action==='pair'?'In KERDOS, prepare a browser transfer first. Then pair from that KERDOS tab.':'Transfer unavailable. Keep your signed-in KERDOS tab open and prepare/pair a new transfer. No completed import has been confirmed.');
   }
  }

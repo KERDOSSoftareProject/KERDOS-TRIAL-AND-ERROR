@@ -1,9 +1,9 @@
-# Vendor Connect local browser pilot — 0.2.5
+# Vendor Connect local browser pilot — 0.2.6
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS
 tab. It uses the existing deployed protocol-v2 KERDOS app and its connection checks.
 The previous 0.1.0 export-only pilot remains historical evidence; installing
-0.2.5 does not change the live KERDOS application.
+0.2.6 does not change the live KERDOS application.
 
 The client signs into the vendor directly and completes verification there.
 The selected client/vendor comes from KERDOS, with account/list labels entered
@@ -185,3 +185,19 @@ replace characters, convert bytes, or add Windows-1252 support. Keep the origina
 file for review. Protocol, narrow permissions, successful transfer handling and
 the app-owned client/vendor assignment are unchanged. Reload the complete 0.2.5
 folder (including core) for installed acceptance.
+
+
+## Failed-export receiver recovery — 0.2.6
+
+Updated KERDOS tickets advertise exportFailureNotice. After an accepted claim,
+a failed capture or pre-delivery execution error sends a nonce/claim-bound
+notice so that exact receiver clears its exporting state immediately. The app
+uses its existing rejected state and Prepare control. No diagnostic text, CSV
+or credentials are sent in the notice. Once byte processing or delivery starts,
+this notice cannot retract admitted work or rewrite a received result.
+
+The host callback is optional; old app tickets skip it. Missing/closed receivers
+do not turn a failed export into success. No automatic retry is introduced.
+Refresh the KERDOS page and reload the complete 0.2.6 companion folder to use
+the matched recovery behavior. App tabs or companions on earlier versions retain
+their prior cancellation/expiry behavior.
