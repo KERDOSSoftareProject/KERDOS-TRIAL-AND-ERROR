@@ -24,7 +24,7 @@ const text=node=>typeof node==='string'?node:(node.children||[]).map(text).join(
 let passed=0;
 function fixture(){
  const f=createPriceImportFixture({text:csv});f.uploads=[];f.invoices=[];f.backend.invoices={record:async(header,lines)=>{f.invoices.push({header,lines});return {id:"b1-invoice"};}};
- f.downloads=[];f.backend.documents={upload:async(path,file)=>{f.uploads.push({path,name:file.name,bytes:await file.text()});},download:async(path)=>{f.downloads.push(path);const stored=f.uploads.find(u=>u.path===path);if(!stored)throw Error('stored original unavailable');return new TextEncoder().encode(stored.bytes);},remove:async()=>{}};
+ f.downloads=[];f.backend.documents={upload:async(path,file)=>{f.uploads.push({path,name:file.name,bytes:await file.text(),rawBytes:typeof file.arrayBuffer==='function'?new Uint8Array(await file.arrayBuffer()):null});},download:async(path)=>{f.downloads.push(path);const stored=f.uploads.find(u=>u.path===path);if(!stored)throw Error('stored original unavailable');return stored.rawBytes??new TextEncoder().encode(stored.bytes);},remove:async()=>{}};
  globalThis.__b1Backend=f.backend;return f;
 }
 function file(name='B1_Prices.csv',content=csv){return {name,size:Buffer.byteLength(content),text:async()=>content};}
@@ -283,6 +283,17 @@ await check('automatic companion intake saves original/evidence and prices with 
  const before=writes(f),again=await autoOpen();await automaticResult(again);assert.equal(writes(f),before);assert.equal(again.finished.length,1);assert.match(again.finished[0].message,/already up to date/);again.tree.unmount();
  const changed=await autoOpen(csv.replace('41.25','43.25'));await automaticResult(changed);assert.equal(changed.finished.length,1,text(changed.tree.toJSON()));assert.equal(f.calls.applyQuote.length,2);assert.deepEqual(f.calls.applyQuote.map(q=>q.price),[41.25,43.25]);assert.equal(Object.values(f.importDocs).length,2);assert.equal(f.uploads[0].bytes,csv);changed.tree.unmount();
 });
+await check('Windows-1252 companion source reaches shared catalog import with original byte evidence',async()=>{
+ const source='Code,Description,Pack,Price Unit,Price\nB1-125,Crème brûlée® \x96 jalapeño,2/10 LB,CASE,12.50\n';
+ const bytes=Buffer.from(source,'latin1'),input=new File([bytes],'vendor-prices.csv',{type:'text/csv'});
+ input.reading=await createDocumentReader({loadWorkbook:async()=>XLSX})(input);
+ const proof={...autoProof,sha256:Buffer.from(await crypto.subtle.digest('SHA-256',bytes)).toString('hex'),byte_length:bytes.length};
+ const f=fixture(),p=await autoOpen(csv,{initialFiles:[input],companionEvidence:proof});await automaticResult(p);
+ assert.equal(p.finished.length,1,text(p.tree.toJSON()));assert.deepEqual(Buffer.from(f.uploads[0].rawBytes),bytes);
+ assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.applyQuote[0].price,12.5);
+ assert.match(Object.values(f.importDocs)[0].original_text,/Crème brûlée® – jalapeño/);
+ assert.equal(Object.values(f.importDocs)[0].retrieval_evidence.sha256,proof.sha256);p.tree.unmount();
+});
 await check('identical bytes from another selected account or list cannot reuse a prior import',async()=>{
  const f=fixture(),first=await autoOpen();await automaticResult(first);first.tree.unmount();
  const before=writes(f),document=Object.values(f.importDocs)[0];
@@ -365,7 +376,7 @@ try{
   b.onResolve({filter:/import-evidence\.js$/},args=>args.namespace==='evidence-spy'?({path:args.path,namespace:'file'}):({path:'spy',namespace:'evidence-spy'}));
   b.onLoad({filter:/spy/,namespace:'evidence-spy'},()=>({contents:`import {explainImportRow as real} from ${JSON.stringify(process.cwd()+'/src/core/import-evidence.js')};export function explainImportRow(...args){globalThis.__evidenceCalls=(globalThis.__evidenceCalls||0)+1;return real(...args);}`}));
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
-  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.readingError)throw new Error(file.readingError);if(file.reading)onRead?.(file.reading);return file.text();}'}));
+  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.readingError)throw new Error(file.readingError);if(file.reading)onRead?.(file.reading);return file.reading?.kind==="csv"?file.reading.text:file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
   b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),download:(...args)=>globalThis.__b1Backend.documents.download(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});
