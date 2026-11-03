@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════════════════════════
 import {identifyRowFields} from './core/field-identification.js';
+import {validateAssignedFields} from './core/field-validation.js';
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
@@ -503,14 +504,12 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // failed to parse).  A purely alphabetic-leading string such as "Col1", "Col4",
   // or "Price" is a column label that leaked through an undetected header row,
   // not a product price — those rows must fall through to the discard path below.
-  const _priceRawStr = priceRaw != null ? String(priceRaw).trim() : null;
-  const _priceRawLooksNumeric = _priceRawStr === "" || (_priceRawStr != null && /^[$€£¥\d]/.test(_priceRawStr));
-  const priceUnreadable = price === null && amount === null && !priceUnavailable
-    && priceRaw !== undefined && priceRaw !== null && _priceRawLooksNumeric;
+  const validation=validateAssignedFields(fields,{price,amount,priceUnavailable});
+  const priceUnreadable=validation.priceStatus==='missing-or-unreadable';
 
   // Discard rows with no price that are not a recognised placeholder and have
   // no actual price cell (priceRaw undefined/null = no mapped price slot).
-  if (price === null && amount === null && !priceUnavailable && !priceUnreadable) return null;
+  if (!validation.retain) return null;
 
   let description = (get("description") || "").trim();
   // B4 already bound the description to this source row. Never borrow a
@@ -521,7 +520,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     .replace(/\*+/g, '')               // remaining lone asterisks
     .replace(/\s{2,}/g, ' ')           // double spaces → single
     .trim();
-  const missingAnchor=['missing','ambiguous'].includes(fields.anchor.status);
+  const missingAnchor=['missing','ambiguous'].includes(validation.anchorStatus);
   if (description.length < 2&&!missingAnchor) return null;
   // A row whose description is itself a non-product line (fuel surcharge,
   // delivery fee etc) should be skipped even when it came from a CSV column.
@@ -569,15 +568,8 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     if(codeLike){rowCode=codeLike;codeSource="details";details=details.filter(detail=>detail!==codeLike);}
   }
   const fullDescription=missingAnchor?'':[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const issues=[...fields.issues];
-
-  // A row whose price cell was blank or unreadable gets flagged for review.
-  // priceUnavailable is also set so ImportModal doesn't throw "No confirmed
-  // positive unit price" and instead saves the row with the issue attached.
-  if (priceUnreadable) {
-    const rawHint = priceRaw != null && String(priceRaw).trim() ? ` ("${String(priceRaw).trim()}")` : "";
-    issues.push({ kind: "missing-price", message: `Price missing or could not be read${rawHint}` });
-  }
+  // A missing or unreadable assigned price remains a reviewable source row.
+  const issues=[...validation.issues];
 
   // Run cell analysis to pick up flags and metadata the column-map path doesn't surface:
   // priceUnavailable (zero price), requiresReview (negative price), originalRaw on pack.
@@ -598,6 +590,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
 
   return applySourceUnits({
     fieldIdentification:{version:fields.version,anchor:fields.anchor,bindings:fields.bindings},
+    fieldValidation:{version:validation.version,anchorStatus:validation.anchorStatus,priceStatus:validation.priceStatus},
     code: rowCode,
     codeSource,
     brand,
@@ -619,7 +612,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     price: price !== null ? price : amount,
     amount: amount !== null ? amount : price,
     priceUnavailable: finalPriceUnavailable,
-    requiresReview: finalRequiresReview||missingAnchor,
+    requiresReview: finalRequiresReview||validation.requiresReview,
     cellUnresolved,
     cellConflicts,
     sourceLine:cells.join("\t"),
