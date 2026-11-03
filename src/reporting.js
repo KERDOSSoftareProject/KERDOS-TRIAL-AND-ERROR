@@ -25,11 +25,20 @@ export function buildCatalogExportCSV(productList,vendors){
 
 export function buildVarianceReportCSV(invoices,vendors){
   const vendorMap=new Map(vendors.map(vendor=>[vendor.id,vendor]));
-  const rows=[["Date","Vendor","Invoice #","Item","Quoted Price","Charged Price","Difference","Line Total Impact"]];
+  const rows=[["Date","Vendor","Invoice #","Item","Quoted Price","Quoted Date","Charged Price","Difference","Line Total Impact"]];
   for(const invoice of invoices)for(const line of invoice.invoice_lines||[]){
     if(line.price_variance==null||Math.abs(line.price_variance)<0.005)continue;
     const impact=line.price_variance*(line.line_total&&line.unit_price?line.line_total/line.unit_price:1);
-    rows.push([invoice.invoice_date||"",vendorMap.get(invoice.vendor_id)?.name||"",invoice.invoice_number||"",line.description,formatMoney(line.unit_price-line.price_variance),formatMoney(line.unit_price),formatMoney(line.price_variance),formatMoney(Math.round(impact*100)/100)]);
+    // Use the stored quoted rate (set at import time from the actual price-sheet row).
+    // Legacy rows (imported before provenance was added) lack quoted_rate; label the
+    // evidence unavailable rather than reconstructing it by arithmetic, which would
+    // present a computed value as if it were a recorded quote.
+    // price_variance itself is genuinely recorded and remains valid.
+    const quotedPrice=line.quoted_rate!=null?line.quoted_rate:null;
+    const quotedDate=line.quoted_effective_date||"";
+    rows.push([invoice.invoice_date||"",vendorMap.get(invoice.vendor_id)?.name||"",invoice.invoice_number||"",line.description,quotedPrice!=null?formatMoney(quotedPrice):"",quotedDate,formatMoney(line.unit_price),formatMoney(line.price_variance),formatMoney(Math.round(impact*100)/100)]);
   }
   return rowsToCSV(rows);
 }
+
+export {buildVarianceReport,buildComparisonReportCSV} from './core/variance-report.js';

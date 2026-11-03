@@ -28,7 +28,7 @@ const clearInvoice=readFileSync('scripts/fixtures/ocr/invoice.png'),clearLines=[
 for(let part=0;part<validateImage(clearInvoice,0).parts;part++)clearLines.push(...(await recognize(clearInvoice,part)).lines);
 assert.ok(clearLines.every(line=>line.confidence>=90));
 const invoiceText=clearLines.map(line=>line.text).join('\n');
-const preparedInvoice=prepareAutomaticInvoice({text:invoiceText,rows:parseDocument(invoiceText).rows,organizationId:'org',vendorId:'vendor',vendorItems:[{id:'fixture-item',organization_id:'org',vendor_id:'vendor',vendor_item_code:'12345',description:'Chicken Breast',pack_size:'20 LB'}]});
+const preparedInvoice=await prepareAutomaticInvoice({text:invoiceText,rows:parseDocument(invoiceText).rows,organizationId:'org',vendorId:'vendor',vendorItems:[{id:'fixture-item',organization_id:'org',vendor_id:'vendor',vendor_item_code:'12345',description:'Chicken Breast',pack_size:'20 LB'}]});
 assert.equal(preparedInvoice.reason,null);assert.equal(preparedInvoice.header.invoice_number,'123456789');assert.equal(preparedInvoice.header.invoice_date,'2026-10-28');assert.equal(preparedInvoice.header.total_amount,80);
 assert.deepEqual(preparedInvoice.lines.map(line=>[line.quantity,line.unit_price,line.line_total]),[[2,40,80]]);
 console.log('PASS actual invoice OCR → existing atomic invoice preparation with date, number, billing unit and 2×40=80');checks++;

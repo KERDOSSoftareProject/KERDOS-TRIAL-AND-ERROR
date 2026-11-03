@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import React from 'react';
+import Renderer,{act} from 'react-test-renderer';
+import {build} from 'vite';
+const dir=mkdtempSync(fileURLToPath(new URL('../../node_modules/.kerdos-variance-',import.meta.url)));
+const text=node=>typeof node==='string'?node:(node?.children||[]).map(text).join('');
+try{
+ await build({configFile:false,logLevel:'error',esbuild:{jsx:'automatic'},build:{ssr:fileURLToPath(new URL('./PriceVarianceReport.jsx',import.meta.url)),outDir:dir,rollupOptions:{output:{entryFileNames:'report.mjs'}}}});
+ const {default:Report}=await import(pathToFileURL(join(dir,'report.mjs')));
+ const vendors=[{id:'a',name:'Alpha'},{id:'b',name:'Beta'},{id:'c',name:'Gamma'}];
+ const quote={quoted_rate:10,quoted_source_rate:40,quoted_basis:'case',quoted_effective_date:'2026-10-01',quoted_source:'price_list',quoted_price_history_id:'q',quoted_source_document_id:'d',quoted_document:{file_name:'Saved quotation.csv',file_path:'retained/sheet.csv'},quoted_history:{source_line:'Original row 18'}};
+ const invoices=[{id:'i',vendor_id:'a',invoice_number:'INV-1',file_name:'invoice.pdf',invoice_date:'2026-10-15',invoice_lines:[{id:'zero',description:'Zero item',unit_price:10,quantity:2,price_variance:0,selling_unit:'CS',...quote}]},{id:'j',vendor_id:'b',invoice_number:'INV-2',invoice_date:'2026-10-20',invoice_lines:[{id:'missing',description:'Missing item',unit_price:12,quantity:3,price_variance:null,quoted_comparison_note:'lookup_error'}]}];
+ let tree,exported,opened;
+ const props={vendors,invoices,onClose(){},onExport:s=>{exported=s;},onViewOriginal:p=>{opened=p;}};
+ await act(async()=>{tree=Renderer.create(React.createElement(Report,props));});
+ const screen=()=>text(tree.toJSON()),button=label=>tree.root.findAllByType('button').find(b=>text({children:b.children})===label);
+ assert.match(screen(),/0 variances found/);assert.match(screen(),/No completed comparisons/);assert.match(screen(),/Quote lookup failed/);assert.match(screen(),/Saved quotation.csv/);assert.match(screen(),/Original row 18/);assert.match(screen(),/INV-1/);assert.match(screen(),/Gamma/);
+ await act(async()=>{button('Open price sheet').props.onClick();});assert.equal(opened,'retained/sheet.csv');
+ await act(async()=>{button('Download CSV').props.onClick();});assert.equal(exported.report.lines.length,2);
+ await act(async()=>{tree.root.findByProps({'aria-label':'Report from date'}).props.onChange({target:{value:'2026-10-16'}});});
+ assert.doesNotMatch(screen(),/INV-1/);assert.match(screen(),/INV-2/);
+ await act(async()=>{button('Download CSV').props.onClick();});assert.deepEqual(exported.invoices.map(i=>i.id),['j']);assert.equal(exported.report.period.from,'2026-10-16');
+ await act(async()=>{tree.root.findByProps({'aria-label':'Report to date'}).props.onChange({target:{value:'2026-10-01'}});});assert.match(screen(),/Choose an end date/);assert.equal(button('Download CSV').props.disabled,true);tree.unmount();
+ console.log('PASS rendered report: every vendor, zero versus uncompared, retained price-sheet opening, source row, date filters and scoped CSV.');
+ const pending=[],service={invoices:orgId=>new Promise((resolve,reject)=>pending.push({orgId,resolve,reject}))};
+ await act(async()=>{tree=Renderer.create(React.createElement(Report,{...props,orgId:'first',service}));});assert.match(screen(),/Loading invoice/);assert.equal(button('Download CSV').props.disabled,true);
+ await act(async()=>{tree.update(React.createElement(Report,{...props,orgId:'second',service}));});
+ await act(async()=>{pending[1].resolve([{...invoices[1],invoice_number:'CURRENT-ORG'}]);});
+ await act(async()=>{pending[0].resolve([{...invoices[0],invoice_number:'STALE-ORG'}]);});assert.match(screen(),/CURRENT-ORG/);assert.doesNotMatch(screen(),/STALE-ORG/);tree.unmount();
+ await act(async()=>{tree=Renderer.create(React.createElement(Report,{...props,orgId:'offline',service}));});
+ await act(async()=>{pending.at(-1).reject(Error('Report connection failed'));});assert.match(screen(),/Report connection failed/);assert.equal(button('Download CSV').props.disabled,true);assert.doesNotMatch(screen(),/0 variances found/);
+ await act(async()=>{button('Retry').props.onClick();});assert.match(screen(),/Loading invoice/);
+ await act(async()=>{pending.at(-1).resolve(invoices);});assert.match(screen(),/INV-1/);assert.equal(button('Download CSV').props.disabled,false);tree.unmount();
+ console.log('PASS rendered report: loading and errors disable export, failures cannot look like zero, retry succeeds, stale client responses cannot replace current data.');
+}finally{rmSync(dir,{recursive:true,force:true});}

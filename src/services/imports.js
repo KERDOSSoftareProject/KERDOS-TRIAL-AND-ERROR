@@ -74,7 +74,7 @@ export function createImportService(backend){
       return !!rows?.length;
     },
     async historicalQuote({organizationId,vendorItemId,invoiceDate}){
-      const rows=await run(table("price_history").select("price,effective_date,quote_valid_until,source,price_basis,selling_unit").eq("organization_id",organizationId).eq("vendor_item_id",vendorItemId).lte("effective_date",`${invoiceDate}T23:59:59.999Z`).order("effective_date",{ascending:false}).limit(1),"Unable to verify historic quote");
+      const rows=await run(table("price_history").select("id,source_document_id,price,effective_date,quote_valid_until,source,price_basis,selling_unit").eq("organization_id",organizationId).eq("vendor_item_id",vendorItemId).lte("effective_date",`${invoiceDate}T23:59:59.999Z`).order("effective_date",{ascending:false}).limit(1),"Unable to verify historic quote");
       return rows?.[0]||null;
     },
   };

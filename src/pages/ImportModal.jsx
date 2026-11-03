@@ -7,7 +7,8 @@ import {fileToText} from "../document-reader.js";
 import {parseStructuredDocument} from "../core/document-structuring.js";
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
 import {findUncodedVendorListing,vendorListingLabel} from "../core/vendor-listing.js";
-import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY,parsePackSize,priceBasisFor,quotePriceOnBasis,brandsMatch} from "../procurement.js";
+import {lookupQuoteComparison} from "../core/quote-provenance.js";
+import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY,parsePackSize,priceBasisFor,brandsMatch} from "../procurement.js";
 import {createCatalogService} from "../services/catalog.js";
 import {createCategoryService} from "../services/categories.js";
 import {createDocumentService} from "../services/documents.js";
@@ -736,7 +737,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             else matched=null;
           }
           if(!matched&&!codeConflict&&row.description&&viList.length){
-            const fuzzy=bestInvoiceMatch(row.description,viList.filter(vi=>comparePurchasingPack(row.packSize,vi.pack_size).status==="same"),MATCH_POLICY.autoLink);
+            const fuzzy=bestInvoiceMatch(row.description,viList.filter(vi=>comparePurchasingPack(row.packSize,vi.pack_size).status==="same"),MATCH_POLICY.invoiceMatchFloor);
             if(fuzzy){ matched=fuzzy.vendorItem; confidence=Math.round(fuzzy.score*100); method="fuzzy"; }
           }
           // Nothing matched at all - rather than leave this line
@@ -770,38 +771,27 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             }catch(error){saveError=(saveError?saveError+" ":"")+`"${row.description}": catalog link needs review (${error.message||String(error)}).`;}
           }
           if(codeConflict)saveError=(saveError?saveError+" ":"")+`Invoice line ${row.description}: ${method?.startsWith("ambiguous")?"multiple vendor products could match":"item code conflicts with the previously identified product"}; the original invoice line was recorded without a product link.`;
-          let quotedPrice=null,quote=null;
-          if(matched?.id&&method!=="created_from_invoice"){
-            const invoiceDate=group.invoiceDate;
-            try{quote=await importService.historicalQuote({organizationId:orgId,vendorItemId:matched.id,invoiceDate});}
-            catch(err){saveError=(saveError?saveError+" ":"")+`${row.description}: ${err.message}`;}
-            const withinVendorTerm=!quote?.quote_valid_until||quote.quote_valid_until>=invoiceDate;
-            const refreshDays=Number(orgSettings?.price_refresh_days);
-            const mode=orgSettings?.price_refresh_mode==="automatic"?"automatic":"manual";
-            const withinClientWindow=mode!=="automatic"||!refreshDays||
-              ((new Date(`${invoiceDate}T12:00:00Z`)-new Date(quote?.effective_date||0))/86400000)<=refreshDays;
-            if(quote&&withinVendorTerm&&withinClientWindow&&["price_list","manual_edit"].includes(quote.source))quotedPrice=Number(quote.price);
-          }
-          // Compare the quote on the basis the invoice bills in. A quote
-          // that cannot be expressed on that basis produces no variance
-          // rather than a false overcharge or undercharge.
-          let comparableQuote=null;
-          const billedBasis=priceBasisFor(row.sellingUnit);
-          if(quotedPrice!=null&&String(row.sellingUnit||"").trim()&&!billedBasis)
+          const {variance,quoteProvenance,comparisonNote,lookupError}=await lookupQuoteComparison({
+            importService,organizationId:orgId,
+            vendorItemId:matched?.id&&method!=="created_from_invoice"?matched.id:null,
+            invoiceDate:group.invoiceDate,billedUnit:row.sellingUnit,
+            packSize:matched?.pack_size||row.packSize||null,unitPrice:row.price,
+            // Preserve the existing interactive refresh preference. Automatic imports
+            // retain their existing eligibility policy until that requirement is resolved.
+            clientSettings:orgSettings,
+          });
+          if(lookupError)saveError=(saveError?saveError+" ":"")+`${row.description}: ${lookupError}`;
+          if(comparisonNote==='unknown_billed_unit')
             saveError=(saveError?saveError+" ":"")+`${row.description}: invoice selling unit "${row.sellingUnit}" is unknown; no variance calculated.`;
-          if(quotedPrice!=null&&(!String(row.sellingUnit||"").trim()||billedBasis)){
-            comparableQuote=quotePriceOnBasis(
-              {price:quotedPrice,basis:quote?.price_basis||null,unit:quote?.price_basis==="measure"?quote?.selling_unit:null,packSize:matched?.pack_size||row.packSize||null},
-              billedBasis||{basis:"case"});
-            if(comparableQuote==null)saveError=(saveError?saveError+" ":"")+`${row.description}: billed per ${row.sellingUnit||"unit"} but the quote could not be expressed that way; no variance recorded.`;
-          }
-          const variance=comparableQuote!=null?r2(row.price-comparableQuote):null;
+          if(comparisonNote==='basis_incompatible')
+            saveError=(saveError?saveError+" ":"")+`${row.description}: billed per ${row.sellingUnit||"unit"} but the quote could not be expressed that way; no variance recorded.`;
           linesToInsert.push({
             vendor_item_id:matched?.id||null, vendor_item_code:row.code, description:row.description,
             quantity:row.qty??null,selling_unit:row.sellingUnit||null,
             source_line:row.sourceLine??null,billing_unit_evidence:billingUnitEvidence(row),quantity_source:row.quantitySource??null,billed_quantity_evidence:invoiceBilledQuantityEvidence(row),
             unit_price:row.price, line_total:(row.amount!=null?row.amount:row.price),
             price_variance:variance, match_confidence:confidence, match_method:method,
+            ...quoteProvenance,quoted_comparison_note:comparisonNote,
             create_vendor_item:!matched&&!codeConflict&&method==="created_from_invoice",
             pack_size:row.packSize||null,catalog_item_id:pendingCatalog?.catalogItemId||null,
             catalog_confidence:pendingCatalog?Math.round((pendingCatalog.score??0)*100):null,
