@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {createCompanionHandoff,COMPANION_CHANNEL} from '../src/services/companion-handoff.js';
+import {decodeCsvBytes} from '../src/core/csv-encoding.js';
 import {pairKerdosTab,approvedKerdosTab} from '../companion/chrome/bridge.mjs';
 const selection={organizationId:'client-a',vendorId:'vendor-a',adapterKey:'us-foods-moxe',portalOrigin:'https://order.usfoods.com',account:'Sample Client',list:'Example List'};
 const artifact={origin:'https://order.usfoods.com',base64:btoa('Product Number,Product Description,Product Price\nA,Sample,1.2\n'),vendorId:'attacker-vendor',organizationId:'other-client'};
@@ -64,6 +65,13 @@ await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,base64:B
 assert.equal(received.length,unicodeBefore+1);const unicodePayload=received.at(-1);
 assert.equal(await unicodePayload.file.text(),unicode);assert.deepEqual(new Uint8Array(await unicodePayload.file.arrayBuffer()),unicodeBytes);assert.equal(unicodePayload.evidence.byte_length,unicodeBytes.length);
 assert.equal(unicodePayload.evidence.sha256,Buffer.from(await crypto.subtle.digest('SHA-256',unicodeBytes)).toString('hex'));handoff.cancel();
+const legacyBytes=Uint8Array.from(Buffer.from('Code,Description,Price\nCP1252,Crème brûlée® \x96 jalapeño,12.50\n','latin1'));
+assert.match(decodeCsvBytes(legacyBytes),/Crème brûlée® – jalapeño/);
+handoff=begin();await dispatch({type:'pair'});ticket=messages.at(-1).ticket;
+await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,base64:Buffer.from(legacyBytes).toString('base64')}});
+assert.deepEqual(new Uint8Array(await received.at(-1).file.arrayBuffer()),legacyBytes);
+assert.match(decodeCsvBytes(await received.at(-1).file.arrayBuffer()),/Crème brûlée® – jalapeño/);
+handoff.cancel();
 // A timer callback queued before disposal may still run during admission.
 // Receiving has already cleared its timer and cannot be expired mid-review.
 time=1000;states.length=0;let finishAdmitted,disposed=0;

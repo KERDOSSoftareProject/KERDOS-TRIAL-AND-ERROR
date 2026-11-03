@@ -1,4 +1,5 @@
 import {pdfTextLines} from './pdf-layout.js';
+import {decodeCsvBytes} from './csv-encoding.js';
 
 // Reading retains source structure. B3 may derive rows from these records;
 // the text remains available to the existing parser during that transition.
@@ -49,7 +50,7 @@ export function createDocumentReader({loadPdf,loadWorkbook,recognizePage,readOth
       const XLSX=await loadWorkbook();
       const csv=name.endsWith('.csv');
       // Keep CSV text exact for fingerprints; its cells supplement that text.
-      const text=csv?await file.text():null;
+      const text=csv?(typeof file.arrayBuffer==='function'?decodeCsvBytes(await file.arrayBuffer()):await file.text()):null;
       const workbook=XLSX.read(csv?text:await file.arrayBuffer(),csv?{type:'string',raw:true}:{type:'array'});
       const result=readWorkbook(workbook,XLSX,file.name,csv?'csv':'workbook');
       if(csv)result.text=text;

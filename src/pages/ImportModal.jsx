@@ -487,6 +487,14 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           try{existingDoc=await importService.findPriceDocument({organizationId:orgId,vendorId,fingerprint});}
           catch(err){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${err.message}`;continue;}
         }
+        if(automaticImport&&existingDoc){
+          const prior=existingDoc.retrieval_evidence;
+          if(prior?.kind!=='browser_companion'||prior.adapter_key!==companionEvidence.adapter_key||prior.origin!==companionEvidence.origin||prior.account_label!==companionEvidence.account_label||prior.list_label!==companionEvidence.list_label){
+            failedRows+=Math.max(1,group.rows.length);
+            saveError=[saveError,`${group.name}: these bytes were already imported under a different source account or list. The existing document was preserved; review the source before importing.`].filter(Boolean).join(' ');
+            continue;
+          }
+        }
         // A file that finished is not re-run (use Delete & re-import). A
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
