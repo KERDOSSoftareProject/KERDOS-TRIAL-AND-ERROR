@@ -101,6 +101,11 @@ try{
  assert.equal(tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.value,'vendor-a','one saved active connection is selected without re-enrollment');
  assert.equal(tree.root.findByProps({'aria-label':'Portal account name'}).props.value,'Sample Client');
  await act(async()=>button('Refresh prices').props.onClick());assert.equal(refreshCommands,1);assert.equal(refreshReceipts,1);assert.match(text(tree.toJSON()),/Pricing received for automatic ingestion/);assert.equal(button('Cancel browser transfer'),undefined);
+ await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;},importInProgress:true})));
+ assert.equal(button('Refresh prices').props.disabled,true);
+ assert.equal(button('Prepare browser transfer').props.disabled,true);
+ assert.match(text(tree.toJSON()),/processing the received pricing/);
+ await act(async()=>button('Refresh prices').props.onClick());assert.equal(refreshCommands,1,'the action guard also rejects an invoked disabled handler');
  await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;},importResult:{organizationId:'org-a',vendorId:'vendor-a',message:'Pricing already up to date for Client vendor — no duplicate rows saved. Stored original verified.'}})));
  assert.match(text(tree.toJSON()),/Latest pricing result: Pricing already up to date/);
  assert.doesNotMatch(text(tree.toJSON()),/transfer receipt alone/,'the saved result replaces the provisional transfer receipt');
