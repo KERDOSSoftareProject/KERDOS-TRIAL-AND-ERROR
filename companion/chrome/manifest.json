@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "KERDOS Vendor Connect Pilot",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "User-started vendor CSV export and one-use transfer to a paired KERDOS tab. Pilot.",
   "permissions": [
     "activeTab",
