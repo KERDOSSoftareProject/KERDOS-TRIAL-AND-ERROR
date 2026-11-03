@@ -13,6 +13,7 @@ const text='INVOICE INV-101\nDate: 10/27/2026\nItem,Description,Pack,Price Unit,
 const listing={id:item,organization_id:org,vendor_id:vendor,vendor_item_code:'49200',description:'CHIC BRST RAW BNLS RNDM CVP',pack_size:'4/10 LB',price:2};
 const rows=parseDocument(text).rows;
 const prepare=overrides=>prepareAutomaticInvoice({text,rows,organizationId:org,vendorId:vendor,vendorItems:[listing],...overrides});
+// prepare() is now async (prepareAutomaticInvoice is async); all callers must await it.
 let passed=0;
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
 await check('invoice numbers retain long suffixes and punctuation without prefix collisions',()=>{
@@ -25,8 +26,8 @@ await check('registered type conflicts are reviewed, including mixed documents',
     assert.equal(classifyDocument(a,b).earlyExit.status,'needs_review');
   assert.equal(classifyDocument('invoice','unknown').isInvoice,true);
 });
-await check('real parsed invoice retains quantity, price, total and billing evidence',()=>{
-  const result=prepare();assert.equal(result.reason,null);assert.equal(result.header.total_amount,82.4);
+await check('real parsed invoice retains quantity, price, total and billing evidence',async()=>{
+  const result=await prepare();assert.equal(result.reason,null);assert.equal(result.header.total_amount,82.4);
   assert.equal(result.lines[0].quantity,40);assert.equal(result.lines[0].unit_price,2.06);
   assert.equal(result.lines[0].billing_unit_evidence.header,'Price Unit');
 });
@@ -39,7 +40,7 @@ for(const [name,change] of [
   ['different product under same code',{vendorItems:[{...listing,description:'BEEF PATTY FROZEN 4 OZ'}]}],
   ['different pack under same code',{vendorItems:[{...listing,pack_size:'2/10 LB'}]}],
   ['unknown product',{vendorItems:[]}],['cross-organization candidate',{vendorItems:[{...listing,organization_id:'other'}]}],
-])await check(name+' produces a specific review reason',()=>assert.ok(prepare(change).reason));
+])await check(name+' produces a specific review reason',async()=>assert.ok((await prepare(change)).reason));
 
 const db=new PGlite();
 const read=path=>fs.readFileSync(new URL('../'+path,import.meta.url),'utf8');
@@ -64,7 +65,7 @@ try{
     INSERT INTO inbound_messages(id,organization_id,routing_address_id,receipt_vendor_id,vendor_snapshot_at,receipt_document_type) VALUES('${message}','${org}','${route}','${vendor}',now(),'invoice');
     INSERT INTO inbound_attachments(id,organization_id,message_id,filename,storage_path,processing_status,processing_lease_token) VALUES('${att}','${org}','${message}','invoice.csv','org/inbound/file','processing','${token}');
   `);
-  const prepared=prepare();
+  const prepared=await prepare();
   const header={...prepared.header,file_name:'invoice.csv',file_path:'org/inbound/file'};
   const rpc=(h=header,l=prepared.lines,t=token,a=att,fingerprint='file:128')=>db.query('SELECT public.kerdos_auto_record_invoice($1::uuid,$2::uuid,$3,$4::jsonb,$5::jsonb) AS id',[a,t,fingerprint,JSON.stringify(h),JSON.stringify(l)]);
   const counts=async()=> (await db.query('SELECT (SELECT count(*)::int FROM invoices) invoices,(SELECT count(*)::int FROM invoice_lines) lines,(SELECT count(*)::int FROM import_documents) docs')).rows[0];
@@ -123,7 +124,7 @@ try{
   await check('new billed quantity source/evidence survive automatic atomic persistence and replay',async()=>{
     await db.query("UPDATE inbound_attachments SET processing_status='processing' WHERE id=$1",[att]);
     const billedText=text.replace('INV-101','INV-BILLED').replace(',Qty,',',Billed Quantity,');
-    const billed=prepareAutomaticInvoice({text:billedText,rows:parseDocument(billedText).rows,organizationId:org,vendorId:vendor,vendorItems:[listing]});
+    const billed=await prepareAutomaticInvoice({text:billedText,rows:parseDocument(billedText).rows,organizationId:org,vendorId:vendor,vendorItems:[listing]});
     assert.ok(billed.lines[0].billed_quantity_evidence);const h={...billed.header,file_name:'invoice.csv',file_path:'org/inbound/file'};
     const id=(await rpc(h,billed.lines,token,att,'billed:128')).rows[0].id;
     const saved=(await db.query('select quantity_source,billed_quantity_evidence from invoice_lines where invoice_id=$1',[id])).rows[0];assert.deepEqual(saved.quantity_source,billed.lines[0].quantity_source);assert.deepEqual(saved.billed_quantity_evidence,billed.lines[0].billed_quantity_evidence);

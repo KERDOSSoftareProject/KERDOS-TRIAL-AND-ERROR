@@ -238,7 +238,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     if(lowImageEvidence){const reason='Invoice image text needs source clarification';await backend.attachments.setStatus(attachmentId,'needs_review',reason);return {outcome:'needs_review',reason};}
     const service = createImportService(backend);
     const vendorItems = await service.vendorItems(organizationId, vendorId);
-    const prepared = prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems});
+    const prepared = await prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems,importService:service});
     if (prepared.reason) {
       await backend.attachments.setStatus(attachmentId, "needs_review", prepared.reason);
       return {outcome:"needs_review",reason:prepared.reason};

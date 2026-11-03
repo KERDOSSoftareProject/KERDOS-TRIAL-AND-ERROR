@@ -20,7 +20,7 @@ import {associationProfile,productAssociationIdentity,productGroupApproved} from
 import {clientProductName} from './core/client-product-name.js';
 import {sourceOnlyListings} from './core/source-only-listings.js';
 import { configureLocale, formatDate, formatMoney } from "./localization.js";
-import { buildVarianceReportCSV, downloadTextFile } from "./reporting.js";
+import { buildComparisonReportCSV, downloadTextFile } from "./reporting.js";
 import {InvoicesPage,PriceSheetsPage} from "./pages/DocumentPages.jsx";
 import {LandingGate,OrgGate} from "./pages/AccessPages.jsx";
 import {InvoiceEditModal,AddVendorModal} from "./pages/RecordModals.jsx";
@@ -1263,8 +1263,8 @@ export default function App() {
             vendorColors={vendorColors} formatDate={formatDate} formatMoney={formatMoney}
             attentionCount={flaggedInvoiceLines.length+invoiceDerivedItems.length} role={org.role}
             onImport={vendorId=>{setSelectedVendorId(vendorId);setImportMode("invoice");setShowPaste(true);}}
-            onExport={()=>downloadTextFile(`price-variance-report-${new Date().toISOString().split("T")[0]}.csv`,buildVarianceReportCSV(invoices,vendors),"text/csv")}
-            onViewOriginal={viewStoredFile} onEdit={setEditingInvoice} onDelete={deleteInvoice}
+            onExport={scope=>downloadTextFile(`price-variance-report-${new Date().toISOString().split("T")[0]}.csv`,buildComparisonReportCSV(scope.report),"text/csv")}
+            onViewSource={viewSourceDocument} onViewOriginal={viewStoredFile} onEdit={setEditingInvoice} onDelete={deleteInvoice}
             expandedId={expandedInvoiceId} setExpandedId={setExpandedInvoiceId}
           />
         )}

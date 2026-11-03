@@ -124,9 +124,9 @@ run("overcharges and undercharges both appear",()=>{
   assert.equal(rows.length,3,"header + 2 variance lines");
   const over=rows[1].split(",");
   const under=rows[2].split(",");
-  // Column 6 = Difference = formatMoney(price_variance)
-  assert.equal(over[6], formatMoney(2),  "overcharge Difference must be positive");
-  assert.equal(under[6],formatMoney(-1.5),"undercharge Difference must be negative");
+  // Columns: Date(0) Vendor(1) Invoice#(2) Item(3) QuotedPrice(4) QuotedDate(5) ChargedPrice(6) Difference(7) LineTotalImpact(8)
+  assert.equal(over[7], formatMoney(2),  "overcharge Difference must be positive");
+  assert.equal(under[7],formatMoney(-1.5),"undercharge Difference must be negative");
 });
 
 run("line total impact scales per-unit variance by quantity",()=>{
@@ -137,8 +137,50 @@ run("line total impact scales per-unit variance by quantity",()=>{
   }];
   const rows=buildVarianceReportCSV(invoices,vendorList).split("\r\n");
   const data=rows[1].split(",");
-  // Column 7 = Line Total Impact
-  assert.equal(data[7],formatMoney(5),"impact must equal variance × quantity (1 × 5 = $5.00)");
+  // Column 8 = Line Total Impact (shifted by new Quoted Date column)
+  assert.equal(data[8],formatMoney(5),"impact must equal variance × quantity (1 × 5 = $5.00)");
+});
+
+run("stored quoted_rate takes precedence over arithmetic reconstruction",()=>{
+  // quoted_rate (8.00) must differ from unit_price - price_variance (8.75 - 0.50 = 8.25)
+  // so the test can distinguish the two implementations.  If arithmetic were used instead
+  // of the stored rate, the column would show $8.25, not $8.00.
+  const invoices=[{
+    invoice_date:"2026-10-15",vendor_id:"vend-a",invoice_number:"INV-4",
+    invoice_lines:[{
+      description:"Pork Shoulder",unit_price:8.75,line_total:87.50,price_variance:0.50,
+      quoted_rate:8.00,        // stored at import time — 8.00 ≠ 8.75 - 0.50 = 8.25
+      quoted_effective_date:"2026-09-01",
+      quoted_source:"price_list",
+    }],
+  }];
+  const rows=buildVarianceReportCSV(invoices,vendorList).split("\r\n");
+  const data=rows[1].split(",");
+  // QuotedPrice(4) must be formatMoney(8.00); arithmetic would give formatMoney(8.25)
+  assert.equal(data[4],formatMoney(8.00),
+    "Quoted Price must use stored quoted_rate (8.00), not unit_price - price_variance (8.25)");
+  assert.notEqual(data[4],formatMoney(8.75-0.50),
+    "Quoted Price must not equal arithmetic result (8.25) — the two values must be distinguishable");
+  assert.equal(data[5],"2026-09-01","Quoted Date column must reflect stored effective date");
+});
+
+run("legacy rows without quoted_rate show unavailable Quoted Price (no arithmetic reconstruction)",()=>{
+  // Rows imported before provenance was added have quoted_rate=null.
+  // Quoted Price must be empty — not reconstructed by arithmetic from unit_price - price_variance,
+  // which would present a computed value as if it were a recorded quote.
+  // price_variance is genuinely recorded and still appears in the Difference column.
+  const invoices=[{
+    invoice_date:"2026-08-01",vendor_id:"vend-a",invoice_number:"INV-5",
+    invoice_lines:[{
+      description:"Legacy Item",unit_price:15,line_total:150,price_variance:1.50,
+      // quoted_rate absent — simulates pre-provenance row
+    }],
+  }];
+  const rows=buildVarianceReportCSV(invoices,vendorList).split("\r\n");
+  const data=rows[1].split(",");
+  assert.equal(data[4],"","legacy rows: Quoted Price must be empty — evidence unavailable, not reconstructed");
+  assert.equal(data[5],"","legacy rows: Quoted Date must be empty");
+  assert.equal(data[7],formatMoney(1.50),"legacy rows: recorded price_variance still appears in Difference column");
 });
 
 // ── [3] CSV baseline format ────────────────────────────────────────────────
@@ -173,5 +215,5 @@ run("carriage return (\\r) in a cell is quoted per RFC 4180",()=>{
 });
 
 // ──────────────────────────────────────────────────────────────────────────
-const total=11;
+const total=13;
 console.log(`\nModule G · Task 4 · Export: ${passed}/${total} checks passed.\n`);

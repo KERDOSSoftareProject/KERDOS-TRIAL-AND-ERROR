@@ -10,6 +10,7 @@ import {compileDictionary} from "./core/term-dictionary.js";
 // merged.
 const MATCH_POLICY = Object.freeze({
   autoLink: 0.85,   // at/above: same product, linked automatically
+  invoiceMatchFloor: 0.60, // Invoice review floor; automatic acceptance retains its 90% minimum.
   reviewFloor: 0.5, // at/above (but below autoLink): linked, flagged for review
 });                 // below reviewFloor: not the same product
 
