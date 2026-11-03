@@ -309,6 +309,18 @@ await check('automatic native metadata export retains all 87 rows and source met
  const content=[header,...Array.from({length:87},(_,i)=>[i+1,'Example Group','AUTO-'+i,'Sample cooked product '+i,i===84?'PRICE PRODUCT NAME':'Example brand','2/10 LB','','41.25','CS','Example class','Dry'])].map(row=>row.join(',')).join('\n');
  const f=fixture(),p=await autoOpen(content);await automaticResult(p);assert.equal(p.finished.length,1,text(p.tree.toJSON()));const d=Object.values(f.importDocs)[0];assert.equal(d.status,'complete');assert.equal(d.source_rows.rows.length,87);assert.equal(d.completed_keys.length,87);assert.equal(f.calls.applyQuote.length,87);assert.ok(f.calls.applyQuote.every(q=>q.organizationId===org&&q.vendorId===vendor));assert.deepEqual(f.calls.applyQuote.map(q=>q.vendorItemCode),Array.from({length:87},(_,i)=>'AUTO-'+i));assert.ok(f.calls.applyQuote.every(q=>q.importRow.row.sourceMetadata.some(m=>m.header==='Storage Description'&&m.value==='Dry')));assert.equal(f.uploads[0].bytes,content);assert.equal(button(p,'Continue →'),undefined);p.tree.unmount();
 });
+await check('an 87-row export retains a missing source price without inventing a usable quote',async()=>{
+ const header=['Line Number','Group Name','Product Number','Product Description','Product Brand','Product Package Size','Customer Product Number','Product Price','Product UOM','USF Class Description','Storage Description'];
+ const content=[header,...Array.from({length:87},(_,i)=>[i+1,'Example Group','MISSING-'+i,'Sample cooked product '+i,'Example brand','2/10 LB','',i===42?'':'41.25','CS','Example class','Dry'])].map(row=>row.join(',')).join('\n');
+ const f=fixture(),p=await autoOpen(content);await automaticResult(p);
+ const doc=Object.values(f.importDocs)[0];assert.equal(doc.source_rows.rows.length,87);assert.equal(f.uploads[0].bytes,content);
+ const missing=f.calls.applyQuote.find(q=>q.vendorItemCode==='MISSING-42');
+ assert.ok(missing,'the source row must reach the catalog pipeline');assert.equal(missing.priceUnavailable,true);
+ assert.ok(missing.price==null,'an empty source price must not become a numeric quote');
+ assert.equal(missing.importRow.row.sourceMetadata.some(m=>m.header==='Storage Description'&&m.value==='Dry'),true);
+ assert.equal(f.calls.applyQuote.filter(q=>q.priceUnavailable===false&&q.price===41.25).length,86);
+ p.tree.unmount();
+});
 await check('automatic unresolved headers are retained for review without creating usable quotes or invented layout confirmations',async()=>{
  const content=csv.replace('Price Unit,Price','Price Unit,Price,Unfamiliar Fee').replace('CASE,41.25','CASE,41.25,6.00');const f=fixture(),p=await autoOpen(content);await automaticResult(p);assert.equal(p.finished.length,1,text(p.tree.toJSON()));assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.applyQuote[0].priceUnavailable,true);assert.ok(f.calls.applyQuote[0].importRow.conflicts.some(reason=>/Unconfirmed source columns/.test(reason)));assert.equal(f.calls.applyQuote[0].importRow.row.columnReview[0].label,'Unfamiliar Fee');assert.equal(f.uploads[0].bytes,content);assert.equal(button(p,'Continue →'),undefined);p.tree.unmount();
 });
