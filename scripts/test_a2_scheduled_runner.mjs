@@ -6,6 +6,7 @@ const records=new Map();let starts=0;
 const host={
  async claimOccurrence(id,date,state){const key=`${id}:${date}`;if(records.has(key))return false;records.set(key,{state:'started',kind:state});return true;},
  async finishOccurrence(id,date,result){records.get(`${id}:${date}`).state=result;},
+ async validateConnection(){return true;},
  async startRefresh(){starts++;return 'saved';},
 };
 const due=createScheduledRunner(host,{clock:()=>new Date('2026-11-02T11:01:00Z')});
@@ -34,4 +35,7 @@ assert.equal(records.get('verification:2026-11-02').state,'verification_needed')
 
 const unsupported=createScheduledRunner({...host,startRefresh:async()=> 'received_for_review'},{clock:()=>new Date('2026-11-02T11:01:00Z')});
 assert.equal((await unsupported.tick({...connection,id:'receipt-only'})).state,'failed','receipt does not mean saved prices');
+const stale=createScheduledRunner({...host,validateConnection:async()=>false,startRefresh:async()=>{throw Error('supplier must not be touched');}},{clock:()=>new Date('2026-11-02T11:01:00Z')});
+assert.equal((await stale.tick({...connection,id:'stale-selection'})).state,'failed');
+assert.equal(records.get('stale-selection:2026-11-02').state,'failed');
 console.log('PASS scheduled runner: atomic claim, single export, missed run, failure, verification and receipt-only guard');
