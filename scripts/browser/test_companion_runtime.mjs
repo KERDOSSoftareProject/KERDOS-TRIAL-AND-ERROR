@@ -18,7 +18,8 @@ try{
  await cp(resolve('companion/chrome'),extension,{recursive:true});
  const manifest=JSON.parse(await readFile(join(extension,'manifest.json'),'utf8'));
  assert.deepEqual(manifest.permissions,['activeTab','scripting','storage']);assert.equal(manifest.host_permissions,undefined);
- // Run the exact shipped manifest: no fixture host grants or extra permissions.
+ // Run the exact shipped manifest; optional grants are enabled only in the
+ // dedicated refresh phase below, never by widening the packaged manifest.
  context=await chromium.launchPersistentContext(join(scratch,'profile'),{channel:'chromium',headless:process.env.KERDOS_BROWSER_HEADED!=='1',acceptDownloads:true,args:['--enable-unsafe-extension-debugging','--disable-extensions-except='+extension,'--load-extension='+extension]});
  context.setDefaultTimeout(15000);
  const devtools=await context.browser().newBrowserCDPSession();
@@ -29,11 +30,11 @@ try{
  const unexpected=[];
  const source=await readFile('src/services/companion-handoff.js','utf8');
  const refreshSource=await readFile('src/services/companion-refresh.js','utf8');let vendorRequiresVerification=false;
- const app=`<!doctype html><title>Synthetic KERDOS receiver</title><script type="module">
+ const app=`<!doctype html><meta charset="utf-8"><title>Synthetic KERDOS receiver</title><script type="module">
  import {createCompanionHandoff} from '/handoff.mjs';import {createCompanionRefreshClient} from '/refresh.mjs';
  window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();window.refreshClient=createCompanionRefreshClient(window);window.startRefresh=async()=>{window.prepare();window.refreshResult=null;window.refreshResult=await window.refreshClient.refresh(window.handoff.nonce);};
  </script><button id="refresh-prices" onclick="window.startRefresh()">Refresh prices</button>`;
- const vendor=`<!doctype html><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
+ const vendor=`<!doctype html><meta charset="utf-8"><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
  <button id="open" onclick="document.getElementById('dialog').hidden=false">Download</button>
  <div id="dialog" role="dialog" hidden><p>Download Example List Select Format CSV</p><button onclick="document.getElementById('prices').hidden=false">Download Options</button><label id="prices" hidden>Product Prices<input type="checkbox" aria-label="Product Prices"></label><button id="download">Download</button></div>
  <script>window.csv=${JSON.stringify(csv)};window.exportCount=0;document.getElementById('download').onclick=()=>{window.exportCount++;window.finishExport=()=>{const url=URL.createObjectURL(new Blob([window.csv],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='Example List.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};};</script>`;
