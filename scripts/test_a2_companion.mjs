@@ -27,7 +27,7 @@ const originalQuery=document.querySelectorAll;document.querySelectorAll=selector
 // Exercise exact-byte capture against a controlled Blob-producing page.
 globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists/view/dynamic-client-list'};
 shown=false;options=false;checked=false;
-const csv='Product Number,Product Description,Product Price\nSYNTHETIC,Sample Product,1.20\n';
+const csv='Product Number,Product Description,Product Price\nSYNTHETIC,Crème brûlée® – jalapeño,1.20\n';
 const originalCreate=URL.createObjectURL;
 class Anchor {click(){} dispatchEvent(){return true;}}
 globalThis.HTMLAnchorElement=Anchor;
@@ -40,7 +40,12 @@ final.click=()=>{
  const anchor=new Anchor();anchor.href=url;anchor.download='Example List.csv';anchor.dispatchEvent({type:'click'});URL.revokeObjectURL(url);
 };
 const captured=await exportSelectedMoxeList({...selection,capture:true});
-assert.equal(captured.outcome,'export_captured');assert.equal(atob(captured.artifact.base64),csv);assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
+assert.equal(captured.outcome,'export_captured');assert.deepEqual(Buffer.from(captured.artifact.base64,'base64'),Buffer.from(csv,'utf8'));assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
+// An existing capture owns its sentinel and hooks; a competing attempt must
+// stop before the final download without releasing that owner's reservation.
+shown=false;options=false;checked=false;clicks=[];
+const owner={owned:true};globalThis.__kerdosExportCapture=owner;
+assert.equal((await exportSelectedMoxeList({...selection,capture:true})).outcome,'capture_busy');assert.ok(!clicks.includes('download'));assert.equal(globalThis.__kerdosExportCapture,owner);assert.equal(URL.createObjectURL,originalCreate);assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);delete globalThis.__kerdosExportCapture;
 shown=false;options=false;checked=false;
 final.click=()=>{throw new Error('unexpected download failure');};
 assert.equal((await exportSelectedMoxeList({...selection,capture:true})).outcome,'page_unavailable');assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);

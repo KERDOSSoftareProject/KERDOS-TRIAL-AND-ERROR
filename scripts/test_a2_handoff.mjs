@@ -56,7 +56,21 @@ const genericSelection={...selection,adapterKey:'another-provider',portalOrigin:
 handoff=begin({selection:genericSelection});await dispatch({type:'pair'});ticket=messages.at(-1).ticket;
 await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,origin:genericSelection.portalOrigin}});
 assert.equal(received.length,beforeClaim+2);assert.equal(received.at(-1).evidence.adapter_key,'another-provider');handoff.cancel();
-console.log('PASS one-use app/bridge delivery preserves exact bytes, ignores payload ownership, blocks wrong origin/sender, replay, expiry, cancelled in-flight work and invalid exports');
+// Unicode is valid UTF-8: preserve the raw bytes, not a Latin-1 base64 view.
+const unicode='Code,Description,Price\nUTF8,Crème brûlée® – jalapeño,12.50\n';
+const unicodeBytes=new TextEncoder().encode(unicode),unicodeBefore=received.length;
+handoff=begin();await dispatch({type:'pair'});ticket=messages.at(-1).ticket;
+await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,base64:Buffer.from(unicodeBytes).toString('base64')}});
+assert.equal(received.length,unicodeBefore+1);const unicodePayload=received.at(-1);
+assert.equal(await unicodePayload.file.text(),unicode);assert.deepEqual(new Uint8Array(await unicodePayload.file.arrayBuffer()),unicodeBytes);assert.equal(unicodePayload.evidence.byte_length,unicodeBytes.length);
+assert.equal(unicodePayload.evidence.sha256,Buffer.from(await crypto.subtle.digest('SHA-256',unicodeBytes)).toString('hex'));handoff.cancel();
+// A timer callback queued before disposal may still run during admission.
+// Receiving has already cleared its timer and cannot be expired mid-review.
+time=1000;states.length=0;let finishAdmitted,disposed=0;
+handoff=begin({onStateChange:s=>states.push(s),schedule:fn=>{expiry=fn;return 9;},unschedule:id=>{assert.equal(id,9);disposed++;},onReceive:()=>new Promise(resolve=>{finishAdmitted=resolve;})});
+await dispatch({type:'pair'});ticket=messages.at(-1).ticket;const admitted=dispatch({type:'deliver',nonce:ticket.nonce,artifact});while(!finishAdmitted)await new Promise(resolve=>setImmediate(resolve));
+assert.equal(disposed,1);time=handoff.expiresAt;expiry();assert.equal(handoff.state,'receiving');finishAdmitted();await admitted;assert.deepEqual(states,['receiving','received']);assert.equal(disposed,1);assert.equal(messages.at(-1).outcome,'received_for_review');handoff.cancel();
+console.log('PASS one-use app/bridge delivery preserves UTF-8 bytes and hash, ignores payload ownership, blocks wrong origin/sender, replay, expiry, cancelled in-flight work and invalid exports');
 const db=new PGlite();
 try{
  await db.exec('CREATE TABLE public.import_documents(id int primary key);');await db.exec(readFileSync('knowledge/a2_companion_evidence_draft.sql','utf8'));
