@@ -5,7 +5,7 @@ import {createVendorConnectService,VendorConnectUnavailable} from '../services/v
 const box={background:'white',borderRadius:14,padding:'28px 24px',color:'#00204F',maxWidth:760};
 const control={padding:'10px 12px',border:'1px solid #B7C8DE',borderRadius:8,font:'inherit',color:'#00204F',background:'white'};
 const button={...control,background:'#00204F',color:'white',cursor:'pointer'};
-export default function VendorConnectPage({backend,organizationId,vendors=[],role,onCompanionImport,importResult,onTransferStart}){
+export default function VendorConnectPage({backend,organizationId,vendors=[],role,onCompanionImport,importInProgress=false,importResult,onTransferStart}){
   const refreshClient=useMemo(()=>createCompanionRefreshClient(typeof window==='undefined'?null:window),[]);
   const [refreshAvailable,setRefreshAvailable]=useState(()=>refreshClient.available());
   useEffect(()=>refreshClient.watch(setRefreshAvailable),[refreshClient]);
@@ -28,6 +28,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
   useEffect(()=>{if(stopTransfer())setMessage('Browser transfer cancelled. Prepare a new transfer for the current selection.');},[organizationId,vendorId,adapterKey,account,list,allowed,backend,transferEligible]);
   useEffect(()=>()=>{transferGeneration.current++;handoff.current?.cancel();},[]);
   async function prepareTransfer(refresh=false){
+    if(importInProgress)return;
     stopTransfer();if(!transferEligible)return;
     onTransferStart?.();
     const token=transferGeneration.current,current=generation.current,attempt=++prepareAttempt.current;
@@ -98,6 +99,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     </div>
     {message&&!(message==='Pricing received for automatic ingestion. The transfer receipt alone does not confirm saved prices.'&&importResult?.organizationId===organizationId&&importResult.vendorId===vendorId)&&<p role="alert">{message}</p>}
     {importResult?.organizationId===organizationId&&importResult.vendorId===vendorId&&<p role={importResult.status==='needs_attention'?'alert':'status'} style={{background:importResult.status==='needs_attention'?'#FFF3E0':'#E8F5E9',border:`1px solid ${importResult.status==='needs_attention'?'#FFCC80':'#A5D6A7'}`,borderRadius:8,padding:12}}><strong>Latest pricing result:</strong> {importResult.message}</p>}
+    {importInProgress&&<p role="status">KERDOS is processing the received pricing. Refresh will be available when this intake finishes.</p>}
     {!unavailable&&!scopedData&&!message&&<p role="status">Loading your vendor connections…</p>}
     {!unavailable&&scopedData&&<>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:20}}>
@@ -110,8 +112,8 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
         <p>Sign in with your vendor directly. After retrieval, KERDOS processes the pricing file automatically for the selected vendor and retains unresolved details for review.</p>
         <label style={{display:'grid',gap:6,marginBottom:12}}>Account name shown by your vendor<input aria-label="Portal account name" maxLength={200} style={control} value={account} onChange={e=>editSelection('account',e.target.value)}/></label>
         <label style={{display:'grid',gap:6,marginBottom:12}}>Pricing list name<input aria-label="Portal list name" maxLength={200} style={control} value={list} onChange={e=>editSelection('list',e.target.value)}/></label>
-        {refreshAvailable&&<button style={button} disabled={!account.trim()||!list.trim()||busy} onClick={()=>prepareTransfer(true)}>Refresh prices</button>}
-        {refreshAvailable?<details style={{marginTop:12}}><summary>Manual browser transfer</summary><button style={button} disabled={!account.trim()||!list.trim()||busy} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button></details>:<button style={button} disabled={!account.trim()||!list.trim()||busy} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button>}
+        {refreshAvailable&&<button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(true)}>Refresh prices</button>}
+        {refreshAvailable?<details style={{marginTop:12}}><summary>Manual browser transfer</summary><button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button></details>:<button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button>}
         {armed&&<button style={{...control,marginLeft:8}} onClick={()=>{stopTransfer();setMessage('Browser transfer cancelled. Prepare a new transfer to retry.');}}>Cancel browser transfer</button>}
       </div>}
       {selectedRequest&&<p role="status">{selectedRequest.state==='cancelled'?'This setup request was cancelled.':'Setup requested. Account access is awaiting verification.'}</p>}
