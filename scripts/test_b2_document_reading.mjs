@@ -51,6 +51,13 @@ await check('CSV retains exact source text, quoted commas/newlines, codes and pr
   assert.equal(cells.find(cell=>cell.address==='B2').value,'Chicken, boneless');
   assert.equal(cells.find(cell=>cell.address==='B3').value,'Turkey\nsmoked');
 });
+await check('Windows-1252 CSV reads product words without altering original bytes',async()=>{
+  const bytes=Buffer.from('Code,Description,Price\r\n00125,Crème brûlée® \x96 jalapeño,12.50\r\n','latin1');
+  const result=await makeReader()(file('vendor.csv',bytes));
+  assert.match(result.text,/Crème brûlée® – jalapeño/);
+  assert.equal(result.worksheets[0].cells.find(cell=>cell.address==='B2').value,'Crème brûlée® – jalapeño');
+  assert.equal(bytes.includes(0x96),true);
+});
 await check('XLSX reads all worksheets, blank tabs, offsets, typed values and formulas',async()=>{
   const book=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([['Code','Description','Pack','Price Unit','Price'],['00123','Chicken Breast','2/10 LB','CASE',41.25]]),'Chicken');
