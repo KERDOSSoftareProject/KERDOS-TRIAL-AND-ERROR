@@ -1,6 +1,27 @@
 // Transfer execution belongs to the local companion, not its disposable popup.
 // Only status and the existing one-use pairing are retained; never CSV or secrets.
 // Portable orchestration; hosts own execution and persistence.
+// Only fixed outcome codes become client messages; never display adapter diagnostics.
+export function exportFailureMessage(outcome){
+ let guidance;
+ switch(outcome){
+  case 'verification_needed':return 'Your vendor requires sign-in or verification. Complete it directly with the vendor, then prepare and pair a new transfer. No file was sent to KERDOS.';
+  case 'account_mismatch':guidance='The open vendor account does not match your selected account. Open the selected account.';break;
+  case 'list_mismatch':case 'list_changed':guidance='The open pricing list does not match your selection, or changed during export. Open the selected list.';break;
+  case 'open_selected_list':guidance='Open your selected vendor pricing list before exporting.';break;
+  case 'selection_required':guidance='Choose an account and pricing list in KERDOS before exporting.';break;
+  case 'csv_format_required':guidance='The selected export must be in CSV format. Choose the CSV export.';break;
+  case 'capture_busy':guidance='An export capture is already running. Wait for it to finish before starting another transfer.';break;
+  case 'capture_unavailable':guidance='The companion could not capture this export. Keep the original download for review.';break;
+  case 'unsupported_encoding':guidance='This export uses an unsupported text encoding. Keep the original file for review.';break;
+  case 'invalid_csv':guidance='The captured file is not a supported CSV export. Check the vendor export format.';break;
+  case 'ambiguous_control':case 'page_changed':case 'page_unavailable':guidance='The vendor page could not be verified for this export. Reopen the selected account and list.';break;
+  case 'wrong_origin':guidance='Open the vendor portal selected for this connection.';break;
+  case 'execution_unavailable':case 'unsupported_adapter':guidance='This connection cannot export through the current companion.';break;
+  default:return 'The vendor export did not complete. No file was sent to KERDOS. Prepare a new transfer to retry.';
+ }
+ return guidance+' No file was sent to KERDOS. Prepare and pair a new transfer before retrying.';
+}
 export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>crypto.randomUUID()}={}){
  let active=false,current={busy:false,message:'Prepare a browser transfer in KERDOS, then pair this tab.'};
  const terminal=message=>({busy:false,message});
@@ -33,8 +54,7 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
    await host.clearPairing();
    await save(true,'Checking the selected account and exporting its pricing list… You may close this popup and reopen it for the result.');
    const response=await host.retrieve(target,pairing);
-   if(response?.outcome==='verification_needed')return terminal('Your vendor requires sign-in or verification. Complete it directly with the vendor, then prepare and pair a new transfer. No file was sent to KERDOS.');
-   if(response?.outcome!=='export_captured')return terminal('The vendor export did not complete. No file was sent to KERDOS. Prepare a new transfer to retry.');
+   if(response?.outcome!=='export_captured')return terminal(exportFailureMessage(response?.outcome));
    await save(true,'Delivering the selected pricing file to KERDOS… Prices are not confirmed saved.');
    const ack=await host.deliver(pairing,claimId,response.artifact);
    return terminal(ack?.ok&&ack.outcome==='received_for_review'?'KERDOS received the CSV. Return to its tab to check the automatic import result. This receipt does not confirm saved prices.':'KERDOS did not accept the file. Prepare a new transfer and retry.');

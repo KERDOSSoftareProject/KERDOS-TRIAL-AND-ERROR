@@ -27,7 +27,7 @@ const originalQuery=document.querySelectorAll;document.querySelectorAll=selector
 // Exercise exact-byte capture against a controlled Blob-producing page.
 globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists/view/dynamic-client-list'};
 shown=false;options=false;checked=false;
-const csv='Product Number,Product Description,Product Price\nSYNTHETIC,Crème brûlée® – jalapeño,1.20\n';
+let csv='Product Number,Product Description,Product Price\nSYNTHETIC,Crème brûlée® – jalapeño,1.20\n';
 const originalCreate=URL.createObjectURL;
 class Anchor {click(){} dispatchEvent(){return true;}}
 globalThis.HTMLAnchorElement=Anchor;
@@ -41,6 +41,10 @@ final.click=()=>{
 };
 const captured=await exportSelectedMoxeList({...selection,capture:true});
 assert.equal(captured.outcome,'export_captured');assert.deepEqual(Buffer.from(captured.artifact.base64,'base64'),Buffer.from(csv,'utf8'));assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
+// Unsupported legacy bytes are rejected explicitly without replacement decoding.
+const utf8Csv=csv;csv=Uint8Array.of(67,111,100,101,44,78,97,109,101,10,49,44,67,97,102,233,10);
+shown=false;options=false;checked=false;
+const unsupported=await exportSelectedMoxeList({...selection,capture:true});assert.equal(unsupported.outcome,'unsupported_encoding');assert.equal(unsupported.artifact,undefined);assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);csv=utf8Csv;
 // An existing capture owns its sentinel and hooks; a competing attempt must
 // stop before the final download without releasing that owner's reservation.
 shown=false;options=false;checked=false;clicks=[];

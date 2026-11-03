@@ -1,9 +1,9 @@
-# Vendor Connect local browser pilot — 0.2.4
+# Vendor Connect local browser pilot — 0.2.5
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS
 tab. It uses the existing deployed protocol-v2 KERDOS app and its connection checks.
 The previous 0.1.0 export-only pilot remains historical evidence; installing
-0.2.4 does not change the live KERDOS application.
+0.2.5 does not change the live KERDOS application.
 
 The client signs into the vendor directly and completes verification there.
 The selected client/vendor comes from KERDOS, with account/list labels entered
@@ -168,3 +168,20 @@ Firefox hosts, secure transport, client installation, supplier authentication
 and any scheduler still require their own implementation and acceptance. No
 background retrieval or automatic resend is introduced. Replace/reload the
 complete 0.2.4 folder for installed acceptance; include the `core` subfolder.
+
+
+## Export failure guidance — 0.2.5
+
+Known adapter outcomes now explain account/list mismatch, missing CSV format,
+concurrent or unavailable capture, unsupported text encoding, invalid CSV and
+changed/unverifiable pages. Messages are fixed application text; raw adapter
+diagnostics are never displayed or retained as status. Unknown outcomes keep
+the generic failure guidance. No failure automatically retries or delivers a
+file, and a new prepared/paired transfer is required after the attempt.
+
+The MOXe adapter now reports unsupported encoding explicitly instead of
+mislabeling a strict UTF-8 decode failure as an unavailable page. It does not
+replace characters, convert bytes, or add Windows-1252 support. Keep the original
+file for review. Protocol, narrow permissions, successful transfer handling and
+the app-owned client/vendor assignment are unchanged. Reload the complete 0.2.5
+folder (including core) for installed acceptance.
