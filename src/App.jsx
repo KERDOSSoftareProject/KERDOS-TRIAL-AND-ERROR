@@ -890,7 +890,7 @@ export default function App() {
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
         <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
-        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
+        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importInProgress={companionImport?.organizationId===org.id} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
           if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
           setCompanionImport(payload);
         }} />}
