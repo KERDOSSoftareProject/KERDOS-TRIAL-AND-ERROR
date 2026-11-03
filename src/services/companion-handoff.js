@@ -65,5 +65,5 @@ export function createCompanionHandoff({target=window,selection,onReceive,onVali
     }catch{reject();reply(msg.requestId,{ok:false,outcome:'handoff_rejected'});}
   }
   target.addEventListener('message',listener);
-  return {expiresAt:ticket.expiresAt,get state(){return state;},cancel(){clearExpiry();const wasActive=active;active=false;target.removeEventListener('message',listener);if(wasActive)transition('cancelled');}};
+  return {nonce:ticket.nonce,expiresAt:ticket.expiresAt,get state(){return state;},cancel(){clearExpiry();const wasActive=active;active=false;target.removeEventListener('message',listener);if(wasActive)transition('cancelled');}};
 }

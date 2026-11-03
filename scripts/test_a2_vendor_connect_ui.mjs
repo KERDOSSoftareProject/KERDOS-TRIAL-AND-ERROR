@@ -78,7 +78,36 @@ try{
  await act(async()=>button('Cancel browser transfer').props.onClick());assert.equal(events.size,0);assert.match(text(tree.toJSON()),/Browser transfer cancelled/);
  // Context changes revoke a ticket even when the client/vendor IDs are unchanged.
  await act(async()=>button('Prepare browser transfer').props.onClick());await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,vendors:[{id:'vendor-a',name:'Client vendor',is_active:false}],onCompanionImport:()=>{}})));assert.equal(events.size,0);assert.equal(button('Prepare browser transfer'),undefined);assert.match(text(tree.toJSON()),/Browser transfer cancelled/);
- await act(async()=>{tree.unmount();});assert.equal(events.size,0);delete globalThis.window;
+ await act(async()=>{tree.unmount();});assert.equal(events.size,0);
+ // The actual page does preparation internally and supplies only its fresh nonce
+ // to the companion. Transport is simulated; handoff validation is real here.
+ appWindow.document={documentElement:{getAttribute:key=>key==='data-kerdos-refresh'?'1':null}};
+ pilotRequest.portal_account_label='Sample Client';pilotRequest.portal_list_label='Example List';
+ let refreshCommands=0,refreshReceipts=0,mode='success',lateCommand;
+ appWindow.postMessage=msg=>{
+  replies.push(msg);
+  if(msg.channel!=='kerdos-refresh-v1'||msg.type!=='refresh')return;
+  refreshCommands++;lateCommand=msg;
+  if(mode==='late')return;
+  queueMicrotask(async()=>{
+   if(mode==='success'){
+    await send({type:'pair'});const t=replies.at(-1).ticket;assert.equal(t.nonce,msg.nonce);
+    const claimId=crypto.randomUUID();await send({type:'claim',nonce:t.nonce,claimId});await send({type:'deliver',nonce:t.nonce,claimId,artifact:{origin:'https://order.usfoods.com',base64:btoa('Code,Price\\nA,1\\n')}});
+   }
+   for(const fn of [...events])await fn({source:appWindow,origin:appWindow.location.origin,data:{channel:'kerdos-refresh-v1',type:'reply',requestId:msg.requestId,outcome:mode==='success'?'received_for_review':'permission_required',message:'Enable Refresh prices access once in the K companion.'}});
+  });
+ };
+ await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;}}));});
+ assert.equal(tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.value,'vendor-a','one saved active connection is selected without re-enrollment');
+ assert.equal(tree.root.findByProps({'aria-label':'Portal account name'}).props.value,'Sample Client');
+ await act(async()=>button('Refresh prices').props.onClick());assert.equal(refreshCommands,1);assert.equal(refreshReceipts,1);assert.match(text(tree.toJSON()),/Pricing received for automatic ingestion/);assert.equal(button('Cancel browser transfer'),undefined);
+ mode='denied';await act(async()=>button('Refresh prices').props.onClick());assert.equal(refreshReceipts,1);assert.match(text(tree.toJSON()),/Enable Refresh prices access once/);assert.equal(button('Cancel browser transfer'),undefined);
+ mode='late';let waiting;await act(async()=>{waiting=button('Refresh prices').props.onClick();while(!lateCommand||refreshCommands<3)await new Promise(resolve=>setImmediate(resolve));});
+ await act(async()=>tree.root.findByProps({'aria-label':'Portal list name'}).props.onChange({target:{value:'Different List'}}));
+ await act(async()=>{for(const fn of [...events])await fn({source:appWindow,origin:appWindow.location.origin,data:{channel:'kerdos-refresh-v1',type:'reply',requestId:lateCommand.requestId,outcome:'received_for_review'}});await waiting;});
+ assert.equal(refreshReceipts,1);assert.match(text(tree.toJSON()),/Browser transfer cancelled/,'late command cannot report success into a changed selection');
+ await act(async()=>tree.unmount());assert.equal(events.size,0);delete globalThis.window;
+ console.log('PASS rendered Refresh prices: saved connection, one-click preparation/pair/claim/import, permission guidance and stale-selection cleanup');
  console.log('PASS rendered pilot arming, selected-list invalidation, latest callback guard and unmount cleanup');
  const missing={records:createRecords(async()=>({error:{code:'42P01',message:'internal secret backend diagnostics'}}))};
  await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,{...props,backend:missing}));});

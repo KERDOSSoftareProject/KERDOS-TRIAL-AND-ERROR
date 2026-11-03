@@ -1,3 +1,9 @@
+# Companion 0.2.7 · Refresh prices
+
+Install the complete folder including adapters and core. Enable only this version, then refresh the KERDOS tab. In the K popup, choose the provider and click **Enable Refresh prices** once to grant access to the KERDOS host and that vendor portal. Open the correct account/list with the vendor for initial setup. Later use **Refresh prices** in KERDOS; preparation, pairing, export and processing run through the existing checked handoff. The verified list route can reopen when its tab is closed. Login/MFA pauses for the user; no password/code is read or stored.
+
+This is user-started Chrome-host refresh, not unattended login, scheduling or a delivered universal desktop host. Legacy manual instructions below remain a fallback.
+
 # Vendor Connect local browser pilot — 0.2.6
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS

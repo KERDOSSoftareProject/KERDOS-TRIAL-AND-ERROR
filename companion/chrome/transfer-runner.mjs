@@ -2,9 +2,12 @@
 import {providers} from './providers.mjs';
 import {pairKerdosTab,approvedKerdosTab} from './bridge.mjs';
 import {createPortableTransferRunner} from './core/transfer-runner.mjs';
+import {createRefreshSourceResolver} from './refresh-source.mjs';
 export function createTransferRunner(api){
  const providerFor=(target,pairing)=>target?.url&&providers.find(p=>p.origin===new URL(target.url).origin&&p.key===pairing.adapterKey&&p.origin===pairing.portalOrigin);
  return createPortableTransferRunner({
+  resolveSource:createRefreshSourceResolver(api,providers),
+  refreshAccess:()=>api.permissions.contains({origins:['https://kerdossoftareproject.github.io/*']}),
   validTarget:id=>Number.isSafeInteger(id)&&id>0,
   getTarget:id=>api.tabs.get(id),
   isReceiver:target=>approvedKerdosTab(target.url),

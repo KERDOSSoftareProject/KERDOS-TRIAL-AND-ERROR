@@ -2,10 +2,10 @@
 // Only status and the existing one-use pairing are retained; never CSV or secrets.
 // Portable orchestration; hosts own execution and persistence.
 // Only fixed outcome codes become client messages; never display adapter diagnostics.
-export function exportFailureMessage(outcome){
+export function exportFailureMessage(outcome,{refresh=false}={}){
  let guidance;
  switch(outcome){
-  case 'verification_needed':return 'Your vendor requires sign-in or verification. Complete it directly with the vendor, then prepare and pair a new transfer. No file was sent to KERDOS.';
+  case 'verification_needed':return refresh?'Your vendor requires sign-in or verification. Complete it directly with the vendor, then click Refresh prices. No file was sent to KERDOS.':'Your vendor requires sign-in or verification. Complete it directly with the vendor, then prepare and pair a new transfer. No file was sent to KERDOS.';
   case 'account_mismatch':guidance='The open vendor account does not match your selected account. Open the selected account.';break;
   case 'list_mismatch':case 'list_changed':guidance='The open pricing list does not match your selection, or changed during export. Open the selected list.';break;
   case 'open_selected_list':guidance='Open your selected vendor pricing list before exporting.';break;
@@ -18,13 +18,13 @@ export function exportFailureMessage(outcome){
   case 'ambiguous_control':case 'page_changed':case 'page_unavailable':guidance='The vendor page could not be verified for this export. Reopen the selected account and list.';break;
   case 'wrong_origin':guidance='Open the vendor portal selected for this connection.';break;
   case 'execution_unavailable':case 'unsupported_adapter':guidance='This connection cannot export through the current companion.';break;
-  default:return 'The vendor export did not complete. No file was sent to KERDOS. Prepare a new transfer to retry.';
+  default:return 'The vendor export did not complete. No file was sent to KERDOS. '+(refresh?'Click Refresh prices to retry.':'Prepare a new transfer to retry.');
  }
- return guidance+' No file was sent to KERDOS. Prepare and pair a new transfer before retrying.';
+ return guidance+' No file was sent to KERDOS. '+(refresh?'Click Refresh prices to retry.':'Prepare and pair a new transfer before retrying.');
 }
 export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>crypto.randomUUID()}={}){
  let active=false,current={busy:false,message:'Prepare a browser transfer in KERDOS, then pair this tab.'};
- const terminal=message=>({busy:false,message});
+ const terminal=(message,outcome)=>({busy:false,message,...(outcome?{outcome}:{})});
  const save=async(busy,message)=>{const snapshot={busy,message};current=snapshot;await host.writeStatus(snapshot);return snapshot;};
  const initialized=(async()=>{
   const transferStatus=await host.readStatus();
@@ -36,17 +36,31 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
    try{await host.reportFailure(reservation.pairing,reservation.claimId);}catch{/* The original failure remains valid even when its receiver disappeared. */}
   }
  };
- async function execute(action,targetId){
+ async function execute(action,targetId,expectedNonce,refreshContext=false){
   let reservation=null,deliveryStarted=false;
   try{
    const target=await host.getTarget(targetId);
-   if(action==='pair'){
-    if(!target||!host.validTarget(target.id)||!host.isReceiver(target))throw Error('wrong_app');
+   if(action==='pair'||action==='refresh'){
+    if(!target||!host.validTarget(target.id))throw Error('wrong_app');
+    if(action==='refresh'&&host.refreshAccess&&!await host.refreshAccess(target))return terminal('Enable Refresh prices access once in the K companion, then return here and click Refresh prices.','permission_required');
+    if(!host.isReceiver(target))throw Error('wrong_app');
     await save(true,'Pairing with the prepared KERDOS tab…');
     await host.clearPairing();
     const response=await host.pair(target);
-    if(!response?.ok||!response.ticket)throw Error('not_ready');
+    if(!response?.ok||!response.ticket||(action==='refresh'&&response.ticket.nonce!==expectedNonce))throw Error('not_ready');
     await host.savePairing({...response.ticket,receiverId:target.id});
+    if(action==='refresh'){
+     const pairing={...response.ticket,receiverId:target.id};
+     const source=await host.resolveSource(pairing);
+     if(source?.outcome!=='ready'){
+      await host.clearPairing();
+      const messages={permission_required:'Enable Refresh prices access once in the K companion, then return here and click Refresh prices.',ambiguous_source:'More than one vendor tab matches this account and list. Close the extra matching tabs, then click Refresh prices.',verification_needed:'Your vendor requires sign-in or verification. Complete it directly with the vendor, then click Refresh prices.',source_selection_required:'Open the selected account and pricing list with your vendor once, then return here and click Refresh prices.'};
+      const outcome=Object.hasOwn(messages,source?.outcome)?source.outcome:'source_unavailable';
+      return terminal(outcome==='source_unavailable'?'The selected vendor page is unavailable. Open its pricing list and click Refresh prices to retry.':messages[outcome],outcome);
+     }
+     if(now()>=pairing.expiresAt)throw Error('expired');
+     return execute('export',source.targetId,undefined,true);
+    }
     return terminal('Paired for one export. Open the selected vendor list, then click K and Send pricing to KERDOS.');
    }
    const pairing=await host.readPairing();
@@ -61,28 +75,29 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
    await host.clearPairing();
    await save(true,'Checking the selected account and exporting its pricing list… You may close this popup and reopen it for the result.');
    const response=await host.retrieve(target,pairing);
-   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome));}
+   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome,{refresh:refreshContext}));}
    await save(true,'Delivering the selected pricing file to KERDOS… Prices are not confirmed saved.');
    deliveryStarted=true;
    const ack=await host.deliver(pairing,claimId,response.artifact);
-   return terminal(ack?.ok&&ack.outcome==='received_for_review'?'KERDOS received the CSV. Return to its tab to check the automatic import result. This receipt does not confirm saved prices.':'KERDOS did not accept the file. Prepare a new transfer and retry.');
+   return terminal(ack?.ok&&ack.outcome==='received_for_review'?'KERDOS received the CSV. Return to its tab to check the automatic import result. This receipt does not confirm saved prices.':'KERDOS did not accept the file. Prepare a new transfer and retry.',ack?.ok&&ack.outcome==='received_for_review'?'received_for_review':'handoff_rejected');
   }catch{
    if(!deliveryStarted)await reportFailure(reservation);
-   return terminal(action==='pair'?'In KERDOS, prepare a browser transfer first. Then pair from that KERDOS tab.':'Transfer unavailable. Keep your signed-in KERDOS tab open and prepare/pair a new transfer. No completed import has been confirmed.');
+   return terminal(action==='pair'?'In KERDOS, prepare a browser transfer first. Then pair from that KERDOS tab.':(refreshContext||action==='refresh'?'Refresh unavailable. Keep KERDOS open and check the selected vendor list before clicking Refresh prices again. No completed import has been confirmed.':'Transfer unavailable. Keep your signed-in KERDOS tab open and prepare/pair a new transfer. No completed import has been confirmed.'));
   }
  }
  return {
   async status(){await initialized;return {...current,busy:active||current.busy};},
-  async run(action,targetId){
-   if(!['pair','export'].includes(action)||!host.validTarget(targetId))throw Error('Invalid companion command');
+  async run(action,targetId,{expectedNonce}={}){
+   if(!['pair','export','refresh'].includes(action)||!host.validTarget(targetId)||(action==='refresh'&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expectedNonce||'')))throw Error('Invalid companion command');
    if(active){await initialized;return {...current,busy:active||current.busy};}
    active=true; // Reserve before storage or tab lookups, including competing popups.
    let result;
-   try{await initialized;result=await execute(action,targetId);}finally{active=false;}
+   try{await initialized;result=await execute(action,targetId,expectedNonce);}finally{active=false;}
    // Release ownership before publishing ready: storage listeners may issue
    // the next command before this write's promise resolves. No old finally
    // may later clear that new command's lock.
-   return save(false,result.message);
+   const saved=await save(false,result.message);
+   return action==='refresh'?{...saved,outcome:result.outcome||'refresh_unavailable'}:saved;
   },
  };
 }
