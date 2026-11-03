@@ -16,6 +16,7 @@ export function createTransferRunner(api){
   clearPairing:()=>api.storage.session.remove('pairing'),
   pair:async target=>{const result=await api.scripting.executeScript({target:{tabId:target.id},func:pairKerdosTab});return result[0]?.result;},
   reserve:(pairing,claimId)=>api.tabs.sendMessage(pairing.receiverId,{type:'kerdos-claim',nonce:pairing.nonce,claimId}),
+  reportFailure:(pairing,claimId)=>api.tabs.sendMessage(pairing.receiverId,{type:'kerdos-export-failed',nonce:pairing.nonce,claimId}),
   retrieve:async(target,pairing)=>{const provider=providerFor(target,pairing);if(!provider)return {outcome:'execution_unavailable'};const result=await api.scripting.executeScript({target:{tabId:target.id},world:'MAIN',func:provider.execute,args:[{account:pairing.account,list:pairing.list,capture:true}]});return result[0]?.result;},
   deliver:(pairing,claimId,artifact)=>api.tabs.sendMessage(pairing.receiverId,{type:'kerdos-deliver',nonce:pairing.nonce,claimId,artifact}),
  });

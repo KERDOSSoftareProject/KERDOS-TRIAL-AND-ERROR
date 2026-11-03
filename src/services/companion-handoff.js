@@ -5,7 +5,7 @@ export function createCompanionHandoff({target=window,selection,onReceive,onVali
   if(!selection.organizationId||!selection.vendorId||!selection.account?.trim()||!selection.list?.trim()||selection.account.length>200||selection.list.length>200||!selection.adapterKey||!selection.portalOrigin)throw new Error('Select the client, vendor, account and list.');
   const approvedOrigin=new URL(selection.portalOrigin);
   if(approvedOrigin.protocol!=='https:'||approvedOrigin.origin!==selection.portalOrigin)throw new Error('Unsupported portal origin.');
-  const ticket=Object.freeze({...selection,nonce:cryptoApi.randomUUID(),expiresAt:now()+10*60*1000,protocolVersion:2});
+  const ticket=Object.freeze({...selection,nonce:cryptoApi.randomUUID(),expiresAt:now()+10*60*1000,protocolVersion:2,exportFailureNotice:true});
   let active=true,claimed=false,exportClaim=null,state='ready',expiryTimer;
   const transition=next=>{state=next;onStateChange(next);};
   const clearExpiry=()=>{if(expiryTimer!==undefined){unschedule(expiryTimer);expiryTimer=undefined;}};
@@ -34,6 +34,12 @@ export function createCompanionHandoff({target=window,selection,onReceive,onVali
       exportClaim=msg.claimId; // Reserve before any asynchronous server check.
       try{if(onValidate)await validate('export');transition('exporting');reply(msg.requestId,{ok:true,outcome:'ready_for_export'});}
       catch{reject();reply(msg.requestId,{ok:false});}return;
+    }
+    if(msg.type==='export-failed'){
+      // Only the accepted export reservation may stop its own pre-admission
+      // attempt. Never interrupt hashing, validation or an admitted import.
+      if(!active||claimed||state!=='exporting'||exportClaim===null||msg.nonce!==ticket.nonce||msg.claimId!==exportClaim){reply(msg.requestId,{ok:false});return;}
+      reject();reply(msg.requestId,{ok:true,outcome:'export_stopped'});return;
     }
     if(msg.type!=='deliver')return;
     if(!active||claimed||now()>=ticket.expiresAt||msg.nonce!==ticket.nonce||(exportClaim!==null?msg.claimId!==exportClaim:msg.claimId!=null)){reply(msg.requestId,{ok:false});return;}

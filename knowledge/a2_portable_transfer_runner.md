@@ -15,6 +15,7 @@ host adapter is `companion/chrome/transfer-runner.mjs`.
 | readStatus(), writeStatus(snapshot) | Persist only progress/result, with host isolation |
 | readPairing(), savePairing(ticket), clearPairing() | Retain and consume one-use metadata; never CSV/credentials |
 | pair(target) | Obtain the prepared receiver's ticket; return {ok,ticket} |
+| reportFailure(pairing, claimId), optional | Report a failed pre-delivery attempt only when the ticket advertises exportFailureNotice |
 | reserve(pairing, claimId) | Ask the exact receiver to authorize one export |
 | retrieve(target, pairing) | Run the approved provider and return its outcome/artifact |
 | deliver(pairing, claimId, artifact) | Send exact captured bytes to the reserved receiver |

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {createPortableTransferRunner} from '../companion/chrome/core/transfer-runner.mjs';
 // Deliberately no browser, URLs, numeric tab IDs or supplier DOM in this host.
-function fixture(name,{ready=true,outcome='export_captured',expired=false}={}){
+function fixture(name,{ready=true,outcome='export_captured',expired=false,notices=true,noticeThrows=false,retrieveThrows=false,deliveryThrows=false}={}){
  const log=[],state={};let retrievals=0,finish;
  const receiverId='receiver:'+name,sourceId='source:'+name;
- const ticket={protocolVersion:2,organizationId:'org:'+name,vendorId:'vendor:'+name,adapterKey:'adapter:'+name,portalOrigin:'https://'+name+'.example',account:'Account '+name,list:'List '+name,nonce:'nonce:'+name,expiresAt:expired?99:1000,receiverId:'untrusted'};
+ const ticket={protocolVersion:2,...(notices?{exportFailureNotice:true}:{}),organizationId:'org:'+name,vendorId:'vendor:'+name,adapterKey:'adapter:'+name,portalOrigin:'https://'+name+'.example',account:'Account '+name,list:'List '+name,nonce:'nonce:'+name,expiresAt:expired?99:1000,receiverId:'untrusted'};
  const artifact={base64:'Q29kZSxQcmljZQpJVEVNLDEyCg==',origin:ticket.portalOrigin};
  const host={
   validTarget:id=>typeof id==='string'&&id.startsWith('receiver:')||typeof id==='string'&&id.startsWith('source:'),
@@ -15,8 +15,9 @@ function fixture(name,{ready=true,outcome='export_captured',expired=false}={}){
   readPairing:async()=>structuredClone(state.pairing),savePairing:async value=>{state.pairing=structuredClone(value);},clearPairing:async()=>{delete state.pairing;log.push('clear');},
   pair:async()=>({ok:true,ticket}),
   reserve:async(pairing,id)=>{assert.equal(pairing.receiverId,receiverId);assert.equal(pairing.organizationId,'org:'+name);assert.equal(id,'claim:'+name);log.push('reserve');return {ok:ready,outcome:ready?'ready_for_export':'denied'};},
-  retrieve:async(target,pairing)=>{assert.equal(state.pairing,undefined,'consume pairing before supplier operation');assert.equal(target.id,sourceId);assert.equal(pairing.list,ticket.list);log.push('retrieve');retrievals++;await new Promise(resolve=>{finish=resolve;});return {outcome,artifact,diagnostic:'private adapter diagnostic'};},
-  deliver:async(pairing,id,value)=>{assert.equal(pairing.receiverId,receiverId);assert.equal(id,'claim:'+name);assert.deepEqual(value,artifact);log.push('deliver');return {ok:true,outcome:'received_for_review'};},
+  reportFailure:async(pairing,id)=>{assert.equal(pairing.receiverId,receiverId);assert.equal(id,'claim:'+name);log.push('failure-notice');if(noticeThrows)throw Error('receiver unavailable');return {ok:true,outcome:'export_stopped'};},
+  retrieve:async(target,pairing)=>{assert.equal(state.pairing,undefined,'consume pairing before supplier operation');assert.equal(target.id,sourceId);assert.equal(pairing.list,ticket.list);log.push('retrieve');retrievals++;await new Promise(resolve=>{finish=resolve;});if(retrieveThrows)throw Error('private capture failure');return {outcome,artifact,diagnostic:'private adapter diagnostic'};},
+  deliver:async(pairing,id,value)=>{assert.equal(pairing.receiverId,receiverId);assert.equal(id,'claim:'+name);assert.deepEqual(value,artifact);log.push('deliver');if(deliveryThrows)throw Error('receipt lost');return {ok:true,outcome:'received_for_review'};},
  };
  const runner=createPortableTransferRunner(host,{now:()=>100,randomUUID:()=> 'claim:'+name});
  return {runner,host,state,log,receiverId,sourceId,release:()=>finish(),started:()=>retrievals};
@@ -36,8 +37,12 @@ for(const [outcome,expected] of [
  ['account_mismatch',/selected account/],['list_mismatch',/selected list/],['list_changed',/selected list/],['open_selected_list',/selected vendor pricing list/],['selection_required',/Choose an account/],['csv_format_required',/CSV format/],['capture_busy',/already running/],['capture_unavailable',/could not capture/],['unsupported_encoding',/unsupported text encoding/],['invalid_csv',/not a supported CSV/],['page_changed',/could not be verified/],['page_unavailable',/could not be verified/],['ambiguous_control',/could not be verified/],['wrong_origin',/selected for this connection/],['execution_unavailable',/current companion/],['unsupported_adapter',/current companion/],['private error details',/did not complete/],['toString',/did not complete/],[{},/did not complete/],
 ]){
  const held=fixture('guided',{outcome});await held.runner.run('pair',held.receiverId);const attempt=held.runner.run('export',held.sourceId);while(!held.started())await new Promise(resolve=>setImmediate(resolve));held.release();const result=await attempt;
- assert.match(result.message,expected);assert.match(result.message,/No file was sent/);assert.equal(result.busy,false);assert.equal(held.state.pairing,undefined);assert.equal(held.log.includes('deliver'),false);assert.ok(!JSON.stringify(held.state).includes('private'));assert.deepEqual(await held.runner.status(),result);
+ assert.match(result.message,expected);assert.match(result.message,/No file was sent/);assert.equal(result.busy,false);assert.equal(held.state.pairing,undefined);assert.equal(held.log.includes('deliver'),false);assert.equal(held.log.filter(x=>x==='failure-notice').length,1);assert.ok(!JSON.stringify(held.state).includes('private'));assert.deepEqual(await held.runner.status(),result);
  await held.runner.run('export',held.sourceId);assert.equal(held.started(),1,'failure never automatically retries or retains a reusable pairing');
+}
+for(const options of [{outcome:'capture_unavailable',notices:false},{outcome:'capture_unavailable',noticeThrows:true},{retrieveThrows:true},{deliveryThrows:true}]){
+ const edge=fixture('edge',options);await edge.runner.run('pair',edge.receiverId);const pending=edge.runner.run('export',edge.sourceId);while(!edge.started())await new Promise(resolve=>setImmediate(resolve));edge.release();const result=await pending;
+ assert.equal(result.busy,false);assert.doesNotMatch(result.message,/received the CSV/);assert.equal(edge.log.includes('failure-notice'),options.notices!==false&&!options.deliveryThrows,'old receivers skip notices; ambiguous delivery cannot be cancelled');assert.equal(edge.started(),1);
 }
 f.state.status={busy:true,message:'Interrupted'};f.state.pairing={receiverId:f.receiverId};const restored=createPortableTransferRunner(f.host);assert.match((await restored.status()).message,/unconfirmed/);assert.equal(f.state.pairing,undefined);assert.equal(f.started(),1);
 await assert.rejects(restored.run('export',12),/Invalid companion command/);
