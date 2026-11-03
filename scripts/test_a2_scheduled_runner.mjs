@@ -11,10 +11,11 @@ const host={
 const due=createScheduledRunner(host,{clock:()=>new Date('2026-11-02T11:01:00Z')});
 const pair=await Promise.all([due.tick(connection),due.tick(connection)]);
 assert.equal(pair.filter(r=>r.state==='saved').length,1);
-assert.equal(pair.filter(r=>r.state==='already_handled').length,1);
+assert.equal(pair.filter(r=>r.state==='already_claimed').length,1);
 assert.equal(starts,1);
 assert.equal(records.get(`${connection.id}:2026-11-02`).state,'saved');
-assert.equal((await due.tick(connection)).state,'already_handled');
+assert.equal((await due.tick(connection)).state,'already_claimed');
+assert.equal((await due.tick({...connection,portalAccountLabel:'Different account',transferRevision:2})).state,'already_claimed','changed selection cannot initiate a second same-day export');
 
 const missed=createScheduledRunner(host,{clock:()=>new Date('2026-11-10T11:01:00Z')});
 assert.deepEqual(await missed.tick({...connection,firstDueDate:'2026-11-09'}),{state:'missed',localDate:'2026-11-09'});
@@ -25,7 +26,7 @@ const failedConnection={...connection,id:'other'};
 const failing=createScheduledRunner({...host,startRefresh:async()=>{throw Error('private supplier error');}},{clock:()=>new Date('2026-11-02T11:01:00Z')});
 assert.deepEqual(await failing.tick(failedConnection),{state:'failed',localDate:'2026-11-02'});
 assert.equal(records.get('other:2026-11-02').state,'failed');
-assert.equal((await failing.tick(failedConnection)).state,'already_handled','failure is not automatically replayed');
+assert.equal((await failing.tick(failedConnection)).state,'already_claimed','failure is not automatically replayed');
 
 const verification=createScheduledRunner({...host,startRefresh:async()=> 'verification_needed'},{clock:()=>new Date('2026-11-02T11:01:00Z')});
 assert.equal((await verification.tick({...connection,id:'verification'})).state,'verification_needed');
