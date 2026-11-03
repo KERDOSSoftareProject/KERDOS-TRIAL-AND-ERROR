@@ -74,7 +74,7 @@ export async function exportSelectedMoxeList(selection){
     if(location.pathname!==originalPath)throw new Error('list_changed');
     if(!blob)return {outcome:'capture_unavailable'};
     const bytes=new Uint8Array(await blob.arrayBuffer());
-    const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+    let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{return {outcome:'unsupported_encoding'};}
     if(/^\s*(?:<!doctype|<html|<body|<script)/i.test(text)||!text.includes(',')||!text.includes('\n'))return {outcome:'invalid_csv'};
     let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
     return {outcome:'export_captured',artifact:{base64:btoa(binary),origin:location.origin}};

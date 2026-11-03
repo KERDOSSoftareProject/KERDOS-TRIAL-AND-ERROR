@@ -99,6 +99,12 @@ try{
  await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await view.close();await vendorPage.evaluate(()=>window.finishExport());
  view=await popup(vendorPage);await view.waitStatus('KERDOS received the CSV');received=await appPage.evaluate(()=>window.received);assert.equal(received.length,2);assert.equal(received[1].text,changedCsv);assert.notEqual(received[0].evidence.sha256,received[1].evidence.sha256);await view.close();
  console.log('PASS native extension: a newly prepared transfer preserves changed synthetic prices as new source bytes; no saved-catalog-price claim.');
+ // A wrong account gets useful guidance before the supplier export, and that
+ // result remains visible when the native popup is reopened.
+ await appPage.evaluate(()=>window.prepare());await pair();await vendorPage.evaluate(()=>{document.querySelector('button').textContent='Other Client (12345678)';});
+ view=await popup(vendorPage);await view.click('export');await view.waitStatus('does not match your selected account');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal(await appPage.evaluate(()=>window.received.length),2);assert.equal(await view.disabled(),false);await view.close();
+ view=await popup(vendorPage);assert.match(await view.status(),/does not match your selected account/);await view.close();await vendorPage.evaluate(()=>{document.querySelector('button').textContent='Sample Client (12345678)';});
+ console.log('PASS native extension: account mismatch stops before supplier export, gives safe retry guidance and persists across popup reopening.');
  // A verification screen must stop before an export, without reading its value.
  await appPage.evaluate(()=>window.prepare());await pair();await vendorPage.evaluate(()=>{const input=document.createElement('input');input.type='password';input.id='verification';document.body.append(input);});
  view=await popup(vendorPage);await view.click('export');await view.waitStatus('Your vendor requires sign-in or verification');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal(await appPage.evaluate(()=>window.received.length),2);await view.close();await vendorPage.evaluate(()=>document.getElementById('verification').remove());
