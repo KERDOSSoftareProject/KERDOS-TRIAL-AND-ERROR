@@ -77,8 +77,7 @@ quote/import regressions remain in test:a2 and the full suite.
 
 The native Chromium harness uses the exact shipped manifest and actual content
 script/worker/provider execution with synthetic app/vendor pages. Initial optional
-access is denied; declared origins are then granted and revoked through Chrome's
-management API **only in the disposable test profile**. This is native permission
+access is denied; declared origins are then preauthorized through Chrome's management API **only in the disposable test profile**, activated by the actual companion permission button, and revoked through Chrome's permissions API. This is native permission
 and one-click execution evidence, not an observation of human prompt approval.
 It checks pairing/export/delivery without toolbar clicks, duplicate-tab refusal,
 saved-route reopening and a sign-in pause. No fixture network request reaches a
