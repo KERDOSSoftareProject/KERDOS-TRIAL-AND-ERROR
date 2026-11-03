@@ -48,8 +48,16 @@ check('midway continuation stays source-linked and is not attached to either pri
  const structured=parseStructuredDocument(reading.text,reading);
  assert.deepEqual(structured.rows.map(row=>[row.description,row.price]),[['Turkey Breast',41.25],['Chicken Breast',51.75]]);
  assert.ok(structured.parts[0].skipped.some(row=>/Unclear Detail/.test(row.line||row.sourceLine||'')));
+ const review=structured.parts[0].skipped.find(row=>/Unclear Detail/.test(row.line));
+ assert.equal(review.page,1);assert.deepEqual(review.lines,[2]);
  const source=structured.structure.segments[0].rows.find(row=>row.cells[0].text==='Unclear Detail');
  assert.ok(source,'the ambiguous source line remains in the structured result');
  assert.deepEqual(source.lines,[2]);
 });
-console.log(`${passed}/7 B3 layout regression checks passed (local, no hosted evidence).`);
+check('invoice section skips retain page evidence even without a line property',()=>{
+ const p=parse([invoicePage()]);
+ const section=p.skipped.find(row=>/following items were Out of Stock/.test(row.text));
+ assert.equal(section.page,1);assert.equal(section.line,undefined);
+ assert.equal(typeof section.lineNumber,'number');
+});
+console.log(`${passed}/8 B3 layout regression checks passed (local, no hosted evidence).`);

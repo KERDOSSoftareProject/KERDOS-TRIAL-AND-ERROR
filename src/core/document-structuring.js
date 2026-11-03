@@ -205,7 +205,12 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
       return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:source?.cells??[],fallback}};
     });
-    return {...parsed,rows,segment:index};
+    const skipped=parsed.skipped.map(entry=>{
+      // The tabular parser omits trailing empty cells from a skipped line.
+      const source=segment.rows.find(row=>lineText(row).trimEnd()===String(entry.line??'').trimEnd());
+      return {...entry,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[]};
+    });
+    return {...parsed,rows,skipped,segment:index};
   });
   const duplicatePages=[];
   if(detectDocumentKind(text)==='invoice'){
