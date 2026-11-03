@@ -54,3 +54,37 @@ add no production permission, model service, AI dependency or paid service.
 
 Browser-control command reference:
 https://chromedevtools.github.io/devtools-protocol/tot/Extensions/#method-triggerAction
+
+## External Chrome pilot review assessment
+
+The supplied Chrome_Pilot_Code_Review.md targets app b1bcc312 and companion
+0.2.2. Assessments against current 0.2.3 source:
+
+- Valid UTF-8 accents and the registered symbol do not fail strict decoding.
+  The tests now use Crème brûlée® – jalapeño through Blob capture, the receiver
+  and native transfer, checking bytes/hash. A Windows-1252 fixture does fail
+  strict UTF-8, but no actual supplier export encoding was established by the
+  report. This remains a compatibility investigation. Replacement decoding
+  (`fatal:false`) loses characters. An adapter-only fallback is insufficient:
+  downstream document readers still use `file.text()`. Any future supported
+  encoding needs an explicit end-to-end contract with original bytes retained.
+- The unreserved `claimId != null` branch intentionally accepts absent/null
+  claim IDs for legacy delivery. Reserved v2 delivery requires the exact claim
+  UUID. Replacing that branch with a string-type test would break legacy and
+  admit arbitrary unreserved strings. Fresh receive validation remains required.
+- A throwing `onReceive` already enters `rejected` and clears the armed UI;
+  this is covered by an existing lifecycle test. Receipt admits an import for
+  review and does not certify a successful backend save.
+- Cancel removes the app listener. A retained isolated bridge waits for its
+  timeout rather than guaranteeing the report's claimed immediate rejection.
+  Existing native cancellation coverage exercises that boundary.
+
+Added coverage includes capture-busy ownership, receive-phase validator throws,
+UTF-8 fidelity, a queued expiry callback during receiving after timer disposal,
+and receiver closure after the claim but before the supplier Blob is released.
+The latter performs the already-authorized export once, rejects delivery and
+does not replay into a freshly opened receiver. Native execution is required
+before calling that browser scenario verified. A worker restart before its
+first busy-status persistence is still a separate coverage opportunity; no
+supplier action has begun at that point. None of these test additions changes
+the production decoder, claim policy, catalog, database or companion package.

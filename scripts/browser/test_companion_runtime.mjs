@@ -11,7 +11,7 @@ const scratch=await mkdtemp(join(tmpdir(),'kerdos-extension-runtime-'));
 const extension=join(scratch,'companion');
 const appOrigin='https://kerdossoftareproject.github.io',appUrl=appOrigin+'/KERDOS-TRIAL-AND-ERROR/';
 const vendorOrigin='https://order.usfoods.com',vendorUrl=vendorOrigin+'/desktop/lists/view/synthetic-runtime';
-const csv='Product Number,Product Description,Product Price\nSYNTHETIC,Sample Product,1.20\n';
+const csv='Product Number,Product Description,Product Price\nSYNTHETIC,Crème brûlée® – jalapeño,1.20\n';
 const changedCsv=csv.replace('1.20','1.35');
 let context;
 try{
@@ -47,7 +47,7 @@ try{
  const extensionId=new URL(worker.url()).host;
  const granted=await worker.evaluate(()=>globalThis.chrome.permissions.getAll());assert.deepEqual(granted.origins||[],[]);assert.deepEqual([...granted.permissions].sort(),['activeTab','scripting','storage'].sort());
  await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
- const appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
+ let appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
   await target.bringToFront();
@@ -119,7 +119,13 @@ try{
  vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);view=await popup(vendorPage);assert.match(await view.status(),/nothing will be resent automatically/);assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);await view.close();
  await appPage.evaluate(()=>window.prepare());await pair();view=await start(changedCsv);await vendorPage.evaluate(()=>window.finishExport());await view.waitStatus('KERDOS received the CSV');assert.equal(await appPage.evaluate(()=>window.received.length),4);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();await lifecycle.detach();
  console.log('PASS native extension: forced worker stop/start retains unconfirmed status, clears pairing, admits no pending file, never auto-replays and allows one newly prepared transfer.');
- await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await view.close();
+ // The claim has already authorized one export. Closing its receiver before
+ // the Blob exists must report failure, never retry or admit it to a new tab.
+ await appPage.evaluate(()=>window.prepare());await pair();view=await start(csv);await view.close();await appPage.close();
+ await vendorPage.evaluate(()=>window.finishExport());view=await popup(vendorPage);await view.waitStatus(['Transfer unavailable','KERDOS did not accept the file']);assert.match(await view.status(),/Transfer unavailable|KERDOS did not accept the file/);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
+ appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);view=await popup(appPage);assert.match(await view.status(),/Transfer unavailable|KERDOS did not accept the file/);assert.equal(await appPage.evaluate(()=>window.received.length),0);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
+ console.log('PASS native extension: receiver closed after claim rejects pending bytes, performs only the authorized export and never replays into a newly opened receiver.');
+ await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
  console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. No fixture host grants; actual human activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}
