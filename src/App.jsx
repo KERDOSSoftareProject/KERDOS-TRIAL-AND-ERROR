@@ -112,6 +112,7 @@ export default function App() {
   useEffect(()=>{setCompanionImport(null);},[org?.id,org?.role]);
   // One plain line after an import finishes on its own; it clears itself.
   const [importNotice,setImportNotice]=useState(null);
+  const [companionResult,setCompanionResult]=useState(null);
   // Who is on the team, by user id, so a cell someone edited can show their
   // initials. Loaded once per organization for owners and managers.
   const [editors,setEditors]=useState({});
@@ -889,7 +890,7 @@ export default function App() {
       {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
         <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
-        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} onCompanionImport={payload=>{
+        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
           if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
           setCompanionImport(payload);
         }} />}
@@ -1378,7 +1379,7 @@ export default function App() {
         )}
       </div>}
 
-      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onFinished={notice=>{setImportNotice(notice);setCompanionImport(null);}} automaticCompanion initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
+      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onFinished={notice=>{setImportNotice(notice);setCompanionResult({organizationId:companionImport.organizationId,vendorId:companionImport.vendorId,message:notice.message});setCompanionImport(null);}} automaticCompanion initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
       {showPaste&&!companionImport&&org.role!=="employee"&&<PasteModal industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setShowPaste(false)} onDone={loadData} onFinished={setImportNotice} initialVendorId={selectedVendorId} initialMode={importMode} />}
       {importNotice&&(
         <div role="status" onClick={()=>setImportNotice(null)} style={{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",background:"#1B5E20",color:"white",padding:"12px 18px",borderRadius:8,fontSize:13,fontWeight:700,boxShadow:"0 6px 20px rgba(0,0,0,0.25)",zIndex:1000,cursor:"pointer"}}>

@@ -5,7 +5,7 @@ import {createVendorConnectService,VendorConnectUnavailable} from '../services/v
 const box={background:'white',borderRadius:14,padding:'28px 24px',color:'#00204F',maxWidth:760};
 const control={padding:'10px 12px',border:'1px solid #B7C8DE',borderRadius:8,font:'inherit',color:'#00204F',background:'white'};
 const button={...control,background:'#00204F',color:'white',cursor:'pointer'};
-export default function VendorConnectPage({backend,organizationId,vendors=[],role,onCompanionImport}){
+export default function VendorConnectPage({backend,organizationId,vendors=[],role,onCompanionImport,importResult,onTransferStart}){
   const refreshClient=useMemo(()=>createCompanionRefreshClient(typeof window==='undefined'?null:window),[]);
   const [refreshAvailable,setRefreshAvailable]=useState(()=>refreshClient.available());
   useEffect(()=>refreshClient.watch(setRefreshAvailable),[refreshClient]);
@@ -29,6 +29,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
   useEffect(()=>()=>{transferGeneration.current++;handoff.current?.cancel();},[]);
   async function prepareTransfer(refresh=false){
     stopTransfer();if(!transferEligible)return;
+    onTransferStart?.();
     const token=transferGeneration.current,current=generation.current,attempt=++prepareAttempt.current;
     const selected={organizationId,vendorId,adapterKey,requestId:selectedRequest.id,account:account.trim(),list:list.trim()};
     setBusy(true);setMessage('Preparing browser transfer…');
@@ -95,7 +96,8 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       <strong>{refreshAvailable?'Refresh pricing through your connected browser session.':'Automatic vendor account access is not active.'}</strong>
       <p style={{margin:'8px 0 0'}}>{refreshAvailable?'Use Refresh prices after enabling companion access once. Sign in or verify directly with your vendor when required. Unattended account access is not active.':'Preparing a connection saves your vendor and provider selection. It does not sign in or retrieve pricing yet. The browser transfer pilot below requires a separate action. Price Sheets and email delivery remain available.'}</p>
     </div>
-    {message&&<p role="alert">{message}</p>}
+    {message&&!(message==='Pricing received for automatic ingestion. The transfer receipt alone does not confirm saved prices.'&&importResult?.organizationId===organizationId&&importResult.vendorId===vendorId)&&<p role="alert">{message}</p>}
+    {importResult?.organizationId===organizationId&&importResult.vendorId===vendorId&&<p role="status" style={{background:'#E8F5E9',border:'1px solid #A5D6A7',borderRadius:8,padding:12}}><strong>Latest pricing result:</strong> {importResult.message}</p>}
     {!unavailable&&!scopedData&&!message&&<p role="status">Loading your vendor connections…</p>}
     {!unavailable&&scopedData&&<>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:20}}>
