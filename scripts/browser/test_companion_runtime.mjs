@@ -76,7 +76,19 @@ try{
   await vendorPage.evaluate(value=>{window.csv=value;window.finishExport=undefined;document.getElementById('dialog').hidden=true;},text);
   const view=await popup(vendorPage);await view.click('export');await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');return view;
  }
- await pair();let view=await start(csv);await view.close();
+ await pair();
+ // Stop a paired but idle worker before any export command. Persistence must
+ // retain the preparation without starting a supplier operation on restart.
+ const idlePairing=await worker.evaluate(()=>globalThis.chrome.storage.session.get('pairing'));
+ const idleLifecycle=await context.newCDPSession(appPage);await idleLifecycle.send('ServiceWorker.enable');
+ const idleTarget=(await devtools.send('Target.getTargets')).targetInfos.find(t=>t.type==='service_worker'&&t.url==='chrome-extension://'+extensionId+'/background.mjs');assert.ok(idleTarget);
+ await idleLifecycle.send('ServiceWorker.stopAllWorkers');
+ const idleStopBy=Date.now()+10000;let idleRunning=true;do{idleRunning=(await devtools.send('Target.getTargets')).targetInfos.some(t=>t.targetId===idleTarget.targetId);if(!idleRunning)break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<idleStopBy);assert.equal(idleRunning,false,'the paired idle worker actually stopped');
+ await idleLifecycle.send('ServiceWorker.startWorker',{scopeURL:'chrome-extension://'+extensionId+'/'});await worker.evaluate(()=>true);
+ let view=await popup(vendorPage);await view.waitStatus('Paired for one export');assert.equal(await view.disabled(),false);
+ const idleRestored=await worker.evaluate(()=>globalThis.chrome.storage.session.get(['pairing','transferStatus']));assert.deepEqual(idleRestored.pairing,idlePairing.pairing);assert.equal(await appPage.evaluate(()=>window.handoff.state),'ready');assert.equal(idleRestored.transferStatus.busy,false);assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);assert.equal(await appPage.evaluate(()=>window.received.length),0);await view.close();await idleLifecycle.detach();
+ console.log('PASS native extension: actual idle worker stop/start retains pairing and prior status, starts no export or delivery, and waits for an explicit command.');
+ view=await start(csv);await view.close();
  view=await popup(vendorPage);assert.equal(await view.disabled(),true);assert.match(await view.status(),/may close this popup/);
  await vendorPage.evaluate(()=>window.finishExport());
  await view.waitStatus('KERDOS received the CSV');assert.match(await view.status(),/does not confirm saved prices/);
