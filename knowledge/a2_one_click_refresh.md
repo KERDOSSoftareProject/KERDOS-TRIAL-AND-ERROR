@@ -83,3 +83,5 @@ It checks pairing/export/delivery without toolbar clicks, duplicate-tab refusal,
 saved-route reopening and a sign-in pause. No fixture network request reaches a
 real supplier or database. Installed-user acceptance with 0.2.7 remains separate
 from the successful real 0.2.6 transfer already recorded in the task list.
+
+Native fixture transport note: external DNS is blocked in the disposable browser. Chrome can start an extension-created navigation before Playwright attaches interception; the harness serves the same saved route through its controlled navigation once attached, while the real companion performs its bounded discovery/export. This is synthetic portal-response setup, not installed-user supplier evidence.
