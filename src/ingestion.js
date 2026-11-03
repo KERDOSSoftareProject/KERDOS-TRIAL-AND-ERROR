@@ -1,13 +1,13 @@
 // ════════════════════════════════════════════════════════════════════
 import {identifyRowFields} from './core/field-identification.js';
-import {validateAssignedFields} from './core/field-validation.js';
+import {assessBoundFields,validateAssignedFields} from './core/field-validation.js';
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
 import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
-import {readHeaderLayout,applyLayoutAnswers,checkRowCells} from "./core/sheet-layout.js";
+import {readHeaderLayout,applyLayoutAnswers} from "./core/sheet-layout.js";
 // KERDOS INGESTION MODULE
 // ════════════════════════════════════════════════════════════════════
 //
@@ -505,6 +505,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // or "Price" is a column label that leaked through an undetected header row,
   // not a product price — those rows must fall through to the discard path below.
   const validation=validateAssignedFields(fields,{price,amount,priceUnavailable});
+  const boundQuality=assessBoundFields(fields);
   const priceUnreadable=validation.priceStatus==='missing-or-unreadable';
 
   // Discard rows with no price that are not a recognised placeholder and have
@@ -590,7 +591,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
 
   return applySourceUnits({
     fieldIdentification:{version:fields.version,anchor:fields.anchor,bindings:fields.bindings},
-    fieldValidation:{version:validation.version,anchorStatus:validation.anchorStatus,priceStatus:validation.priceStatus},
+    fieldValidation:{version:validation.version,anchorStatus:validation.anchorStatus,priceStatus:validation.priceStatus,fields:boundQuality.fields},
     code: rowCode,
     codeSource,
     brand,
@@ -1308,7 +1309,7 @@ function parseDocumentRows(text, options={}) {
     // Every cell against its column's meaning. A failing cell is flagged
     // on the row with the reason; the row is kept.
     if(options.includeSourceIndex)row.sourceIndex=i;
-    const cellIssues=checkRowCells(cells,columnMap);
+    const cellIssues=assessBoundFields(identified).cellIssues;
     if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
 
     rows.push(row);
