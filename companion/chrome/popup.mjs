@@ -1,3 +1,4 @@
+import {providers} from './providers.mjs';
 // This view can close without owning or cancelling the companion's transfer.
 const button=document.getElementById('export'),pair=document.getElementById('pair'),status=document.getElementById('status');
 let revision=0;
@@ -18,3 +19,14 @@ button.addEventListener('click',()=>command('export'));
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes.transferStatus?.newValue){revision++;render(changes.transferStatus.newValue);}});
 const initial=++revision;
 chrome.runtime.sendMessage({type:'kerdos-companion-control',action:'status'}).then(value=>{if(initial===revision)render(value);},()=>{if(initial===revision)render({busy:false,message:'Companion unavailable. Reopen it and check KERDOS before starting another transfer.'});});
+
+const enableRefresh=document.getElementById('enable-refresh'),providerSelect=document.getElementById('provider');
+if(enableRefresh&&providerSelect){
+ for(const provider of providers){const option=document.createElement('option');option.value=provider.key;option.textContent=provider.name;providerSelect.appendChild(option);}
+ enableRefresh.addEventListener('click',()=>{
+  const provider=providers.find(p=>p.key===providerSelect.value);if(!provider)return;
+  // Request synchronously within this explicit extension-page click, once per provider.
+  const request=chrome.permissions.request({origins:['https://kerdossoftareproject.github.io/*',provider.origin+'/*']});
+  request.then(granted=>render({busy:false,message:granted?'Refresh access enabled. Return to KERDOS and click Refresh prices.':'Refresh access was not granted. The manual transfer remains available.'}),()=>render({busy:false,message:'Could not enable refresh access. Manual transfer remains available.'}));
+ });
+}

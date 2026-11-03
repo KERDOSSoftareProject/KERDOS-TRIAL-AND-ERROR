@@ -28,24 +28,25 @@ try{
 
  const unexpected=[];
  const source=await readFile('src/services/companion-handoff.js','utf8');
+ const refreshSource=await readFile('src/services/companion-refresh.js','utf8');let vendorRequiresVerification=false;
  const app=`<!doctype html><title>Synthetic KERDOS receiver</title><script type="module">
- import {createCompanionHandoff} from '/handoff.mjs';
- window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();
- </script>`;
+ import {createCompanionHandoff} from '/handoff.mjs';import {createCompanionRefreshClient} from '/refresh.mjs';
+ window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();window.refreshClient=createCompanionRefreshClient(window);window.startRefresh=async()=>{window.prepare();window.refreshResult=null;window.refreshResult=await window.refreshClient.refresh(window.handoff.nonce);};
+ </script><button id="refresh-prices" onclick="window.startRefresh()">Refresh prices</button>`;
  const vendor=`<!doctype html><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
  <button id="open" onclick="document.getElementById('dialog').hidden=false">Download</button>
  <div id="dialog" role="dialog" hidden><p>Download Example List Select Format CSV</p><button onclick="document.getElementById('prices').hidden=false">Download Options</button><label id="prices" hidden>Product Prices<input type="checkbox" aria-label="Product Prices"></label><button id="download">Download</button></div>
- <script>window.exportCount=0;document.getElementById('download').onclick=()=>{window.exportCount++;window.finishExport=()=>{const url=URL.createObjectURL(new Blob([window.csv],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='Example List.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};};</script>`;
+ <script>window.csv=${JSON.stringify(csv)};window.exportCount=0;document.getElementById('download').onclick=()=>{window.exportCount++;window.finishExport=()=>{const url=URL.createObjectURL(new Blob([window.csv],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='Example List.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};};</script>`;
  await context.route('**/*',async route=>{
   const url=new URL(route.request().url());
   if(url.protocol==='chrome-extension:')return route.continue();
-  if(url.origin===appOrigin)return route.fulfill({contentType:url.pathname==='/handoff.mjs'?'text/javascript':'text/html',body:url.pathname==='/handoff.mjs'?source:app});
-  if(url.origin===vendorOrigin)return route.fulfill({contentType:'text/html',body:vendor});
+  if(url.origin===appOrigin)return route.fulfill({contentType:['/handoff.mjs','/refresh.mjs'].includes(url.pathname)?'text/javascript':'text/html',body:url.pathname==='/handoff.mjs'?source:url.pathname==='/refresh.mjs'?refreshSource:app});
+  if(url.origin===vendorOrigin)return route.fulfill({contentType:'text/html',body:vendorRequiresVerification?'<input type="password"><p>Sign in directly</p>':vendor});
   unexpected.push(url.origin);await route.abort();
  });
  let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
  const extensionId=new URL(worker.url()).host;
- const granted=await worker.evaluate(()=>globalThis.chrome.permissions.getAll());assert.deepEqual(granted.origins||[],[]);assert.deepEqual([...granted.permissions].sort(),['activeTab','scripting','storage'].sort());
+ const granted=await worker.evaluate(()=>globalThis.chrome.permissions.getAll());assert.ok((granted.origins||[]).every(origin=>origin.startsWith(appOrigin+'/')),'no vendor access before explicit optional grant');assert.deepEqual([...granted.permissions].sort(),['activeTab','scripting','storage'].sort());
  await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
  let appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
@@ -144,6 +145,22 @@ try{
  appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);view=await popup(appPage);assert.match(await view.status(),/Transfer unavailable|KERDOS did not accept the file/);assert.equal(await appPage.evaluate(()=>window.received.length),0);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
  console.log('PASS native extension: receiver closed after claim rejects pending bytes, performs only the authorized export and never replays into a newly opened receiver.');
  await appPage.evaluate(()=>window.prepare());await pair();await appPage.close();view=await popup(vendorPage);await view.click('export');await view.waitStatus('Transfer unavailable');assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await view.close();
+ // Exercise one app-side command without toolbar pair/export clicks. Native
+ // management grants are confined to this disposable profile and declared
+ // optional sites; this is not evidence of a human permission-prompt approval.
+ for(const page of context.pages().filter(p=>p.url().startsWith(vendorOrigin)))await page.close();
+ appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.refreshClient&&document.documentElement.getAttribute('data-kerdos-refresh')==='1');
+ await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'permission_required');assert.equal(await appPage.evaluate(()=>window.received.length),0);
+ const management=await context.newPage();await management.goto('chrome://extensions/');
+ for(const host of [appOrigin+'/*',vendorOrigin+'/*'])await management.evaluate(async({extensionId,host})=>{await globalThis.chrome.developerPrivate.addHostPermission(extensionId,host);},{extensionId,host});
+ assert.equal(await worker.evaluate(async origins=>globalThis.chrome.permissions.contains({origins}),[appOrigin+'/*',vendorOrigin+'/*']),true);await management.close();
+ vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
+ await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),1);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.received[0])).text,csv);
+ const duplicate=await context.newPage();await duplicate.goto(vendorUrl);await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'ambiguous_source');assert.equal(await duplicate.evaluate(()=>window.exportCount),0);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);await duplicate.close();await vendorPage.close();
+ const reopenedPromise=context.waitForEvent('page');await appPage.locator('#refresh-prices').click();vendorPage=await reopenedPromise;await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),2);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);
+ await vendorPage.close();vendorRequiresVerification=true;const loginPromise=context.waitForEvent('page');await appPage.locator('#refresh-prices').click();const login=await loginPromise;await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'verification_needed');assert.equal(await appPage.evaluate(()=>window.received.length),2);await login.close();vendorRequiresVerification=false;
+ const revoke=await context.newPage();await revoke.goto('chrome://extensions/');await revoke.evaluate(async({extensionId,host})=>globalThis.chrome.developerPrivate.removeHostPermission(extensionId,host),{extensionId,host:vendorOrigin+'/*'});await revoke.close();await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'permission_required');assert.equal(await appPage.evaluate(()=>window.received.length),2);
+ console.log('PASS native Refresh prices: scoped optional-access denial/grant/revocation, actual app channel -> worker -> automatic pairing/claim/export/delivery, no popup clicks, duplicate-tab refusal, saved-route reopening and sign-in pause. Synthetic profile and vendor pages only.');
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
- console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. No fixture host grants; actual human activeTab user gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
+ console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Optional grants above are explicit native test-profile fixtures; actual human permission approval/activeTab gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
 }finally{await context?.close();await rm(scratch,{recursive:true,force:true});}

@@ -28,7 +28,8 @@ export async function exportSelectedMoxeList(selection){
   throw new Error('page_changed');
  };
  try{
-  context();const originalPath=location.pathname;
+  context();if(selection.inspectOnly===true)return {outcome:'selection_verified',path:location.pathname};
+  const originalPath=location.pathname;
   // Capture only the current page path, never a vendor account/list constant.
   uniqueText('Download').click();
   const dialog=await wait(()=>nodes('ion-modal,[role="dialog"]').find(el=>norm(el.innerText||el.textContent).includes(norm('Download '+selection.list))));
