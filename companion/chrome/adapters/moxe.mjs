@@ -75,7 +75,9 @@ export async function exportSelectedMoxeList(selection){
     if(location.pathname!==originalPath)throw new Error('list_changed');
     if(!blob)return {outcome:'capture_unavailable'};
     const bytes=new Uint8Array(await blob.arrayBuffer());
-    let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{return {outcome:'unsupported_encoding'};}
+    // ASCII CSV delimiters are byte-identical in UTF-8 and Windows-1252.
+    // The app decodes the preserved original bytes after the handoff.
+    const text=new TextDecoder('windows-1252').decode(bytes);
     if(/^\s*(?:<!doctype|<html|<body|<script)/i.test(text)||!text.includes(',')||!text.includes('\n'))return {outcome:'invalid_csv'};
     let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
     return {outcome:'export_captured',artifact:{base64:btoa(binary),origin:location.origin}};
