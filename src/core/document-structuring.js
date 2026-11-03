@@ -81,8 +81,13 @@ function alignDescriptionPrices(table){
   const height=median(body.flatMap(row=>row.cells.flatMap(cell=>cell.words.map(word=>word.height))));
   const unmatched=[];
   for(const row of body)for(let column=0;column<row.cells.length;column++)for(const word of row.cells[column].words){
-    const target=[...buckets].sort((a,b)=>Math.abs(a.center-word.y)-Math.abs(b.center-word.y))[0];
-    if(Math.abs(target.center-word.y)>height*1.4){unmatched.push({cells:table.anchors.map((_,index)=>({text:index===column?word.text:'',words:index===column?[word]:[]})),lines:[word.line],y:word.y});continue;}
+    const ranked=[...buckets].sort((a,b)=>Math.abs(a.center-word.y)-Math.abs(b.center-word.y));
+    const target=ranked[0],distance=Math.abs(target.center-word.y);
+    // A continuation midway between two prices has no unique structural
+    // owner. Keep its source word/line separately instead of assigning it to
+    // the first bucket by sort order. A price at its own center is unambiguous.
+    const next=ranked[1],ambiguous=next&&Math.abs(Math.abs(next.center-word.y)-distance)<height*.25;
+    if(distance>height*1.4||ambiguous){unmatched.push({cells:table.anchors.map((_,index)=>({text:index===column?word.text:'',words:index===column?[word]:[]})),lines:[word.line],y:word.y});continue;}
     target.cells[column].words.push(word);
   }
   const rows=buckets.map(bucket=>{for(const cell of bucket.cells){cell.words.sort((a,b)=>b.y-a.y||a.x-b.x);cell.text=cell.words.map(word=>word.text).join(' ');}return {cells:bucket.cells,lines:[...new Set(bucket.cells.flatMap(cell=>cell.words.map(word=>word.line)))].sort((a,b)=>a-b),y:bucket.center};});
@@ -200,7 +205,12 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
       return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:source?.cells??[],fallback}};
     });
-    return {...parsed,rows,segment:index};
+    const skipped=parsed.skipped.map(entry=>{
+      // The tabular parser omits trailing empty cells from a skipped line.
+      const source=segment.rows.find(row=>lineText(row).trimEnd()===String(entry.line??'').trimEnd());
+      return {...entry,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[]};
+    });
+    return {...parsed,rows,skipped,segment:index};
   });
   const duplicatePages=[];
   if(detectDocumentKind(text)==='invoice'){

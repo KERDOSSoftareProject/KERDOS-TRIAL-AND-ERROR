@@ -1066,7 +1066,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               <div style={{maxHeight:120,overflowY:"auto"}}>
                 {allSkipped.map((s,i)=>(
                   <div key={i} style={{color:"#999",marginBottom:3,fontFamily:"monospace",fontSize:11}}>
-                    "{s.line.slice(0,60)}" — {s.reason}{showSourceTags?` (${s._source})`:""}
+                    "{String(s.line??s.text??'').slice(0,60)}" — {s.reason}{s.page!=null?` · page ${s.page}`:''}{s.worksheet?` · ${s.worksheet}`:''}{s.lines?.length?` · source line ${s.lines.map(line=>line+1).join(', ')}`:s.lineNumber!=null?` · source line ${s.lineNumber+1}`:''}{showSourceTags?` (${s._source})`:""}
                   </div>
                 ))}
               </div>

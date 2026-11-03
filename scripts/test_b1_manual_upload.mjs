@@ -143,6 +143,18 @@ await check('B3 positioned PDF saves the 40 price, not its 20-LB pack, with sour
  assert.ok(f.calls.applyQuote[0].importRow.row.sourceProvenance.cells[4].words[0].transform);
  assert.equal(f.uploads.length,1);assert.equal(f.uploads[0].bytes,raw);assert.equal(f.calls.insertImportDoc.length,1);p.tree.unmount();
 });
+await check('B3 review displays a text-only skipped PDF heading with its page and line',async()=>{
+ const f=fixture(),p=await open();
+ const line=(values,y)=>values.map((value,index)=>({text:value,transform:[1,0,0,12,[30,150,500,650,800][index],y],width:60,height:12}));
+ const raw='INVOICE\nCode Description Pack Price Unit Price\nB1-001 Chicken Breast 20 LB CASE 40.00\n* F R O Z E N *';
+ const items=[...line(['Code','Description','Pack','Price Unit','Price'],550),...line(['B1-001','Chicken Breast','20 LB','CASE','40.00'],510),{text:'* F R O Z E N *',transform:[1,0,0,12,150,470],width:130,height:12}];
+ await upload(p,'picker',{...file('B3_Review.pdf',raw),reading:{filename:'B3_Review.pdf',text:raw,worksheets:[],pages:[{number:1,width:900,height:600,source:'embedded-text',items,text:raw}]}});
+ assert.equal(writes(f),0);
+ await act(async()=>{button(p,'Save Import →').props.onClick();});
+ const preview=text(p.tree.toJSON());
+ assert.match(preview,/F R O Z E N/);assert.match(preview,/page 1/);assert.match(preview,/source line 3/);
+ assert.equal(writes(f),0);p.tree.unmount();
+});
 await check('B3 offset worksheets save both prices under one original document',async()=>{
  const f=fixture(),p=await open();
  const sheet=(name,rows,offset)=>({name,cells:rows.flatMap((row,r)=>row.map((value,c)=>({row:r+1,column:c+offset,address:(c+offset)+':'+(r+1),value})))});
@@ -346,7 +358,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/38 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/39 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

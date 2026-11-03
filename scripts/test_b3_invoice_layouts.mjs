@@ -39,4 +39,25 @@ check('vertically centered prices stay with consecutive wrapped descriptions in 
  const p=parse([{number:1,width:612,height:792,source:'embedded-text',items,text:'Price list'}]);
  assert.deepEqual(p.rows.map(row=>[row.description,row.price]),[['Turkey Breast (Brand Alpha)',41.25],['Chicken Breast (Brand Beta)',51.75],['Beef Tenderloin',71.25],['Lamb Leg',81.75]]);
 });
-console.log(`${passed}/6 B3 layout regression checks passed (local, no hosted evidence).`);
+check('midway continuation stays source-linked and is not attached to either priced item',()=>{
+ const items=[word('Product',20,550),word('Price',250,550),
+  word('Turkey Breast',20,510),word('41.25',250,510),
+  word('Unclear Detail',20,495),
+  word('Chicken Breast',20,480),word('51.75',250,480)];
+ const reading=read([{number:1,width:612,height:792,source:'embedded-text',items,text:'Price list'}]);
+ const structured=parseStructuredDocument(reading.text,reading);
+ assert.deepEqual(structured.rows.map(row=>[row.description,row.price]),[['Turkey Breast',41.25],['Chicken Breast',51.75]]);
+ assert.ok(structured.parts[0].skipped.some(row=>/Unclear Detail/.test(row.line||row.sourceLine||'')));
+ const review=structured.parts[0].skipped.find(row=>/Unclear Detail/.test(row.line));
+ assert.equal(review.page,1);assert.deepEqual(review.lines,[2]);
+ const source=structured.structure.segments[0].rows.find(row=>row.cells[0].text==='Unclear Detail');
+ assert.ok(source,'the ambiguous source line remains in the structured result');
+ assert.deepEqual(source.lines,[2]);
+});
+check('invoice section skips retain page evidence even without a line property',()=>{
+ const p=parse([invoicePage()]);
+ const section=p.skipped.find(row=>/following items were Out of Stock/.test(row.text));
+ assert.equal(section.page,1);assert.equal(section.line,undefined);
+ assert.equal(typeof section.lineNumber,'number');
+});
+console.log(`${passed}/8 B3 layout regression checks passed (local, no hosted evidence).`);
