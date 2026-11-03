@@ -1,9 +1,9 @@
-# Vendor Connect local browser pilot — 0.2.3
+# Vendor Connect local browser pilot — 0.2.4
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS
 tab. It uses the existing deployed protocol-v2 KERDOS app and its connection checks.
 The previous 0.1.0 export-only pilot remains historical evidence; installing
-0.2.3 does not change the live KERDOS application.
+0.2.4 does not change the live KERDOS application.
 
 The client signs into the vendor directly and completes verification there.
 The selected client/vendor comes from KERDOS, with account/list labels entered
@@ -150,3 +150,21 @@ pairs again before the old write promise resolves; it fails against 0.2.2.
 The native Chromium suite also uses the exact shipped manifest and native toolbar
 activation, with no fixture-origin host grants. Actual signed-in supplier and
 installed-client acceptance remain separate from synthetic browser tests.
+
+
+## Portable runner foundation — 0.2.4
+
+`core/transfer-runner.mjs` owns one-use orchestration, status ownership and
+restart recovery without using browser APIs or a provider registry. The Chrome
+`transfer-runner.mjs` adapter supplies targets, session persistence, approved
+provider dispatch, pairing, reservation and delivery. Existing stored pairing
+keys, message protocol, permissions, CSV handling and status wording remain
+compatible. The portable core is inside this folder so the complete unpacked
+Chrome package remains self-contained.
+
+A browser-free synthetic host with string handles and two provider identities
+checks reuse; it is not an implemented desktop companion. Desktop, Safari and
+Firefox hosts, secure transport, client installation, supplier authentication
+and any scheduler still require their own implementation and acceptance. No
+background retrieval or automatic resend is introduced. Replace/reload the
+complete 0.2.4 folder for installed acceptance; include the `core` subfolder.
