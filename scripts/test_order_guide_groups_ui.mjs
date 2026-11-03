@@ -75,7 +75,34 @@ await act(async()=>{tree=Renderer.create(React.createElement(App));});
 await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
 assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='+')[1].props.disabled,false,'a valid confirmed listing remains purchasable when another supplier quotes a different dimension');
-await act(async()=>tree.unmount());console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
+await act(async()=>tree.unmount());
+// F2.1: actual App assessment -> option flags -> controls -> basket. An
+// incomplete peer cannot hold the valid approved offer or borrow its fields.
+store.delete('kerdos.basket.org');const incompletePeer=vendorItems.find(v=>v.id==='honey-second');
+Object.assign(incompletePeer,{pack_size:null,selling_unit:null,price_basis:null,price:null,price_unavailable:true});
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+const selectHoney=async name=>{await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select '+name)).props.onClick());};
+const honeyPlus=()=>tree.root.findAllByType('button').filter(b=>text(b)==='+')[1];
+await selectHoney('Sample Vendor');assert.equal(honeyPlus().props.disabled,false);
+await act(async()=>honeyPlus().props.onClick());assert.match(text(tree.root.findByProps({className:'order-aside'})),/20.00/);assert.match(text(tree.root.findByProps({className:'order-aside'})),/Sample Vendor/);
+await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
+await act(async()=>{tree=Renderer.create(React.createElement(App));});await selectHoney('Second Vendor');assert.equal(honeyPlus().props.disabled,true,'incomplete peer remains visible but cannot use the valid offer price or pack');
+await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
+// F1.6: execute the actual one-minute App refresh callback at a controlled
+// new date. The ordering core itself has no independent freshness clock.
+Object.assign(incompletePeer,{pack_size:'4/1 GAL',selling_unit:'CASE',price_basis:'case',price:40,price_unavailable:false});
+const expiring=vendorItems.find(v=>v.id==='vi1');expiring.price_quote_valid_until='2026-11-02';
+const RealDate=globalThis.Date,realInterval=globalThis.setInterval,realClearInterval=globalThis.clearInterval;let epoch=RealDate.parse('2026-11-02T12:00:00Z'),refresh;const clockTimer={};
+globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[epoch]));}static now(){return epoch;}};
+globalThis.setInterval=(fn,ms,...args)=>ms===60000?(refresh=fn,clockTimer):realInterval(fn,ms,...args);globalThis.clearInterval=id=>{if(id!==clockTimer)realClearInterval(id);};
+try{
+ await act(async()=>{tree=Renderer.create(React.createElement(App));});assert.equal(typeof refresh,'function');await selectHoney('Sample Vendor');assert.equal(honeyPlus().props.disabled,false);
+ epoch=RealDate.parse('2026-11-03T12:00:00Z');await act(async()=>refresh());await selectHoney('Sample Vendor');assert.equal(honeyPlus().props.disabled,true,'expiry refresh maps the quote state through actual App flags into ordering controls');
+ await selectHoney('Second Vendor');assert.equal(honeyPlus().props.disabled,false,'current peer remains orderable after cheaper quotation expires');await act(async()=>honeyPlus().props.onClick());const currentBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(currentBasket,/Second Vendor/);assert.match(currentBasket,/40.00/,'solver uses the current quotation, not the expired cheap offer');
+ await act(async()=>tree.unmount());
+}finally{globalThis.Date=RealDate;globalThis.setInterval=realInterval;globalThis.clearInterval=realClearInterval;}
+console.log('PASS F actual App boundary: incomplete-peer isolation, held selection, independent basket pricing and timer-driven expiry with a current alternative');
+console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);
  process.stdout.write(execFileSync(process.execPath,[runner],{encoding:'utf8',env:process.env}));
 }finally{rmSync(dir,{recursive:true,force:true});}
