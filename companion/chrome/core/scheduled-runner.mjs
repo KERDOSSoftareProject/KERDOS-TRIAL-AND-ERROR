@@ -16,7 +16,9 @@ export function createScheduledRunner(host,{clock=()=>new Date()}={}){
    if(decision.state!=='due'&&decision.state!=='missed')return decision;
    const dueDate=decision.localDate;
    const claim=await host.claimOccurrence(connection.id,dueDate,decision.state);
-   if(!claim)return {state:'already_handled',localDate:dueDate};
+   // The other claim may still be in progress or may have crashed. The host
+   // must inspect its durable record; do not call that occurrence successful.
+   if(!claim)return {state:'already_claimed',localDate:dueDate};
    if(decision.state==='missed'){
     await host.finishOccurrence(connection.id,dueDate,'missed');
     return {state:'missed',localDate:dueDate};
