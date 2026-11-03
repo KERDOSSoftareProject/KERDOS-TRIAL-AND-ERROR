@@ -42,10 +42,10 @@ final.click=()=>{
 };
 const captured=await exportSelectedMoxeList({...selection,capture:true});
 assert.equal(captured.outcome,'export_captured');assert.deepEqual(Buffer.from(captured.artifact.base64,'base64'),Buffer.from(csv,'utf8'));assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
-// Unsupported legacy bytes are rejected explicitly without replacement decoding.
+// Legacy vendor CSV bytes are captured unchanged for the app's reader.
 const utf8Csv=csv;csv=Uint8Array.of(67,111,100,101,44,78,97,109,101,10,49,44,67,97,102,233,10);
 shown=false;options=false;checked=false;
-const unsupported=await exportSelectedMoxeList({...selection,capture:true});assert.equal(unsupported.outcome,'unsupported_encoding');assert.equal(unsupported.artifact,undefined);assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);csv=utf8Csv;
+const unsupported=await exportSelectedMoxeList({...selection,capture:true});assert.equal(unsupported.outcome,'export_captured');assert.deepEqual(Buffer.from(unsupported.artifact.base64,'base64'),Buffer.from(csv));assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);csv=utf8Csv;
 // An existing capture owns its sentinel and hooks; a competing attempt must
 // stop before the final download without releasing that owner's reservation.
 shown=false;options=false;checked=false;clicks=[];
