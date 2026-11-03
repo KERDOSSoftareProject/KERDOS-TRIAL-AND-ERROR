@@ -92,3 +92,34 @@ const groupMapping={...mapping,vendor_item_id:groupRow.id,catalog_item_id:groupI
 const groupEvidence=catalogRowEvidence({item:groupItem,vendorItem:groupRow,mapping:groupMapping,category:{id:'general',name:'General'},categories:[{id:'general',name:'General',keywords:[]},{id:'dairy',name:'Dairy',keywords:['cheese','cheddar']}]});
 assert.equal(groupEvidence.category.value,'General');assert.ok(groupEvidence.category.accuracy>=90);assert.match(groupEvidence.category.reason,/KERDOS item/);
 assert.equal(orderGuideAssessment({item:groupItem,vendorItem:groupRow,mapping:groupMapping,category:{id:'general',name:'General'}}).ready,false,'group category cannot approve missing pack and quote units');
+
+// E reimport contract: fresh quote evidence is temporary; product corrections
+// and the original source object are preserved. A new explicit price edit wins.
+const pricedCorrection={...prior,field_resolutions:{
+ description:{value:'Bacon frozen',sourceValue:'BCN FRZ'},
+ price:{value:9,sourceValue:3.83},unit_cost_override:{value:{price:2,unit:'LB',packPrice:30}},
+ rejected_catalog_item_ids:['old-catalog'],
+}};
+const correctionSnapshot=structuredClone(pricedCorrection);
+const replaced=importResolutions({code:prior.vendor_item_code},pricedCorrection);
+assert.equal(Object.hasOwn(replaced,'price'),false);
+assert.equal(Object.hasOwn(replaced,'unit_cost_override'),false);
+assert.deepEqual(replaced.description,pricedCorrection.field_resolutions.description);
+assert.deepEqual(replaced.rejected_catalog_item_ids,['old-catalog']);
+assert.deepEqual(pricedCorrection,correctionSnapshot,'serialization must not mutate the saved source');
+const newPrice=importResolutions({price:7,manualFields:['price'],originalFields:{price:6}},pricedCorrection,'2026-11-02T12:00:00Z');
+assert.deepEqual(newPrice.price,{value:7,sourceValue:6,confirmedAt:'2026-11-02T12:00:00Z'});
+assert.equal(Object.hasOwn(newPrice,'unit_cost_override'),false);
+// Without an exact mapping, a genuinely changed source conflicts with a saved
+// field correction. With an exact mapping it retains identity and flags review.
+const packCorrection={...prior,field_resolutions:{pack_size:{value:'1/15 LB',sourceValue:'3/5 LB'}}};
+const changedPack={...incoming,packSize:'1/30 LB'};
+assert.throws(()=>rememberImportRow(changedPack,packCorrection),error=>error.message.includes(prior.vendor_item_code)&&error.message.includes('packSize changed from the known source'));
+for(const match_method of ['manual','rule_based']){
+ const preserved=rememberImportRow(changedPack,packCorrection,{...mapping,match_method});
+ assert.equal(preserved.packSize,prior.pack_size);
+ assert.equal(preserved.priceNeedsReview,true);
+ assert.ok(preserved.changes.some(change=>change.field==='packSize'));
+}
+assert.equal(rememberImportRow({...changedPack,manualFields:['packSize']},packCorrection).packSize,'1/30 LB','a new explicit field edit must not be replaced by an older correction');
+console.log('PASS E field persistence: stale amount/override removal, new explicit price, immutable prior corrections, and guarded-vs-confirmed source conflict paths');
