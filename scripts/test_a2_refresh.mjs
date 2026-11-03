@@ -43,6 +43,18 @@ const pairing={...ticket,receiverId:1};const scope='refresh-route:'+JSON.stringi
  const b=browser({tabs:[],stored:{[scope]:'/lists/one'}});assert.deepEqual(await b.resolve(pairing),{outcome:'ready',targetId:3});assert.deepEqual(b.events[0],['open',{url:'https://vendor.example/lists/one',active:false}]);
  const other=browser({tabs:[],stored:{[scope]:'/lists/one'}});assert.equal((await other.resolve({...pairing,organizationId:'other-org'})).outcome,'source_selection_required');assert.deepEqual(other.events[0],['open',{url:'https://vendor.example',active:true}],'another client cannot reuse a saved list route');
 }
+{
+ const secondScope='refresh-route:'+JSON.stringify(['other-org','vendor','example','Other Account','Other List']);
+ const b=browser({tabs:[],stored:{[scope]:'/lists/one'}});
+ const second={...pairing,organizationId:'other-org',account:'Other Account',list:'Other List'};
+ assert.equal((await b.resolve(second)).outcome,'source_selection_required');
+ assert.deepEqual(b.events[0],['open',{url:'https://vendor.example',active:true}]);
+ assert.equal(b.values[secondScope],undefined,'another client has no inherited verified list');
+ assert.equal(b.values[scope],'/lists/one','the first client keeps its verified route');
+ const signedIn=browser({tabs:[{id:2,url:'https://vendor.example/lists/one'}],proofs:{2:{outcome:'selection_mismatch'}}});
+ assert.equal((await signedIn.resolve(second)).outcome,'source_selection_required');
+ assert.ok(!signedIn.events.some(e=>e[0]==='save-route'),'a different signed-in account cannot seed the second client route');
+}
 for(const path of ['https://evil.example/lists/one','//evil.example/lists/one','/lists/one?token=secret','/lists/one#private','/unapproved']){
  const b=browser({tabs:[],stored:{[scope]:path}});assert.equal((await b.resolve(pairing)).outcome,'source_selection_required');assert.equal(b.events[0][1].url,provider.origin);
 }
