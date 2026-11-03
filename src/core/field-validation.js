@@ -50,3 +50,18 @@ export function validateAssignedFields(fields,{price,amount,priceUnavailable=fal
   requiresReview:anchorStatus==='missing'||anchorStatus==='ambiguous'||unreadable,
   issues};
 }
+
+// Collect existing arithmetic and quoted-unit findings after row interpretation.
+// Legacy review flags remain available to consumers during the transition.
+export function withRowValidation(row){
+ if(!row?.fieldValidation)return row;
+ const fields={...row.fieldValidation.fields};
+ const conflicts=(row.cellConflicts||[]).map(({field,note})=>({field,note}));
+ for(const {field} of conflicts)if(fields[field])fields[field]={...fields[field],status:'conflict'};
+ const unitClues=row.quoteUnitEvidence||[];
+ const unitConflict=unitClues.length>1&&new Set(unitClues.map(clue=>clue.unit)).size>1;
+ if(unitConflict&&fields.sellingUnit)fields.sellingUnit={...fields.sellingUnit,status:'conflict'};
+ return {...row,fieldValidation:{...row.fieldValidation,fields,conflicts,
+  unresolved:(row.cellUnresolved||[]).map(({field,reason})=>({field,reason})),
+  quotedUnit:unitConflict?'conflict':unitClues.length?'evidenced':'missing'}};
+}

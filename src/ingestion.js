@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════════
 import {identifyRowFields} from './core/field-identification.js';
-import {assessBoundFields,validateAssignedFields} from './core/field-validation.js';
+import {assessBoundFields,validateAssignedFields,withRowValidation} from './core/field-validation.js';
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
@@ -592,6 +592,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   return applySourceUnits({
     fieldIdentification:{version:fields.version,anchor:fields.anchor,bindings:fields.bindings},
     fieldValidation:{version:validation.version,anchorStatus:validation.anchorStatus,priceStatus:validation.priceStatus,fields:boundQuality.fields},
+    ...(Object.keys(boundQuality.cellIssues).length?{cellIssues:boundQuality.cellIssues}:{}),
     code: rowCode,
     codeSource,
     brand,
@@ -1306,11 +1307,8 @@ function parseDocumentRows(text, options={}) {
       skipped.push({ line, reason: "couldn't find a valid price or description" });
       continue;
     }
-    // Every cell against its column's meaning. A failing cell is flagged
-    // on the row with the reason; the row is kept.
+    // B5 already checked each assigned cell without changing its placement.
     if(options.includeSourceIndex)row.sourceIndex=i;
-    const cellIssues=assessBoundFields(identified).cellIssues;
-    if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
 
     rows.push(row);
   }
@@ -1323,7 +1321,7 @@ function parseDocumentRows(text, options={}) {
 function parseDocument(text, options={}){
   const result=parseDocumentRows(text, options);
   const documentUnit=documentQuoteUnit(text);
-  return {...result,rows:result.rows.map(row=>applySourceUnits(row,{documentUnit}))};
+  return {...result,rows:result.rows.map(row=>withRowValidation(applySourceUnits(row,{documentUnit})))};
 }
 
 // Exported for use elsewhere in the app.
