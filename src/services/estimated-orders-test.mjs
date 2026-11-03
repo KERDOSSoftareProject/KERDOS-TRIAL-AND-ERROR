@@ -20,3 +20,24 @@ signedIn=false;await assert.rejects(service.review('org',draft),/Sign in/);await
 const text=estimatedOrderExport(order,{organizationId:'org',draftId:'draft',vendorName:'Vendor'});assert.match(text,/Estimated total: \$96.00–\$128.00/);assert.match(text,/Final charge: unknown/);assert.match(text,/Monetary delivery minimum: unconfirmed/);assert.match(text,/not sent by KERDOS/);
 assert.equal(orderAmountText({total_amount:12}),'$12.00');assert.equal(orderLineAmountText({line_total:3}),'$3.00');assert.match(orderAmountText({total_amount:null,estimated_snapshot:order}),/^Estimated \$96.00–\$128.00$/);assert.match(orderLineAmountText({line_total:null,estimated_snapshot:order.lines[0]}),/^Estimated/);
 console.log('PASS estimated order service/export/history: auth, exact review and recorded snapshots, consent, unknown minimum, recovery, tamper rejection and labeled estimates.');
+
+// Version-1 compatibility fixtures use literal historical amounts. A future
+// calculator change must preserve accepted v1 results or supply versioned
+// validation before these records can be reinterpreted; never weaken tamper checks.
+const historyCases=[
+ {packSize:'2/6-8 LBA',quotedRate:4,quotedUnit:'LB',quantity:2,expected:{amount:null,minimum:96,maximum:128,estimated:true,guaranteed:false}},
+ {packSize:'2/7 LBA',quotedRate:4,quotedUnit:'LB',quantity:2,expected:{amount:112,minimum:null,maximum:null,estimated:true,guaranteed:false}},
+ {packSize:'2/6-8 LBA',quotedRate:.3125,quotedUnit:'OZ',quantity:3,expected:{amount:null,minimum:180,maximum:240,estimated:true,guaranteed:false}},
+];
+for(const c of historyCases){
+ const historical=structuredClone(order);historical.lines[0].terms={...terms,packSize:c.packSize,quotedRate:c.quotedRate,quotedUnit:c.quotedUnit};historical.lines[0].quantity=c.quantity;historical.lines[0].estimate=c.expected;historical.estimate=c.expected;historical.deliveryMinimum.caseQuantity=c.quantity;
+ response=historical;
+ assert.deepEqual(await service.recover('org','draft'),historical,'historical snapshots recover without reading a current listing or price sheet');
+ assert.match(estimatedOrderExport(historical,{organizationId:'org',draftId:'draft'}),/Final charge: unknown/);
+ const corrupt=structuredClone(historical),key=c.expected.amount==null?'minimum':'amount';
+ corrupt.lines[0].estimate[key]++;corrupt.estimate={...corrupt.lines[0].estimate};response=corrupt;
+ await assert.rejects(service.recover('org','draft'),/source terms/,'self-consistent total/line tampering still fails source-term validation');
+}
+response={...order,version:2};await assert.rejects(service.recover('org','draft'),/invalid scope/,'unknown calculation versions are not silently treated as v1');
+response=order;
+console.log('PASS G v1 historical estimate fixtures: range, nominal weight, converted rate, recovery/export and self-consistent tamper rejection.');

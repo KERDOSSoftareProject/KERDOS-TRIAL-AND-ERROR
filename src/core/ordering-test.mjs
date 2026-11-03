@@ -125,3 +125,40 @@ assert.equal(unitMinFilled.find(a=>a.catalogItemId==="item-y").assignedVendorId,
 const vendorAUnits=unitMinFilled.filter(a=>a.assignedVendorId==="vendor-a").reduce((s,a)=>s+a.quantity,0);
 assert.ok(vendorAUnits>=3,`vendor-a basket must meet the 3-unit minimum after fill; got ${vendorAUnits}`);
 console.log("Unit-minimum fill (path A success) passed.");
+
+// Module G follow-up: observable delivery-minimum outcomes, not an assumption
+// that the best-effort allocator proves all vendor minimums can be satisfied.
+const line=(id,a,b,extra={})=>({catalogItemId:id,quantity:1,orderUnit:'case',options:[option('a',a),option('b',b)],...extra});
+const minVendors=[{id:'a',name:'A',delivery_minimum_dollar:60}];
+const pathB=solveOrder([line('x',10,12),line('y',100,20)],minVendors);
+assert.deepEqual(pathB.map(a=>[a.assignedVendorId,a.lineTotal]),[['b',12],['b',20]],'evacuate a short basket when filling it costs more');
+const lockedFill=solveOrder([line('x',30,60),line('y',40,35,{forcedVendorId:'b-item'})],minVendors);
+assert.equal(lockedFill[1].assignedVendorId,'b');assert.equal(lockedFill[1].locked,true);
+assert.equal(lockedFill[0].assignedVendorId,'b','a locked candidate cannot be moved to fill another vendor');
+const lockedShort=solveOrder([line('x',10,12,{forcedVendorId:'a-item'})],minVendors);
+assert.equal(lockedShort[0].assignedVendorId,'a');assert.equal(lockedShort[0].price,10);assert.equal(lockedShort[0].locked,true);
+assert.ok(lockedShort[0].lineTotal<60,'a purchasing-eligible locked line is not proof that the basket meets minimum');
+const coupled=solveOrder([line('x',30,60),line('y',40,35)],[...minVendors,{id:'b',name:'B',delivery_minimum_dollar:70}]);
+assert.deepEqual(coupled.map(a=>a.assignedVendorId),['a','a'],'consolidation resolves competing short baskets without leaving a short active vendor');
+// This deliberately infeasible fixture reached the current iteration cap in
+// diagnostic tracing: B/C cannot meet their minimum even with every offer.
+// Assert the public contract: termination, honest charges, no lost/held lines,
+// no fabricated minimum guarantee; do not freeze an arbitrary last assignment.
+const impossibleVendors=[{id:'a',name:'A',delivery_minimum_dollar:20},{id:'b',name:'B',delivery_minimum_dollar:130},{id:'c',name:'C',delivery_minimum_dollar:120}];
+const impossiblePrices=[{b:30,c:35},{a:35,b:10,c:15},{a:25,c:10},{b:50,c:15}];
+const impossible=impossiblePrices.map((prices,i)=>({catalogItemId:'impossible-'+i,quantity:1,orderUnit:'case',options:Object.entries(prices).map(([v,p])=>option(v,p))}));
+const impossibleBefore=structuredClone(impossible),vendorsBefore=structuredClone(impossibleVendors);
+const limited=solveOrder(impossible,impossibleVendors);
+assert.equal(limited.length,4);assert.equal(new Set(limited.map(a=>a.catalogItemId)).size,4);
+for(const assigned of limited){const chosen=assigned.options.find(o=>o.vendorItemId===assigned.vendorItemId);assert.ok(chosen&&orderable(chosen));assert.equal(assigned.lineTotal,chosen.price*assigned.quantity);}
+const remainingShort=impossibleVendors.filter(v=>{const rows=limited.filter(a=>a.assignedVendorId===v.id);return rows.length&&rows.reduce((sum,a)=>sum+a.lineTotal,0)<v.delivery_minimum_dollar;});
+assert.ok(remainingShort.length>0,'infeasible minimums remain visible in returned basket totals');
+assert.deepEqual(impossible,impossibleBefore);assert.deepEqual(impossibleVendors,vendorsBefore);
+// Override-based common measurements use the proportional premium branch;
+// raw pack dimensions do not justify ignoring an explicit comparison override.
+const overrideOffers=rankVendorOffers([
+ option('override-a',20,{casePrice:20,packSize:'1/10 LB',perUnit:{price:2,unit:'LB'},costOverride:{price:2,unit:'LB'}}),
+ option('override-b',12,{casePrice:12,packSize:'1/4 LB',perUnit:{price:3,unit:'LB'},costOverride:{price:3,unit:'LB'}}),
+]);
+assert.equal(offerDollarDifference(overrideOffers[1],overrideOffers[0]),10);
+console.log('PASS G allocator edge cases: path B, locked fills/selections, competing and infeasible minimums, unchanged inputs and override premium arithmetic.');

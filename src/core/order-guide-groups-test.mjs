@@ -24,3 +24,10 @@ assert.deepEqual(orderGuideGroups(products,{search:'not a saved product'}),[]);
 assert.equal(JSON.stringify(products),before,'browse/sort never edits source objects or approvals');
 assert.deepEqual(orderGuideGroups([{...products[0],name:'(Zucchini)'},{...products[1],name:'-- Avocado'}])[0].items.map(i=>i.name),['-- Avocado','(Zucchini)'],'source punctuation must not displace alphabetical product names');
 console.log('PASS Order Guide groups: alphabetical canonical items, permanent numbers, held-vendor visibility/filtering/search, unresolved exclusion and unchanged purchasing gates.');
+
+const mixed={...products[0],options:[ready,{...held,price:1}]};
+const vendorHeld=orderGuideGroups([mixed],{vendor:'vendor-b'})[0];
+assert.equal(vendorHeld.category,'all','category filtering does not change the approved flat list shape');
+assert.deepEqual(vendorHeld.items[0].linkedOptions.map(o=>o.vendorId),['vendor-a','vendor-b']);
+assert.deepEqual(vendorHeld.items[0].options.map(o=>o.vendorId),['vendor-a'],'vendor filtering does not promote a held offer into purchasing eligibility');
+console.log('PASS G mixed-vendor browse: a linked held vendor is searchable without becoming purchasable.');
