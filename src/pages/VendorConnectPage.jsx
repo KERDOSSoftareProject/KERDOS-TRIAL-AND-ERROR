@@ -97,7 +97,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       <p style={{margin:'8px 0 0'}}>{refreshAvailable?'Use Refresh prices after enabling companion access once. Sign in or verify directly with your vendor when required. Unattended account access is not active.':'Preparing a connection saves your vendor and provider selection. It does not sign in or retrieve pricing yet. The browser transfer pilot below requires a separate action. Price Sheets and email delivery remain available.'}</p>
     </div>
     {message&&!(message==='Pricing received for automatic ingestion. The transfer receipt alone does not confirm saved prices.'&&importResult?.organizationId===organizationId&&importResult.vendorId===vendorId)&&<p role="alert">{message}</p>}
-    {importResult?.organizationId===organizationId&&importResult.vendorId===vendorId&&<p role="status" style={{background:'#E8F5E9',border:'1px solid #A5D6A7',borderRadius:8,padding:12}}><strong>Latest pricing result:</strong> {importResult.message}</p>}
+    {importResult?.organizationId===organizationId&&importResult.vendorId===vendorId&&<p role={importResult.status==='needs_attention'?'alert':'status'} style={{background:importResult.status==='needs_attention'?'#FFF3E0':'#E8F5E9',border:`1px solid ${importResult.status==='needs_attention'?'#FFCC80':'#A5D6A7'}`,borderRadius:8,padding:12}}><strong>Latest pricing result:</strong> {importResult.message}</p>}
     {!unavailable&&!scopedData&&!message&&<p role="status">Loading your vendor connections…</p>}
     {!unavailable&&scopedData&&<>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:20}}>

@@ -30,9 +30,9 @@ function fixture(){
 function file(name='B1_Prices.csv',content=csv){return {name,size:Buffer.byteLength(content),text:async()=>content};}
 function writes(f){return f.invoices.length+f.uploads.length+f.calls.applyQuote.length+f.calls.insertImportDoc.length+f.calls.createMapping.length;}
 async function open(initialVendorId=vendor,initialMode='pricelist',overrides={}){
- let tree;const finished=[];
- await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B1 Test Vendor'}],orgId:org,orgSettings:{},catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose:()=>{},onDone:async()=>{},onFinished:v=>finished.push(v),initialVendorId,initialMode,...overrides}));});
- return {tree,finished};
+ let tree;const finished=[],issues=[];
+ await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B1 Test Vendor'}],orgId:org,orgSettings:{},catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose:()=>{},onDone:async()=>{},onFinished:v=>finished.push(v),onIssue:v=>issues.push(v),initialVendorId,initialMode,...overrides}));});
+ return {tree,finished,issues};
 }
 function button(p,label){return p.tree.root.findAllByType('button').find(b=>text(b)===label);}
 async function upload(p,method,input=file()){
@@ -339,7 +339,7 @@ await check('automatic corruption checks block new quotes and preserve completed
 await check('automatic original verification never claims legacy proof and rejects malformed new transfer evidence',async()=>{
  const f=fixture(),manual=await open();await upload(manual,'picker');await save(manual);manual.tree.unmount();const before=writes(f);
  const legacy=await autoOpen();await automaticResult(legacy);assert.equal(legacy.finished.length,1);assert.doesNotMatch(legacy.finished[0].message,/Stored original verified/);assert.equal(f.downloads.length,0);assert.equal(writes(f),before);legacy.tree.unmount();
- const g=fixture(),bad=await autoOpen(csv,{companionEvidence:{...autoProof,sha256:'invalid'}});await automaticResult(bad);assert.equal(bad.finished.length,0);assert.equal(g.calls.applyQuote.length,0);assert.equal(g.downloads.length,0);assert.equal(Object.values(g.importDocs)[0].status,'partial');assert.match(text(bad.tree.toJSON()),/no valid transfer-byte evidence/);bad.tree.unmount();
+ const g=fixture(),bad=await autoOpen(csv,{companionEvidence:{...autoProof,sha256:'invalid'}});await automaticResult(bad);assert.equal(bad.finished.length,0);assert.equal(g.calls.applyQuote.length,0);assert.equal(g.downloads.length,0);assert.equal(Object.values(g.importDocs)[0].status,'partial');assert.match(text(bad.tree.toJSON()),/no valid transfer-byte evidence/);assert.equal(bad.issues.length,1);assert.equal(bad.issues[0].status,'needs_attention');assert.match(bad.issues[0].message,/no valid transfer-byte evidence/);bad.tree.unmount();
 });
 await check('automatic unmount while downloading the retained original prevents quotes, progress and success',async()=>{
  const f=fixture();let release,started=false;f.backend.documents.download=async()=>{started=true;await new Promise(resolve=>{release=resolve;});return new TextEncoder().encode(csv);};

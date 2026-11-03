@@ -106,6 +106,10 @@ try{
  assert.doesNotMatch(text(tree.toJSON()),/transfer receipt alone/,'the saved result replaces the provisional transfer receipt');
  await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;},importResult:{organizationId:'other-org',vendorId:'vendor-a',message:'Another client result'}})));
  assert.doesNotMatch(text(tree.toJSON()),/Another client result/,'a result from another client cannot appear here');
+ await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{},importResult:{organizationId:'org-a',vendorId:'vendor-a',status:'needs_attention',message:'Pricing intake needs attention — source needs review.'}})));
+ assert.match(text(tree.toJSON()),/Latest pricing result: Pricing intake needs attention/);
+ assert.equal(tree.root.findAll(n=>n.props.role==='alert'&&text(n).includes('Pricing intake needs attention')).length,1);
+ assert.doesNotMatch(text(tree.toJSON()),/transfer receipt alone/);
  mode='denied';await act(async()=>button('Refresh prices').props.onClick());assert.equal(refreshReceipts,1);assert.match(text(tree.toJSON()),/Enable Refresh prices access once/);assert.equal(button('Cancel browser transfer'),undefined);
  mode='late';let waiting;await act(async()=>{waiting=button('Refresh prices').props.onClick();while(!lateCommand||refreshCommands<3)await new Promise(resolve=>setImmediate(resolve));});
  await act(async()=>tree.root.findByProps({'aria-label':'Portal list name'}).props.onChange({target:{value:'Different List'}}));

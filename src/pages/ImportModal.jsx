@@ -39,7 +39,7 @@ const r2=value=>Math.round(value*100)/100;
 // document by ID + ownership instead of re-fingerprinting — ensuring the user's
 // PasteModal session resumes the SAME partial document the worker created rather
 // than creating a duplicate under the content fingerprint.
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,automaticCompanion=false,inboxImportDocumentId=null}) {
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onIssue,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,automaticCompanion=false,inboxImportDocumentId=null}) {
   const inboxReview=typeof onBeforeSave==="function";
   const automaticImport=!!(automaticCompanion&&companionEvidence&&!inboxReview&&initialMode==='pricelist'&&initialFiles?.length===1);
   const importActive=useRef(true);
@@ -73,6 +73,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const [parseError,setParseError]=useState("");
   const [acceptedIssues,setAcceptedIssues]=useState(new Set());
   const [saveReview,setSaveReview]=useState("");
+  const lastReportedIssue=useRef(null);
   const [autoSaveStarted,setAutoSaveStarted]=useState(false);
   const [sortField,setSortField]=useState("itemNumber");
   const [sortDirection,setSortDirection]=useState(1);
@@ -82,6 +83,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const [invoiceSources,setInvoiceSources]=useState([]);
   const [invoiceLoad,setInvoiceLoad]=useState("loading");
   const [acceptedInvoiceConflicts,setAcceptedInvoiceConflicts]=useState(new Set());
+  const intakeIssue=result?.error||saveReview||parseError;
+  useEffect(()=>{
+    if(!automaticImport||!intakeIssue||loading||parsing||fileBusy||lastReportedIssue.current===intakeIssue)return;
+    lastReportedIssue.current=intakeIssue;
+    onIssue?.({message:`Pricing intake needs attention — ${intakeIssue}`,status:'needs_attention'});
+  },[automaticImport,intakeIssue,loading,parsing,fileBusy,onIssue]);
   // Step 1.5 — unknown column header confirmation.
   // Each entry: { groupId, fingerprint, unknownHeaders: [{index,label,engineGuess}], confirmedAnswers: {index:role} }
   const [pendingUnknowns,setPendingUnknowns]=useState([]);
