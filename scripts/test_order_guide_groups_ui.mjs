@@ -102,6 +102,25 @@ try{
  await act(async()=>tree.unmount());
 }finally{globalThis.Date=RealDate;globalThis.setInterval=realInterval;globalThis.clearInterval=realClearInterval;}
 console.log('PASS F actual App boundary: incomplete-peer isolation, held selection, independent basket pricing and timer-driven expiry with a current alternative');
+// G: three actual source rows. Two comparable packs compete per pound;
+// the cheaper third row has no pack and must never become the default/basket.
+store.delete('kerdos.basket.org');delete expiring.price_quote_valid_until;
+Object.assign(expiring,{pack_size:'1/10 LB',price:20});Object.assign(incompletePeer,{pack_size:'1/4 LB',price:12});
+const third={...incompletePeer,id:'honey-third',vendor_id:'third-vendor',pack_size:null,price:1,field_resolutions:{row_approval:true}};
+vendorItems.push(third);snapshot.vendors.push({id:'third-vendor',name:'Third Vendor'});snapshot.mappings.push({...snapshot.mappings.find(m=>m.vendor_item_id==='honey-second'),id:'honey-third-map',vendor_item_id:third.id});
+// Product-group approvals remain listing-local; description/brand still match.
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.match(text(priceButton()),/Sample Vendor/,'two valid packs retain their unit-cost winner beside an incomplete cheap third offer');
+await act(async()=>honeyPlus().props.onClick());const threeBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(threeBasket,/Sample Vendor/);assert.match(threeBasket,/20.00/,'basket charges the winning whole pack, not its per-pound comparison rate');
+await selectHoney('Third Vendor');assert.equal(honeyPlus().props.disabled,true,'actual App marks the incomplete third listing held');assert.equal(JSON.parse(store.get('kerdos.basket.org')).quantities.ci1_case,1,'selecting a held listing retains the requested quantity');assert.ok(!text(tree.root.findByProps({className:'order-aside'})).includes('Record 1 Order'),'held selection cannot silently order a different vendor');await selectHoney('Sample Vendor');assert.equal(text(tree.root.findByProps({className:'order-aside'})),threeBasket,'returning to the ready selection restores its own basket without losing quantity');
+await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
+// Minimum shortfalls are derived from actual basket totals, including an
+// explicit locked supplier selection; purchasing readiness is a separate gate.
+snapshot.vendors.find(v=>v.id==='vendor').delivery_minimum_dollar=100;
+await act(async()=>{tree=Renderer.create(React.createElement(App));});await selectHoney('Sample Vendor');await act(async()=>honeyPlus().props.onClick());
+const shortBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(shortBasket,/80.00 to go/,'a locked $20 basket does not claim to meet a $100 minimum');assert.match(shortBasket,/Sample Vendor/);
+await act(async()=>tree.unmount());delete snapshot.vendors.find(v=>v.id==='vendor').delivery_minimum_dollar;
+console.log('PASS G actual App: three-offer normalized winner, incomplete cheap peer held, whole-pack basket charge and locked supplier minimum shortfall');
 console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);
  process.stdout.write(execFileSync(process.execPath,[runner],{encoding:'utf8',env:process.env}));
