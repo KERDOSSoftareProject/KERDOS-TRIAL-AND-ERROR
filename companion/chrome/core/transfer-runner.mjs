@@ -55,7 +55,8 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
      if(source?.outcome!=='ready'){
       await host.clearPairing();
       const messages={permission_required:'Enable Refresh prices access once in the K companion, then return here and click Refresh prices.',ambiguous_source:'More than one vendor tab matches this account and list. Close the extra matching tabs, then click Refresh prices.',verification_needed:'Your vendor requires sign-in or verification. Complete it directly with the vendor, then click Refresh prices.',source_selection_required:'Open the selected account and pricing list with your vendor once, then return here and click Refresh prices.'};
-      return terminal(messages[source?.outcome]||'The selected vendor page is unavailable. Open its pricing list and click Refresh prices to retry.',Object.hasOwn(messages,source?.outcome)?source.outcome:'source_unavailable');
+      const outcome=Object.hasOwn(messages,source?.outcome)?source.outcome:'source_unavailable';
+      return terminal(outcome==='source_unavailable'?'The selected vendor page is unavailable. Open its pricing list and click Refresh prices to retry.':messages[outcome],outcome);
      }
      if(now()>=pairing.expiresAt)throw Error('expired');
      return execute('export',source.targetId,undefined,true);
