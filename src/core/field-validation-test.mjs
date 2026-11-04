@@ -25,6 +25,14 @@ assert.deepEqual(assessBoundFields(conflicting).fields.price.conflictsWith,['pac
 const malformed=identifyRowFields({cells:['Milk','20.00','BAD PACK'],columnMap:{description:0,price:1,packSize:2}});
 assert.equal(assessBoundFields(malformed).fields.packSize.status,'invalid');
 assert.match(assessBoundFields(malformed).cellIssues.packSize,/complete pack/);
+const malformedNumbers=identifyRowFields({cells:['Milk','two','$20.00','not a total'],columnMap:{description:0,qty:1,price:2,amount:3},fieldOrigins:{description:'stated-header',qty:'stated-header',price:'stated-header',amount:'stated-header'}});
+const numberQuality=assessBoundFields(malformedNumbers);
+assert.equal(numberQuality.fields.qty.status,'invalid');
+assert.equal(numberQuality.fields.qty.accuracy,null);
+assert.match(numberQuality.cellIssues.qty,/not a quantity/);
+assert.equal(numberQuality.fields.amount.status,'invalid');
+assert.match(numberQuality.cellIssues.amount,/not an amount/);
+assert.equal(numberQuality.fields.price.accuracy,100,'a separately readable quoted price keeps its own evidence');
 
 const header=identifyRowFields({cells:['Milk','Price'],columnMap:{description:0,price:1}});
 assert.equal(validateAssignedFields(header,{price:null,amount:null}).retain,false,'a leaked header does not become a product');
@@ -48,6 +56,11 @@ assert.equal(arithmetic.price,85.60,'a disagreement never replaces the stated pr
 assert.equal(arithmetic.fieldValidation.fields.price.status,'conflict');
 assert.equal(arithmetic.fieldValidation.fields.price.accuracy,null);
 assert.match(arithmetic.fieldValidation.conflicts[0].note,/qty\(2\)/);
+const invalidRow=parseDocument('Description,Qty,Price,Amount\nMilk,two,20.00,not a total').rows[0];
+assert.equal(invalidRow.description,'Milk');
+assert.equal(invalidRow.fieldValidation.fields.qty.status,'invalid');
+assert.equal(invalidRow.fieldValidation.fields.amount.status,'invalid');
+assert.equal(invalidRow.price,20,'the stated price is retained even when neighboring numeric fields are unreadable');
 const units=parseDocument('Description,Price/LB,Price Unit\nMilk,20.00,CASE').rows[0];
 assert.equal(units.fieldValidation.quotedUnit,'conflict');
 assert.equal(units.fieldValidation.fields.sellingUnit.status,'conflict');

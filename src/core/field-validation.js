@@ -2,7 +2,7 @@
 // cells, substitute another field, decide a product group or write records.
 import {checkCell} from './sheet-layout.js';
 
-const UNCHECKED_ROLES=new Set(['qty','amount','description','brand','mfrCode']);
+const UNCHECKED_ROLES=new Set(['description','brand','mfrCode']);
 
 export function assessBoundFields(identification){
  const bindings=identification?.bindings||{};
