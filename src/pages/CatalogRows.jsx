@@ -24,14 +24,11 @@ const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"}
 const BASE_COLUMNS=new Set(['itemNumber','vendor','vendorItemNumber','category','itemName','product','price']);
 const BASE_EDIT_FIELDS=new Set(['description','price','category_id']);
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
-// A percentage only where there is a value; an empty cell is simply empty.
-// A percentage only where there is a value. A value the client set shows
-// their initials beside it; hover for the reason and any note.
+// Source and editor notes remain available without confidence/origin badges.
 function Evidence({field}){
-  if(field.label)return <small title={field.reason} style={{display:"block",marginTop:4,fontWeight:800,color:field.label==="Manual"?"#8D5900":"#38704E"}}>{field.label}</small>;
-  if(field.accuracy==null||field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
-  const color=field.accuracy>=90?"#38704E":field.accuracy>=70?"#8D5900":"#B03A2E";
-  return <small title={field.reason} style={{display:"block",marginTop:4,color}}>{field.accuracy}%{field.by?<span style={{marginLeft:6,fontWeight:800,color:"#003584"}}>{field.by}</span>:null}</small>;
+  if(field.label)return null;
+  if(field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
+  return field.by?<small title={field.reason} style={{display:"block",marginTop:4,color:"#003584",fontWeight:800}}>{field.by}</small>:null;
 }
 function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
   const [draft,setDraft]=useState({});
@@ -114,7 +111,7 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{f.value||"NVIM pending"}</span>;
-        else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name} (legacy — reclassify)</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
+        else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name}</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
         else if(key==="pack")content=<>
           <select aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
             <option value="" disabled>Select</option><option value="case">Case</option><option value="each">Each</option>
@@ -188,8 +185,7 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
       </div>}
       <div style={{fontSize:12,marginBottom:6}}>To associate this vendor item with another catalog item, enter its existing KERDOS number and Apply changes. Apply approves this association. You can edit it again at any time.</div>
       <div style={{fontSize:12}}>Source: {vendorItem.import_row?.row?.sourceLine||"Original source is available under Price Sheets."}</div>
-      <div style={{fontSize:11,marginTop:6}}>Percentages show how well each value holds up against the rest of the row, the vendor's history and your other vendors. A blank cell has no percentage; it is simply empty.</div>
-      <ul style={{fontSize:12}}>{CATALOG_COLUMNS.map(([key,label])=><li key={key}><b>{label}:</b> {evidence[key].reason}</li>)}</ul>
+      <ul style={{fontSize:12}}>{CATALOG_COLUMNS.map(([key,label])=><li key={key}><b>{label}:</b> {evidence[key].reason.replace(/Manual association/g,"Client-selected association").replace(/Automated association/g,"Catalog association")}</li>)}</ul>
       <button disabled={dirty||busy} onClick={onDetails} style={{...btn("#E8F1FB","#003584",{fontSize:11})}}>Vendor comparison and association details</button>
     </td></tr>}
   </>;

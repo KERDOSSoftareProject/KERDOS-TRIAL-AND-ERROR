@@ -24,7 +24,7 @@ export function holdingPen(categories){
 //     excluded so it can never be chosen as a destination.
 //   legacyCurrent — set when the item's current category is a real (non-holding-
 //     pen) category that falls outside industryCategories.  Injected as a
-//     one-off selectable option labeled "<name> (legacy — reclassify)" so the
+//     one-off selectable option showing its saved category name so the
 //     operator can see it and move the item; null otherwise.
 //   holdingPenCurrent — set when the item's current category IS the holding pen.
 //     Injected as a disabled option labeled "Unclassified — assign a category"
