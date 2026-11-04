@@ -51,6 +51,20 @@ async function save(p){
  }
 }
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
+await check('positioned invoice non-product sections render safely before saving',async()=>{
+ const f=fixture(),p=await open(vendor,'invoice');
+ const line=(values,y)=>values.map((value,index)=>({text:value,transform:[1,0,0,12,[30,140,390,490,590,690,790][index],y],width:60,height:12}));
+ const raw='INVOICE SKIPPED-REGRESSION\nItem,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\nB1-001,Chicken Breast Boneless Skinless,2/10 LB,CASE,2,41.25,82.50\nSubtotal 82.50';
+ const reading={filename:'invoice-sections.pdf',text:raw,worksheets:[],pages:[{number:1,width:950,height:650,source:'embedded-text',text:raw,items:[...line(['Item','Description','Pack','Price Unit','Qty','Unit Price','Extended Price'],550),...line(['B1-001','Chicken Breast Boneless Skinless','2/10 LB','CASE','2','41.25','82.50'],510),...line(['Subtotal','82.50'],450),...line(['Following items were out of stock'],420)]}]};
+ await upload(p,'drop',{...file('invoice-sections.pdf',raw),reading});
+ assert.match(text(p.tree.toJSON()),/1 product row read/);assert.equal(writes(f),0);
+ await save(p);
+ assert.match(text(p.tree.toJSON()),/Subtotal/);
+ assert.doesNotMatch(text(p.tree.toJSON()),/undefined|\[object Object\]/);
+ assert.match(text(p.tree.toJSON()),/Following items were out of stock/);
+ assert.equal(writes(f),0,'preview must not write any records');
+ p.tree.unmount();
+});
 await check('drop previews exact filename and row count without any writes; cancel remains read-only',async()=>{
  const f=fixture(),p=await open();await upload(p,'drop');
  assert.ok(text(p.tree.toJSON()).includes('B1_Prices.csv'));
@@ -346,7 +360,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/38 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/39 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
