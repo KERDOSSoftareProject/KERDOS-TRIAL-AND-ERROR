@@ -3,6 +3,7 @@ import {identifyRowFields} from './field-identification.js';
 import {assessBoundFields,validateAssignedFields,withRowValidation} from './field-validation.js';
 import {parseDocument} from '../ingestion.js';
 import {prepareAutomaticInvoice} from './automatic-invoice.js';
+import {preparePriceImport} from './price-import-review.js';
 
 const cells=['','Supplier Brand','12/1 QT',''];
 const fields=identifyRowFields({cells,columnMap:{description:0,brand:1,packSize:2,price:3},confirmedColumns:new Set([0,1,2,3]),rowIndex:2});
@@ -57,6 +58,20 @@ assert.equal(amountOnly.rows[0].issues.find(issue=>issue.kind==='missing-price')
 const blankAmount=parseDocument('Description,Amount\nMilk,');
 assert.equal(blankAmount.rows.length,1,'a blank assigned amount remains reviewable');
 assert.equal(blankAmount.rows[0].fieldValidation.fields.amount.status,'missing');
+const extendedSheet=parseDocument('Description,Qty,Amount\nMilk,2,40.00').rows[0];
+assert.equal(extendedSheet.amount,40,'the sheet retains its stated total');
+assert.equal(extendedSheet.qty,2,'the sheet retains its stated quantity');
+assert.equal(extendedSheet.price,null,'a line total is not copied to unit price');
+assert.equal(extendedSheet.priceUnavailable,true,'the unverified amount cannot become an ordering quote');
+assert.equal(extendedSheet.fieldValidation.priceStatus,'missing-unit-price');
+assert.equal(extendedSheet.requiresReview,true);
+assert.ok(extendedSheet.issues.some(issue=>String(issue).includes('not a stated unit price')));
+assert.equal(parseDocument('Price Sheet\nDescription,Qty,Amount\nMilk,2,40.00').rows[0].price,null,'an explicit price sheet has the same safe treatment');
+assert.equal(parseDocument('Description,Qty,Price,Amount\nMilk,2,20.00,40.00').rows[0].price,20,'a stated unit price remains authoritative');
+assert.equal(parseDocument('Description,Amount\nMilk,40.00').rows[0].price,40,'a sole amount column retains its existing quote interpretation');
+const heldExtended=preparePriceImport({...extendedSheet,packSize:'12/1 QT',sellingUnit:'CASE'},null,null,extendedSheet.issues);
+assert.equal(heldExtended.requiresReview,true,'the import boundary retains the source as a review item');
+assert.equal(heldExtended.row.price,null,'the import boundary does not recreate a quote from the total');
 assert.equal(validateAssignedFields(identifyRowFields({cells:['Milk','Amount'],columnMap:{description:0,amount:1}}),{}).retain,false,'an amount header is not an item');
 const mixedCells=identifyRowFields({cells:['Milk','bad','Amount'],columnMap:{description:0,price:1,amount:2}});
 const mixedResult=validateAssignedFields(mixedCells,{price:null,amount:null});

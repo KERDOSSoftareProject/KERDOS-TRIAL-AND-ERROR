@@ -684,11 +684,13 @@ function findQuoteValidity(text){
 function reviewUncertainRows(rows,documentKind){
   return rows.map(row=>{
     const issues=[...(row.issues||[])];
+    const amountWithoutUnitPrice=!!row.fieldIdentification?.bindings?.amount&&
+      parseMoneyLenient(row.fieldIdentification.bindings.price?.rawValue)===null&&row.amount!=null;
+    const extendedAmountOnly=amountWithoutUnitPrice&&row.qty!=null;
     if(documentKind==="invoice"){
       // An extended amount is not a stated unit price. Keep the amount and
       // original row, but do not manufacture a billed unit price from it.
-      if(row.fieldIdentification?.bindings?.amount&&
-         parseMoneyLenient(row.fieldIdentification.bindings.price?.rawValue)===null&&row.amount!=null){
+      if(amountWithoutUnitPrice){
         issues.push("Invoice unit price is missing; the extended amount cannot be used as a unit price");
         row={...row,price:null,requiresReview:true,fieldValidation:row.fieldValidation?{
           ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
@@ -702,6 +704,12 @@ function reviewUncertainRows(rows,documentKind){
       if(!row.code&&/^\d+[\s\-]/.test(row.description||""))issues.push("Vendor item code may have been included in the product description");
       if(row.qty!=null&&row.amount!=null&&row.price!=null&&Math.abs(row.qty*row.price-row.amount)>0.02)
         issues.push("Invoice quantity, unit price and extended total do not reconcile");
+    }else if(extendedAmountOnly){
+      issues.push("The row's extended amount is not a stated unit price; verify the quoted price");
+      row={...row,price:null,priceUnavailable:true,requiresReview:true,fieldValidation:row.fieldValidation?{
+        ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
+          price:{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
+      }:row.fieldValidation};
     }else if(documentKind==="pricelist"&&row.amount!=null&&row.price!=null&&row.amount!==row.price){
       issues.push("Two different prices were read from one line; verify that adjacent columns were not combined");
     }
