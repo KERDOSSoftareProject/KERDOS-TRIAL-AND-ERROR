@@ -193,7 +193,7 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
     const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})}),available=[...segment.rows];
     const rows=parsed.rows.map(row=>{
       const indexed=Number.isInteger(row.sourceIndex)?segment.rows[row.sourceIndex]:null;
-      const source=indexed&&lineText(indexed)===row.sourceLine
+      const source=indexed&&available.includes(indexed)&&lineText(indexed)===row.sourceLine
         ?indexed
         :available.find(candidate=>lineText(candidate)===row.sourceLine)||null;
       if(source)available.splice(available.indexOf(source),1);

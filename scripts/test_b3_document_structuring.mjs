@@ -121,6 +121,17 @@ await check('stale parser index cannot attach a different physical source line',
   assert.ok(turkey);
   assert.ok(turkey.sourceProvenance.cells.some(cell=>cell.text.includes('Turkey Breast')));
 });
+await check('one physical line cannot prove two parsed products',()=>{
+  const reading=positioned([...headings,...product('12345','Chicken Breast',40,510)]);
+  const parsed=parseStructuredDocument('',reading,(input,options)=>{
+    const result=parseDocument(input,options);
+    return {...result,rows:[...result.rows,...result.rows]};
+  });
+  assert.equal(parsed.rows.length,2);
+  assert.ok(parsed.rows[0].sourceProvenance.cells.length);
+  assert.deepEqual(parsed.rows[1].sourceProvenance.cells,[]);
+  assert.deepEqual(parsed.rows[1].sourceProvenance.lines,[]);
+});
 await check('ambiguous unlabeled integer columns fall back instead of treating item codes as prices',()=>{
   const r=positioned([...product('12345','Chicken Breast',40,510),...product('12346','Turkey Breast',50,470),...product('12347','Beef Tenderloin',60,430)].filter(word=>word.text!=='CASE'));
   const p=parseStructuredDocument('',r);
