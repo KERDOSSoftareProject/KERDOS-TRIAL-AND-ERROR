@@ -1,12 +1,14 @@
 // ════════════════════════════════════════════════════════════════════
 import {identifyRowFields} from './core/field-identification.js';
+import {parseMoney,parseMoneyLenient} from './core/assigned-numbers.js';
+import {assessBoundFields,validateAssignedFields,withRowValidation} from './core/field-validation.js';
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
 import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
-import {readHeaderLayout,applyLayoutAnswers,checkRowCells} from "./core/sheet-layout.js";
+import {readHeaderLayout,applyLayoutAnswers} from "./core/sheet-layout.js";
 // KERDOS INGESTION MODULE
 // ════════════════════════════════════════════════════════════════════
 //
@@ -99,47 +101,6 @@ function isTableEndMarker(cells) {
 
 
 // ── Small utilities ─────────────────────────────────────────────────
-
-function parseMoney(str) {
-  if (str == null) return null;
-  let cleaned = String(str).replace(/[$]/g, "").trim();
-  // European decimal comma: "12,50" means 12.50 (not 12 thousands 50)
-  // Detect: digits, single comma, 1-2 digits, end — no dot present
-  if (/^-?\d+,\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(",", ".");
-  else cleaned = cleaned.replace(/,/g, ""); // strip thousands separators
-  // Accounting-style negatives — "(24.00)" meaning -24.00 — are common in
-  // bookkeeper-produced spreadsheets (QuickBooks-style exports, manual
-  // credit memos) even when nobody on staff would type an actual minus sign.
-  let negative = false;
-  if (/^\(.*\)$/.test(cleaned)) {
-    negative = true;
-    cleaned = cleaned.slice(1, -1).trim();
-  }
-  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
-  let n = parseFloat(cleaned);
-  if (isNaN(n)) return null;
-  if (negative) n = -Math.abs(n);
-  return n;
-}
-
-// A non-technical worker very often types a price and its unit into the
-// SAME cell instead of using separate columns — "$12.50 ea", "45.00/cs",
-// "3.99/LB", "50.00 per case". The real number is always the leading
-// token; everything after it is a qualifier, never part of the value.
-// Deliberately kept separate from parseMoney (used for exact/strict
-// checks like header scoring and column-role profiling, where a stray
-// numeric-looking description shouldn't be mistaken for a price column) —
-// this lenient version is only used once a column's role is already known
-// to be price/amount/qty, at final row extraction.
-function parseMoneyLenient(str) {
-  if (str == null) return null;
-  const exact = parseMoney(str);
-  if (exact !== null) return exact;
-  const s = String(str).trim();
-  const m = s.match(/^\(?-?\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)?/);
-  if (!m || !m[0].trim()) return null;
-  return parseMoney(m[0]);
-}
 
 function isJunkRow(cells) {
   const joined = cells.join(" ").trim();
@@ -503,14 +464,13 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // failed to parse).  A purely alphabetic-leading string such as "Col1", "Col4",
   // or "Price" is a column label that leaked through an undetected header row,
   // not a product price — those rows must fall through to the discard path below.
-  const _priceRawStr = priceRaw != null ? String(priceRaw).trim() : null;
-  const _priceRawLooksNumeric = _priceRawStr === "" || (_priceRawStr != null && /^[$€£¥\d]/.test(_priceRawStr));
-  const priceUnreadable = price === null && amount === null && !priceUnavailable
-    && priceRaw !== undefined && priceRaw !== null && _priceRawLooksNumeric;
+  const validation=validateAssignedFields(fields,{price,amount,priceUnavailable});
+  const boundQuality=assessBoundFields(fields);
+  const priceUnreadable=validation.priceStatus==='missing-or-unreadable';
 
   // Discard rows with no price that are not a recognised placeholder and have
   // no actual price cell (priceRaw undefined/null = no mapped price slot).
-  if (price === null && amount === null && !priceUnavailable && !priceUnreadable) return null;
+  if (!validation.retain) return null;
 
   let description = (get("description") || "").trim();
   // B4 already bound the description to this source row. Never borrow a
@@ -521,7 +481,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     .replace(/\*+/g, '')               // remaining lone asterisks
     .replace(/\s{2,}/g, ' ')           // double spaces → single
     .trim();
-  const missingAnchor=['missing','ambiguous'].includes(fields.anchor.status);
+  const missingAnchor=['missing','ambiguous'].includes(validation.anchorStatus);
   if (description.length < 2&&!missingAnchor) return null;
   // A row whose description is itself a non-product line (fuel surcharge,
   // delivery fee etc) should be skipped even when it came from a CSV column.
@@ -569,15 +529,11 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     if(codeLike){rowCode=codeLike;codeSource="details";details=details.filter(detail=>detail!==codeLike);}
   }
   const fullDescription=missingAnchor?'':[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const issues=[...fields.issues];
-
-  // A row whose price cell was blank or unreadable gets flagged for review.
-  // priceUnavailable is also set so ImportModal doesn't throw "No confirmed
-  // positive unit price" and instead saves the row with the issue attached.
-  if (priceUnreadable) {
-    const rawHint = priceRaw != null && String(priceRaw).trim() ? ` ("${String(priceRaw).trim()}")` : "";
-    issues.push({ kind: "missing-price", message: `Price missing or could not be read${rawHint}` });
-  }
+  // A missing or unreadable assigned price remains a reviewable source row.
+  const issues=[...validation.issues,
+    ...['qty','amount'].filter(role=>boundQuality.cellIssues[role]).map(role=>({
+      kind:'invalid-assigned-field',field:role,message:boundQuality.cellIssues[role],
+    }))];
 
   // Run cell analysis to pick up flags and metadata the column-map path doesn't surface:
   // priceUnavailable (zero price), requiresReview (negative price), originalRaw on pack.
@@ -598,6 +554,8 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
 
   return applySourceUnits({
     fieldIdentification:{version:fields.version,anchor:fields.anchor,bindings:fields.bindings},
+    fieldValidation:{version:validation.version,anchorStatus:validation.anchorStatus,priceStatus:validation.priceStatus,fields:boundQuality.fields},
+    ...(Object.keys(boundQuality.cellIssues).length?{cellIssues:boundQuality.cellIssues}:{}),
     code: rowCode,
     codeSource,
     brand,
@@ -619,7 +577,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     price: price !== null ? price : amount,
     amount: amount !== null ? amount : price,
     priceUnavailable: finalPriceUnavailable,
-    requiresReview: finalRequiresReview||missingAnchor,
+    requiresReview: finalRequiresReview||validation.requiresReview,
     cellUnresolved,
     cellConflicts,
     sourceLine:cells.join("\t"),
@@ -726,7 +684,19 @@ function findQuoteValidity(text){
 function reviewUncertainRows(rows,documentKind){
   return rows.map(row=>{
     const issues=[...(row.issues||[])];
+    const amountWithoutUnitPrice=!!row.fieldIdentification?.bindings?.amount&&
+      parseMoneyLenient(row.fieldIdentification.bindings.price?.rawValue)===null&&row.amount!=null;
+    const extendedAmountOnly=amountWithoutUnitPrice&&row.qty!=null;
     if(documentKind==="invoice"){
+      // An extended amount is not a stated unit price. Keep the amount and
+      // original row, but do not manufacture a billed unit price from it.
+      if(amountWithoutUnitPrice){
+        issues.push("Invoice unit price is missing; the extended amount cannot be used as a unit price");
+        row={...row,price:null,requiresReview:true,fieldValidation:row.fieldValidation?{
+          ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
+            price:{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
+        }:row.fieldValidation};
+      }
       // An invoice line must be fully understood before it can touch a
       // quote; unlabeled cells on it still need a person.
       if(row.details?.length)issues.push(`Unlabeled invoice details need identification: ${row.details.join(" | ").slice(0,100)}`);
@@ -734,6 +704,12 @@ function reviewUncertainRows(rows,documentKind){
       if(!row.code&&/^\d+[\s\-]/.test(row.description||""))issues.push("Vendor item code may have been included in the product description");
       if(row.qty!=null&&row.amount!=null&&row.price!=null&&Math.abs(row.qty*row.price-row.amount)>0.02)
         issues.push("Invoice quantity, unit price and extended total do not reconcile");
+    }else if(extendedAmountOnly){
+      issues.push("The row's extended amount is not a stated unit price; verify the quoted price");
+      row={...row,price:null,priceUnavailable:true,requiresReview:true,fieldValidation:row.fieldValidation?{
+        ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
+          price:{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
+      }:row.fieldValidation};
     }else if(documentKind==="pricelist"&&row.amount!=null&&row.price!=null&&row.amount!==row.price){
       issues.push("Two different prices were read from one line; verify that adjacent columns were not combined");
     }
@@ -1282,6 +1258,8 @@ function parseDocumentRows(text, options={}) {
   const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
   const answered=applyLayoutAnswers(engineMap,options.layoutAnswers||{});
   let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart);
+  let fieldOrigins=Object.fromEntries(Object.entries(columnMap).map(([role,index])=>[role,
+    options.layoutAnswers?.[String(index)]===role?'remembered-client':engineMap[role]===index?'stated-header':'inferred']));
   // confirmedRoles: columns whose role is supported by explicit header text or client decision.
   // Inferred roles (data-shape guesses from fillMissingRolesFromData) are NOT confirmed.
   // Cell analysis only constrains confirmed columns; inferred roles remain challengeable.
@@ -1304,19 +1282,17 @@ function parseDocumentRows(text, options={}) {
     // preceding worksheet's price header into the next table.
     const header=mapColumnsFromHeader(cells);
     if(isTableHeader(cells,columnMap)){
-      columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;confirmedColIndices=new Set(Object.values(header));continue;
+      columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;confirmedColIndices=new Set(Object.values(header));
+      fieldOrigins=Object.fromEntries(Object.keys(header).map(role=>[role,'stated-header']));continue;
     }
-    const identified=identifyRowFields({cells,columnMap,sourceHeaders,confirmedColumns:confirmedColIndices,rowIndex:i});
+    const identified=identifyRowFields({cells,columnMap,sourceHeaders,confirmedColumns:confirmedColIndices,fieldOrigins,rowIndex:i});
     const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders,identified);
     if (!row) {
       skipped.push({ line, reason: "couldn't find a valid price or description" });
       continue;
     }
-    // Every cell against its column's meaning. A failing cell is flagged
-    // on the row with the reason; the row is kept.
+    // B5 already checked each assigned cell without changing its placement.
     if(options.includeSourceIndex)row.sourceIndex=i;
-    const cellIssues=checkRowCells(cells,columnMap);
-    if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
 
     rows.push(row);
   }
@@ -1329,7 +1305,7 @@ function parseDocumentRows(text, options={}) {
 function parseDocument(text, options={}){
   const result=parseDocumentRows(text, options);
   const documentUnit=documentQuoteUnit(text);
-  return {...result,rows:result.rows.map(row=>applySourceUnits(row,{documentUnit}))};
+  return {...result,rows:result.rows.map(row=>withRowValidation(applySourceUnits(row,{documentUnit})))};
 }
 
 // Exported for use elsewhere in the app.

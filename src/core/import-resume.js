@@ -12,7 +12,10 @@ export function verifyResumeRows(rows,completedKeys,savedRows,snapshot=null){
     if(snapshot.version!==1||!Array.isArray(snapshot.rows)||snapshot.rows.length!==rows.length)
       throw new Error('The retained source-row snapshot does not match this file. Existing data was kept.');
     const current=createSourceRowSnapshot(rows);
-    for(const key of new Set([...completedKeys,...savedRows.map(saved=>saved.key).filter(Boolean)])){
+    // The snapshot owns every source-row ordinal, including unfinished rows.
+    // Otherwise a parser upgrade could retain completed rows but assign a
+    // different product to a pending row under the same row:N key.
+    for(const key of new Set([...current.rows.map(row=>row.key),...completedKeys,...savedRows.map(saved=>saved.key).filter(Boolean)])){
       const match=String(key).match(/^row:(\d+)$/),index=match?Number(match[1]):-1;
       if(index<0||!snapshot.rows[index]||JSON.stringify(stable(snapshot.rows[index]))!==JSON.stringify(stable(current.rows[index])))
         throw new Error("This file's saved row positions or values differ from the retained source snapshot. Existing data was kept.");

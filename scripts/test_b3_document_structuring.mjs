@@ -85,6 +85,8 @@ await check('ragged geometry keeps freeform parsing rather than forcing invented
   const p=parseStructuredDocument(text,r);assert.equal(p.structure.segments[0].kind,'freeform');
   assert.deepEqual(p.rows.map(row=>[row.description,row.price]),parseDocument(text).rows.map(row=>[row.description,row.price]));
   assert.ok(p.rows.every(row=>row.sourceProvenance.fallback));
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.lines),[[0],[1]],'fallback rows retain their physical source lines when text matches');
+  assert.ok(p.rows.every(row=>row.sourceProvenance.cells[0].words.length===1),'fallback source words remain attached to the row');
 });
 await check('OCR boxes convert scale/direction correctly and retain their original coordinates',()=>{
   const words=[...headings,...product('12345','Chicken Breast',40,510)].map(word=>({text:word.text,bbox:{x0:word.transform[4]*2,y0:(600-word.transform[5]-12)*2,x1:(word.transform[4]+word.width)*2,y1:(600-word.transform[5])*2},confidence:95}));
@@ -108,6 +110,27 @@ await check('source document note survives structuring and replay is determinist
   const r=await pdf('side-by-side');r.text='All prices per CASE\n'+r.text;const before=JSON.stringify(r);
   const first=parseStructuredDocument(r.text,r),again=parseStructuredDocument(r.text,r);
   assert.deepEqual(first,again);assert.equal(JSON.stringify(r),before);assert.ok(first.rows.every(row=>row.sellingUnit==='CASE'));
+});
+await check('stale parser index cannot attach a different physical source line',async()=>{
+  const reading=positioned([...headings,...product('12345','Chicken Breast',40,510),...product('12346','Turkey Breast',50,470)]);
+  const parsed=parseStructuredDocument(reading.text,reading,(input,options)=>{
+    const result=parseDocument(input,options);
+    return {...result,rows:result.rows.map(row=>row.description==='Turkey Breast'?{...row,sourceIndex:1}:row)};
+  });
+  const turkey=parsed.rows.find(row=>row.description==='Turkey Breast');
+  assert.ok(turkey);
+  assert.ok(turkey.sourceProvenance.cells.some(cell=>cell.text.includes('Turkey Breast')));
+});
+await check('one physical line cannot prove two parsed products',()=>{
+  const reading=positioned([...headings,...product('12345','Chicken Breast',40,510)]);
+  const parsed=parseStructuredDocument('',reading,(input,options)=>{
+    const result=parseDocument(input,options);
+    return {...result,rows:[...result.rows,...result.rows]};
+  });
+  assert.equal(parsed.rows.length,2);
+  assert.ok(parsed.rows[0].sourceProvenance.cells.length);
+  assert.deepEqual(parsed.rows[1].sourceProvenance.cells,[]);
+  assert.deepEqual(parsed.rows[1].sourceProvenance.lines,[]);
 });
 await check('ambiguous unlabeled integer columns fall back instead of treating item codes as prices',()=>{
   const r=positioned([...product('12345','Chicken Breast',40,510),...product('12346','Turkey Breast',50,470),...product('12347','Beef Tenderloin',60,430)].filter(word=>word.text!=='CASE'));
