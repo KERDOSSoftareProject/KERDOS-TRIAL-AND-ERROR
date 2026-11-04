@@ -36,6 +36,18 @@ const quote=await db.query(`select kerdos_apply_price_quote(null,$1,$2,'001001',
 const vi=quote.rows[0].id;
 await db.query(`insert into item_mappings values($1,$2,$3,$4,'review',75,'rule_based')`,[mapping,org,vi,item]);
 const save=(revision,patch,basis='measure',available=true,orgId=org)=>db.query(`select kerdos_save_catalog_row($1,$2,$3,$4,$5::jsonb,$6,$7) as row`,[orgId,vi,mapping,revision,JSON.stringify(patch),basis,available]);
+// Base-field trial: a received dollar amount saves without supplying a unit,
+// rewriting the pack/description or approving the rest of the listing.
+await db.exec('BEGIN');
+try {
+ const before=(await db.query('select * from vendor_items where id=$1',[vi])).rows[0];
+ const saved=(await save(0,{price:2.29},null,false)).rows[0].row;
+ assert.equal(Number(saved.price),2.29);
+ for(const key of ['vendor_item_code','description','brand','pack_size','selling_unit'])assert.equal(saved[key],before[key],key+' is retained by dollar-only save');
+ assert.equal(saved.selling_unit,null);assert.equal(saved.price_basis,null);assert.equal(saved.price_unavailable,true);
+ assert.deepEqual(Object.keys(saved.field_resolutions),['price']);
+ assert.equal((await db.query('select comparison_track from item_mappings where id=$1',[mapping])).rows[0].comparison_track,'review');
+}finally{await db.exec('ROLLBACK');}
 let result=await save(0,{brand:'Brand A'},null,false);
 assert.equal(result.rows[0].row.brand,'Brand A');
 assert.equal(result.rows[0].row.price_unavailable,true,'missing unit remains out of ordering');

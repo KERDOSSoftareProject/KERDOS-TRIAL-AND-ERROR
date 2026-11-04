@@ -28,6 +28,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
   const canManage=role==="owner"||role==="manager";
   const [search,setSearch]=useState("");
   const [rowView,setRowView]=useState(true);
+  const [baseFieldsOnly,setBaseFieldsOnly]=useState(false);
   const [actionsOpen,setActionsOpen]=useState(false);
   const [catalogTool,setCatalogTool]=useState(null);
   const [sourceReviewOpen,setSourceReviewOpen]=useState(false);
@@ -410,6 +411,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
           <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
         </select>}
 
+        <button aria-pressed={baseFieldsOnly} onClick={()=>{setBaseFieldsOnly(value=>!value);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn(baseFieldsOnly?"#003584":"#E8F1FB",baseFieldsOnly?"white":"#003584")}>{baseFieldsOnly?"Full catalog":"Base fields trial"}</button>
         <details aria-label="Item catalog actions" open={actionsOpen} onToggle={e=>setActionsOpen(e.currentTarget.open)} onKeyDown={e=>{if(e.key==='Escape')setActionsOpen(false);}} style={{position:'relative',marginLeft:'auto'}}>
           <summary style={{...btn('#E8F1FB','#003584'),listStyle:'none'}}>Actions ▾</summary>
           <div className="catalog-actions-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',zIndex:20,background:'white',color:'#173C70',border:'1px solid #CCD9EC',borderRadius:8,padding:10,width:'min(300px, calc(100vw - 40px))',maxHeight:'55vh',overflowY:'auto',boxShadow:'0 6px 18px #102B4930'}}>
@@ -434,6 +436,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         </details>
       </div>
       {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
+      {baseFieldsOnly&&rowView&&!showReview&&<p style={{color:"#003584"}}>Base fields trial · Description, group, KERDOS number, category, vendor number and received dollars. Other columns are blank in this view; saved details remain in Full catalog.</p>}
       {sourceReviewOpen&&<MovableDialog label="Incoming source review" maxWidth={900}><div style={{background:'white',padding:20}}><button onClick={()=>setSourceReviewOpen(false)} style={btn('#EEE','#173C70')}>Close</button><RetainedImportRows orgId={orgId} vendors={vendors} service={importService} search={search}/></div></MovableDialog>}
       {canManage&&catalogTool&&<MovableDialog label="Catalog maintenance" maxWidth={1000}><div style={{background:'white',padding:20}}>
         <button onClick={()=>setCatalogTool(null)} style={btn('#EEE','#173C70')}>Close</button>
@@ -624,7 +627,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"
