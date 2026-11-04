@@ -1,5 +1,6 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from './AssociateAlternatives.jsx';
+import {productGroupApproved} from '../core/product-associations.js';
 import {clientProductName} from '../core/client-product-name.js';
 import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
@@ -20,6 +21,8 @@ import {btn,inp} from "../ui/styles.js";
 const service=createCatalogRowsService(backend);
 const variableWeightService=createVariableWeightService(backend);
 const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"};
+const BASE_COLUMNS=new Set(['itemNumber','vendor','vendorItemNumber','category','itemName','product','price']);
+const BASE_EDIT_FIELDS=new Set(['description','price','category_id']);
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
 // A percentage only where there is a value; an empty cell is simply empty.
 // A percentage only where there is a value. A value the client set shows
@@ -30,7 +33,7 @@ function Evidence({field}){
   const color=field.accuracy>=90?"#38704E":field.accuracy>=70?"#8D5900":"#B03A2E";
   return <small title={field.reason} style={{display:"block",marginTop:4,color}}>{field.accuracy}%{field.by?<span style={{marginLeft:6,fontWeight:800,color:"#003584"}}>{field.by}</span>:null}</small>;
 }
-function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
+function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
   const [draft,setDraft]=useState({});
   const [nameDraft,setNameDraft]=useState(null);
   const [numberDraft,setNumberDraft]=useState(null);
@@ -68,7 +71,7 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
   const assessment=orderGuideAssessment({item:evidenceItem,vendorItem:current,mapping:previewMapping,vendor,category,peers:displayPeers,categories,settings});
   const packUnits=unitChoices(vocabulary,true,industry);
   const nameDirty=nameDraft!=null&&nameDraft.trim()!==(item.name||"");
-  const dirty=Object.keys(draft).length>0||nameDirty||linkDirty;
+  const dirty=Object.keys(draft).some(key=>!baseFieldsOnly||BASE_EDIT_FIELDS.has(key))||nameDirty||linkDirty;
   function edit(key,value){setBase(b=>b||vendorItem);setDraft(d=>({...d,[key]:value}));setSaved(false);setError("");}
   const parsedPack=parsePackSize(current.pack_size);
   const currentBasis=priceBasisFor(current.selling_unit);
@@ -81,7 +84,7 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
     edit("pack_size",serializePack(parts));
   }
   async function save(override=null){
-    if(!override&&!calculatedUnitCost(current,{industry})){
+    if(!baseFieldsOnly&&!override&&!calculatedUnitCost(current,{industry})){
       setOverridePackPrice(String(current.price||""));setOverrideOpen(true);return;
     }
     setBusy(true);setError("");
@@ -90,11 +93,13 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
       // together or not at all.
       if(linkDirty&&!destination)throw new Error("Enter an existing KERDOS item number from this catalog.");
       if(linkDirty&&(nameDirty||Object.hasOwn(draft,"category_id")))throw new Error("Apply the item name/category edits before changing its association.");
-      const patch={description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
+      const basePatch={...Object.fromEntries(Object.entries(draft).filter(([key])=>BASE_EDIT_FIELDS.has(key))),...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})};
+      if(baseFieldsOnly&&!Object.keys(basePatch).length)return;
+      const patch=baseFieldsOnly?basePatch:{description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
         unit_cost_override:override||current.field_resolutions?.unit_cost_override?.value||null,
         ...(!linkDirty?{category_id:categoryId,item_name:nameDraft?.trim()||item.name}:{}),...(nameDirty?{item_name:nameDraft.trim()}:{ }),...(linkDirty?{catalog_item_id:destination.id}:{})};
       await service.save({organizationId:orgId,vendorItem:base||vendorItem,mapping,patch});
-      setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setPackParts(null);setSaved(true);setOverrideOpen(false);await onUpdated();
+      setDraft(prior=>baseFieldsOnly?Object.fromEntries(Object.entries(prior).filter(([key])=>!BASE_EDIT_FIELDS.has(key))):{});setNameDraft(null);setNumberDraft(null);setBase(null);if(!baseFieldsOnly)setPackParts(null);setSaved(true);setOverrideOpen(false);await onUpdated();
     }
     catch(err){setError(err.message||String(err));}
     finally{setBusy(false);}
@@ -104,8 +109,9 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
     <tr style={{background:dirty?"#FFFDF3":"white"}}>
       <td style={cellStyle}>{canManage&&<input type="checkbox" aria-label={`Select ${vendorItem.description} for alternatives`} checked={selected} onChange={onSelect}/>}</td>
       {CATALOG_COLUMNS.map(([key])=>{
+        if(baseFieldsOnly&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
         const f=evidence[key];let content;
-        if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{item.master_item_number!=null?`#${item.master_item_number}`:"—"}</span>;
+        if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{f.value||"NVIM pending"}</span>;
         else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name} (legacy — reclassify)</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
@@ -129,7 +135,7 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
           </>}
           {!parsedPack?.parsed&&current.pack_size&&!/^(CASE|EACH):/.test(current.pack_size)&&<small style={{display:"block"}}>From sheet: {current.pack_size}</small>}
         </>;
-        else if(key==="itemName")content=<input aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy||linkDirty} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);setNameDraft(e.target.value);setSaved(false);setError("");}} />;
+        else if(key==="itemName")content=<>{baseFieldsOnly&&<select aria-label={`Group for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:190,marginBottom:6}} disabled={!canManage||busy} value={displayItem.id} onChange={event=>{const target=allCatalogItems.find(candidate=>candidate.id===event.target.value);if(target){setBase(value=>value||vendorItem);setNumberDraft(String(target.master_item_number));setSaved(false);setError("");}}}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id&&candidate.master_item_number!=null).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.name} · #{candidate.master_item_number}</option>)}</select>}<input aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy||linkDirty} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);setNameDraft(e.target.value);setSaved(false);setError("");}} /></>;
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={current[fields[key]]??""} placeholder={key==="brand"?"Blank if absent":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else if(key==="sellingUnit")content=<>
           <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={current.selling_unit||""} onChange={value=>edit("selling_unit",value)}/>
@@ -146,19 +152,19 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
         </>;
         const sourceKey={product:"description",pack:"packSize",sellingUnit:"sellingUnit"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td key={key} style={{...cellStyle,background:change?"#FFF3E0":undefined}}>{content}<Evidence field={f}/>{change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}</td>;
+        return <td key={key} style={{...cellStyle,background:change?"#FFF3E0":undefined}}>{content}{!baseFieldsOnly&&<Evidence field={f}/>}{baseFieldsOnly&&key==="itemName"&&<small style={{display:"block",marginTop:4}}>{productGroupApproved(vendorItem,displayItem,previewMapping)?"Confirmed group":"Provisional group"}</small>}{change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}</td>;
       })}
       <td style={{...cellStyle,minWidth:115}}>
-        {canManage&&<button disabled={busy} onClick={()=>save()} style={{...btn("#003584","white",{fontSize:11,padding:6})}}>{busy?"Applying…":"Apply"}</button>}
-        {dirty&&<button disabled={busy} onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setPackParts(null);setError("");}} style={{border:0,background:"none",cursor:"pointer",fontSize:11}}>Undo edits</button>}
-        <button onClick={()=>setDetails(!details)} style={{display:"block",marginTop:6,border:0,background:"none",cursor:"pointer",color:"#245785"}}>Details</button>
+        {canManage&&<button disabled={busy||(baseFieldsOnly&&!dirty)} onClick={()=>save()} style={{...btn("#003584","white",{fontSize:11,padding:6})}}>{busy?"Applying…":"Apply"}</button>}
+        {dirty&&<button disabled={busy} onClick={()=>{setDraft(prior=>baseFieldsOnly?Object.fromEntries(Object.entries(prior).filter(([key])=>!BASE_EDIT_FIELDS.has(key))):{});setNameDraft(null);setNumberDraft(null);setBase(null);if(!baseFieldsOnly)setPackParts(null);setError("");}} style={{border:0,background:"none",cursor:"pointer",fontSize:11}}>Undo edits</button>}
+        {!baseFieldsOnly&&<button onClick={()=>setDetails(!details)} style={{display:"block",marginTop:6,border:0,background:"none",cursor:"pointer",color:"#245785"}}>Details</button>}
         {vendorItem.import_row?.reviewRequired&&<small style={{display:"block",color:"#9B4400"}}>New quote needs review</small>}
-        {parsedPack?.catchWeight&&currentBasis?.basis==='measure'&&<VariableWeightConfirmation service={variableWeightService} organizationId={orgId} listing={vendorItem} mapping={mapping} catalogItemId={item.id} settings={settings} approval={variableApproval} disabled={dirty||busy} canManage={canManage} onChanged={onVariableApprovalChanged}/>}
+        {!baseFieldsOnly&&parsedPack?.catchWeight&&currentBasis?.basis==='measure'&&<VariableWeightConfirmation service={variableWeightService} organizationId={orgId} listing={vendorItem} mapping={mapping} catalogItemId={item.id} settings={settings} approval={variableApproval} disabled={dirty||busy} canManage={canManage} onChanged={onVariableApprovalChanged}/>}
         {saved&&<small role="status" style={{color:"#276742"}}>Saved</small>}
         {error&&<div role="alert" style={{fontSize:11,color:"#A32B20",whiteSpace:"normal"}}>{error}</div>}
       </td>
     </tr>
-    {overrideOpen&&<tr><td colSpan={CATALOG_COLUMNS.length+2}>
+    {!baseFieldsOnly&&overrideOpen&&<tr><td colSpan={CATALOG_COLUMNS.length+2}>
       <MovableDialog label="Unit cost override" maxWidth={428} zIndex={1000}>
         <div style={{background:"white",padding:24,borderRadius:10,width:380,maxWidth:"90vw"}}>
           <div>KERDOS cannot calculate unit cost from this pack and quoted unit. Enter your approved values to continue.</div>
@@ -171,7 +177,7 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
         </div>
       </MovableDialog>
     </td></tr>}
-    {details&&<tr><td colSpan={CATALOG_COLUMNS.length+2} style={{...cellStyle,background:"#F2F6FA"}}>
+    {!baseFieldsOnly&&details&&<tr><td colSpan={CATALOG_COLUMNS.length+2} style={{...cellStyle,background:"#F2F6FA"}}>
       <div style={{fontWeight:700,marginBottom:10}}>{assessment.ready?"Meets Order Guide field requirements":"Waiting on: "+assessment.blockers.map(code=>BLOCKER_LABELS[code]).join("; ")}{dirty?" (unsaved preview)":""}</div>
       <small style={{display:"block",marginBottom:10}}>Case count is the number of eaches inside. Each always has count 1. Weight or volume is separate; Quoted per tells us how the vendor charges.</small>
       {vendorItem.import_row?.reviewRequired&&<div style={{background:"#FFF3E0",padding:10,fontSize:12,marginBottom:10}}>
@@ -188,7 +194,7 @@ function EditableRow({selected,onSelect,clientName,industry,allCatalogItems,allV
     </td></tr>}
   </>;
 }
-export function CatalogRows({sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
+export function CatalogRows({baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
   const [selected,setSelected]=useState(new Set());
   const [expanded,setExpanded]=useState(new Set());
   const [sort,setSort]=useState({key:"itemName",direction:1});
@@ -230,13 +236,13 @@ export function CatalogRows({sortMode="alphabetical",industry="",orgId,items,cat
   }
   const browseById=new Map(items.map(item=>[item.catalogItemId,item]));
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
-  return <div style={{borderRadius:10,background:"white",marginBottom:16}}>
+  return <div data-catalog-base-trial={baseFieldsOnly} style={{borderRadius:10,background:"white",marginBottom:16}}>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     {orderedGroups.map(group=><details key={group.id} data-catalog-group={group.id} open={expanded.has(group.id)} onToggle={event=>{const open=event.currentTarget.open;setExpanded(prior=>{if(prior.has(group.id)===open)return prior;const next=new Set(prior);if(open)next.add(group.id);else next.delete(group.id);return next;});}} style={{borderTop:'1px solid #DEE7F0'}}>
       <summary style={{padding:'14px 16px',color:'#003584',background:'#E8F0FA',cursor:'pointer',fontWeight:700}}>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></summary>
       {canManage&&selected.size>0&&group.rows.some(row=>selected.has(row.vendorItem.id))&&<div style={{padding:10}}><AssociateAlternatives showSuggestionTools={false} orgId={orgId} selectedVendorIds={[...selected]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelected(new Set())}/></div>}
-      <div style={{overflowX:'auto'}}><table aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}<th style={cellStyle}>Actions</th></tr></thead>
-      <tbody>{group.rows.map(row=><EditableRow selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
+      <div style={{overflowX:'auto'}}><table aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{baseFieldsOnly&&key==="itemName"?"Group":label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}<th style={cellStyle}>Actions</th></tr></thead>
+      <tbody>{group.rows.map(row=><EditableRow baseFieldsOnly={baseFieldsOnly} selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
       {!group.rows.length&&<tr><td colSpan={CATALOG_COLUMNS.length+1} style={cellStyle}>No vendor listing linked yet.</td><td><button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
       </tbody>
     </table></div></details>)}
