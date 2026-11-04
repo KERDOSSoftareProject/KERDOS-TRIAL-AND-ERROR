@@ -570,7 +570,10 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   }
   const fullDescription=missingAnchor?'':[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
   // A missing or unreadable assigned price remains a reviewable source row.
-  const issues=[...validation.issues];
+  const issues=[...validation.issues,
+    ...['qty','amount'].filter(role=>boundQuality.cellIssues[role]).map(role=>({
+      kind:'invalid-assigned-field',field:role,message:boundQuality.cellIssues[role],
+    }))];
 
   // Run cell analysis to pick up flags and metadata the column-map path doesn't surface:
   // priceUnavailable (zero price), requiresReview (negative price), originalRaw on pack.
