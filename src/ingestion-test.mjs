@@ -44,6 +44,16 @@ t('vendor description stays a description',vendorSheet.rows[0]?.description,'ALU
 t('vendor brand is kept separately',vendorSheet.rows[1]?.brand,'RNGELN');
 t('vendor pack is kept separately',vendorSheet.rows[1]?.packSize,'1/15 LB');
 const twoColumnQuote=parseDocument('Price List\nProduct    Price    Product    Price\nAPPLE GALA 40 LB    34.00    LIME 150CT    47.50');
+const descriptionPriceSheet=parseDocument('Product Price\nCHEESE AMERICAN SLICED (USA) 5 lb. 16.75\nCHEESE ROMANO GRATED 5LB (USA) 20.50');
+assert.deepEqual(descriptionPriceSheet.rows.map(({code,description,price,qty})=>({code,description,price,qty})),[
+  {code:null,description:'CHEESE AMERICAN SLICED (USA) 5 lb.',price:16.75,qty:null},
+  {code:null,description:'CHEESE ROMANO GRATED 5LB (USA)',price:20.50,qty:null},
+]);
+const receivedNumbers=parseDocument('Product Price\nWIDGET 125 40 LB 34.00\nABC-123 INDUSTRIAL PART 12.50');
+assert.equal(receivedNumbers.rows[0].description,'WIDGET 125 40 LB');
+assert.equal(receivedNumbers.rows[0].price,34);
+assert.equal(receivedNumbers.rows[1].code,null);
+assert.equal(receivedNumbers.rows[1].description,'ABC-123 INDUSTRIAL PART');
 t('adjacent quote prices require row review',twoColumnQuote.rows.some(row=>row.issues.some(issue=>issue.includes('Two different prices'))),true);
 const unusualInvoice=parseDocument('INVOICE #12345\nMATERIAL    DESCRIPTION    QTY    UNIT PRICE    LINE TOTAL\nX2700    TERRY TOWEL WHITE    125    0.099    12.90');
 t('uncertain invoice arithmetic requires review',unusualInvoice.rows.some(row=>row.issues.some(issue=>issue.includes('reconcile'))),true);

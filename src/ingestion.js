@@ -889,9 +889,18 @@ function mergeBareDollarContinuations(lines) {
 }
 
 
-function extractRowFreeform(line) {
+function extractRowFreeform(line, {descriptionPriceOnly=false}={}) {
   const tokens = findMoneyTokens(line);
   if (tokens.length === 0) return null;
+
+  // A declared Product / Price table has no item-code or quantity column.
+  // Keep its product text intact, including pack numbers and origin text.
+  if(descriptionPriceOnly){
+    const token=tokens.at(-1);
+    const description=(line.slice(0,token.index)+' '+line.slice(token.index+token.raw.length)).trim();
+    if(isDocumentMetadata(line)||!/[a-z]{2}/i.test(description)||token.value<=0||token.value>1000000)return null;
+    return {code:null,description,packSize:null,qty:null,price:token.value,amount:token.value,sourceLine:line};
+  }
 
   // The rightmost money-looking number is the line total; the one
   // before it (if present) is the unit price — UNLESS that "price"
@@ -1208,6 +1217,7 @@ function parseDocumentRows(text, options={}) {
   if (delimiter === null) {
     const stitchedLines = mergeBareDollarContinuations(rawLines);
     const headerIdx = findFreeformHeaderIndex(stitchedLines);
+    const descriptionPriceOnly=headerIdx!==-1&&/^(?:product(?: description| name)?|description|item description)\s+(?:price|unit price|cost)\s*$/i.test(stitchedLines[headerIdx].trim());
     let dataStart = headerIdx !== -1 ? headerIdx + 1 : 0;
 
     // Junk can appear both before the real item table (addresses,
@@ -1216,7 +1226,7 @@ function parseDocumentRows(text, options={}) {
     // started — so first find where a genuine, parseable row begins.
     for (let i = dataStart; i < stitchedLines.length; i++) {
       if (isJunkRow([stitchedLines[i]])) continue;
-      if (extractLabeledFields(stitchedLines[i]) || extractRowFreeform(stitchedLines[i])) {
+      if (extractLabeledFields(stitchedLines[i]) || extractRowFreeform(stitchedLines[i],{descriptionPriceOnly})) {
         dataStart = i;
         break;
       }
@@ -1243,7 +1253,7 @@ function parseDocumentRows(text, options={}) {
         skipped.push({ line, reason: "looks like a total/note/address line" });
         continue;
       }
-      const row = extractLabeledFields(line) || extractRowFreeform(line);
+      const row = extractLabeledFields(line) || extractRowFreeform(line,{descriptionPriceOnly});
       if (!row) {
         skipped.push({ line, reason: "couldn't find a valid price or description" });
         continue;
