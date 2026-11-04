@@ -43,18 +43,21 @@ export function requireItemDescription(row){
 // Assess assigned cells without changing their placement. The caller decides
 // whether a source observation can be admitted as a listing.
 export function validateAssignedFields(fields,{price,amount,priceUnavailable=false}={}){
- const raw=fields?.values?.price;
- const text=raw==null?null:String(raw).trim();
- const header=String(fields?.bindings?.price?.header||'').trim();
  const anchorText=String(fields?.anchor?.rawValue||'').trim();
  const columnHeading=/^(?:col(?:umn)?\s*\d+|description|product description|item description)$/i;
- const headerLike=!!text&&(text.toLowerCase()===header.toLowerCase()||columnHeading.test(text)||columnHeading.test(anchorText)||/^(?:price|amount|cost|rate|unit price|quoted price|extended price|line total|total)$/i.test(text));
- const unreadable=price==null&&amount==null&&!priceUnavailable&&raw!=null&&!headerLike;
+ const assigned=['price','amount'].map(role=>({role,raw:fields?.values?.[role],header:String(fields?.bindings?.[role]?.header||'').trim()}))
+  .filter(cell=>cell.raw!=null);
+ const headerLike=columnHeading.test(anchorText)||assigned.some(({raw,header})=>{
+  const text=String(raw).trim();
+  return !!text&&(text.toLowerCase()===header.toLowerCase()||columnHeading.test(text)||/^(?:price|amount|cost|rate|unit price|quoted price|extended price|line total|total)$/i.test(text));
+ });
+ const unreadable=price==null&&amount==null&&!priceUnavailable&&assigned.length>0&&!headerLike;
  const anchorStatus=fields?.anchor?.status||'missing';
  const issues=[...(fields?.issues||[])];
  if(unreadable){
-  const hint=text?` ("${text}")`:'';
-  issues.push({kind:'missing-price',message:`Price missing or could not be read${hint}`});
+  const evidence=assigned.find(({raw})=>String(raw).trim());
+  const hint=evidence?` ("${String(evidence.raw).trim()}")`:'';
+  issues.push({kind:'missing-price',field:evidence?.role||assigned[0].role,message:`Price missing or could not be read${hint}`});
  }
  return {version:1,anchorStatus,priceStatus:priceUnavailable?'unavailable':unreadable?'missing-or-unreadable':price!=null||amount!=null?'parsed':'absent',
   retain:price!=null||amount!=null||priceUnavailable||unreadable,

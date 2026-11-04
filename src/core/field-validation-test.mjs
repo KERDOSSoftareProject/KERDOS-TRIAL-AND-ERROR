@@ -47,6 +47,17 @@ assert.equal(unreadableText.rows[0].fieldValidation.fields.price.status,'invalid
 assert.equal(unreadableText.rows[0].fieldValidation.priceStatus,'missing-or-unreadable');
 assert.equal(unreadableText.rows[0].priceUnavailable,true);
 assert.equal(unreadableText.rows[0].requiresReview,true);
+const amountOnly=parseDocument('Description,Amount\nMilk,bad');
+assert.equal(amountOnly.rows.length,1,'an unreadable amount-only row remains source evidence');
+assert.equal(amountOnly.rows[0].fieldValidation.fields.amount.status,'invalid');
+assert.equal(amountOnly.rows[0].fieldValidation.priceStatus,'missing-or-unreadable');
+assert.equal(amountOnly.rows[0].priceUnavailable,true);
+assert.equal(amountOnly.rows[0].requiresReview,true);
+assert.equal(amountOnly.rows[0].issues.find(issue=>issue.kind==='missing-price')?.field,'amount');
+const blankAmount=parseDocument('Description,Amount\nMilk,');
+assert.equal(blankAmount.rows.length,1,'a blank assigned amount remains reviewable');
+assert.equal(blankAmount.rows[0].fieldValidation.fields.amount.status,'missing');
+assert.equal(validateAssignedFields(identifyRowFields({cells:['Milk','Amount'],columnMap:{description:0,amount:1}}),{}).retain,false,'an amount header is not an item');
 const priceCases=[
  ['plain decimal','20.00',20,'present'],
  ['currency symbol','$20.00',20,'present'],
