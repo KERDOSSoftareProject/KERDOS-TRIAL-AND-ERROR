@@ -107,6 +107,16 @@ assert.equal(invalidRow.fieldValidation.fields.amount.status,'invalid');
 assert.equal(invalidRow.price,20,'the stated price is retained even when neighboring numeric fields are unreadable');
 assert.ok(invalidRow.issues.some(issue=>issue.field==='qty'),'an invalid assigned quantity is visible in review');
 assert.ok(invalidRow.issues.some(issue=>issue.field==='amount'),'an invalid assigned total is visible in review');
+for(const heading of ['Description,Qty,Amount\nMilk,2,40.00','Description,Qty,Unit Price,Amount\nMilk,2,,40.00']){
+ const invoice=parseDocument(`Invoice Date: 2026-11-03\nInvoice # 123\n${heading}`).rows[0];
+ assert.equal(invoice.amount,40,'the invoice keeps its stated extended amount');
+ assert.equal(invoice.price,null,'the extended amount is never copied to the unit-price field');
+ assert.equal(invoice.fieldValidation.fields.price.status,'missing');
+ assert.equal(invoice.requiresReview,true);
+ assert.ok(invoice.issues.some(issue=>String(issue).includes('unit price is missing')));
+ const prepared=prepareAutomaticInvoice({text:'Invoice Date: 2026-11-03',rows:[invoice],organizationId:'org',vendorId:'vendor'});
+ assert.match(prepared.reason,/unit price is missing/,'automatic import holds the uncertain invoice');
+}
 const heldInvoice=prepareAutomaticInvoice({text:'Invoice Date: 2026-11-03',rows:[invalidRow],organizationId:'org',vendorId:'vendor'});
 assert.match(heldInvoice.reason,/not a quantity/);
 assert.doesNotMatch(heldInvoice.reason,/\[object Object\]/,'automatic review explains the source issue');

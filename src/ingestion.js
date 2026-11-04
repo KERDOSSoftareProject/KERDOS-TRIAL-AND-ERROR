@@ -685,6 +685,16 @@ function reviewUncertainRows(rows,documentKind){
   return rows.map(row=>{
     const issues=[...(row.issues||[])];
     if(documentKind==="invoice"){
+      // An extended amount is not a stated unit price. Keep the amount and
+      // original row, but do not manufacture a billed unit price from it.
+      if(row.fieldIdentification?.bindings?.amount&&
+         parseMoneyLenient(row.fieldIdentification.bindings.price?.rawValue)===null&&row.amount!=null){
+        issues.push("Invoice unit price is missing; the extended amount cannot be used as a unit price");
+        row={...row,price:null,requiresReview:true,fieldValidation:row.fieldValidation?{
+          ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
+            price:{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
+        }:row.fieldValidation};
+      }
       // An invoice line must be fully understood before it can touch a
       // quote; unlabeled cells on it still need a person.
       if(row.details?.length)issues.push(`Unlabeled invoice details need identification: ${row.details.join(" | ").slice(0,100)}`);
