@@ -31,6 +31,8 @@ export function assessBoundFields(identification){
   // Preserve the existing cell warning contract for the import preview.
   if(checked&&!result.ok)cellIssues[role]=result.reason;
  }
+ // An unmapped description is missing evidence, not an empty source cell.
+ if(!bindings.description)fields.description={status:'missing',columnIndex:null,evidence:'missing',accuracy:0};
  return {fields,cellIssues};
 }
 

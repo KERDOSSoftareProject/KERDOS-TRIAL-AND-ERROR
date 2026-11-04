@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {identifyRowFields} from './field-identification.js';
-import {assessBoundFields,validateAssignedFields} from './field-validation.js';
+import {assessBoundFields,validateAssignedFields,withRowValidation} from './field-validation.js';
 import {parseDocument} from '../ingestion.js';
 import {prepareAutomaticInvoice} from './automatic-invoice.js';
 
@@ -18,6 +18,9 @@ assert.equal(quality.fields.description.status,'missing');
 assert.equal(quality.fields.price.status,'missing');
 assert.equal(quality.fields.price.accuracy,0);
 assert.equal(JSON.stringify(fields),before,'quality assessment leaves all bindings unchanged');
+const noDescriptionColumn=identifyRowFields({cells:['Vendor Brand','20.00'],columnMap:{brand:0,price:1}});
+assert.deepEqual(assessBoundFields(noDescriptionColumn).fields.description,{status:'missing',columnIndex:null,evidence:'missing',accuracy:0});
+assert.equal(noDescriptionColumn.values.brand,'Vendor Brand','validation never reassigns the brand as a description');
 
 const conflicting=identifyRowFields({cells:['Milk','20.00'],columnMap:{description:0,price:1,packSize:1}});
 assert.equal(assessBoundFields(conflicting).fields.price.status,'conflict','two roles on one source cell stay unresolved');
@@ -72,4 +75,16 @@ assert.equal(units.fieldValidation.quotedUnit,'conflict');
 assert.equal(units.fieldValidation.fields.sellingUnit.status,'conflict');
 assert.equal(units.sellingUnit,'CASE','the assigned unit remains available for review');
 assert.equal(units.priceNeedsReview,true);
+const repeated=parseDocument('Description,Price\nMilk,20.00\nPrice,Description\n21.00,Eggs');
+assert.equal(repeated.rows[1].fieldIdentification.bindings.description.evidence,'stated-header');
+assert.equal(repeated.rows[1].fieldValidation.fields.description.accuracy,100);
+assert.equal(repeated.rows[1].fieldIdentification.bindings.description.columnIndex,1);
+const boundaryInput={description:'Milk',price:20,packSize:'12/1 QT',fieldValidation:{fields:{price:{status:'present',accuracy:100}}},
+  cellConflicts:[{field:'price',note:'Source amounts disagree'}]};
+const boundaryBefore=JSON.stringify(boundaryInput);
+const boundaryResult=withRowValidation(boundaryInput);
+assert.equal(JSON.stringify(boundaryInput),boundaryBefore,'validation leaves its input and source evidence unchanged');
+assert.deepEqual([boundaryResult.description,boundaryResult.price,boundaryResult.packSize],['Milk',20,'12/1 QT']);
+assert.equal(boundaryResult.fieldValidation.fields.price.accuracy,null);
+assert.equal(boundaryResult.catalogItemId,undefined,'validation does not decide a product group');
 console.log('PASS B5: validation reports quality without changing assigned cells or dropping reviewable rows.');
