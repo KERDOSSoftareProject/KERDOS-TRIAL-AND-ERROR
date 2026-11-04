@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {parseDocument} from '../ingestion.js';
+import {sourceFieldCompletion,trialSourceValue} from './source-field-completion.js';
+const source=text=>{const parsed=parseDocument(text);return sourceFieldCompletion(parsed.rows[0],parsed);};
+const stated=source('Description,Brand,Pack,Price,Product UOM\nAmerican Cheese,Example Brand,4/5 LB,65.64,CS');
+assert.equal(stated.brand.value,'Example Brand');assert.equal(stated.pack_size.value,'4/5 LB');assert.equal(stated.selling_unit.value,'CASE');
+const ordering=source('Item#,Pack & Size:,Type:,Brand:,Description:,Sell\n1,4/5 LB,CSE,,American Cheese,65.64');
+assert.equal(ordering.brand.status,'not-stated');assert.equal(ordering.selling_unit.value,null,'an order type cannot establish a price unit');
+const weight=source('Product Price\nCHEESE AMERICAN SLICED (USA) 5 lb. 16.75');
+assert.equal(weight.brand.status,'not-stated');assert.equal(weight.pack_size.value,'5 lb');assert.equal(weight.selling_unit.value,null);
+assert.equal(sourceFieldCompletion({description:'5X6 TOMATOES',packSize:'5X6 TOMATOES'}).pack_size.value,null,'a product name is not a pack');
+assert.equal(sourceFieldCompletion({description:'American Cheese',details:['Unidentified text']}).brand.status,'unresolved','unidentified details must not become No brand');
+const row={brand:'Legacy brand',selling_unit:'LB',import_row:{baseFieldCompletion:{fields:{brand:{value:null},selling_unit:{value:null}}}}};
+assert.equal(trialSourceValue(row,'selling_unit'),'','an older inferred unit does not leak into the source trial');
+assert.equal(trialSourceValue(row,'brand',{visible:true}),'Legacy brand');
+assert.equal(trialSourceValue({...row,brand:'Client brand',field_resolutions:{brand:{value:'Client brand'}}},'brand'),'Client brand');
+console.log('PASS source field completion: stated brand/pack/price units, absent brand, ordering-unit separation, literal weight, invalid packs, unresolved details and client overrides.');
