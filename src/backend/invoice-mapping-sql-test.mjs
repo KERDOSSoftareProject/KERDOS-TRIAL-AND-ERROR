@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {fileURLToPath} from "node:url";
 import {PGlite} from "@electric-sql/pglite";
+import {parseDocument} from "../ingestion.js";
 
 const db=new PGlite();
 const org="00000000-0000-0000-0000-000000000001",user="00000000-0000-0000-0000-000000000002";
@@ -42,6 +43,31 @@ assert.equal(saved.source_line,evidence.source_line);assert.deepEqual(saved.bill
 assert.equal(Number((await db.query("select price from vendor_items where id=$1",[listing])).rows[0].price),3.83,"invoice evidence cannot overwrite accepted vendor quote");
 const legacy=(await db.query("select quantity,selling_unit,billing_unit_evidence from invoice_lines where quantity is null limit 1")).rows[0];
 assert.deepEqual(legacy,{quantity:null,selling_unit:null,billing_unit_evidence:null},"absent evidence stays absent, never inferred from arithmetic");
+const amountOnlySource='Invoice Date: 2026-11-03\nInvoice # AMOUNT-ONLY\nDescription,Qty,Amount\nBacon,2,40.00';
+const amountOnlyRow=parseDocument(amountOnlySource).rows[0];
+assert.equal(amountOnlyRow.price,null);
+assert.equal(amountOnlyRow.amount,40);
+assert.equal(amountOnlyRow.requiresReview,true);
+const amountOnlyInvoice=(await db.query('select kerdos_record_invoice($1,$2) as id',[
+ JSON.stringify({...header,raw_text:amountOnlySource,invoice_date:'2026-11-03',invoice_number:'AMOUNT-ONLY',total_amount:40}),
+ JSON.stringify([{vendor_item_id:listing,description:amountOnlyRow.description,quantity:amountOnlyRow.qty,
+   unit_price:amountOnlyRow.price,line_total:amountOnlyRow.amount,source_line:amountOnlyRow.sourceLine}]),
+])).rows[0].id;
+const amountOnlySaved=(await db.query('select unit_price,line_total,quantity,source_line from invoice_lines where invoice_id=$1',[amountOnlyInvoice])).rows[0];
+assert.equal(amountOnlySaved.unit_price,null,'the database never receives an invented invoice unit price');
+assert.equal(Number(amountOnlySaved.line_total),40);
+assert.equal(Number(amountOnlySaved.quantity),2);
+assert.equal(amountOnlySaved.source_line,amountOnlyRow.sourceLine);
+assert.equal(Number((await db.query('select price from vendor_items where id=$1',[listing])).rows[0].price),3.83,'an uncertain invoice cannot alter the vendor quote');
+const newUnpriced=(await db.query('select kerdos_record_invoice($1,$2) as id',[
+ JSON.stringify({...header,raw_text:amountOnlySource,invoice_date:'2026-11-03',invoice_number:'NEW-UNPRICED',total_amount:40}),
+ JSON.stringify([{description:'New invoice product',vendor_item_code:'UNPRICED-1',create_vendor_item:true,
+   quantity:2,unit_price:null,line_total:40,source_line:amountOnlyRow.sourceLine}]),
+])).rows[0].id;
+const unpricedSaved=(await db.query('select vi.price,vi.price_source,il.unit_price,il.line_total from invoice_lines il join vendor_items vi on vi.id=il.vendor_item_id where il.invoice_id=$1',[newUnpriced])).rows[0];
+assert.equal(unpricedSaved.price,null,'new invoice listing has no fabricated vendor price');
+assert.equal(unpricedSaved.unit_price,null);
+assert.equal(Number(unpricedSaved.line_total),40);
 const billed={...evidence,source_line:'Bacon\t10\t3.83\t38.30',quantity_source:{kind:'quantity-column',header:'Billed Quantity',rawValue:'10',columnIndex:1,headerLine:'Description\tBilled Quantity\tPrice\tAmount'}};
 const billedInvoice=(await db.query('select kerdos_record_invoice($1,$2) as id',[JSON.stringify({...header,invoice_number:'BILLED'}),JSON.stringify([billed])])).rows[0].id;
 const billedSaved=(await db.query('select quantity_source,billed_quantity_evidence from invoice_lines where invoice_id=$1',[billedInvoice])).rows[0];assert.deepEqual(billedSaved.quantity_source,billed.quantity_source);assert.equal(billedSaved.billed_quantity_evidence.quantity,10);
