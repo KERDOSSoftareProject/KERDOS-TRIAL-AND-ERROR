@@ -1,7 +1,7 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from './AssociateAlternatives.jsx';
 import {clientProductName} from '../core/client-product-name.js';
-import {trialSourceValue} from '../core/source-field-completion.js';
+import {trialSourceValue,sourceTrialUnitCost} from '../core/source-field-completion.js';
 import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
@@ -82,7 +82,8 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const displayed=key=>baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
-  const trialCost=baseFieldsOnly&&autoSave?calculatedUnitCost({...current,pack_size:displayed('pack_size'),selling_unit:displayed('selling_unit'),field_resolutions:{...current.field_resolutions,unit_cost_override:null}},{industry}):null;
+  const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):current.pack_size;
+  const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost(current,{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(displayed("pack_size"));
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
@@ -164,10 +165,10 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
         </>;
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
-          <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(current.pack_size).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(current.pack_size,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
+          <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
-            {current.unit_cost_unit&&!comparisonUnits(current.pack_size).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}
-            {comparisonUnits(current.pack_size).map(unit=><option key={unit} value={unit}>{unitLabel(unit)}</option>)}
+            {current.unit_cost_unit&&!comparisonUnits(calculationPack).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}
+            {comparisonUnits(calculationPack).map(unit=><option key={unit} value={unit}>{unitLabel(unit)}</option>)}
           </select>
           {!baseFieldsOnly&&f.unit&&<small style={{display:"block"}}>per {unitLabel(f.unit).toLowerCase()}{dirty?" · preview":""}</small>}
         </>;
