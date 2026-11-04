@@ -38,7 +38,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   const [numberDraft,setNumberDraft]=useState(recovery?.numberDraft??null);
   const [base,setBase]=useState(recovery?.revision!=null?{...vendorItem,row_revision:recovery.revision}:null);
   const [busy,setBusy]=useState(false);
-  const [error,setError]=useState(recovery?.revision!=null&&recovery.revision!==(vendorItem.row_revision||0)?"This listing changed. Review your recovered edits before retrying.":"");
+  const [error,setError]=useState(recovery?.revision!=null&&recovery.revision!==(vendorItem.row_revision||0)&&(Object.keys(recovery.draft||{}).length||recovery.nameDraft!=null||recovery.numberDraft!=null||recovery.overrideCost)?"This listing changed. Review your recovered edits before retrying.":"");
   const [saved,setSaved]=useState(false);
   const [overrideOpen,setOverrideOpen]=useState(false);
   const [overrideCost,setOverrideCost]=useState(recovery?.overrideCost||"");
@@ -73,6 +73,9 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   const packUnits=unitChoices(vocabulary,true,industry);
   const nameDirty=nameDraft!=null&&nameDraft.trim()!==(item.name||"");
   const dirty=Object.keys(draft).some(key=>autoSave||!baseFieldsOnly||BASE_EDIT_FIELDS.has(key))||nameDirty||linkDirty;
+  useEffect(()=>{
+    if(autoSave&&!busy&&!dirty&&base&&(vendorItem.row_revision||0)>(base.row_revision||0)){setBase(null);setSaved(false);}
+  },[autoSave,busy,dirty,base,vendorItem.row_revision]);
   function edit(key,value){setTrialVisible(prior=>({...prior,[key]:true}));setBase(b=>b||vendorItem);setDraft(d=>({...d,[key]:value}));setSaved(false);setError("");}
   const parsedPack=parsePackSize(current.pack_size);
   const currentBasis=priceBasisFor(current.selling_unit);
