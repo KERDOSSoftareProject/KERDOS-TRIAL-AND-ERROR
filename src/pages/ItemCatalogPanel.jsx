@@ -468,7 +468,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
             <p style={{fontSize:12,color:"rgba(255,255,255,0.85)",margin:"0 0 10px"}}>Check where each vendor product belongs. Moving a vendor price here changes only that vendor product.</p>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
               {gapCounts.map(g=>(
-                <button key={g.code} onClick={()=>setGapFilter(gapFilter===g.code?"":g.code)} title={g.code==="single-vendor-ready"?"Placed automatically once its fields are complete":undefined}
+                <button key={g.code} onClick={()=>setGapFilter(gapFilter===g.code?"":g.code)} title={g.code==="single-vendor-ready"?"Placed once its fields are complete":undefined}
                   style={{...btn(gapFilter===g.code?"white":"rgba(255,255,255,0.15)",gapFilter===g.code?"#B26A00":"white",{fontSize:11,padding:"6px 10px",fontWeight:800,border:"1px solid rgba(255,255,255,0.4)"})}}>
                   {g.label} · {g.count}
                 </button>
@@ -481,7 +481,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                 {m.oneVendor&&<div style={{fontSize:11,color:"#9C5A00",fontWeight:800,marginBottom:4}}>Found on one vendor list · places itself once its fields are complete</div>}
                 <div style={{fontWeight:700,fontSize:13}}>{m.vendorDescription}</div>
                 <div style={{fontSize:11,color:"#555",marginTop:3}}>Pack: <b>{m.packSize||"Not provided"}</b>{m.brand?` · Brand: ${m.brand}`:""}</div>
-                <div style={{fontSize:12,color:"#555",marginTop:5,marginBottom:8}}>Currently under <b>{m.catalogName}</b> <span style={{color:"#B26A00"}}>· {m.confidence>0?`${m.confidence}% wording similarity; verify details`:"Awaiting verification"}</span></div>
+                <div style={{fontSize:12,color:"#555",marginTop:5,marginBottom:8}}>Currently under <b>{m.catalogName}</b> <span style={{color:"#B26A00"}}>· {m.confidence>0?"Verify item placement":"Awaiting verification"}</span></div>
                 {m.matchMethod==="rejected"&&<div style={{display:"inline-flex",alignItems:"center",gap:5,background:"#FFF3E0",border:"1px solid #FFCC80",borderRadius:5,padding:"3px 9px",fontSize:11,color:"#8D4600",fontWeight:700,marginBottom:8}}>Rejected match — kept separate</div>}
                 <div style={{fontSize:11,color:"#B26A00",marginBottom:8}}><b>{m.gap.label}.</b> {m.packSize?m.gap.detail||m.reason:"Enter the pack shown on the original vendor document."} Similar wording is not proof of the same product.</div>
                 {!m.packSize&&<div style={{marginBottom:8}}>{packEditFor===m.mappingId?(
@@ -491,7 +491,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                 ):<button onClick={()=>{setPackEditFor(m.mappingId);setPackValue("");}} style={{...btn("#003584","white",{fontSize:11})}}>Enter pack size</button>}</div>}
                 {m.suggestion&&(
                   <div style={{fontSize:11,color:"#555",marginBottom:8}}>
-                    Another possible item: <b>{m.suggestion.name}</b> <span style={{color:"#999"}}>({m.suggestion.score}% suggested match)</span>
+                    Another possible item: <b>{m.suggestion.name}</b> <span style={{color:"#999"}}>(suggested item)</span>
                   </div>
                 )}
                 {remapOpenFor===m.mappingId?(
@@ -565,7 +565,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         <div style={{background:"#E8F5E9",border:"2px solid #2E7D32",borderRadius:10,padding:14,marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1B5E20",marginBottom:4}}>Teach the catalog so this doesn't happen again</div>
           <div style={{fontSize:12,color:"#33691E",marginBottom:8}}>
-            Add any of these words to <b>{teach.categoryName}</b> and items like these will classify automatically from now on, on every future import.
+            Add any of these words to <b>{teach.categoryName}</b> to classify similar items on future imports.
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
             {teach.words.map(({word,count})=>{
@@ -741,7 +741,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       </div>}
                       <details style={{gridColumn:"1 / -1",fontSize:11,color:"#49617C"}}><summary style={{cursor:"pointer",fontWeight:700}}>Mapping details</summary>
                         <div style={{marginTop:6,padding:"7px 9px",background:"#F4F8FE",borderRadius:6}}>
-                          {o.unverified?"Not mapped":"Mapped"} · {o.unverified?o.matchConfidence!=null?`${o.matchConfidence}% wording similarity; verification still needed`:"Verification still needed":"100% verified"} · {o.matchMethod==="manual"?"Association selected by client":o.matchMethod==="rule_based"?"Association selected by KERDOS engine":"Association source unavailable"}
+                          {o.unverified?"Not mapped":"Mapped"} · {o.unverified?"Verification still needed":"Verified"} · {o.matchMethod==="manual"?"Association selected by client":o.matchMethod==="rule_based"?"Association selected by KERDOS engine":"Association source unavailable"}
                         </div>
                           {o.cellUnresolved?.length>0&&<div style={{marginTop:6,background:"#FFF8E1",borderRadius:4,padding:"5px 7px"}}>
                             <b style={{color:"#7A5000"}}>Unresolved fields:</b>

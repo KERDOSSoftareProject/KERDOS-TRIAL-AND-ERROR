@@ -30,8 +30,8 @@ export function AssociateAlternatives({orgId,selectedVendorIds,vendorItems,catal
  {selectedVendorIds.length>0&&<button onClick={onClear} style={{fontSize:12}}>Clear selection</button>}
  {showSuggestionTools&&<button onClick={()=>setShowSuggestions(!showSuggestions)} style={{fontSize:12,margin:6}}>{showSuggestions?"Hide":"Review"} suggested associations ({suggestions.length})</button>}
  {showSuggestionTools&&showSuggestions&&<div style={{padding:10,border:"1px solid #ddd",borderRadius:6}}>
- <p>Clear matches group automatically across brands. These suggestions need your review. Brand restrictions and missing pricing details still apply.</p>
- {automaticIds.map(id=><div key={id} style={{margin:6}}>Automatically grouped: #{catalogItems.find(i=>i.id===id)?.master_item_number} {catalogItems.find(i=>i.id===id)?.name} <button disabled={busy} onClick={()=>separate(id)}>Separate group</button></div>)}
+ <p>Clear matches group across brands. These suggestions need your review. Brand restrictions and missing pricing details still apply.</p>
+ {automaticIds.map(id=><div key={id} style={{margin:6}}>Grouped: #{catalogItems.find(i=>i.id===id)?.master_item_number} {catalogItems.find(i=>i.id===id)?.name} <button disabled={busy} onClick={()=>separate(id)}>Separate group</button></div>)}
  {suggestions.map((g,index)=><div key={index} style={{borderTop:"1px solid #ddd",padding:8}}>{g.rows.map(v=><div key={v.id}>{vendors.find(x=>x.id===v.vendor_id)?.name} · {v.description} · {v.brand||"Brand not stated"} · {v.pack_size||"Pack missing"}</div>)}<div style={{fontSize:12}}>{g.reason}</div><div style={{display:"flex",gap:6,marginTop:6}}>
       <button disabled={busy} onClick={()=>review(g.rows.map(v=>v.id))} style={{...btn("#E8F1FB","#003584",{fontSize:11})}}>Review and approve</button>
       <button disabled={busy} style={{...btn("#003584","white",{fontSize:11})}} onClick={async()=>{

@@ -14,7 +14,9 @@ try{
   const props={orgId:"org",items:[{catalogItemId:"ci"}],catalogItems:[item],vendorItems:[row],mappings:[{id:"m",vendor_item_id:"vi",catalog_item_id:"ci",comparison_track:"review",confidence_score:70}],vendors:[{id:"v",name:"Supplier"}],categories:[{id:"meat",name:"Meat",keywords:["beef"]}],vocabulary:[],canManage:true};
   const html=renderToStaticMarkup(createElement(CatalogRows,props));
   assert.doesNotMatch(html,/vendor rows meet Order Guide requirements/,"aggregate readiness no longer occupies the catalog header");
-  assert.match(html,/90%/);assert.ok(!/>100%</.test(html),"stated fields are not displayed as independently proven");
+  assert.doesNotMatch(html,/>\d+(?:\.\d+)?%</,"confidence percentages are not displayed");assert.doesNotMatch(html,/>\s*(?:Manual|Automated|Automatic)\s*</,"origin badges are not displayed");
+  const legacyHtml=renderToStaticMarkup(createElement(CatalogRows,{...props,industry:"restaurant",categories:[{id:"meat",name:"Dairy",keywords:[]}]}));
+  assert.match(legacyHtml,/>Dairy<\/option>/,"saved category remains selectable by its name");assert.doesNotMatch(legacyHtml,/legacy — reclassify/);
   const missing=renderToStaticMarkup(createElement(CatalogRows,{...props,vendorItems:[{...row,selling_unit:null,price_basis:null}]}));
   assert.doesNotMatch(missing,/vendor rows meet Order Guide requirements/);
   assert.match(missing,/Quoted per/);assert.match(missing,/Empty/,"missing fields remain visible in their row");
@@ -58,5 +60,5 @@ try{
   const unknownHtml=renderToStaticMarkup(createElement(CatalogRows,{...props,vendorItems:[{...row,pack_size:"20"}]}));
   assert.match(unknownHtml,/From sheet: 20/);
   assert.ok(!unknownHtml.includes("Count for undefined"),"unknown pack must not acquire an invented count");
-  console.log("Catalog qualification rendering passed: consistent percentages, row counts and specific blockers.");
+  console.log("Catalog qualification rendering passed: plain category names, no confidence/origin badges, retained controls and specific blockers.");
 }finally{rmSync(temporary,{recursive:true,force:true});}
