@@ -111,6 +111,16 @@ await check('source document note survives structuring and replay is determinist
   const first=parseStructuredDocument(r.text,r),again=parseStructuredDocument(r.text,r);
   assert.deepEqual(first,again);assert.equal(JSON.stringify(r),before);assert.ok(first.rows.every(row=>row.sellingUnit==='CASE'));
 });
+await check('stale parser index cannot attach a different physical source line',async()=>{
+  const reading=positioned([...headings,...product('12345','Chicken Breast',40,510),...product('12346','Turkey Breast',50,470)]);
+  const parsed=parseStructuredDocument(reading.text,reading,(input,options)=>{
+    const result=parseDocument(input,options);
+    return {...result,rows:result.rows.map(row=>row.description==='Turkey Breast'?{...row,sourceIndex:1}:row)};
+  });
+  const turkey=parsed.rows.find(row=>row.description==='Turkey Breast');
+  assert.ok(turkey);
+  assert.ok(turkey.sourceProvenance.cells.some(cell=>cell.text.includes('Turkey Breast')));
+});
 await check('ambiguous unlabeled integer columns fall back instead of treating item codes as prices',()=>{
   const r=positioned([...product('12345','Chicken Breast',40,510),...product('12346','Turkey Breast',50,470),...product('12347','Beef Tenderloin',60,430)].filter(word=>word.text!=='CASE'));
   const p=parseStructuredDocument('',r);

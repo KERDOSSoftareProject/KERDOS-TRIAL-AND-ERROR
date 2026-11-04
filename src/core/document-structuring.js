@@ -192,8 +192,11 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
     const input=fallback?(segment.text??segment.rows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):segment.rows.map(lineText).join('\n');
     const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})}),available=[...segment.rows];
     const rows=parsed.rows.map(row=>{
-      const at=available.findIndex(source=>lineText(source)===row.sourceLine);
-      const source=Number.isInteger(row.sourceIndex)?segment.rows[row.sourceIndex]:(at>=0?available.splice(at,1)[0]:null);
+      const indexed=Number.isInteger(row.sourceIndex)?segment.rows[row.sourceIndex]:null;
+      const source=indexed&&lineText(indexed)===row.sourceLine
+        ?indexed
+        :available.find(candidate=>lineText(candidate)===row.sourceLine)||null;
+      if(source)available.splice(available.indexOf(source),1);
       const page=reading.pages?.find(page=>page.number===segment.page);
       const confidence=source?.cells.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
       if(page?.source==='local-ocr'&&typeof page.ocr?.confidence==='number')confidence.push(page.ocr.confidence);
