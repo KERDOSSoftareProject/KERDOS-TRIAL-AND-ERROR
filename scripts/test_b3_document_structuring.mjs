@@ -85,6 +85,8 @@ await check('ragged geometry keeps freeform parsing rather than forcing invented
   const p=parseStructuredDocument(text,r);assert.equal(p.structure.segments[0].kind,'freeform');
   assert.deepEqual(p.rows.map(row=>[row.description,row.price]),parseDocument(text).rows.map(row=>[row.description,row.price]));
   assert.ok(p.rows.every(row=>row.sourceProvenance.fallback));
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.lines),[[0],[1]],'fallback rows retain their physical source lines when text matches');
+  assert.ok(p.rows.every(row=>row.sourceProvenance.cells[0].words.length===1),'fallback source words remain attached to the row');
 });
 await check('OCR boxes convert scale/direction correctly and retain their original coordinates',()=>{
   const words=[...headings,...product('12345','Chicken Breast',40,510)].map(word=>({text:word.text,bbox:{x0:word.transform[4]*2,y0:(600-word.transform[5]-12)*2,x1:(word.transform[4]+word.width)*2,y1:(600-word.transform[5])*2},confidence:95}));

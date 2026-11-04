@@ -90,6 +90,7 @@ function alignDescriptionPrices(table){
 }
 function pdfSegments(reading){
   const segments=[],skipped=[];
+  const sourceLine=line=>({cells:[{text:line.words.map(word=>word.text).join(' '),words:line.words}],lines:[line.index]});
   for(const page of reading.pages){
     const words=pageWords(page),lines=groupLines(words);let active=[],afterItems=false;
     const finish=()=>{for(const table of active)if(table.rows.length>1)segments.push(alignDescriptionPrices(table));active=[];};
@@ -125,7 +126,7 @@ function pdfSegments(reading){
       const used=new Set(pageTables.flatMap(table=>table.rows.flatMap(row=>row.lines)));
       const excluded=new Set(skipped.filter(line=>line.page===page.number&&/non-product/.test(line.reason)).map(line=>line.lineNumber));
       const outside=lines.filter(line=>!used.has(line.index)&&!excluded.has(line.index)&&!furniture(line.words.map(word=>word.text).join(' ')));
-      if(outside.length)segments.push({kind:'freeform',page:page.number,text:outside.map(line=>line.words.map(word=>word.text).join(' ')).join('\n'),rows:[],reason:'Content outside positioned tables remains available to fallback'});
+      if(outside.length)segments.push({kind:'freeform',page:page.number,text:outside.map(line=>line.words.map(word=>word.text).join(' ')).join('\n'),rows:outside.map(sourceLine),reason:'Content outside positioned tables remains available to fallback'});
     }
     if(!pageTables.length){
       // Alignment can establish structure without inventing field labels. Three
@@ -134,7 +135,7 @@ function pdfSegments(reading){
       const count=candidates[0]?.cells.length;
       const aligned=candidates.length>=3&&count>=2&&candidates.every(row=>row.cells.length===count&&row.cells.every((cell,index)=>Math.abs(cell.x-candidates[0].cells[index].x)<=height));
       if(aligned)segments.push({kind:'positioned-unlabelled',page:page.number,rows:candidates.map(line=>({cells:line.cells,lines:[line.index]}))});
-      else segments.push({kind:'freeform',page:page.number,text:page.text,rows:[],reason:'Geometry does not establish reliable columns'});
+      else segments.push({kind:'freeform',page:page.number,text:page.text,rows:lines.map(sourceLine),reason:'Geometry does not establish reliable columns'});
     }
   }
   return {segments,skipped};
