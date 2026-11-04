@@ -38,10 +38,10 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   const [numberDraft,setNumberDraft]=useState(recovery?.numberDraft??null);
   const [base,setBase]=useState(recovery?.revision!=null?{...vendorItem,row_revision:recovery.revision}:null);
   const [busy,setBusy]=useState(false);
-  const [error,setError]=useState(recovery?.revision!=null&&recovery.revision!==(vendorItem.row_revision||0)&&(Object.keys(recovery.draft||{}).length||recovery.nameDraft!=null||recovery.numberDraft!=null||recovery.overrideCost)?"This listing changed. Review your recovered edits before retrying.":"");
+  const [error,setError]=useState(recovery?.revision!=null&&recovery.revision!==(vendorItem.row_revision||0)&&(Object.keys(recovery.draft||{}).length||recovery.nameDraft!=null||recovery.numberDraft!=null)?"This listing changed. Review your recovered edits before retrying.":"");
   const [saved,setSaved]=useState(false);
   const [overrideOpen,setOverrideOpen]=useState(false);
-  const [overrideCost,setOverrideCost]=useState(recovery?.overrideCost||"");
+  const [overrideCost,setOverrideCost]=useState(autoSave?"":recovery?.overrideCost||"");
   const [overrideUnit,setOverrideUnit]=useState("LB");
   const [overridePackPrice,setOverridePackPrice]=useState("");
   const [details,setDetails]=useState(false);
@@ -54,7 +54,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   for(const key of Object.keys(draft))if(key!=="item_name")resolutions[key]={value:draft[key],
     sourceValue:resolutions[key]?.sourceValue??original.import_row?.row?.[sourceKeys[key]||key]??original[key]};
   const current={...original,...draft,field_resolutions:resolutions};
-  if(["price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key))){
+  if(["price","pack_size","selling_unit","unit_cost_unit"].some(key=>Object.hasOwn(draft,key))){
     delete current.field_resolutions.unit_cost_override;
     const basis=priceBasisFor(current.selling_unit);
     current.price_basis=basis?.basis||null;
@@ -82,14 +82,6 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const displayed=key=>baseFieldsOnly&&autoSave&&!trialVisible[key]?"":current[key]??"";
   const shownPack=packParts||editablePack(displayed("pack_size"));
-  const overrideMetric=baseFieldsOnly?trialVisible.unit_cost_unit?current.unit_cost_unit:null:current.unit_cost_unit||defaultComparisonUnit(current.pack_size,industry);
-  const overrideBasis=priceBasisFor(displayed("selling_unit"));
-  const overrideCasePrice=casePriceFromQuote(current.price,overrideBasis?.basis,overrideBasis?.unit||displayed("selling_unit"),displayed("pack_size"));
-  useEffect(()=>{
-    if(!autoSave||!canManage||!(Number(overrideCost)>0)||!overrideMetric||!(overrideCasePrice>0)||busy)return;
-    const value={price:Number(overrideCost),unit:overrideMetric,packPrice:overrideCasePrice};
-    if(JSON.stringify(draft.unit_cost_override)!==JSON.stringify(value))edit("unit_cost_override",value);
-  },[autoSave,canManage,overrideCost,overrideMetric,overrideCasePrice,busy]);
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
     if(key==="type"&&value==="each")parts.count=1;
@@ -108,7 +100,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
       if(linkDirty&&(nameDirty||Object.hasOwn(draft,"category_id")))throw new Error(autoSave?"Finish the item name/category edits before changing its association.":"Apply the item name/category edits before changing its association.");
       const basePatch={...Object.fromEntries(Object.entries(draft).filter(([key])=>BASE_EDIT_FIELDS.has(key))),...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})};
       if(baseFieldsOnly&&!autoSave&&!Object.keys(basePatch).length)return;
-      const patch=autoSave?{...draft,...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})}:baseFieldsOnly?basePatch:{description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
+      const patch=autoSave?{...draft,...(original.field_resolutions?.unit_cost_override&&["price","pack_size","selling_unit","unit_cost_unit"].some(key=>Object.hasOwn(draft,key))?{unit_cost_override:null}:{}),...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})}:baseFieldsOnly?basePatch:{description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
         unit_cost_override:override||current.field_resolutions?.unit_cost_override?.value||null,
         ...(!linkDirty?{category_id:categoryId,item_name:nameDraft?.trim()||item.name}:{}),...(nameDirty?{item_name:nameDraft.trim()}:{ }),...(linkDirty?{catalog_item_id:destination.id}:{})};
       const receipt=await service.save({organizationId:orgId,vendorItem:base||vendorItem,mapping,patch});
@@ -169,8 +161,8 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
           {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
         </>;
         else content=<>
-          {autoSave?<><input aria-label={`Unit cost for ${vendorItem.vendor_item_code}`} style={inputStyle} type="number" min="0" step="any" disabled={!canManage||busy} value={overrideCost||(baseFieldsOnly&&!trialVisible.unit_cost_override?"":f.value??"")} onChange={e=>{setOverrideCost(e.target.value);setSaved(false);setError("");}}/>{overrideCost&&(!overrideMetric||!(overrideCasePrice>0))&&<small>Complete the pack and quoted unit and choose a measurement to save this unit cost.</small>}</>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
-          <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(current.pack_size).length} value={baseFieldsOnly&&autoSave&&!trialVisible.unit_cost_unit?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(current.pack_size,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
+          {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
+          <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(current.pack_size).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(current.pack_size,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
             {current.unit_cost_unit&&!comparisonUnits(current.pack_size).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}
             {comparisonUnits(current.pack_size).map(unit=><option key={unit} value={unit}>{unitLabel(unit)}</option>)}
