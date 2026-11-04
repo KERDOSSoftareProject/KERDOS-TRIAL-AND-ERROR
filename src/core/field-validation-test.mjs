@@ -58,6 +58,10 @@ const blankAmount=parseDocument('Description,Amount\nMilk,');
 assert.equal(blankAmount.rows.length,1,'a blank assigned amount remains reviewable');
 assert.equal(blankAmount.rows[0].fieldValidation.fields.amount.status,'missing');
 assert.equal(validateAssignedFields(identifyRowFields({cells:['Milk','Amount'],columnMap:{description:0,amount:1}}),{}).retain,false,'an amount header is not an item');
+const mixedCells=identifyRowFields({cells:['Milk','bad','Amount'],columnMap:{description:0,price:1,amount:2}});
+const mixedResult=validateAssignedFields(mixedCells,{price:null,amount:null});
+assert.equal(mixedResult.retain,true,'one leaked column label does not erase another unreadable assigned cell');
+assert.equal(mixedResult.issues.find(issue=>issue.kind==='missing-price')?.field,'price');
 const priceCases=[
  ['plain decimal','20.00',20,'present'],
  ['currency symbol','$20.00',20,'present'],

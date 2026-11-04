@@ -47,9 +47,9 @@ export function validateAssignedFields(fields,{price,amount,priceUnavailable=fal
  const columnHeading=/^(?:col(?:umn)?\s*\d+|description|product description|item description)$/i;
  const assigned=['price','amount'].map(role=>({role,raw:fields?.values?.[role],header:String(fields?.bindings?.[role]?.header||'').trim()}))
   .filter(cell=>cell.raw!=null);
- const headerLike=columnHeading.test(anchorText)||assigned.some(({raw,header})=>{
+ const headerLike=columnHeading.test(anchorText)||assigned.some(({raw})=>String(raw).trim())&&assigned.every(({raw,header})=>{
   const text=String(raw).trim();
-  return !!text&&(text.toLowerCase()===header.toLowerCase()||columnHeading.test(text)||/^(?:price|amount|cost|rate|unit price|quoted price|extended price|line total|total)$/i.test(text));
+  return !text||text.toLowerCase()===header.toLowerCase()||columnHeading.test(text)||/^(?:price|amount|cost|rate|unit price|quoted price|extended price|line total|total)$/i.test(text);
  });
  const unreadable=price==null&&amount==null&&!priceUnavailable&&assigned.length>0&&!headerLike;
  const anchorStatus=fields?.anchor?.status||'missing';
