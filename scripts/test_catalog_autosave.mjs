@@ -1,0 +1,47 @@
+import {build} from 'esbuild';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {join} from 'node:path';
+const dir=mkdtempSync(join(process.cwd(),'node_modules/.catalog-autosave-'));
+try{
+ await build({stdin:{contents:String.raw`
+import React from 'react';import Renderer,{act} from 'react-test-renderer';import assert from 'node:assert/strict';
+import {CatalogRows} from './src/pages/CatalogRows.jsx';import {ItemCatalogPanel} from './src/pages/ItemCatalogPanel.jsx';import {configureProcurement} from './src/procurement.js';import {orderGuideAssessment} from './src/core/catalog-fields.js';
+configureProcurement({industry:'restaurant'});
+const cache=new Map();globalThis.window={localStorage:{getItem:k=>cache.get(k)||null,setItem:(k,v)=>cache.set(k,v)}};
+const org='00000000-0000-0000-0000-000000000001',id='00000000-0000-0000-0000-000000000011';
+const item={id,name:'Honey Mustard',master_item_number:50013,category_id:'general',category_reason:'confirmed'};
+const row={id:'vi',organization_id:org,vendor_id:'vendor',vendor_item_code:'000012',description:'HONEY MUSTARD',brand:'Original',pack_size:null,selling_unit:null,price_basis:null,price:2.29,price_unavailable:true,price_source:'price_list',last_updated:'2026-11-04',row_revision:1,field_resolutions:{}};
+const mapping={id:'mapping',organization_id:org,vendor_item_id:row.id,catalog_item_id:id,comparison_track:'exact',confidence_score:100,match_method:'manual'};
+const category={id:'general',name:'General',range_start:50000,range_end:59999,keywords:[]};
+let current=structuredClone(row),fail=false,calls=[],refreshes=0;
+globalThis.__autosaveBackend={records:{query(){throw Error('Unexpected read');}},catalog:{saveRow:async request=>{
+ if(fail)throw Error('Offline: edits not saved');assert.equal(request.expectedRevision,current.row_revision,'each edit uses the latest accepted revision');calls.push(request);
+ for(const [key,value]of Object.entries(request.patch)){current[key]=value;current.field_resolutions[key]={value,confirmedBy:'owner'};}
+ current.price_basis=request.priceBasis;current.price_unavailable=!request.priceAvailable;current.row_revision++;return structuredClone(current);
+}}};
+const props={autoSave:true,userId:'owner',baseFieldsOnly:true,orgId:org,industry:'restaurant',items:[{catalogItemId:id}],catalogItems:[item],vendorItems:[row],mappings:[mapping],vendors:[{id:'vendor',name:'Supplier'}],categories:[category,{id:'dairy',name:'Dairy',range_start:30000,range_end:39999}],vocabulary:[],canManage:true,onUpdated:async()=>{refreshes++;},onDetails:()=>{}};
+let tree;const mount=async more=>{await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,{...props,...more}));});};
+const input=label=>tree.root.findByProps({'aria-label':label});const change=async(label,value)=>{await act(async()=>input(label).props.onChange({target:{value}}));};
+const settle=async()=>{await act(async()=>{await new Promise(r=>setTimeout(r,850));});};
+const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
+await mount();assert.equal(calls.length,0);assert.equal(tree.root.findAllByType('button').filter(b=>/^(Apply|Save)$/.test(text(b))).length,0);assert.ok(!tree.root.findAllByType('th').some(n=>text(n)==='Actions'));
+assert.equal(tree.root.findAll(n=>String(n.props['aria-label']||'').startsWith('Group for')).length,0);assert.ok(!JSON.stringify(tree.toJSON()).includes('Confirmed group'));assert.ok(!JSON.stringify(tree.toJSON()).includes('Provisional group'));
+assert.equal(input('brand for 000012').props.value,'');assert.equal(input('brand for 000012').props.disabled,false);assert.equal(input('Pack for 000012').props.value,'');assert.equal(input('Unit cost for 000012').props.value,'');assert.equal(input('Unit cost for 000012').props.disabled,false);
+assert.ok(input('Category for 000012').findAllByType('option').some(n=>text(n)==='Dairy'),'established client category is available without industry tagging');
+await change('Unit cost for 000012','0.25');await settle();assert.equal(calls.length,0);assert.equal(input('Unit cost for 000012').props.value,'0.25');await change('Unit cost for 000012','');
+await change('brand for 000012','New brand');await change('brand for 000012','Final brand');await settle();assert.equal(calls.length,1);assert.deepEqual(calls[0].patch,{brand:'Final brand'});assert.match(JSON.stringify(tree.toJSON()),/Saved/);
+await change('price for 000012','3.50');await settle();assert.equal(calls.length,2);assert.deepEqual(calls.at(-1).patch,{price:3.5});assert.equal(current.selling_unit,null);assert.equal(current.pack_size,null);assert.equal(current.price_unavailable,true);
+assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
+await change('Pack for 000012','case');await change('Count for 000012','4');await change('Amount in each for 000012','1');await change('Each measurement for 000012','GAL');await settle();assert.ok(calls.at(-1).patch.pack_size);assert.ok(!Object.hasOwn(calls.at(-1).patch,'approve_row'));
+const quoted=input('Quoted per for 000012');await act(async()=>quoted.props.onChange({target:{value:'case'}}));await settle();assert.equal(current.selling_unit,'CASE');assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,true,'completed valid fields become ready without whole-row Apply');assert.ok(refreshes>=4);
+fail=true;await change('price for 000012','4.25');await settle();assert.match(JSON.stringify(tree.toJSON()),/Offline: edits not saved/);assert.equal(Number(input('price for 000012').props.value),4.25);assert.equal(current.price,3.5);
+await act(async()=>tree.unmount());assert.ok([...cache.values()].some(v=>JSON.parse(v).draft.price==='4.25'));
+await mount({vendorItems:[structuredClone(current)]});assert.equal(Number(input('price for 000012').props.value),4.25,'failed edits survive remount for the same user/client/listing');fail=false;await change('price for 000012','4.50');await settle();assert.equal(current.price,4.5);await act(async()=>tree.unmount());
+await mount({userId:'another-user',vendorItems:[structuredClone(current)],canManage:false});assert.equal(Number(input('price for 000012').props.value),4.5);assert.equal(input('brand for 000012').props.disabled,true);const before=calls.length;await settle();assert.equal(calls.length,before);await act(async()=>tree.unmount());
+await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','5.00');await act(async()=>tree.unmount());await settle();assert.equal(current.price,4.5,'unmount cancels a pending delayed write');
+const panel={...props,role:'owner',productList:[{catalogItemId:id,name:item.name,category:'General',options:[]}],vendorItems:[structuredClone(current)]};await act(async()=>{tree=Renderer.create(React.createElement(ItemCatalogPanel,panel));});const button=label=>tree.root.findAllByType('button').find(n=>text(n)===label);await act(async()=>button('Base fields trial').props.onClick());assert.equal(tree.root.findAllByProps({'aria-label':'Item catalog actions'}).length,0,'base trial has no Actions menu');assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Apply').length,0);await act(async()=>tree.unmount());
+console.log('PASS catalog autosave: unchanged columns, editable blank fields, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
+`,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});
+ process.stdout.write(execFileSync(process.execPath,[join(dir,'test.mjs')],{encoding:'utf8',timeout:60000}));
+}finally{rmSync(dir,{recursive:true,force:true});}

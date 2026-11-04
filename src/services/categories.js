@@ -30,8 +30,8 @@ export function holdingPen(categories){
 //     Injected as a disabled option labeled "Unclassified — assign a category"
 //     so the select value renders (instead of going blank) while preventing the
 //     operator from re-choosing the holding pen as the destination; null otherwise.
-export function buildCategoryDropdown({categories,industry,currentCategory}){
-  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));
+export function buildCategoryDropdown({categories,industry,currentCategory,clientCategories=false}){
+  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(clientCategories||!industry||c.industry===industry));
   const legacyCurrent=currentCategory&&!currentCategory.is_holding_pen&&!industryCategories.find(c=>c.id===currentCategory.id)?currentCategory:null;
   const holdingPenCurrent=currentCategory?.is_holding_pen?currentCategory:null;
   return {industryCategories,legacyCurrent,holdingPenCurrent};

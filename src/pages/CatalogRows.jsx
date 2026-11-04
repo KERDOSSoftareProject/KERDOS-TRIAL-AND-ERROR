@@ -1,6 +1,5 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from './AssociateAlternatives.jsx';
-import {productGroupApproved} from '../core/product-associations.js';
 import {clientProductName} from '../core/client-product-name.js';
 import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
@@ -8,7 +7,7 @@ import {editablePack,serializePack} from "../core/pack-editor.js";
 import {QuotedPerControl} from "./QuotedPerControl.jsx";
 import {calculatedUnitCost,comparisonUnits,defaultComparisonUnit} from "../core/quote-controls.js";
 import {buildCategoryDropdown} from "../services/categories.js";
-import {useState,useEffect} from "react";
+import {useState,useEffect,useRef} from "react";
 import {backend} from "../backend/index.js";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {createVariableWeightService} from '../services/variable-weight.js';
@@ -30,20 +29,25 @@ function Evidence({field}){
   if(field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
   return field.by?<small title={field.reason} style={{display:"block",marginTop:4,color:"#003584",fontWeight:800}}>{field.by}</small>:null;
 }
-function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
-  const [draft,setDraft]=useState({});
-  const [nameDraft,setNameDraft]=useState(null);
-  const [numberDraft,setNumberDraft]=useState(null);
-  const [base,setBase]=useState(null);
+function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSelect,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
+  const storageKey=autoSave&&userId?`kerdos-catalog-draft:${orgId}:${userId}:${vendorItem.id}`:null;
+  const [recovery]=useState(()=>{try{return storageKey?JSON.parse(window.localStorage.getItem(storageKey)||'null'):null;}catch{return null;}});
+  const [trialVisible,setTrialVisible]=useState(recovery?.visible||{});
+  const [draft,setDraft]=useState(recovery?.draft||{});
+  const [nameDraft,setNameDraft]=useState(recovery?.nameDraft??null);
+  const [numberDraft,setNumberDraft]=useState(recovery?.numberDraft??null);
+  const [base,setBase]=useState(recovery?.revision!=null?{...vendorItem,row_revision:recovery.revision}:null);
   const [busy,setBusy]=useState(false);
-  const [error,setError]=useState("");
+  const [error,setError]=useState(recovery?.revision!=null&&recovery.revision!==(vendorItem.row_revision||0)?"This listing changed. Review your recovered edits before retrying.":"");
   const [saved,setSaved]=useState(false);
   const [overrideOpen,setOverrideOpen]=useState(false);
-  const [overrideCost,setOverrideCost]=useState("");
+  const [overrideCost,setOverrideCost]=useState(recovery?.overrideCost||"");
   const [overrideUnit,setOverrideUnit]=useState("LB");
   const [overridePackPrice,setOverridePackPrice]=useState("");
   const [details,setDetails]=useState(false);
   const [packParts,setPackParts]=useState(null);
+  const mounted=useRef(true);
+  useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   const original=base||vendorItem;
   const resolutions={...original.field_resolutions};
   const sourceKeys={pack_size:"packSize",selling_unit:"sellingUnit"};
@@ -68,12 +72,21 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
   const assessment=orderGuideAssessment({item:evidenceItem,vendorItem:current,mapping:previewMapping,vendor,category,peers:displayPeers,categories,settings});
   const packUnits=unitChoices(vocabulary,true,industry);
   const nameDirty=nameDraft!=null&&nameDraft.trim()!==(item.name||"");
-  const dirty=Object.keys(draft).some(key=>!baseFieldsOnly||BASE_EDIT_FIELDS.has(key))||nameDirty||linkDirty;
-  function edit(key,value){setBase(b=>b||vendorItem);setDraft(d=>({...d,[key]:value}));setSaved(false);setError("");}
+  const dirty=Object.keys(draft).some(key=>autoSave||!baseFieldsOnly||BASE_EDIT_FIELDS.has(key))||nameDirty||linkDirty;
+  function edit(key,value){setTrialVisible(prior=>({...prior,[key]:true}));setBase(b=>b||vendorItem);setDraft(d=>({...d,[key]:value}));setSaved(false);setError("");}
   const parsedPack=parsePackSize(current.pack_size);
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
-  const shownPack=packParts||editablePack(current.pack_size);
+  const displayed=key=>baseFieldsOnly&&autoSave&&!trialVisible[key]?"":current[key]??"";
+  const shownPack=packParts||editablePack(displayed("pack_size"));
+  const overrideMetric=baseFieldsOnly?trialVisible.unit_cost_unit?current.unit_cost_unit:null:current.unit_cost_unit||defaultComparisonUnit(current.pack_size,industry);
+  const overrideBasis=priceBasisFor(displayed("selling_unit"));
+  const overrideCasePrice=casePriceFromQuote(current.price,overrideBasis?.basis,overrideBasis?.unit||displayed("selling_unit"),displayed("pack_size"));
+  useEffect(()=>{
+    if(!autoSave||!canManage||!(Number(overrideCost)>0)||!overrideMetric||!(overrideCasePrice>0)||busy)return;
+    const value={price:Number(overrideCost),unit:overrideMetric,packPrice:overrideCasePrice};
+    if(JSON.stringify(draft.unit_cost_override)!==JSON.stringify(value))edit("unit_cost_override",value);
+  },[autoSave,canManage,overrideCost,overrideMetric,overrideCasePrice,busy]);
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
     if(key==="type"&&value==="each")parts.count=1;
@@ -81,7 +94,7 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
     edit("pack_size",serializePack(parts));
   }
   async function save(override=null){
-    if(!baseFieldsOnly&&!override&&!calculatedUnitCost(current,{industry})){
+    if(!autoSave&&!baseFieldsOnly&&!override&&!calculatedUnitCost(current,{industry})){
       setOverridePackPrice(String(current.price||""));setOverrideOpen(true);return;
     }
     setBusy(true);setError("");
@@ -89,29 +102,43 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
       // One write: the row's fields and the client's item name land
       // together or not at all.
       if(linkDirty&&!destination)throw new Error("Enter an existing KERDOS item number from this catalog.");
-      if(linkDirty&&(nameDirty||Object.hasOwn(draft,"category_id")))throw new Error("Apply the item name/category edits before changing its association.");
+      if(linkDirty&&(nameDirty||Object.hasOwn(draft,"category_id")))throw new Error(autoSave?"Finish the item name/category edits before changing its association.":"Apply the item name/category edits before changing its association.");
       const basePatch={...Object.fromEntries(Object.entries(draft).filter(([key])=>BASE_EDIT_FIELDS.has(key))),...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})};
-      if(baseFieldsOnly&&!Object.keys(basePatch).length)return;
-      const patch=baseFieldsOnly?basePatch:{description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
+      if(baseFieldsOnly&&!autoSave&&!Object.keys(basePatch).length)return;
+      const patch=autoSave?{...draft,...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})}:baseFieldsOnly?basePatch:{description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
         unit_cost_override:override||current.field_resolutions?.unit_cost_override?.value||null,
         ...(!linkDirty?{category_id:categoryId,item_name:nameDraft?.trim()||item.name}:{}),...(nameDirty?{item_name:nameDraft.trim()}:{ }),...(linkDirty?{catalog_item_id:destination.id}:{})};
-      await service.save({organizationId:orgId,vendorItem:base||vendorItem,mapping,patch});
-      setDraft(prior=>baseFieldsOnly?Object.fromEntries(Object.entries(prior).filter(([key])=>!BASE_EDIT_FIELDS.has(key))):{});setNameDraft(null);setNumberDraft(null);setBase(null);if(!baseFieldsOnly)setPackParts(null);setSaved(true);setOverrideOpen(false);await onUpdated();
+      const receipt=await service.save({organizationId:orgId,vendorItem:base||vendorItem,mapping,patch});
+      if(autoSave&&storageKey){try{window.localStorage.setItem(storageKey,JSON.stringify({draft:{},nameDraft:null,numberDraft:null,visible:trialVisible,revision:receipt?.row_revision??((original.row_revision||0)+1),overrideCost:Object.hasOwn(patch,"unit_cost_override")?"":overrideCost}));}catch{}}
+      if(!mounted.current)return;
+      let refreshError='';try{await onUpdated();}catch{refreshError='Saved, but the catalog could not refresh. Refresh the page before editing again.';}
+      if(!mounted.current)return;
+      setDraft(prior=>baseFieldsOnly&&!autoSave?Object.fromEntries(Object.entries(prior).filter(([key])=>!BASE_EDIT_FIELDS.has(key))):{});setNameDraft(null);setNumberDraft(null);setBase(autoSave&&receipt?.id?receipt:null);if(!baseFieldsOnly||autoSave)setPackParts(null);setSaved(true);setError(refreshError);setOverrideOpen(false);if(Object.hasOwn(patch,"unit_cost_override"))setOverrideCost("");
     }
-    catch(err){setError(err.message||String(err));}
-    finally{setBusy(false);}
+    catch(err){if(mounted.current)setError(err.message||String(err));}
+    finally{if(mounted.current)setBusy(false);}
   }
+  useEffect(()=>{
+    if(!autoSave||!storageKey)return;
+    try{window.localStorage.setItem(storageKey,JSON.stringify({draft,nameDraft,numberDraft,visible:trialVisible,revision:original.row_revision||0,overrideCost}));}catch{}
+  },[autoSave,storageKey,draft,nameDraft,numberDraft,trialVisible,original.row_revision,overrideCost]);
+  useEffect(()=>{
+    if(!autoSave||!canManage||!dirty||busy||error)return;
+    const timer=setTimeout(()=>{void save();},700);
+    return ()=>clearTimeout(timer);
+  },[autoSave,canManage,dirty,busy,error,draft,nameDraft,numberDraft,baseFieldsOnly]);
+  const saveStatus=autoSave?<small role={error?'alert':'status'} style={{display:'block',marginTop:4,color:error?'#A32B20':'#276742'}}>{busy?'Saving…':error?error:dirty?'Waiting to save…':saved?'Saved':''}{error&&dirty&&<><button onClick={()=>setError('')} style={{border:0,background:'none',color:'#003584'}}>Retry</button><button onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setOverrideCost('');setError('');}} style={{border:0,background:'none'}}>Discard unsaved edits</button></>}</small>:null;
   const fields={product:"description",brand:"brand",price:"price"};
   return <>
     <tr style={{background:dirty?"#FFFDF3":"white"}}>
       <td style={cellStyle}>{canManage&&<input type="checkbox" aria-label={`Select ${vendorItem.description} for alternatives`} checked={selected} onChange={onSelect}/>}</td>
       {CATALOG_COLUMNS.map(([key])=>{
-        if(baseFieldsOnly&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
+        if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
         const f=evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{f.value||"NVIM pending"}</span>;
-        else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name}</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
+        else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category,clientCategories:autoSave});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name}</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
         else if(key==="pack")content=<>
           <select aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
             <option value="" disabled>Select</option><option value="case">Case</option><option value="each">Each</option>
@@ -130,28 +157,28 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
             </select></label>
             {shownPack.catchWeight&&<small>Average weight retained</small>}
           </>}
-          {!parsedPack?.parsed&&current.pack_size&&!/^(CASE|EACH):/.test(current.pack_size)&&<small style={{display:"block"}}>From sheet: {current.pack_size}</small>}
+          {!baseFieldsOnly&&!parsedPack?.parsed&&current.pack_size&&!/^(CASE|EACH):/.test(current.pack_size)&&<small style={{display:"block"}}>From sheet: {current.pack_size}</small>}
         </>;
-        else if(key==="itemName")content=<>{baseFieldsOnly&&<select aria-label={`Group for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:190,marginBottom:6}} disabled={!canManage||busy} value={displayItem.id} onChange={event=>{const target=allCatalogItems.find(candidate=>candidate.id===event.target.value);if(target){setBase(value=>value||vendorItem);setNumberDraft(String(target.master_item_number));setSaved(false);setError("");}}}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id&&candidate.master_item_number!=null).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.name} · #{candidate.master_item_number}</option>)}</select>}<input aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy||linkDirty} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);setNameDraft(e.target.value);setSaved(false);setError("");}} /></>;
-        else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={current[fields[key]]??""} placeholder={key==="brand"?"Blank if absent":""} onChange={e=>edit(fields[key],e.target.value)} />;
+        else if(key==="itemName")content=<><input list={baseFieldsOnly?`client-items-${vendorItem.id}`:undefined} aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);const target=allCatalogItems.find(candidate=>!candidate.merged_into_id&&candidate.name===e.target.value);if(baseFieldsOnly&&target){setNumberDraft(String(target.master_item_number));setNameDraft(null);if(autoSave)setDraft(prior=>Object.fromEntries(Object.entries(prior).filter(([key])=>key!=="category_id")));}else{setNumberDraft(null);setNameDraft(e.target.value);}setSaved(false);setError("");}} />{baseFieldsOnly&&<datalist id={`client-items-${vendorItem.id}`}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id).map(candidate=><option key={candidate.id} value={candidate.name}/>)}</datalist>}</>;
+        else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"?displayed("brand"):current[fields[key]]??""} placeholder={key==="brand"?"Blank if absent":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else if(key==="sellingUnit")content=<>
-          <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={current.selling_unit||""} onChange={value=>edit("selling_unit",value)}/>
-          {caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
+          <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={displayed("selling_unit")} onChange={value=>edit("selling_unit",value)}/>
+          {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
         </>;
         else content=<>
-          {f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
-          <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(current.pack_size).length} value={current.unit_cost_unit||f.unit||defaultComparisonUnit(current.pack_size,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
+          {autoSave?<><input aria-label={`Unit cost for ${vendorItem.vendor_item_code}`} style={inputStyle} type="number" min="0" step="any" disabled={!canManage||busy} value={overrideCost||(baseFieldsOnly&&!trialVisible.unit_cost_override?"":f.value??"")} onChange={e=>{setOverrideCost(e.target.value);setSaved(false);setError("");}}/>{overrideCost&&(!overrideMetric||!(overrideCasePrice>0))&&<small>Complete the pack and quoted unit and choose a measurement to save this unit cost.</small>}</>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
+          <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(current.pack_size).length} value={baseFieldsOnly&&autoSave&&!trialVisible.unit_cost_unit?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(current.pack_size,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
             {current.unit_cost_unit&&!comparisonUnits(current.pack_size).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}
             {comparisonUnits(current.pack_size).map(unit=><option key={unit} value={unit}>{unitLabel(unit)}</option>)}
           </select>
-          {f.unit&&<small style={{display:"block"}}>per {unitLabel(f.unit).toLowerCase()}{dirty?" · preview":""}</small>}
+          {!baseFieldsOnly&&f.unit&&<small style={{display:"block"}}>per {unitLabel(f.unit).toLowerCase()}{dirty?" · preview":""}</small>}
         </>;
         const sourceKey={product:"description",pack:"packSize",sellingUnit:"sellingUnit"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td key={key} style={{...cellStyle,background:change?"#FFF3E0":undefined}}>{content}{!baseFieldsOnly&&<Evidence field={f}/>}{baseFieldsOnly&&key==="itemName"&&<small style={{display:"block",marginTop:4}}>{productGroupApproved(vendorItem,displayItem,previewMapping)?"Confirmed group":"Provisional group"}</small>}{change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}</td>;
+        return <td key={key} style={{...cellStyle,background:change?"#FFF3E0":undefined}}>{content}{!baseFieldsOnly&&<Evidence field={f}/>}{autoSave&&key==="product"&&saveStatus}{change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}</td>;
       })}
-      <td style={{...cellStyle,minWidth:115}}>
+      {!autoSave&&<td style={{...cellStyle,minWidth:115}}>
         {canManage&&<button disabled={busy||(baseFieldsOnly&&!dirty)} onClick={()=>save()} style={{...btn("#003584","white",{fontSize:11,padding:6})}}>{busy?"Applying…":"Apply"}</button>}
         {dirty&&<button disabled={busy} onClick={()=>{setDraft(prior=>baseFieldsOnly?Object.fromEntries(Object.entries(prior).filter(([key])=>!BASE_EDIT_FIELDS.has(key))):{});setNameDraft(null);setNumberDraft(null);setBase(null);if(!baseFieldsOnly)setPackParts(null);setError("");}} style={{border:0,background:"none",cursor:"pointer",fontSize:11}}>Undo edits</button>}
         {!baseFieldsOnly&&<button onClick={()=>setDetails(!details)} style={{display:"block",marginTop:6,border:0,background:"none",cursor:"pointer",color:"#245785"}}>Details</button>}
@@ -159,9 +186,9 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
         {!baseFieldsOnly&&parsedPack?.catchWeight&&currentBasis?.basis==='measure'&&<VariableWeightConfirmation service={variableWeightService} organizationId={orgId} listing={vendorItem} mapping={mapping} catalogItemId={item.id} settings={settings} approval={variableApproval} disabled={dirty||busy} canManage={canManage} onChanged={onVariableApprovalChanged}/>}
         {saved&&<small role="status" style={{color:"#276742"}}>Saved</small>}
         {error&&<div role="alert" style={{fontSize:11,color:"#A32B20",whiteSpace:"normal"}}>{error}</div>}
-      </td>
+      </td>}
     </tr>
-    {!baseFieldsOnly&&overrideOpen&&<tr><td colSpan={CATALOG_COLUMNS.length+2}>
+    {!autoSave&&!baseFieldsOnly&&overrideOpen&&<tr><td colSpan={CATALOG_COLUMNS.length+2}>
       <MovableDialog label="Unit cost override" maxWidth={428} zIndex={1000}>
         <div style={{background:"white",padding:24,borderRadius:10,width:380,maxWidth:"90vw"}}>
           <div>KERDOS cannot calculate unit cost from this pack and quoted unit. Enter your approved values to continue.</div>
@@ -190,7 +217,7 @@ function EditableRow({baseFieldsOnly=false,selected,onSelect,clientName,industry
     </td></tr>}
   </>;
 }
-export function CatalogRows({baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
+export function CatalogRows({autoSave=false,userId,baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
   const [selected,setSelected]=useState(new Set());
   const [expanded,setExpanded]=useState(new Set());
   const [sort,setSort]=useState({key:"itemName",direction:1});
@@ -237,8 +264,8 @@ export function CatalogRows({baseFieldsOnly=false,sortMode="alphabetical",indust
     {orderedGroups.map(group=><details key={group.id} data-catalog-group={group.id} open={expanded.has(group.id)} onToggle={event=>{const open=event.currentTarget.open;setExpanded(prior=>{if(prior.has(group.id)===open)return prior;const next=new Set(prior);if(open)next.add(group.id);else next.delete(group.id);return next;});}} style={{borderTop:'1px solid #DEE7F0'}}>
       <summary style={{padding:'14px 16px',color:'#003584',background:'#E8F0FA',cursor:'pointer',fontWeight:700}}>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></summary>
       {canManage&&selected.size>0&&group.rows.some(row=>selected.has(row.vendorItem.id))&&<div style={{padding:10}}><AssociateAlternatives showSuggestionTools={false} orgId={orgId} selectedVendorIds={[...selected]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelected(new Set())}/></div>}
-      <div style={{overflowX:'auto'}}><table aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{baseFieldsOnly&&key==="itemName"?"Group":label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}<th style={cellStyle}>Actions</th></tr></thead>
-      <tbody>{group.rows.map(row=><EditableRow baseFieldsOnly={baseFieldsOnly} selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={row.vendorItem.id} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
+      <div style={{overflowX:'auto'}}><table aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr><th style={cellStyle}>Select</th>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>
+      <tbody>{group.rows.map(row=><EditableRow autoSave={autoSave} userId={userId} baseFieldsOnly={baseFieldsOnly} selected={selected.has(row.vendorItem.id)} onSelect={()=>setSelected(prior=>{const next=new Set(prior);if(next.has(row.vendorItem.id))next.delete(row.vendorItem.id);else next.add(row.vendorItem.id);return next;})} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={`${orgId}:${userId||""}:${row.vendorItem.id}`} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
       {!group.rows.length&&<tr><td colSpan={CATALOG_COLUMNS.length+1} style={cellStyle}>No vendor listing linked yet.</td><td><button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
       </tbody>
     </table></div></details>)}

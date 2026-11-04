@@ -23,15 +23,15 @@ try{
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true})));
  assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'brand'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'pack'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'sellingUnit'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'unitCost'}).length,2);
  assert.equal(tree.root.findAllByProps({'aria-label':'brand for HM1'}).length,0);assert.ok(!JSON.stringify(tree.toJSON()).includes('70%'));assert.ok(!JSON.stringify(tree.toJSON()).includes('90%'));
- assert.match(JSON.stringify(tree.toJSON()),/NVIM-69/);assert.match(JSON.stringify(tree.toJSON()),/Provisional group/);assert.equal(calls.length,0);
+ assert.match(JSON.stringify(tree.toJSON()),/NVIM-69/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Confirmed group|Provisional group/);assert.equal(calls.length,0);
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
  const rowFor=label=>{let n=tree.root.findByProps({'aria-label':label});while(n&&n.type!=='tr')n=n.parent;return n;};
  const apply=async label=>{const row=rowFor(label);await act(async()=>row.findAllByType('button').find(b=>text(b)==='Apply').props.onClick());};
  await act(async()=>tree.root.findByProps({'aria-label':'price for null'}).props.onChange({target:{value:'2.29'}}));await apply('price for null');
  assert.deepEqual(calls.at(-1).patch,{price:2.29});assert.equal(calls.at(-1).priceBasis,null);assert.equal(calls.at(-1).priceAvailable,false);assert.equal(tree.root.findAllByProps({'aria-label':'Override unit cost'}).length,0);
  await act(async()=>tree.root.findByProps({'aria-label':'price for HM1'}).props.onChange({target:{value:'70.00'}}));await apply('price for HM1');assert.deepEqual(calls.at(-1).patch,{price:70});assert.equal(calls.at(-1).expectedRevision,3);
- await act(async()=>tree.root.findByProps({'aria-label':'Group for null'}).props.onChange({target:{value:two}}));
- assert.equal(text(tree.root.findByProps({'aria-label':'KERDOS item number for null'})),'#100001');assert.equal(tree.root.findByProps({'aria-label':'Category for null'}).props.value,'dairy');await apply('Group for null');assert.deepEqual(calls.at(-1).patch,{catalog_item_id:two});
+ await act(async()=>rowFor('price for null').findByProps({'aria-label':'Item name for 50013'}).props.onChange({target:{value:'Cheddar'}}));
+ assert.equal(text(tree.root.findByProps({'aria-label':'KERDOS item number for null'})),'#100001');assert.equal(tree.root.findByProps({'aria-label':'Category for null'}).props.value,'dairy');await apply('price for null');assert.deepEqual(calls.at(-1).patch,{catalog_item_id:two});
  await act(async()=>tree.update(React.createElement(CatalogRows,props)));assert.equal(tree.root.findByProps({'aria-label':'brand for HM1'}).props.value,'Unapplied brand draft');assert.equal(tree.root.findByProps({'aria-label':'Pack for HM1'}).props.value,'case');
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true})));fail=true;await act(async()=>tree.root.findByProps({'aria-label':'price for HM1'}).props.onChange({target:{value:'69'}}));const count=calls.length;await apply('price for HM1');assert.equal(calls.length,count);assert.match(JSON.stringify(tree.toJSON()),/Listing changed; refresh/);
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true,canManage:false})));assert.equal(tree.root.findByProps({'aria-label':'product for HM1'}).props.disabled,true);assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Apply').length,0);await act(async()=>tree.unmount());
