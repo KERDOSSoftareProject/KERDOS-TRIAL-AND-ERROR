@@ -45,8 +45,11 @@ export function requireItemDescription(row){
 export function validateAssignedFields(fields,{price,amount,priceUnavailable=false}={}){
  const raw=fields?.values?.price;
  const text=raw==null?null:String(raw).trim();
- const numericLike=text===''||(text!=null&&/^[$€£¥\d]/.test(text));
- const unreadable=price==null&&amount==null&&!priceUnavailable&&raw!=null&&numericLike;
+ const header=String(fields?.bindings?.price?.header||'').trim();
+ const anchorText=String(fields?.anchor?.rawValue||'').trim();
+ const columnHeading=/^(?:col(?:umn)?\s*\d+|description|product description|item description)$/i;
+ const headerLike=!!text&&(text.toLowerCase()===header.toLowerCase()||columnHeading.test(text)||columnHeading.test(anchorText)||/^(?:price|amount|cost|rate|unit price|quoted price|extended price|line total|total)$/i.test(text));
+ const unreadable=price==null&&amount==null&&!priceUnavailable&&raw!=null&&!headerLike;
  const anchorStatus=fields?.anchor?.status||'missing';
  const issues=[...(fields?.issues||[])];
  if(unreadable){

@@ -1,5 +1,6 @@
 // ════════════════════════════════════════════════════════════════════
 import {identifyRowFields} from './core/field-identification.js';
+import {parseMoney,parseMoneyLenient} from './core/assigned-numbers.js';
 import {assessBoundFields,validateAssignedFields,withRowValidation} from './core/field-validation.js';
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
 import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
@@ -100,47 +101,6 @@ function isTableEndMarker(cells) {
 
 
 // ── Small utilities ─────────────────────────────────────────────────
-
-function parseMoney(str) {
-  if (str == null) return null;
-  let cleaned = String(str).replace(/[$]/g, "").trim();
-  // European decimal comma: "12,50" means 12.50 (not 12 thousands 50)
-  // Detect: digits, single comma, 1-2 digits, end — no dot present
-  if (/^-?\d+,\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(",", ".");
-  else cleaned = cleaned.replace(/,/g, ""); // strip thousands separators
-  // Accounting-style negatives — "(24.00)" meaning -24.00 — are common in
-  // bookkeeper-produced spreadsheets (QuickBooks-style exports, manual
-  // credit memos) even when nobody on staff would type an actual minus sign.
-  let negative = false;
-  if (/^\(.*\)$/.test(cleaned)) {
-    negative = true;
-    cleaned = cleaned.slice(1, -1).trim();
-  }
-  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
-  let n = parseFloat(cleaned);
-  if (isNaN(n)) return null;
-  if (negative) n = -Math.abs(n);
-  return n;
-}
-
-// A non-technical worker very often types a price and its unit into the
-// SAME cell instead of using separate columns — "$12.50 ea", "45.00/cs",
-// "3.99/LB", "50.00 per case". The real number is always the leading
-// token; everything after it is a qualifier, never part of the value.
-// Deliberately kept separate from parseMoney (used for exact/strict
-// checks like header scoring and column-role profiling, where a stray
-// numeric-looking description shouldn't be mistaken for a price column) —
-// this lenient version is only used once a column's role is already known
-// to be price/amount/qty, at final row extraction.
-function parseMoneyLenient(str) {
-  if (str == null) return null;
-  const exact = parseMoney(str);
-  if (exact !== null) return exact;
-  const s = String(str).trim();
-  const m = s.match(/^\(?-?\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)?/);
-  if (!m || !m[0].trim()) return null;
-  return parseMoney(m[0]);
-}
 
 function isJunkRow(cells) {
   const joined = cells.join(" ").trim();

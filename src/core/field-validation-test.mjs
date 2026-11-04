@@ -40,6 +40,31 @@ assert.equal(numberQuality.fields.price.accuracy,100,'a separately readable quot
 
 const header=identifyRowFields({cells:['Milk','Price'],columnMap:{description:0,price:1}});
 assert.equal(validateAssignedFields(header,{price:null,amount:null}).retain,false,'a leaked header does not become a product');
+const unreadableText=parseDocument('Description,Price\nMilk,bad');
+assert.equal(unreadableText.rows.length,1,'an unreadable textual price does not erase a product source row');
+assert.equal(unreadableText.rows[0].description,'Milk');
+assert.equal(unreadableText.rows[0].fieldValidation.fields.price.status,'invalid');
+assert.equal(unreadableText.rows[0].fieldValidation.priceStatus,'missing-or-unreadable');
+assert.equal(unreadableText.rows[0].priceUnavailable,true);
+assert.equal(unreadableText.rows[0].requiresReview,true);
+const priceCases=[
+ ['plain decimal','20.00',20,'present'],
+ ['currency symbol','$20.00',20,'present'],
+ ['decimal comma','"12,50"',12.5,'present'],
+ ['accounting credit','(24.00)',-24,'present'],
+ ['each qualifier','$12.50 ea',12.5,'present'],
+ ['case qualifier','45.00/cs',45,'present'],
+ ['weight qualifier','3.99/LB',3.99,'present'],
+ ['worded qualifier','50.00 per case',50,'present'],
+ ['empty price','',null,'missing'],
+ ['unreadable price','bad',null,'invalid'],
+];
+for(const [name,cell,value,status] of priceCases){
+ const parsed=parseDocument(`Description,Price\nMilk,${cell}`);
+ assert.equal(parsed.rows.length,1,`${name}: preserve the source row`);
+ assert.equal(parsed.rows[0].price,value,`${name}: extract assigned value`);
+ assert.equal(parsed.rows[0].fieldValidation.fields.price.status,status,`${name}: validate the same cell`);
+}
 const row=parseDocument('Description,Brand,Price\nMilk,Brand A,20.00\n,Brand B,');
 assert.equal(row.rows[0].fieldValidation.priceStatus,'parsed');
 assert.equal(row.rows[1].fieldValidation.priceStatus,'missing-or-unreadable');
