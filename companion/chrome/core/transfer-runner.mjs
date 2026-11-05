@@ -15,6 +15,10 @@ export function exportFailureMessage(outcome,{refresh=false}={}){
   case 'capture_unavailable':guidance='The companion could not capture this export. Keep the original download for review.';break;
   case 'unsupported_encoding':guidance='This export uses an unsupported text encoding. Keep the original file for review.';break;
   case 'invalid_csv':guidance='The captured file is not a supported CSV export. Check the vendor export format.';break;
+  case 'download_dialog_unavailable':guidance='The companion could not identify one download dialog for the selected list. Close extra download dialogs and reopen the selected list.';break;
+  case 'download_options_unavailable':guidance='The companion could not identify Download Options in the selected list’s download dialog.';break;
+  case 'product_prices_unavailable':guidance='The companion could not find or confirm Product Prices in the download options.';break;
+  case 'download_export_unavailable':guidance='The companion could not complete the Download step for the selected list. Keep any original download for review.';break;
   case 'ambiguous_control':case 'page_changed':case 'page_unavailable':guidance='The vendor page could not be verified for this export. Reopen the selected account and list.';break;
   case 'wrong_origin':guidance='Open the vendor portal selected for this connection.';break;
   case 'execution_unavailable':case 'unsupported_adapter':guidance='This connection cannot export through the current companion.';break;
