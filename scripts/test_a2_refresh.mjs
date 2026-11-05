@@ -78,7 +78,22 @@ console.log('PASS A2 refresh: one command pairs/claims/exports/delivers; denied,
 const enableEvents=new Map(),popupStatus={textContent:''};let grantCall;
 const enable={addEventListener:(event,fn)=>enableEvents.set(event,fn)},select={value:'example',appendChild:()=>{}};
 const elements={export:{addEventListener:()=>{}},pair:{addEventListener:()=>{}},status:popupStatus,'enable-refresh':enable,provider:select};
-const popupSource=readFileSync('companion/chrome/popup.mjs','utf8').replace("import {providers} from './providers.mjs';",'');
-vm.runInNewContext(popupSource,{providers:[provider],document:{getElementById:id=>elements[id],createElement:()=>({})},chrome:{tabs:{query:async()=>[]},runtime:{sendMessage:async()=>({message:'Ready'})},storage:{onChanged:{addListener:()=>{}}},permissions:{request:args=>{grantCall=args;return Promise.resolve(true);}}}});
-enableEvents.get('click')();assert.deepEqual(JSON.parse(JSON.stringify(grantCall)),{origins:['https://kerdossoftareproject.github.io/*','https://vendor.example/*']});await Promise.resolve();assert.match(popupStatus.textContent,/Refresh access enabled/);
+const popupSource=readFileSync('companion/chrome/popup.mjs','utf8').replace(/^import .*;$/gm,'');
+vm.runInNewContext(popupSource,{approvedKerdosTab:url=>url===app.location.href,providers:[provider],document:{getElementById:id=>elements[id],createElement:()=>({})},chrome:{tabs:{query:async()=>[]},runtime:{sendMessage:async()=>({message:'Ready'})},storage:{onChanged:{addListener:()=>{}}},permissions:{request:args=>{grantCall=args;return Promise.resolve(true);}}}});
+enableEvents.get('click')();assert.deepEqual(JSON.parse(JSON.stringify(grantCall)),{origins:['https://kerdossoftareproject.github.io/*','https://vendor.example/*']});await new Promise(resolve=>setImmediate(resolve));assert.match(popupStatus.textContent,/Refresh access enabled/);
 console.log('PASS one-time popup access request: direct user click, selected provider origins only, no wildcard-wide host access.');
+// Enabling access reconnects only approved top-level app tabs; it never starts
+// a transfer. Permission denial touches no tabs. A closed tab gives fallback.
+for(const condition of ['granted','denied','closed']){
+ const clicks=new Map(),status={textContent:''},calls=[];
+ const elements={export:{addEventListener(){}},pair:{addEventListener(){}},status,'enable-refresh':{addEventListener:(event,fn)=>clicks.set(event,fn)},provider:{value:'example',appendChild(){}}};
+ vm.runInNewContext(popupSource,{approvedKerdosTab:url=>url===app.location.href,providers:[provider],document:{getElementById:id=>elements[id],createElement:()=>({})},chrome:{runtime:{sendMessage:async()=>({message:'Ready'})},storage:{onChanged:{addListener(){}}},permissions:{request:()=>{calls.push('permission');return Promise.resolve(condition!=='denied');}},tabs:{query:async query=>{assert.deepEqual(JSON.parse(JSON.stringify(query)),{url:app.location.origin+'/*'});calls.push('tabs');return [{id:1,url:app.location.href},{id:2,url:app.location.origin+'/other-project/'},{id:3,url:provider.origin}];}},scripting:{executeScript:async args=>{calls.push(JSON.parse(JSON.stringify(args)));if(condition==='closed')throw Error('tab closed');}}}});
+ clicks.get('click')();assert.deepEqual(calls,['permission'],'permission requested synchronously before tab access');
+ await new Promise(resolve=>setImmediate(resolve));
+ if(condition==='denied'){assert.deepEqual(calls,['permission']);assert.match(status.textContent,/not granted/);}
+ else{assert.deepEqual(calls,['permission','tabs',{target:{tabId:1,frameIds:[0]},files:['app-channel.js']}]);assert.match(status.textContent,condition==='closed'?/Reload KERDOS/:/Return to KERDOS/);}
+}
+const beforeListeners=listeners.size;
+vm.runInNewContext(readFileSync('companion/chrome/app-channel.js','utf8'),{window:app,location:app.location,document:app.document,URL,chrome:{runtime:{sendMessage:async()=>assert.fail('reconnection must not export')}}});
+assert.equal(listeners.size,beforeListeners,'reinjection cannot add a second runtime command listener');
+console.log('PASS access activation: scoped app tabs reconnect without export, denial is inert, closed-tab fallback, and repeated channel injection is idempotent.');

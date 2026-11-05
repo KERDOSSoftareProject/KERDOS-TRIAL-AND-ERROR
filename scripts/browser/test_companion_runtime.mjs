@@ -154,7 +154,18 @@ try{
  await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'permission_required');assert.equal(await appPage.evaluate(()=>window.received.length),0);
  const management=await context.newPage();await management.goto('chrome://extensions/');
  for(const host of [appOrigin+'/*',vendorOrigin+'/*'])await management.evaluate(async({extensionId,host})=>{await globalThis.chrome.developerPrivate.addHostPermission(extensionId,host);},{extensionId,host});
- await management.close();view=await popup(appPage);await view.click('enable-refresh');await view.waitStatus('Refresh access enabled');await view.close();
+ await management.close();
+ // Existing same-host page navigated into the app without loading its content
+ // script: enabling must attach the shipped channel without a page reload.
+ const reconnectPage=await context.newPage();await reconnectPage.goto(appOrigin+'/unapproved-project/');await reconnectPage.waitForFunction(()=>!!window.refreshClient);
+ await reconnectPage.evaluate(url=>{history.replaceState(null,'',url);window.availableEvents=0;window.refreshClient.watch(()=>window.availableEvents++);},appUrl+'?activation-check');
+ assert.equal(await reconnectPage.evaluate(()=>window.refreshClient.available()),false);
+ view=await popup(reconnectPage);await view.click('enable-refresh');await view.waitStatus('Refresh access enabled');await view.close();
+ await reconnectPage.waitForFunction(()=>window.refreshClient.available()&&window.availableEvents===1);
+ assert.equal(await reconnectPage.evaluate(()=>window.received.length),0,'enabling access never exports or delivers');
+ view=await popup(reconnectPage);await view.click('enable-refresh');await view.waitStatus('Refresh access enabled');await view.close();
+ assert.equal(await reconnectPage.evaluate(()=>window.availableEvents),1,'repeat enable cannot register another channel');
+ await reconnectPage.close();
  assert.equal(await worker.evaluate(async origins=>globalThis.chrome.permissions.contains({origins}),[appOrigin+'/*',vendorOrigin+'/*']),true);
  vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
  await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),1);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.received[0])).text,csv);
