@@ -18,7 +18,10 @@ export async function exportSelectedMoxeList(selection){
   if(leaves.length>1)throw new Error('ambiguous_control');return leaves[0]||null;
  };
  const priceCheckbox=dialog=>{
-  const found=nodes('ion-checkbox,[role="checkbox"],input[type="checkbox"]',dialog).filter(el=>norm(el.getAttribute('aria-label')||el.parentElement?.textContent)==='PRODUCT PRICES');
+  // Ionic renders its primary label inside the checkbox host. The parent
+  // can contain other option labels; never match it by substring.
+  const label=el=>el.getAttribute('aria-label')||el.querySelector?.('.checkbox-content > :first-child,.label')?.textContent||el.textContent||el.parentElement?.textContent;
+  const found=nodes('ion-checkbox,[role="checkbox"],input[type="checkbox"]',dialog).filter(el=>norm(label(el))==='PRODUCT PRICES');
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
   if(leaves.length>1)throw new Error('ambiguous_control');return leaves[0]||null;
  };
@@ -51,7 +54,9 @@ export async function exportSelectedMoxeList(selection){
   let checkbox=priceCheckbox(dialog);
   if(!checkbox){stage='download_options';uniqueText('Download Options',dialog).click();stage='product_prices';checkbox=await wait(()=>priceCheckbox(dialog));}
   stage='product_prices';
-  const checked=()=>checkbox.checked===true||checkbox.getAttribute('aria-checked')==='true';
+  // A controlled component may replace its host after the change event.
+  // Confirm the current unique labelled control, not a detached old node.
+  const checked=()=>{const current=priceCheckbox(dialog);return current?.checked===true||current?.getAttribute('aria-checked')==='true';};
   if(!checked())checkbox.click();
   await wait(checked);context();
   if(location.pathname!==originalPath)throw new Error('list_changed');

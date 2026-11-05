@@ -42,7 +42,34 @@ downloadOptions.click=ordinaryOptionsClick;
 shown=true;options=true;checked=true;clicks=[];
 assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested');
 assert.deepEqual(clicks,['download'],'an already confirmed Product Prices checkbox is not toggled');
+// Ionic labels live inside the checkbox. Its enclosing virtual-list row may
+// include additional option text; no ARIA label is required on the host.
+shown=true;options=true;checked=false;clicks=[];
+const labelledAttribute=checkbox.getAttribute;
+checkbox.getAttribute=()=>null;
+checkbox.parentElement={textContent:'Product Prices Product Notes Product Status And Type'};
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested','identify the checkbox by its own rendered label, not the parent list text');
+assert.deepEqual(clicks,['check-prices','download']);
+checkbox.getAttribute=labelledAttribute;delete checkbox.parentElement;
 const ordinaryModalQuery=modal.querySelectorAll;
+// Published multi-select markup puts the primary label inside the host and
+// can include a sublabel. A controlled change can replace that host entirely.
+shown=true;options=true;checked=false;clicks=[];let replaced=false;
+const ordinaryCheckboxClick=checkbox.click,ordinaryCheckboxText=checkbox.textContent;
+checkbox.getAttribute=()=>null;checkbox.textContent='Product Prices Include quoted prices';
+checkbox.querySelector=()=>element('Product Prices');
+checkbox.click=()=>{replaced=true;clicks.push('check-prices');};
+const replacement=element('Product Prices',()=>{},{checked:true});
+modal.querySelectorAll=selector=>selector.includes('checkbox')?[replaced?replacement:checkbox]:[downloadOptions,final];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested','confirm the current labelled checkbox after a controlled replacement');
+assert.deepEqual(clicks,['check-prices','download']);
+checkbox.click=ordinaryCheckboxClick;checkbox.textContent=ordinaryCheckboxText;checkbox.getAttribute=labelledAttribute;delete checkbox.querySelector;modal.querySelectorAll=ordinaryModalQuery;
+shown=true;options=true;checked=false;clicks=[];
+const unrelated=element('Product Notes',()=>clicks.push('wrong-option'),{parentElement:{textContent:'Product Prices'}});
+modal.querySelectorAll=selector=>selector.includes('checkbox')?[unrelated]:[downloadOptions,final];
+downloadOptions.click=()=>{throw Error('no exact pricing control');};
+assert.notEqual((await exportSelectedMoxeList(selection)).outcome,'download_requested');assert.deepEqual(clicks,[],'a parent label cannot override a different control’s own label');
+downloadOptions.click=ordinaryOptionsClick;modal.querySelectorAll=ordinaryModalQuery;
 shown=true;options=false;checked=false;clicks=[];
 modal.querySelectorAll=selector=>selector.includes('checkbox')?[]:[final];
 assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_options_unavailable');

@@ -1,4 +1,14 @@
-# Companion 0.2.8 · Refresh prices
+# Companion 0.2.9 · Refresh prices
+
+Version 0.2.9 recognizes the Product Prices checkbox by its own primary label,
+including the nested Ionic label, before considering its enclosing text. A
+parent containing several download options no longer hides an exact label.
+After a click, confirmation re-reads the current unique labelled control so a
+replaced component host does not leave the check waiting on a detached node.
+Exact matching and ambiguity guards remain; other export options are untouched.
+Reload the complete folder, then refresh KERDOS before installed acceptance.
+
+## Export-dialog recovery — 0.2.8
 
 Version 0.2.8 reuses one open download dialog for the selected list and leaves an
 already enabled Product Prices option enabled. A fresh explicit retry no longer
