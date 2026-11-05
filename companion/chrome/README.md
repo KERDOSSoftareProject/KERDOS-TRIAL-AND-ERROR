@@ -1,4 +1,13 @@
-# Companion 0.2.9 · Refresh prices
+# Companion 0.2.10 · Refresh prices
+
+Enabling Refresh prices now reconnects already-open approved KERDOS tabs using
+the shipped control channel. A page reload is unnecessary when attachment
+succeeds. Repeating enable does not install a second command listener. Access
+denial touches no tabs; a closed/inaccessible app tab gives reload guidance.
+This action never prepares, exports, delivers or retries pricing. It does not
+add scheduling, keep-alive behavior, host permissions or automatic supplier access.
+
+## Product Prices labels — 0.2.9
 
 Version 0.2.9 recognizes the Product Prices checkbox by its own primary label,
 including the nested Ionic label, before considering its enclosing text. A
