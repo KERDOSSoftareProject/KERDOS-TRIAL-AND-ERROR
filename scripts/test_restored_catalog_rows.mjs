@@ -21,7 +21,7 @@ try{
  const initialText=JSON.stringify(tree.toJSON());assert.ok(!initialText.includes('Correct any cell'));assert.ok(!initialText.includes('vendor rows meet Order Guide requirements'));assert.equal(tree.root.findAllByType('button').filter(b=>(b.children||[]).join('').includes('suggested associations')).length,0,'maintenance tools do not occupy the main catalog header');
  await act(async()=>groups()[1].props.onToggle({currentTarget:{open:true}}));assert.equal(groups()[1].props.open,true);assert.equal(groups()[0].props.open,false,'groups open independently');
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
- const headers=table.findAllByType('thead')[0].findAllByType('th').map(text);for(const [,label] of CATALOG_COLUMNS)assert.ok(headers.some(h=>h.startsWith(label)),label+' column retained');assert.ok(headers.includes('Actions'));assert.ok(headers.includes('Select'));
+ const headers=table.findAllByType('thead')[0].findAllByType('th').map(text);for(const [,label] of CATALOG_COLUMNS)assert.ok(headers.some(h=>h.startsWith(label)),label+' column retained');assert.ok(headers.includes('Actions'));assert.ok(!headers.includes('Select'));
  const names=table.findAllByType('input').filter(n=>String(n.props['aria-label']||'').startsWith('Item name for '));assert.deepEqual(names.map(n=>n.props.value),['Avocados','Honey Mustard','Honey Mustard']);
  const numbers=table.findAll(n=>n.type==='span'&&String(n.props['aria-label']||'').startsWith('KERDOS item number for ')).map(text);assert.deepEqual(numbers,['#30001','#50013','#50013']);
  assert.equal(table.findAllByType('button').filter(n=>text(n)==='Apply').length,3,'each original row Apply action retained');
@@ -32,12 +32,12 @@ try{
  await act(async()=>groups()[1].props.onToggle({currentTarget:{open:true}}));
  assert.equal(String(priceInput().props.value),'19.50','unsaved edits survive collapse and reopen');
  assert.equal(JSON.stringify(props),original,'grouping the view must not edit source fields, mappings or prices');
- const select=table.findByProps({'aria-label':'Select A HONEY MUSTARD VENDOR WORDING for alternatives'});await act(async()=>select.props.onChange());assert.ok(tree.root.findAllByType('button').some(n=>text(n)==='Associate selected (1)'),'existing selection action remains available');
+ assert.equal(table.findAll(n=>n.type==='input'&&n.props.type==='checkbox'&&String(n.props['aria-label']||'').endsWith('for alternatives')).length,0,'row selection checkboxes removed');
  assert.equal(tree.root.findAll(n=>n.type==='h3'&&text(n)==='Product groups').length,0,'experimental group list cannot replace the main table');
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,sortMode:'added'})));assert.deepEqual(groups().map(n=>n.props['data-catalog-group']),['h','a'],'Date Added uses the same oldest-first rule as Order Guide');
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,sortMode:'vendorCode'})));assert.deepEqual(groups().map(n=>n.props['data-catalog-group']),['h','a'],'Vendor Code sorts groups by the listing code');assert.equal(String(priceInput().props.value),'19.50','sorting preserves draft edits');
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,sortMode:'itemNumber'})));assert.deepEqual(groups().map(n=>n.props['data-catalog-group']),['a','h'],'Item # uses permanent KERDOS numbers');
- await act(async()=>tree.unmount());console.log('PASS grouped catalog: alphabetical collapsed KERDOS groups, independent expansion, original columns/source rows/controls, drafts preserved on collapse, selection and unchanged data.');
+ await act(async()=>tree.unmount());console.log('PASS grouped catalog: alphabetical collapsed KERDOS groups, independent expansion, original columns/source rows/controls, drafts preserved on collapse, no row selection and unchanged data.');
  `,resolveDir:process.cwd(),sourcefile:'restored-catalog-test.mjs',loader:'js'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent'});
  process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',env:process.env}));
 }finally{rmSync(dir,{recursive:true,force:true});}
