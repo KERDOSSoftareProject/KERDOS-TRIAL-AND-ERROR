@@ -1,4 +1,17 @@
-# Companion 0.2.7 · Refresh prices
+# Companion 0.2.8 · Refresh prices
+
+Version 0.2.8 reuses one open download dialog for the selected list and leaves an
+already enabled Product Prices option enabled. A fresh explicit retry no longer
+mistakes the page and modal Download buttons for ambiguous controls. Multiple
+matching dialogs or pricing checkboxes still stop the export. Fixed guidance now
+identifies download-dialog, Download Options, Product Prices or final Download
+failures without recording page content or raw diagnostics. A failure never
+automatically retries. Reload the complete folder, then refresh KERDOS; existing
+site permissions, client/vendor binding and one-use handoff remain unchanged.
+
+The first installed 0.2.7 failure was reported with a shared generic message;
+its precise export substep is not established. The open-dialog retry defect is
+reproduced separately. Synthetic tests are not real-supplier acceptance.
 
 Install the complete folder including adapters and core. Enable only this version, then refresh the KERDOS tab. In the K popup, choose the provider and click **Enable Refresh prices** once to grant access to the KERDOS host and that vendor portal. Open the correct account/list with the vendor for initial setup. Later use **Refresh prices** in KERDOS; preparation, pairing, export and processing run through the existing checked handoff. The verified list route can reopen when its tab is closed. Login/MFA pauses for the user; no password/code is read or stored.
 

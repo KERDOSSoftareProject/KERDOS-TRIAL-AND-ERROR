@@ -27,6 +27,36 @@ globalThis.location.pathname='/desktop/lists/view/another-selected-list';assert.
 const originalQuery=document.querySelectorAll;document.querySelectorAll=selector=>selector==='input[type="password"],input[autocomplete="one-time-code"]'?[element('')]:originalQuery(selector);globalThis.location.pathname='/login';clicks=[];assert.equal((await exportSelectedMoxeList(selection)).outcome,'verification_needed');assert.deepEqual(clicks,[]);document.querySelectorAll=originalQuery;
 // Exercise exact-byte capture against a controlled Blob-producing page.
 globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists/view/dynamic-client-list'};
+// A retry can begin with the matching export dialog still open. Both the
+// background page and modal Download controls retain client rectangles.
+const ordinaryQuery=document.querySelectorAll;
+document.querySelectorAll=selector=>selector==='button,ion-button,ion-label,p,label,[role="button"]'&&shown?[account,initial,downloadOptions,final]:ordinaryQuery(selector);
+shown=true;options=false;checked=false;clicks=[];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested','reuse one verified open dialog instead of treating its Download button as a duplicate page control');
+assert.deepEqual(clicks,['options','check-prices','download'],'retry does not reopen the existing dialog');
+shown=true;options=true;checked=false;clicks=[];
+const ordinaryOptionsClick=downloadOptions.click;downloadOptions.click=()=>{throw Error('already open options must not be toggled');};
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested');
+assert.deepEqual(clicks,['check-prices','download']);
+downloadOptions.click=ordinaryOptionsClick;
+shown=true;options=true;checked=true;clicks=[];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested');
+assert.deepEqual(clicks,['download'],'an already confirmed Product Prices checkbox is not toggled');
+const ordinaryModalQuery=modal.querySelectorAll;
+shown=true;options=false;checked=false;clicks=[];
+modal.querySelectorAll=selector=>selector.includes('checkbox')?[]:[final];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_options_unavailable');
+assert.deepEqual(clicks,[],'missing options never starts the final download');
+shown=true;options=true;checked=false;clicks=[];
+modal.querySelectorAll=selector=>selector.includes('checkbox')?[checkbox,element('Product Prices',{},{getAttribute:()=> 'Product Prices'})]:[downloadOptions,final];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'product_prices_unavailable');
+assert.deepEqual(clicks,[],'ambiguous pricing options never starts the final download');
+modal.querySelectorAll=ordinaryModalQuery;
+const retryQuery=document.querySelectorAll;
+document.querySelectorAll=selector=>selector==='ion-modal,[role="dialog"]'?[modal,element(modal.textContent)]:retryQuery(selector);
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_unavailable');
+assert.deepEqual(clicks,[],'two matching dialogs stop before all export controls');
+document.querySelectorAll=ordinaryQuery;
 shown=false;options=false;checked=false;
 let csv='Product Number,Product Description,Product Price\nSYNTHETIC,Crème brûlée® – jalapeño,1.20\n';
 const originalCreate=URL.createObjectURL;
@@ -53,7 +83,7 @@ const owner={owned:true};globalThis.__kerdosExportCapture=owner;
 assert.equal((await exportSelectedMoxeList({...selection,capture:true})).outcome,'capture_busy');assert.ok(!clicks.includes('download'));assert.equal(globalThis.__kerdosExportCapture,owner);assert.equal(URL.createObjectURL,originalCreate);assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);delete globalThis.__kerdosExportCapture;
 shown=false;options=false;checked=false;
 final.click=()=>{throw new Error('unexpected download failure');};
-assert.equal((await exportSelectedMoxeList({...selection,capture:true})).outcome,'page_unavailable');assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
+assert.equal((await exportSelectedMoxeList({...selection,capture:true})).outcome,'download_export_unavailable');assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
 assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);delete globalThis.HTMLAnchorElement;
 delete globalThis.document;delete globalThis.location;
 console.log('PASS local companion manifest retains legacy active-tab flow with scoped optional refresh access; controlled DOM export checks account/list, selects prices and reports only download_requested');

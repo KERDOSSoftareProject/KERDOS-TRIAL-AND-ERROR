@@ -11,6 +11,17 @@ export async function exportSelectedMoxeList(selection){
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
   if(leaves.length!==1)throw new Error('ambiguous_control');return leaves[0];
  };
+ const exportDialog=()=>{
+  const found=nodes('ion-modal,[role="dialog"]').filter(el=>norm(el.innerText||el.textContent).includes(norm('Download '+selection.list)));
+  // ion-modal and its role=dialog child can describe the same dialog.
+  const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
+  if(leaves.length>1)throw new Error('ambiguous_control');return leaves[0]||null;
+ };
+ const priceCheckbox=dialog=>{
+  const found=nodes('ion-checkbox,[role="checkbox"],input[type="checkbox"]',dialog).filter(el=>norm(el.getAttribute('aria-label')||el.parentElement?.textContent)==='PRODUCT PRICES');
+  const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
+  if(leaves.length>1)throw new Error('ambiguous_control');return leaves[0]||null;
+ };
  const context=()=>{
   if(location.origin!=='https://order.usfoods.com')throw new Error('wrong_origin');
   if(nodes('input[type="password"],input[autocomplete="one-time-code"]').length)throw new Error('verification_needed');
@@ -27,15 +38,19 @@ export async function exportSelectedMoxeList(selection){
   do{context();const result=fn();if(result)return result;await new Promise(resolve=>setTimeout(resolve,150));}while(Date.now()<until);
   throw new Error('page_changed');
  };
+ let stage='selection';
  try{
   context();if(selection.inspectOnly===true)return {outcome:'selection_verified',path:location.pathname};
   const originalPath=location.pathname;
   // Capture only the current page path, never a vendor account/list constant.
-  uniqueText('Download').click();
-  const dialog=await wait(()=>nodes('ion-modal,[role="dialog"]').find(el=>norm(el.innerText||el.textContent).includes(norm('Download '+selection.list))));
+  stage='download_dialog';
+  let dialog=exportDialog();
+  if(!dialog){uniqueText('Download').click();dialog=await wait(exportDialog);}
   if(!norm(dialog.innerText||dialog.textContent).includes('CSV'))throw new Error('csv_format_required');
-  uniqueText('Download Options',dialog).click();
-  const checkbox=await wait(()=>nodes('ion-checkbox,[role="checkbox"],input[type="checkbox"]',dialog).find(el=>norm(el.getAttribute('aria-label')||el.parentElement?.textContent)==='PRODUCT PRICES'));
+  stage='product_prices';
+  let checkbox=priceCheckbox(dialog);
+  if(!checkbox){stage='download_options';uniqueText('Download Options',dialog).click();stage='product_prices';checkbox=await wait(()=>priceCheckbox(dialog));}
+  stage='product_prices';
   const checked=()=>checkbox.checked===true||checkbox.getAttribute('aria-checked')==='true';
   if(!checked())checkbox.click();
   await wait(checked);context();
@@ -70,7 +85,7 @@ export async function exportSelectedMoxeList(selection){
     prototype.click=click;
     Object.defineProperty(prototype,'dispatchEvent',{configurable:true,writable:true,value:dispatch});
     if(URL.createObjectURL!==wrapped||prototype.click!==click||prototype.dispatchEvent!==dispatch)throw new Error('capture_unavailable');
-    uniqueText('Download',dialog).click();
+    stage='download_export';uniqueText('Download',dialog).click();
     const blob=await captured;context();
     if(location.pathname!==originalPath)throw new Error('list_changed');
     if(!blob)return {outcome:'capture_unavailable'};
@@ -87,10 +102,16 @@ export async function exportSelectedMoxeList(selection){
     delete globalThis.__kerdosExportCapture;
    }
   }
-  uniqueText('Download',dialog).click();
+  stage='download_export';uniqueText('Download',dialog).click();
   // A click cannot prove successful download completion or ingestion.
   return {outcome:'download_requested'};
  }catch(error){
+  // Fixed stage codes improve retry guidance without exposing DOM text,
+  // raw exceptions, account data or supplier diagnostics.
+  if(['ambiguous_control','page_changed'].includes(error.message)||!['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','csv_format_required','list_changed'].includes(error.message)){
+   const outcome={download_dialog:'download_dialog_unavailable',download_options:'download_options_unavailable',product_prices:'product_prices_unavailable',download_export:'download_export_unavailable'}[stage];
+   if(outcome)return {outcome};
+  }
   const safe=['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','ambiguous_control','page_changed','csv_format_required','list_changed'];
   return {outcome:safe.includes(error.message)?error.message:'page_unavailable'};
  }
