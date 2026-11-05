@@ -1,7 +1,7 @@
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {AssociateAlternatives} from './AssociateAlternatives.jsx';
 import {clientProductName} from '../core/client-product-name.js';
-import {trialSourceValue,sourceTrialUnitCost} from '../core/source-field-completion.js';
+import {trialSourceValue,sourceTrialUnitCost,trialListingLabel} from '../core/source-field-completion.js';
 import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
@@ -83,7 +83,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const displayed=key=>baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):current.pack_size;
-  const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost(current,{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!trialVisible.pack_size,industry}):null;
+  const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...current,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(displayed("pack_size"));
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
@@ -135,7 +135,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
         const f=key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontFamily:"monospace",fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
-        else if(key==="vendorItemNumber")content=<span>{f.value||"NVIM pending"}</span>;
+        else if(key==="vendorItemNumber")content=<span>{baseFieldsOnly?trialListingLabel(current,f.value):f.value||"NVIM pending"}</span>;
         else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category,clientCategories:autoSave});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name}</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
         else if(key==="pack")content=<>
           <select aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
@@ -158,7 +158,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,selected,onSele
           {!baseFieldsOnly&&!parsedPack?.parsed&&current.pack_size&&!/^(CASE|EACH):/.test(current.pack_size)&&<small style={{display:"block"}}>From sheet: {current.pack_size}</small>}
         </>;
         else if(key==="itemName")content=<><input list={baseFieldsOnly?`client-items-${vendorItem.id}`:undefined} aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);const target=allCatalogItems.find(candidate=>!candidate.merged_into_id&&candidate.name===e.target.value);if(baseFieldsOnly&&target){setNumberDraft(String(target.master_item_number));setNameDraft(null);if(autoSave)setDraft(prior=>Object.fromEntries(Object.entries(prior).filter(([key])=>key!=="category_id")));}else{setNumberDraft(null);setNameDraft(e.target.value);}setSaved(false);setError("");}} />{baseFieldsOnly&&<datalist id={`client-items-${vendorItem.id}`}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id).map(candidate=><option key={candidate.id} value={candidate.name}/>)}</datalist>}</>;
-        else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"?displayed("brand"):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
+        else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else if(key==="sellingUnit")content=<>
           <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={displayed("selling_unit")} onChange={value=>edit("selling_unit",value)}/>
           {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}

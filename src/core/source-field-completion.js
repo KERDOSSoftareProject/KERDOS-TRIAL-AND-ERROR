@@ -98,5 +98,11 @@ export function sourceTrialUnitCost(row,{pack,unit,packEdited=false,industry=''}
 
 export function trialSourceValue(row,key,{visible=false}={}){
   if(visible||row.field_resolutions?.[key])return row[key]??'';
+  if(['description','price'].includes(key)&&!Object.hasOwn(row.import_row?.baseFieldCompletion?.fields||{},key))return row[key]??'';
   return row.import_row?.baseFieldCompletion?.fields?.[key]?.value??'';
+}
+
+// Trial identifiers never rewrite a vendor code or allocate production identities.
+export function trialListingLabel(row,fallback='NVIM pending'){
+  return row.import_row?.baseFieldCompletion?.trialIdentifier?.label||fallback||'NVIM pending';
 }
