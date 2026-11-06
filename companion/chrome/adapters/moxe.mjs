@@ -9,7 +9,7 @@ export async function exportSelectedMoxeList(selection){
   const found=nodes('button,ion-button,ion-label,p,label,span,div,[role="button"]',root).filter(el=>norm(el.textContent)===norm(value));
   // Nested wrappers with the same text are equivalent only if one contains all.
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
-  if(leaves.length!==1)throw new Error('ambiguous_control');return leaves[0];
+  if(leaves.length!==1)throw new Error(leaves.length?'ambiguous_control':'missing_control');return leaves[0];
  };
  const exportDialog=()=>{
   const title=norm('Download '+selection.list);
@@ -24,7 +24,7 @@ export async function exportSelectedMoxeList(selection){
   const found=[...new Set([...modern,...legacy])];
   // ion-modal and its role=dialog child can describe the same dialog.
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
-  if(leaves.length>1)throw new Error('ambiguous_control');return leaves[0]||null;
+  if(leaves.length>1)throw new Error('download_dialog_multiple');return leaves[0]||null;
  };
  const priceCheckbox=dialog=>{
   // Ionic renders its primary label inside the checkbox host. The parent
@@ -57,7 +57,11 @@ export async function exportSelectedMoxeList(selection){
   // Capture only the current page path, never a vendor account/list constant.
   stage='download_dialog';
   let dialog=exportDialog();
-  if(!dialog){uniqueText('Download').click();dialog=await wait(exportDialog);}
+  if(!dialog){
+   stage='download_open_control';const open=uniqueText('Download');
+   stage='download_open_click';open.click();
+   stage='download_dialog_wait';dialog=await wait(exportDialog);
+  }
   if(!norm(dialog.innerText||dialog.textContent).includes('CSV'))throw new Error('csv_format_required');
   stage='product_prices';
   let checkbox=priceCheckbox(dialog);
@@ -120,10 +124,15 @@ export async function exportSelectedMoxeList(selection){
   // A click cannot prove successful download completion or ingestion.
   return {outcome:'download_requested'};
  }catch(error){
+  // Report only fixed structural outcomes, never supplier text or exceptions.
+  if(error.message==='download_dialog_multiple')return {outcome:'download_dialog_multiple'};
+  if(stage==='download_open_control')return {outcome:error.message==='missing_control'?'download_control_missing':error.message==='ambiguous_control'?'download_control_multiple':'download_dialog_inspection_failed'};
+  if(stage==='download_open_click')return {outcome:'download_open_failed'};
+  if(stage==='download_dialog_wait'&&error.message==='page_changed')return {outcome:'download_dialog_not_found'};
   // Fixed stage codes improve retry guidance without exposing DOM text,
   // raw exceptions, account data or supplier diagnostics.
   if(['ambiguous_control','page_changed'].includes(error.message)||!['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','csv_format_required','list_changed'].includes(error.message)){
-   const outcome={download_dialog:'download_dialog_unavailable',download_options:'download_options_unavailable',product_prices:'product_prices_unavailable',download_export:'download_export_unavailable'}[stage];
+   const outcome={download_dialog:'download_dialog_inspection_failed',download_dialog_wait:'download_dialog_inspection_failed',download_options:'download_options_unavailable',product_prices:'product_prices_unavailable',download_export:'download_export_unavailable'}[stage];
    if(outcome)return {outcome};
   }
   const safe=['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','ambiguous_control','page_changed','csv_format_required','list_changed'];

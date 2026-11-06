@@ -1,4 +1,6 @@
-# Companion 0.2.12 · Refresh prices
+# Companion 0.2.13 · Refresh prices
+
+This diagnostic release distinguishes a missing or multiple list-page Download control, failure clicking that control, a dialog recognition timeout, multiple matching dialogs, and a dialog inspection error. It retains exact list-title matching. It does not claim to fix the installed supplier failure. Only fixed outcome codes reach KERDOS; no DOM text or raw vendor errors are reported.
 
 The MOXē adapter also recognizes the published two-pane download modal by its exact selected-list title, including wrappers without their own layout box. Multiple matching dialogs still stop the export.
 

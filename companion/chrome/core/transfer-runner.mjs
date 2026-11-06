@@ -15,6 +15,12 @@ export function exportFailureMessage(outcome,{refresh=false}={}){
   case 'capture_unavailable':guidance='The companion could not capture this export. Keep the original download for review.';break;
   case 'unsupported_encoding':guidance='This export uses an unsupported text encoding. Keep the original file for review.';break;
   case 'invalid_csv':guidance='The captured file is not a supported CSV export. Check the vendor export format.';break;
+  case 'download_dialog_multiple':guidance='The companion found multiple matching download dialogs and stopped before exporting.';break;
+  case 'download_control_missing':guidance='The companion found no matching download dialog and no unique Download control on the list page.';break;
+  case 'download_control_multiple':guidance='The companion found no matching download dialog and multiple Download controls on the list page.';break;
+  case 'download_open_failed':guidance='The companion identified the list-page Download control, but opening it failed.';break;
+  case 'download_dialog_not_found':guidance='The companion clicked the list-page Download control, but no matching download dialog was recognized before the wait ended.';break;
+  case 'download_dialog_inspection_failed':guidance='The companion encountered an error while inspecting the download dialog.';break;
   case 'download_dialog_unavailable':guidance='The companion could not identify one download dialog for the selected list. Close extra download dialogs and reopen the selected list.';break;
   case 'download_options_unavailable':guidance='The companion could not identify Download Options in the selected list’s download dialog.';break;
   case 'product_prices_unavailable':guidance='The companion could not find or confirm Product Prices in the download options.';break;
