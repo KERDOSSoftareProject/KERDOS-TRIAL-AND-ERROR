@@ -13,7 +13,7 @@ const final=element('Download',()=>clicks.push('download'));
 const downloadOptions=element('Download Options',()=>{options=true;clicks.push('options');});
 const modal=element('Download Example List Select Format CSV',()=>{},{querySelectorAll:selector=>selector.includes('checkbox')?(options?[checkbox]:[]):[downloadOptions,final]});
 const initial=element('Download',()=>{shown=true;clicks.push('open');});
-const document={body:{innerText:'MY LIST EXAMPLE LIST'},querySelectorAll:selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[]:selector==='[data-cy="list-banner-list-name-text"]'?[element('Example List')]:selector==='ion-modal,[role="dialog"]'?(shown?[modal]:[]):selector.startsWith('input[')?[]:[account,initial]};
+const document={body:{innerText:'MY LIST EXAMPLE LIST'},querySelectorAll:selector=>['[data-cy="list-download-modal-dual-pane-modal-title"]','app-dual-pane-modal','h1,h2,h3,.title-bold'].includes(selector)?[]:selector==='[data-cy="list-banner-list-name-text"]'?[element('Example List')]:selector==='ion-modal,[role="dialog"]'?(shown?[modal]:[]):selector.startsWith('input[')?[]:[account,initial]};
 globalThis.document=document;globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists/view/dynamic-client-list'};
 const selection={account:'Sample Client',list:'Example List'};
 // Published two-pane title identifies its modal even without a wrapper box.
@@ -44,9 +44,19 @@ initial.click=()=>{throw Error('private vendor diagnostic');};
 assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_open_failed'});
 const actualNow=Date.now;let diagnosticClock=0;Date.now=()=>diagnosticClock+=5000;
 initial.click=()=>{clicks.push('open');};
-try{assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_not_found'});}finally{Date.now=actualNow;}
+try{assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_not_found',structure:{markers:0,visibleMarkers:0,exactMarkers:0,prefixMarkers:0,exactMarkersInContainer:0,containers:0,exactHeadings:0,headingsInContainer:0,legacyContainers:0,legacyTitleMatches:0,legacyAcceptedContainers:0}});}finally{Date.now=actualNow;}
+// Prefix matches never authorize the wrong list; legacy diagnostics mirror recognition.
+const diagnosticMarker=element('Download Example List Extended',()=>{},{closest:()=>null});
+const diagnosticLegacy=element('Download Example List Extended CSV',()=>{},{contains:node=>node===diagnosticMarker});
+document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[diagnosticMarker]:selector==='app-dual-pane-modal'?[dual]:selector==='h1,h2,h3,.title-bold'?[diagnosticMarker]:selector==='ion-modal,[role="dialog"]'?[diagnosticLegacy]:beforeDiagnostics(selector);
+Date.now=()=>diagnosticClock+=5000;
+try{const result=await exportSelectedMoxeList(selection);assert.equal(result.outcome,'download_dialog_not_found');assert.equal(result.structure.prefixMarkers,1);assert.equal(result.structure.exactMarkers,0);assert.equal(result.structure.legacyTitleMatches,1);assert.equal(result.structure.legacyAcceptedContainers,0);}finally{Date.now=actualNow;}
+diagnosticMarker.textContent='Download Example List';
+document.querySelectorAll=selector=>selector==='ion-modal,[role="dialog"]'?[]:selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[diagnosticMarker]:selector==='app-dual-pane-modal'?[dual]:selector==='h1,h2,h3,.title-bold'?[diagnosticMarker]:beforeDiagnostics(selector);
+Date.now=()=>diagnosticClock+=5000;
+try{const result=await exportSelectedMoxeList(selection);assert.equal(result.outcome,'download_dialog_not_found');assert.equal(result.structure.exactMarkers,1);assert.equal(result.structure.containers,1);assert.equal(result.structure.exactMarkersInContainer,0);}finally{Date.now=actualNow;}
 document.querySelectorAll=selector=>{if(selector==='[data-cy="list-download-modal-dual-pane-modal-title"]')throw Error('private vendor diagnostic');return beforeDiagnostics(selector);};
-assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_inspection_failed'});
+assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_inspection_failed',structure:null});
 document.querySelectorAll=beforeDiagnostics;initial.click=()=>{shown=true;clicks.push('open');};shown=false;options=false;checked=false;clicks=[];
 
 assert.deepEqual(await exportSelectedMoxeList({...selection,inspectOnly:true}),{outcome:'selection_verified',path:location.pathname});assert.deepEqual(clicks,[],'refresh discovery performs no export clicks');

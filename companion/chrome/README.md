@@ -1,4 +1,6 @@
-# Companion 0.2.13 · Refresh prices
+# Companion 0.2.14 · Refresh prices
+
+When dialog recognition, inspection or initial Download-control selection fails, a structural check reports eleven bounded counts: title markers, visible markers, exact title markers, expected containers, exact headings, headings inside expected containers, legacy containers, legacy title matches, title prefixes, exact markers inside expected containers and legacy containers accepted by the actual recognition rules. A title prefix is diagnostic only and never authorizes selecting a different list. It reads only these structural facts; it does not copy DOM text, HTML, attributes, credentials or raw exceptions. The host rejects unknown keys, non-integers, inconsistent counts and out-of-range values. This diagnoses the installed recognition failure; it does not claim to fix it.
 
 This diagnostic release distinguishes a missing or multiple list-page Download control, failure clicking that control, a dialog recognition timeout, multiple matching dialogs, and a dialog inspection error. It retains exact list-title matching. It does not claim to fix the installed supplier failure. Only fixed outcome codes reach KERDOS; no DOM text or raw vendor errors are reported.
 

@@ -26,6 +26,20 @@ export async function exportSelectedMoxeList(selection){
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
   if(leaves.length>1)throw new Error('download_dialog_multiple');return leaves[0]||null;
  };
+ // Counts only: no account/list text, attributes, HTML or raw exceptions.
+ const dialogStructure=()=>{
+  try{
+   const marker=[...document.querySelectorAll('[data-cy="list-download-modal-dual-pane-modal-title"]')];
+   const shown=marker.filter(visible),title=norm('Download '+selection.list);
+   const roots=[...document.querySelectorAll('app-dual-pane-modal')];
+   const exact=nodes('h1,h2,h3,.title-bold').filter(el=>norm(el.textContent)===title);
+   const legacy=nodes('ion-modal,[role="dialog"]');
+   const exactMarkers=shown.filter(el=>norm(el.textContent)===title);
+   const acceptedLegacy=legacy.filter(el=>{const own=shown.filter(heading=>el.contains(heading));return own.length?own.every(heading=>norm(heading.textContent)===title):norm(el.innerText||el.textContent).includes(title);});
+   const bounded=n=>Math.min(n,1000);
+   return {markers:bounded(marker.length),visibleMarkers:bounded(shown.length),exactMarkers:bounded(exactMarkers.length),prefixMarkers:bounded(shown.filter(el=>norm(el.textContent).startsWith(title)).length),exactMarkersInContainer:bounded(exactMarkers.filter(el=>!!el.closest('app-dual-pane-modal')).length),containers:bounded(roots.length),exactHeadings:bounded(exact.length),headingsInContainer:bounded(exact.filter(el=>!!el.closest('app-dual-pane-modal')).length),legacyContainers:bounded(legacy.length),legacyTitleMatches:bounded(legacy.filter(el=>norm(el.innerText||el.textContent).includes(title)).length),legacyAcceptedContainers:bounded(acceptedLegacy.length)};
+  }catch{return null;}
+ };
  const priceCheckbox=dialog=>{
   // Ionic renders its primary label inside the checkbox host. The parent
   // can contain other option labels; never match it by substring.
@@ -125,15 +139,15 @@ export async function exportSelectedMoxeList(selection){
   return {outcome:'download_requested'};
  }catch(error){
   // Report only fixed structural outcomes, never supplier text or exceptions.
-  if(error.message==='download_dialog_multiple')return {outcome:'download_dialog_multiple'};
-  if(stage==='download_open_control')return {outcome:error.message==='missing_control'?'download_control_missing':error.message==='ambiguous_control'?'download_control_multiple':'download_dialog_inspection_failed'};
+  if(error.message==='download_dialog_multiple')return {outcome:'download_dialog_multiple',structure:dialogStructure()};
+  if(stage==='download_open_control')return {outcome:error.message==='missing_control'?'download_control_missing':error.message==='ambiguous_control'?'download_control_multiple':'download_dialog_inspection_failed',structure:dialogStructure()};
   if(stage==='download_open_click')return {outcome:'download_open_failed'};
-  if(stage==='download_dialog_wait'&&error.message==='page_changed')return {outcome:'download_dialog_not_found'};
+  if(stage==='download_dialog_wait'&&error.message==='page_changed')return {outcome:'download_dialog_not_found',structure:dialogStructure()};
   // Fixed stage codes improve retry guidance without exposing DOM text,
   // raw exceptions, account data or supplier diagnostics.
   if(['ambiguous_control','page_changed'].includes(error.message)||!['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','csv_format_required','list_changed'].includes(error.message)){
    const outcome={download_dialog:'download_dialog_inspection_failed',download_dialog_wait:'download_dialog_inspection_failed',download_options:'download_options_unavailable',product_prices:'product_prices_unavailable',download_export:'download_export_unavailable'}[stage];
-   if(outcome)return {outcome};
+   if(outcome)return {outcome,...(outcome==='download_dialog_inspection_failed'?{structure:dialogStructure()}:{})};
   }
   const safe=['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','ambiguous_control','page_changed','csv_format_required','list_changed'];
   return {outcome:safe.includes(error.message)?error.message:'page_unavailable'};
