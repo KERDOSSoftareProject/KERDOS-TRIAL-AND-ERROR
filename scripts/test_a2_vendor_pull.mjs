@@ -248,5 +248,17 @@ try{
   }
   assert.equal(state.calls.applyQuote.length,3);
  });
+ await check('rejected HTTPS credentials and portal sign-in pause without a five-minute re-claim',async()=>{
+  await db.exec(readFileSync('supabase/migrations/20261106232400_vendor_pull_auth_pause.sql','utf8'));
+  for(const reason of ['credential_invalid','vendor_auth_rejected','portal_login_page']){
+   await db.query('UPDATE kerdos_private.vendor_price_sources SET is_active=true,next_pull_at=now() WHERE id=$1',[chainedSource]);
+   const job=(await chain.claim(chainedSource))[0];assert.ok(job);
+   assert.equal(await chain.finish(job,'failed',reason,null),true);
+   const row=(await db.query('SELECT is_active,last_reason,content_revision FROM kerdos_private.vendor_price_sources WHERE id=$1',[chainedSource])).rows[0];
+   assert.equal(row.is_active,false);assert.equal(row.last_reason,reason);assert.equal(row.content_revision,3);
+   assert.deepEqual(await chain.claim(chainedSource),[]);
+  }
+  assert.equal(state.calls.applyQuote.length,3);
+ });
  console.log(`${passed}/${passed} A2 executed adapter/SQL/importer checks passed. HTTP/storage/catalog writes and Vault are simulated locally; no hosted or live vendor acceptance is implied.`);
 }finally{await db.close();}
