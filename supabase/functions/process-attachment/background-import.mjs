@@ -23,6 +23,8 @@
 import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
 import { createImportService } from "../../../src/services/imports.js";
 import { createCatalogService } from "../../../src/services/catalog.js";
+import {createSourceRowSnapshot,verifyResumeRows} from '../../../src/core/import-resume.js';
+import {requireItemDescription} from '../../../src/core/field-validation.js';
 import { importPriceRow } from "../../../src/core/import-price-row.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
@@ -279,6 +281,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   }
 
   let documentId;
+  if(existingDoc?.source_rows)verifyResumeRows(groups.flatMap(group=>group.rows),existingDoc.completed_keys||[],[],existingDoc.source_rows);
   if (existingDoc) {
     documentId = existingDoc.id;
   } else {
@@ -290,6 +293,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       file_name:        filename,
       file_path:        storagePath,
       original_text:    rawText,
+      source_rows:      createSourceRowSnapshot(groups.flatMap(group=>group.rows)),
       status:           "processing",
     });
     documentId = newDoc.id;
@@ -346,6 +350,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // Skip only saved rows. Reassess unresolved rows: new trusted evidence can
       // resolve them, and an unresolved row must never become a permanent skip.
       if (completedRows.has(completedKey)) continue;
+      // A missing B4 anchor is an unsaved source observation, not a failed
+      // database operation. Retain its row key and continue the other rows.
+      try{requireItemDescription(sourceRow);}catch(error){
+        heldKeys.push(completedKey);heldRows.push({key:completedKey,reasons:[error.message]});continue;
+      }
 
       // Find existing vendor item for this row's code.
       const ex = workingVendorItems.find(
