@@ -176,7 +176,10 @@ try{
  await vendorPage.locator('[data-cy="list-banner-list-name-text"]').evaluate(el=>{el.textContent='Other List';});
  await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>window.refreshResult?.outcome==='source_list_unverified');assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);assert.equal(await appPage.evaluate(()=>window.received.length),0);
  await vendorPage.locator('[data-cy="list-banner-list-name-text"]').evaluate(el=>{el.textContent='Example List';});
- await appPage.bringToFront();assert.equal(await vendorPage.evaluate(()=>document.hidden),true,'app command begins with vendor hidden');
+ // Playwright normally forces every renderer to appear focused. Disable that
+ // test-only override so background visibility and animation frames are real.
+ const visibilitySession=await context.newCDPSession(vendorPage);await visibilitySession.send('Emulation.setFocusEmulationEnabled',{enabled:false});
+ await appPage.bringToFront();await vendorPage.waitForFunction(()=>document.hidden,null,{polling:100});
  await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
  await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),1);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.received[0])).text,csv);
  // Leave the actual dialog and checked prices option open. A fresh user
