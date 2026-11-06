@@ -199,7 +199,27 @@ try{
  // fulfill the same saved URL with the synthetic response, never a real site.
  await vendorPage.goto(vendorUrl);await vendorPage.waitForFunction(()=>typeof window.finishExport==='function',null,{polling:100,timeout:25000}).catch(async error=>{throw Error('Reopen check: '+JSON.stringify({url:vendorPage.url(),page:await vendorPage.evaluate(()=>({state:document.readyState,exports:window.exportCount,ready:typeof window.finishExport})),result:await appPage.evaluate(()=>window.refreshResult),status:await worker.evaluate(()=>globalThis.chrome.storage.session.get('transferStatus'))})+' '+error.message);});await vendorPage.evaluate(()=>window.finishExport());await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),3);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);
  await vendorPage.close();vendorRequiresVerification=true;const loginPromise=context.waitForEvent('page');await appPage.locator('#refresh-prices').click();const login=await loginPromise;await login.goto(vendorUrl);await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'verification_needed');assert.equal(await appPage.evaluate(()=>window.received.length),3);await login.close();vendorRequiresVerification=false;
- assert.equal(await worker.evaluate(origins=>globalThis.chrome.permissions.remove({origins}),[vendorOrigin+'/*']),true);await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal(await appPage.evaluate(()=>window.received.length),3);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'permission_required');
+ // Model completed supplier sign-in by restoring the synthetic selected list.
+ // The browser session changing alone must not resume the paused export.
+ const beforeRecovery=await appPage.evaluate(()=>window.received);
+ vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
+ assert.deepEqual(await appPage.evaluate(()=>window.received),beforeRecovery);assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);
+ assert.equal((await worker.evaluate(()=>globalThis.chrome.storage.session.get('transferStatus'))).transferStatus.busy,false);
+ await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
+ await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),4);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.received[3])).text,csv);
+ const beforeRevocation=await appPage.evaluate(()=>window.received);
+ assert.equal(await worker.evaluate(origins=>globalThis.chrome.permissions.remove({origins}),[vendorOrigin+'/*']),true);await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);
+ assert.deepEqual(await appPage.evaluate(()=>window.received),beforeRevocation);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'permission_required');
+ // Restore only the already-declared host grant in this disposable profile.
+ // No supplier content or real credential is involved, and granting does not retry.
+ const restoreAccess=await context.newPage();await restoreAccess.goto('chrome://extensions/');
+ await restoreAccess.evaluate(async({extensionId,host})=>{await globalThis.chrome.developerPrivate.addHostPermission(extensionId,host);},{extensionId,host:vendorOrigin+'/*'});await restoreAccess.close();
+ assert.deepEqual(await appPage.evaluate(()=>window.received),beforeRevocation);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);
+ await vendorPage.evaluate(value=>{window.csv=value;window.finishExport=undefined;},changedCsv);
+ await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
+ await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),5);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal((await appPage.evaluate(()=>window.received[4])).text,changedCsv);
+ assert.deepEqual(await appPage.evaluate(()=>window.received.slice(0,4)),beforeRevocation,'new explicit retrieval preserves all prior received artifacts');
+ console.log('PASS native lifecycle recovery: verification and permission stops preserve prior artifacts; restored synthetic sign-in or declared host access never auto-resumes; a fresh explicit app refresh captures once and preserves changed source bytes. No real supplier session or database acceptance is implied.');
  console.log('PASS native Refresh prices: scoped optional-access denial/grant/revocation, actual app channel -> worker -> automatic pairing/claim/export/delivery, no popup clicks, duplicate-tab refusal, saved-route reopening and sign-in pause. Synthetic profile and vendor pages only.');
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');
  console.log('PASS native extension: closed receiver blocks supplier export; production manifest remains narrow. Optional grants above are explicit native test-profile fixtures; actual human permission approval/activeTab gesture, supplier authentication, installed-user acceptance, database saves and original storage checks remain open.');
