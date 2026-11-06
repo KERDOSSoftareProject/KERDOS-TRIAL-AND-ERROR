@@ -1,4 +1,8 @@
-# Companion 0.2.15 · Refresh prices
+# Companion 0.2.16 · Refresh prices
+
+A fresh app command reopens a previously verified, client/vendor/account/list-scoped saved route in the foreground before checking its visible account header. Bringing a tab forward is navigation only: account/list proof and the one-use export claim remain mandatory. Wrong accounts, wrong lists and verification pages still stop without exporting or replacing the saved route. The controlled regression models account rendering dependent on native tab selection; it does not establish the cause of any particular supplier sign-in behavior.
+
+## Foreground export — 0.2.15
 
 User-started exports activate only their verified vendor tab after KERDOS accepts the one-use claim. This allows foreground-dependent portal rendering without relaxing any account, list or dialog checks. If that source began in the background, the companion returns to its approved KERDOS receiver only when the source is still selected, its URL is unchanged, and both tabs are in the same window. It preserves an intervening user tab choice or navigation and does not move a manual popup export away from its initially active vendor tab. The eleven-count structural report remains available if recognition fails. This addresses a reproduced rendering condition; live supplier acceptance remains unverified.
 
