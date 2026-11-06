@@ -29,7 +29,7 @@ try{
 
  const unexpected=[];
  const source=await readFile('src/services/companion-handoff.js','utf8');
- const refreshSource=await readFile('src/services/companion-refresh.js','utf8');let vendorRequiresVerification=false;
+ const refreshSource=await readFile('src/services/companion-refresh.js','utf8');let vendorRequiresVerification=false,vendorNeedsForegroundAccount=false;
  const app=`<!doctype html><meta charset="utf-8"><title>Synthetic KERDOS receiver</title><script type="module">
  import {createCompanionHandoff} from '/handoff.mjs';import {createCompanionRefreshClient} from '/refresh.mjs';
  window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();window.refreshClient=createCompanionRefreshClient(window);window.startRefresh=async()=>{window.prepare();window.refreshResult=null;window.refreshResult=await window.refreshClient.refresh(window.handoff.nonce);};
@@ -42,7 +42,14 @@ try{
   const url=new URL(route.request().url());
   if(url.protocol==='chrome-extension:')return route.continue();
   if(url.origin===appOrigin)return route.fulfill({contentType:['/handoff.mjs','/refresh.mjs'].includes(url.pathname)?'text/javascript':'text/html',body:url.pathname==='/handoff.mjs'?source:url.pathname==='/refresh.mjs'?refreshSource:app});
-  if(url.origin===vendorOrigin)return route.fulfill({contentType:'text/html',body:vendorRequiresVerification?'<input type="password"><p>Sign in directly</p>':vendor});
+  if(url.origin===vendorOrigin){
+   let body=vendorRequiresVerification?'<input type="password"><p>Sign in directly</p>':vendor;
+   // Model a newly reopened page whose account header renders only after its
+   // native tab is selected. This is a controlled rendering dependency, not a
+   // claim about the supplier's framework or production focus throttling.
+   if(vendorNeedsForegroundAccount&&!vendorRequiresVerification)body=body.replace('<button>Sample Client','<button id="account" hidden>Sample Client').replace('<script>window.openDialog=', '<script>(async()=>{while(!await window.__fixtureSourceSelected())await new Promise(resolve=>setTimeout(resolve,50));document.getElementById("account").hidden=false;})();window.openDialog=');
+   return route.fulfill({contentType:'text/html',body});
+  }
   unexpected.push(url.origin);await route.abort();
  });
  let worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
@@ -193,11 +200,14 @@ try{
  await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),2);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal((await appPage.evaluate(()=>window.received[1])).text,csv);
  console.log('PASS native Refresh prices: a new explicit refresh reuses the open matching dialog and already checked Product Prices, exports once and delivers once.');
  const duplicate=await context.newPage();await duplicate.goto(vendorUrl);await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'ambiguous_source');assert.equal(await duplicate.evaluate(()=>window.exportCount),0);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);await duplicate.close();await vendorPage.close();
+ vendorNeedsForegroundAccount=true;
  const reopenedPromise=context.waitForEvent('page');await appPage.locator('#refresh-prices').click();vendorPage=await reopenedPromise;
  // Chrome can begin an extension-created navigation before Playwright attaches
  // its route interception. DNS is blocked for this profile; once attached,
  // fulfill the same saved URL with the synthetic response, never a real site.
  await vendorPage.goto(vendorUrl);await vendorPage.waitForFunction(()=>typeof window.finishExport==='function',null,{polling:100,timeout:25000}).catch(async error=>{throw Error('Reopen check: '+JSON.stringify({url:vendorPage.url(),page:await vendorPage.evaluate(()=>({state:document.readyState,exports:window.exportCount,ready:typeof window.finishExport})),result:await appPage.evaluate(()=>window.refreshResult),status:await worker.evaluate(()=>globalThis.chrome.storage.session.get('transferStatus'))})+' '+error.message);});await vendorPage.evaluate(()=>window.finishExport());await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),3);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);
+ console.log('PASS native saved-route reopen: account header gated on actual Chrome tab selection verifies before one export; no account/list guard bypass.');
+ vendorNeedsForegroundAccount=false;
  await vendorPage.close();vendorRequiresVerification=true;const loginPromise=context.waitForEvent('page');await appPage.locator('#refresh-prices').click();const login=await loginPromise;await login.goto(vendorUrl);await appPage.waitForFunction(()=>!!window.refreshResult);assert.equal((await appPage.evaluate(()=>window.refreshResult)).outcome,'verification_needed');assert.equal(await appPage.evaluate(()=>window.received.length),3);await login.close();vendorRequiresVerification=false;
  // Model completed supplier sign-in by restoring the synthetic selected list.
  // The browser session changing alone must not resume the paused export.

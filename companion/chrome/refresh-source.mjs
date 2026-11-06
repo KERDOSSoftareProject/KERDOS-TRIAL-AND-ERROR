@@ -40,7 +40,10 @@ export function createRefreshSourceResolver(api,providers,{now=Date.now,pause=ms
   }
   // A previously verified route can be reopened without reselecting its list.
   // A redirect, expired session or changed account is never repaired by guessing.
-  const opened=await api.tabs.create({url:provider.origin+stored,active:false});
+  // This explicit app command may reopen only a previously verified scoped
+  // route. Let the supplier render its account header before inspection;
+  // foregrounding is not identity proof and does not authorize an export.
+  const opened=await api.tabs.create({url:provider.origin+stored,active:true});
   const until=Math.min(now()+20000,pairing.expiresAt);let lastFailure;
   do{
    const tab=await api.tabs.get(opened.id),proof=await inspect(tab);

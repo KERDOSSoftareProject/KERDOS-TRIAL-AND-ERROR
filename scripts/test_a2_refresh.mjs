@@ -40,8 +40,23 @@ const pairing={...ticket,receiverId:1};const scope='refresh-route:'+JSON.stringi
  const b=browser({tabs:[{id:2,url:'https://vendor.example/lists/one'},{id:4,url:'https://vendor.example/lists/one'}],proofs:{2:{outcome:'selection_verified',path:'/lists/one'},4:{outcome:'selection_verified',path:'/lists/one'}}});assert.equal((await b.resolve(pairing)).outcome,'ambiguous_source');assert.ok(!b.events.some(e=>e[0]==='save-route'));
 }
 {
- const b=browser({tabs:[],stored:{[scope]:'/lists/one'}});assert.deepEqual(await b.resolve(pairing),{outcome:'ready',targetId:3});assert.deepEqual(b.events[0],['open',{url:'https://vendor.example/lists/one',active:false}]);
+ const b=browser({tabs:[],stored:{[scope]:'/lists/one'}});assert.deepEqual(await b.resolve(pairing),{outcome:'ready',targetId:3});assert.deepEqual(b.events[0],['open',{url:'https://vendor.example/lists/one',active:true}]);
  const other=browser({tabs:[],stored:{[scope]:'/lists/one'}});assert.equal((await other.resolve({...pairing,organizationId:'other-org'})).outcome,'source_selection_required');assert.deepEqual(other.events[0],['open',{url:'https://vendor.example',active:true}],'another client cannot reuse a saved list route');
+}
+// A reopened portal may defer its account header until its tab is selected.
+// Discovery must allow rendering before inspection, never bypass identity proof.
+{
+ const b=browser({tabs:[],stored:{[scope]:'/lists/one'}});let selected=false,clock=0;
+ b.api.tabs.create=async args=>{selected=args.active;return {id:3,url:args.url};};
+ b.api.scripting.executeScript=async args=>{assert.equal(args.args[0].inspectOnly,true);return [{result:selected?{outcome:'selection_verified',path:'/lists/one'}:{outcome:'account_mismatch'}}];};
+ const resolve=createRefreshSourceResolver(b.api,[provider],{now:()=>clock,pause:async ms=>{clock+=ms;}});
+ assert.deepEqual(await resolve({...pairing,expiresAt:20000}),{outcome:'ready',targetId:3},'saved-route discovery can render its account header before verification');
+}
+for(const [failure,outcome] of [['account_mismatch','source_account_unverified'],['list_mismatch','source_list_unverified'],['verification_needed','verification_needed']]){
+ const b=browser({tabs:[],stored:{[scope]:'/lists/one'},openedProof:{outcome:failure}});let clock=0;
+ const resolve=createRefreshSourceResolver(b.api,[provider],{now:()=>clock,pause:async ms=>{clock+=ms;}});
+ assert.deepEqual(await resolve({...pairing,expiresAt:20000}),{outcome},'foreground rendering never bypasses saved account/list or verification checks');
+ assert.ok(!b.events.some(e=>e[0]==='save-route'),'failed reopened page cannot replace the verified route');
 }
 {
  const secondScope='refresh-route:'+JSON.stringify(['other-org','vendor','example','Other Account','Other List']);
