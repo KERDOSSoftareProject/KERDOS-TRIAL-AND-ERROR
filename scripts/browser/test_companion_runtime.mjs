@@ -37,7 +37,7 @@ try{
  const vendor=`<!doctype html><meta charset="utf-8"><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
  <button id="open" onclick="window.openDialog()">Download</button>
  <style>#dialog[hidden]{display:none}#dialog:not([hidden]),app-dual-pane-modal{display:contents}</style><ion-modal id="dialog" hidden><app-dual-pane-modal><div data-cy="list-download-modal-dual-pane-modal-title">Download Example List</div><p>Select Format CSV</p><div onclick="document.getElementById('prices').hidden=false"><span>Download Options</span></div><div id="prices" hidden><ion-checkbox><div class="checkbox-content"><div class="label">Product Prices</div><div class="sublabel">Include quoted prices</div></div></ion-checkbox><ion-checkbox><div class="checkbox-content"><div class="label">Product Notes</div></div></ion-checkbox></div><button id="download">Download</button></app-dual-pane-modal></ion-modal>
- <script>window.openDialog=()=>{const show=()=>requestAnimationFrame(()=>{document.getElementById('dialog').hidden=false;});if(!document.hidden)show();else{const visible=()=>{if(!document.hidden){document.removeEventListener('visibilitychange',visible);show();}};document.addEventListener('visibilitychange',visible);}};customElements.define('ion-checkbox',class extends HTMLElement{get checked(){return this.getAttribute('aria-checked')==='true';}set checked(value){this.setAttribute('aria-checked',String(value));}connectedCallback(){this.style.display='block';this.addEventListener('click',()=>{const next=this.cloneNode(true);next.checked=!this.checked;this.replaceWith(next);});}});window.csv=${JSON.stringify(csv)};window.exportCount=0;document.getElementById('download').onclick=()=>{window.exportCount++;window.finishExport=()=>{const url=URL.createObjectURL(new Blob([window.csv],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='Example List.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};};</script>`;
+ <script>window.openDialog=async()=>{while(!await window.__fixtureSourceSelected())await new Promise(resolve=>setTimeout(resolve,50));requestAnimationFrame(()=>{document.getElementById('dialog').hidden=false;});};customElements.define('ion-checkbox',class extends HTMLElement{get checked(){return this.getAttribute('aria-checked')==='true';}set checked(value){this.setAttribute('aria-checked',String(value));}connectedCallback(){this.style.display='block';this.addEventListener('click',()=>{const next=this.cloneNode(true);next.checked=!this.checked;this.replaceWith(next);});}});window.csv=${JSON.stringify(csv)};window.exportCount=0;document.getElementById('download').onclick=()=>{window.exportCount++;window.finishExport=()=>{const url=URL.createObjectURL(new Blob([window.csv],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='Example List.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};};</script>`;
  await context.route('**/*',async route=>{
   const url=new URL(route.request().url());
   if(url.protocol==='chrome-extension:')return route.continue();
@@ -49,6 +49,10 @@ try{
  const extensionId=new URL(worker.url()).host;
  const granted=await worker.evaluate(()=>globalThis.chrome.permissions.getAll());assert.ok((granted.origins||[]).every(origin=>origin.startsWith(appOrigin+'/')),'no vendor access before explicit optional grant');assert.deepEqual([...granted.permissions].sort(),['activeTab','scripting','storage'].sort());
  await worker.evaluate(()=>{globalThis.__runtimeCommands=[];globalThis.chrome.runtime.onMessage.addListener((m,s)=>{globalThis.__runtimeCommands.push({action:m?.action,url:s.url,hasTab:!!s.tab});});});
+ // Playwright forces renderer focus for its pages. Use actual native Chrome
+ // tab selection as the synthetic rendering gate, then an animation frame;
+ // this does not claim to test production visibility throttling itself.
+ await context.exposeBinding('__fixtureSourceSelected',async({page})=>worker.evaluate(async url=>{const tabs=await globalThis.chrome.tabs.query({url});return tabs.length===1&&tabs[0].active;},page.url()));
  let appPage=await context.newPage();await appPage.goto(appUrl);await appPage.waitForFunction(()=>!!window.handoff);
  let vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
  async function popup(target){
@@ -176,10 +180,10 @@ try{
  await vendorPage.locator('[data-cy="list-banner-list-name-text"]').evaluate(el=>{el.textContent='Other List';});
  await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>window.refreshResult?.outcome==='source_list_unverified');assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);assert.equal(await appPage.evaluate(()=>window.received.length),0);
  await vendorPage.locator('[data-cy="list-banner-list-name-text"]').evaluate(el=>{el.textContent='Example List';});
- // Playwright normally forces every renderer to appear focused. Disable that
- // test-only override so background visibility and animation frames are real.
- const visibilitySession=await context.newCDPSession(vendorPage);await visibilitySession.send('Emulation.setFocusEmulationEnabled',{enabled:false});
- await appPage.bringToFront();await vendorPage.waitForFunction(()=>document.hidden,null,{polling:100});
+ // Start with the real Chrome source tab unselected, independently of
+ // Playwright's renderer-focus emulation. Only host activation opens the gate.
+ await appPage.bringToFront();
+ assert.equal(await worker.evaluate(async({appUrl,vendorUrl})=>{const app=(await globalThis.chrome.tabs.query({url:appUrl}))[0];await globalThis.chrome.tabs.update(app.id,{active:true});return !(await globalThis.chrome.tabs.query({url:vendorUrl}))[0].active;},{appUrl,vendorUrl}),true,'app command begins with the native source tab unselected');
  await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
  await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),1);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.received[0])).text,csv);
  // Leave the actual dialog and checked prices option open. A fresh user
