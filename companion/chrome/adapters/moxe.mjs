@@ -26,6 +26,18 @@ export async function exportSelectedMoxeList(selection){
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
   if(leaves.length>1)throw new Error('download_dialog_multiple');return leaves[0]||null;
  };
+ // Counts only: no account/list text, attributes, HTML or raw exceptions.
+ const dialogStructure=()=>{
+  try{
+   const marker=[...document.querySelectorAll('[data-cy="list-download-modal-dual-pane-modal-title"]')];
+   const shown=marker.filter(visible),title=norm('Download '+selection.list);
+   const roots=[...document.querySelectorAll('app-dual-pane-modal')];
+   const exact=nodes('h1,h2,h3,.title-bold').filter(el=>norm(el.textContent)===title);
+   const legacy=nodes('ion-modal,[role="dialog"]');
+   const bounded=n=>Math.min(n,1000);
+   return {markers:bounded(marker.length),visibleMarkers:bounded(shown.length),exactMarkers:bounded(shown.filter(el=>norm(el.textContent)===title).length),containers:bounded(roots.length),exactHeadings:bounded(exact.length),headingsInContainer:bounded(exact.filter(el=>!!el.closest('app-dual-pane-modal')).length),legacyContainers:bounded(legacy.length),legacyTitleMatches:bounded(legacy.filter(el=>norm(el.innerText||el.textContent).includes(title)).length)};
+  }catch{return null;}
+ };
  const priceCheckbox=dialog=>{
   // Ionic renders its primary label inside the checkbox host. The parent
   // can contain other option labels; never match it by substring.
@@ -128,7 +140,7 @@ export async function exportSelectedMoxeList(selection){
   if(error.message==='download_dialog_multiple')return {outcome:'download_dialog_multiple'};
   if(stage==='download_open_control')return {outcome:error.message==='missing_control'?'download_control_missing':error.message==='ambiguous_control'?'download_control_multiple':'download_dialog_inspection_failed'};
   if(stage==='download_open_click')return {outcome:'download_open_failed'};
-  if(stage==='download_dialog_wait'&&error.message==='page_changed')return {outcome:'download_dialog_not_found'};
+  if(stage==='download_dialog_wait'&&error.message==='page_changed')return {outcome:'download_dialog_not_found',structure:dialogStructure()};
   // Fixed stage codes improve retry guidance without exposing DOM text,
   // raw exceptions, account data or supplier diagnostics.
   if(['ambiguous_control','page_changed'].includes(error.message)||!['wrong_origin','open_selected_list','selection_required','account_mismatch','list_mismatch','verification_needed','csv_format_required','list_changed'].includes(error.message)){
