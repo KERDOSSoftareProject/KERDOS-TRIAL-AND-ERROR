@@ -6,13 +6,22 @@ export async function exportSelectedMoxeList(selection){
  const visible=el=>el.getClientRects().length>0;
  const nodes=(selector,root=document)=>[...root.querySelectorAll(selector)].filter(visible);
  const uniqueText=(value,root=document)=>{
-  const found=nodes('button,ion-button,ion-label,p,label,[role="button"]',root).filter(el=>norm(el.textContent)===norm(value));
+  const found=nodes('button,ion-button,ion-label,p,label,span,div,[role="button"]',root).filter(el=>norm(el.textContent)===norm(value));
   // Nested wrappers with the same text are equivalent only if one contains all.
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
   if(leaves.length!==1)throw new Error('ambiguous_control');return leaves[0];
  };
  const exportDialog=()=>{
-  const found=nodes('ion-modal,[role="dialog"]').filter(el=>norm(el.innerText||el.textContent).includes(norm('Download '+selection.list)));
+  const title=norm('Download '+selection.list);
+  // The published two-pane view has its own title/container contract. Its
+  // wrapper can have no layout box while its title and controls are visible.
+  const headings=nodes('[data-cy="list-download-modal-dual-pane-modal-title"]');
+  const modern=headings.filter(el=>norm(el.textContent)===title).map(el=>el.closest('app-dual-pane-modal')).filter(Boolean);
+  const legacy=nodes('ion-modal,[role="dialog"]').filter(el=>{
+   const own=headings.filter(heading=>el.contains(heading));
+   return own.length?own.every(heading=>norm(heading.textContent)===title):norm(el.innerText||el.textContent).includes(title);
+  });
+  const found=[...new Set([...modern,...legacy])];
   // ion-modal and its role=dialog child can describe the same dialog.
   const leaves=found.filter(el=>!found.some(other=>other!==el&&el.contains(other)));
   if(leaves.length>1)throw new Error('ambiguous_control');return leaves[0]||null;

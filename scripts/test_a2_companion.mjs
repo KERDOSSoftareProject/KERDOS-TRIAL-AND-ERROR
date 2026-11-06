@@ -13,9 +13,26 @@ const final=element('Download',()=>clicks.push('download'));
 const downloadOptions=element('Download Options',()=>{options=true;clicks.push('options');});
 const modal=element('Download Example List Select Format CSV',()=>{},{querySelectorAll:selector=>selector.includes('checkbox')?(options?[checkbox]:[]):[downloadOptions,final]});
 const initial=element('Download',()=>{shown=true;clicks.push('open');});
-const document={body:{innerText:'MY LIST EXAMPLE LIST'},querySelectorAll:selector=>selector==='[data-cy="list-banner-list-name-text"]'?[element('Example List')]:selector==='ion-modal,[role="dialog"]'?(shown?[modal]:[]):selector.startsWith('input[')?[]:[account,initial]};
+const document={body:{innerText:'MY LIST EXAMPLE LIST'},querySelectorAll:selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[]:selector==='[data-cy="list-banner-list-name-text"]'?[element('Example List')]:selector==='ion-modal,[role="dialog"]'?(shown?[modal]:[]):selector.startsWith('input[')?[]:[account,initial]};
 globalThis.document=document;globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists/view/dynamic-client-list'};
 const selection={account:'Sample Client',list:'Example List'};
+// Published two-pane title identifies its modal even without a wrapper box.
+const legacyQuery=document.querySelectorAll;
+const dual=element('Download Example List Select Format CSV',()=>{},{getClientRects:()=>[],querySelectorAll:modal.querySelectorAll});
+const heading=element('Download Example List',()=>{},{closest:selector=>selector==='app-dual-pane-modal'?dual:null});
+document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[heading]:selector==='ion-modal,[role="dialog"]'?[]:legacyQuery(selector);
+shown=true;options=true;checked=false;clicks=[];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested','visible exact two-pane title supports a boxless wrapper');assert.deepEqual(clicks,['check-prices','download']);
+const duplicate=element('Download Example List Select Format CSV',()=>{},{querySelectorAll:modal.querySelectorAll}),secondHeading=element('Download Example List',()=>{},{closest:()=>duplicate});
+document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[heading,secondHeading]:selector==='ion-modal,[role="dialog"]'?[]:legacyQuery(selector);clicks=[];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_unavailable');assert.deepEqual(clicks,[],'two distinct titled modals cannot export');
+const wrapper=element('Download Example List Select Format CSV',()=>{},{contains:node=>node===dual});
+document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[heading]:selector==='ion-modal,[role="dialog"]'?[wrapper]:legacyQuery(selector);clicks=[];checked=true;
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested');assert.deepEqual(clicks,['download'],'nested legacy wrapper and modern content are one dialog');
+heading.textContent='Download Example List Extended';wrapper.textContent=wrapper.innerText='Download Example List Extended Select Format CSV';wrapper.contains=node=>node===heading||node===dual;initial.click=()=>{throw Error('no selected dialog');};clicks=[];
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_unavailable');assert.deepEqual(clicks,[],'a different title is not the selected modal');
+initial.click=()=>{shown=true;clicks.push('open');};document.querySelectorAll=legacyQuery;shown=false;options=false;checked=false;clicks=[];
+
 assert.deepEqual(await exportSelectedMoxeList({...selection,inspectOnly:true}),{outcome:'selection_verified',path:location.pathname});assert.deepEqual(clicks,[],'refresh discovery performs no export clicks');
 assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_requested'});assert.deepEqual(clicks,['open','options','check-prices','download']);
 clicks=[];shown=false;options=false;checked=false;
@@ -30,7 +47,7 @@ globalThis.location={origin:'https://order.usfoods.com',pathname:'/desktop/lists
 // A retry can begin with the matching export dialog still open. Both the
 // background page and modal Download controls retain client rectangles.
 const ordinaryQuery=document.querySelectorAll;
-document.querySelectorAll=selector=>selector==='button,ion-button,ion-label,p,label,[role="button"]'&&shown?[account,initial,downloadOptions,final]:ordinaryQuery(selector);
+document.querySelectorAll=selector=>selector==='button,ion-button,ion-label,p,label,span,div,[role="button"]'&&shown?[account,initial,downloadOptions,final]:ordinaryQuery(selector);
 shown=true;options=false;checked=false;clicks=[];
 assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested','reuse one verified open dialog instead of treating its Download button as a duplicate page control');
 assert.deepEqual(clicks,['options','check-prices','download'],'retry does not reopen the existing dialog');
