@@ -825,6 +825,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       await onDone();assertActive();
       if(cleanFinish&&automaticImport)onFinished?.({message:(unchangedDocuments===parsedGroups.length?`Pricing already up to date for ${vendor?.name||'vendor'} — no duplicate rows saved.`:`Pricing received automatically — ${allRows.length} rows retained for ${vendor?.name||'vendor'}${basisReview?`; ${basisReview} flagged in Item Catalog`:''}`)+(verifiedOriginals===parsedGroups.length?' Stored original verified.':''),importDocumentId:lastSourceDocumentId||null});
       else if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
+      else if(automaticImport&&companionEvidence?.attempt_token&&lastSourceDocumentId)onIssue?.({message:`Pricing received with details to review for ${vendor?.name||'vendor'}. ${saveError||''}`.trim(),status:'needs_attention',importDocumentId:lastSourceDocumentId});
     }catch(error){
       setResult(previous=>({...previous,error:[previous.error,`Saved, but the catalog could not refresh: ${error.message||String(error)}. Reload the app to see the saved items.`].filter(Boolean).join(" ")}));
       setStep(3);

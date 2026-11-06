@@ -342,6 +342,13 @@ await check('automatic stored-original read failure retains a partial source and
  const failed=await autoOpen();await automaticResult(failed);assert.equal(failed.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.match(text(failed.tree.toJSON()),/Original download denied/);failed.tree.unmount();
  f.backend.documents.download=download;const retry=await autoOpen();await automaticResult(retry);assert.equal(retry.finished.length,1,text(retry.tree.toJSON()));assert.match(retry.finished[0].message,/Stored original verified/);assert.equal(f.calls.applyQuote.length,1);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);retry.tree.unmount();
 });
+await check('scheduled partial intake reports its actual retained document for receipt completion',async()=>{
+ const f=fixture();f.backend.documents.download=async()=>{throw Error('Synthetic original download denied');};
+ const p=await autoOpen(csv,{companionEvidence:{...autoProof,attempt_token:'synthetic-claim'}});await automaticResult(p);
+ const retained=Object.values(f.importDocs)[0];assert.equal(retained.status,'partial');
+ assert.equal(p.finished.length,0);assert.equal(p.issues.at(-1).importDocumentId,retained.id);
+ assert.equal(f.calls.applyQuote.length,0);p.tree.unmount();
+});
 await check('automatic corruption checks block new quotes and preserve completed pricing on same-size or truncated stored files',async()=>{
  const f=fixture(),upload=f.backend.documents.upload;f.backend.documents.upload=async(...args)=>{await upload(...args);f.uploads[0].bytes=csv.replace('41.25','99.25');};
  const first=await autoOpen();await automaticResult(first);assert.equal(first.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.match(text(first.tree.toJSON()),/SHA-256 differs/);first.tree.unmount();
@@ -360,7 +367,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/39 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/40 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

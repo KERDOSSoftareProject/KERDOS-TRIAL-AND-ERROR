@@ -67,6 +67,23 @@ export function createVendorConnectService(backend){
         if(error instanceof BackendError&&error.cause?.code==='40001')throw new Error('This schedule changed in another tab. Reload its settings before saving.');
         throw new Error('Could not save this refresh schedule. Check the connection and time zone, then try again.');}
     },
+    async claimSchedule(requestId){
+      if(!requestId||!backend.vendorConnect?.claimSchedule)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.claimSchedule(requestId);}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw error;}
+    },
+    async verifySchedule(token){
+      if(!token||!backend.vendorConnect?.verifySchedule)throw new VendorConnectUnavailable();
+      return backend.vendorConnect.verifySchedule(token);
+    },
+    async completeSchedule(token,documentId,sha256){
+      if(!token||!documentId||!sha256||!backend.vendorConnect?.completeSchedule)throw new VendorConnectUnavailable();
+      return backend.vendorConnect.completeSchedule(token,documentId,sha256);
+    },
+    async stopSchedule(token,outcome){
+      if(!token||!['failed','verification_needed'].includes(outcome)||!backend.vendorConnect?.stopSchedule)throw new VendorConnectUnavailable();
+      return backend.vendorConnect.stopSchedule(token,outcome);
+    },
     async cancel({organizationId,requestId}){
       if(!organizationId||!requestId)throw new Error('Select a connection setup request.');
       const rows=await run(backend.records.query('vendor_connection_requests').update({state:'cancelled'}).eq('organization_id',organizationId).eq('id',requestId).eq('state','setup_requested').select('id'));
