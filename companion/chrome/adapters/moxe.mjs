@@ -34,8 +34,10 @@ export async function exportSelectedMoxeList(selection){
    const roots=[...document.querySelectorAll('app-dual-pane-modal')];
    const exact=nodes('h1,h2,h3,.title-bold').filter(el=>norm(el.textContent)===title);
    const legacy=nodes('ion-modal,[role="dialog"]');
+   const exactMarkers=shown.filter(el=>norm(el.textContent)===title);
+   const acceptedLegacy=legacy.filter(el=>{const own=shown.filter(heading=>el.contains(heading));return own.length?own.every(heading=>norm(heading.textContent)===title):norm(el.innerText||el.textContent).includes(title);});
    const bounded=n=>Math.min(n,1000);
-   return {markers:bounded(marker.length),visibleMarkers:bounded(shown.length),exactMarkers:bounded(shown.filter(el=>norm(el.textContent)===title).length),containers:bounded(roots.length),exactHeadings:bounded(exact.length),headingsInContainer:bounded(exact.filter(el=>!!el.closest('app-dual-pane-modal')).length),legacyContainers:bounded(legacy.length),legacyTitleMatches:bounded(legacy.filter(el=>norm(el.innerText||el.textContent).includes(title)).length)};
+   return {markers:bounded(marker.length),visibleMarkers:bounded(shown.length),exactMarkers:bounded(exactMarkers.length),prefixMarkers:bounded(shown.filter(el=>norm(el.textContent).startsWith(title)).length),exactMarkersInContainer:bounded(exactMarkers.filter(el=>!!el.closest('app-dual-pane-modal')).length),containers:bounded(roots.length),exactHeadings:bounded(exact.length),headingsInContainer:bounded(exact.filter(el=>!!el.closest('app-dual-pane-modal')).length),legacyContainers:bounded(legacy.length),legacyTitleMatches:bounded(legacy.filter(el=>norm(el.innerText||el.textContent).includes(title)).length),legacyAcceptedContainers:bounded(acceptedLegacy.length)};
   }catch{return null;}
  };
  const priceCheckbox=dialog=>{

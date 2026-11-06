@@ -44,7 +44,17 @@ initial.click=()=>{throw Error('private vendor diagnostic');};
 assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_open_failed'});
 const actualNow=Date.now;let diagnosticClock=0;Date.now=()=>diagnosticClock+=5000;
 initial.click=()=>{clicks.push('open');};
-try{assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_not_found',structure:{markers:0,visibleMarkers:0,exactMarkers:0,containers:0,exactHeadings:0,headingsInContainer:0,legacyContainers:0,legacyTitleMatches:0}});}finally{Date.now=actualNow;}
+try{assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_not_found',structure:{markers:0,visibleMarkers:0,exactMarkers:0,prefixMarkers:0,exactMarkersInContainer:0,containers:0,exactHeadings:0,headingsInContainer:0,legacyContainers:0,legacyTitleMatches:0,legacyAcceptedContainers:0}});}finally{Date.now=actualNow;}
+// Prefix matches never authorize the wrong list; legacy diagnostics mirror recognition.
+const diagnosticMarker=element('Download Example List Extended',()=>{},{closest:()=>null});
+const diagnosticLegacy=element('Download Example List Extended CSV',()=>{},{contains:node=>node===diagnosticMarker});
+document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[diagnosticMarker]:selector==='app-dual-pane-modal'?[dual]:selector==='h1,h2,h3,.title-bold'?[diagnosticMarker]:selector==='ion-modal,[role="dialog"]'?[diagnosticLegacy]:beforeDiagnostics(selector);
+Date.now=()=>diagnosticClock+=5000;
+try{const result=await exportSelectedMoxeList(selection);assert.equal(result.outcome,'download_dialog_not_found');assert.equal(result.structure.prefixMarkers,1);assert.equal(result.structure.exactMarkers,0);assert.equal(result.structure.legacyTitleMatches,1);assert.equal(result.structure.legacyAcceptedContainers,0);}finally{Date.now=actualNow;}
+diagnosticMarker.textContent='Download Example List';
+document.querySelectorAll=selector=>selector==='ion-modal,[role="dialog"]'?[]:selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[diagnosticMarker]:selector==='app-dual-pane-modal'?[dual]:selector==='h1,h2,h3,.title-bold'?[diagnosticMarker]:beforeDiagnostics(selector);
+Date.now=()=>diagnosticClock+=5000;
+try{const result=await exportSelectedMoxeList(selection);assert.equal(result.outcome,'download_dialog_not_found');assert.equal(result.structure.exactMarkers,1);assert.equal(result.structure.containers,1);assert.equal(result.structure.exactMarkersInContainer,0);}finally{Date.now=actualNow;}
 document.querySelectorAll=selector=>{if(selector==='[data-cy="list-download-modal-dual-pane-modal-title"]')throw Error('private vendor diagnostic');return beforeDiagnostics(selector);};
 assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_inspection_failed',structure:null});
 document.querySelectorAll=beforeDiagnostics;initial.click=()=>{shown=true;clicks.push('open');};shown=false;options=false;checked=false;clicks=[];

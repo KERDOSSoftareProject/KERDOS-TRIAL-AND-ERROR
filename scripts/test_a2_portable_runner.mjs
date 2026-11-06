@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {createPortableTransferRunner,formatDialogStructure} from '../companion/chrome/core/transfer-runner.mjs';
-const structure={markers:2,visibleMarkers:1,exactMarkers:1,containers:1,exactHeadings:1,headingsInContainer:1,legacyContainers:0,legacyTitleMatches:0};
+const structure={markers:2,visibleMarkers:1,exactMarkers:1,prefixMarkers:1,exactMarkersInContainer:1,containers:1,exactHeadings:1,headingsInContainer:1,legacyContainers:0,legacyTitleMatches:0,legacyAcceptedContainers:0};
 assert.match(formatDialogStructure(structure),/title markers 2, visible 1, exact 1/);
-for(const invalid of [null,[],{...structure,private:'supplier text'},{...structure,markers:'2'},{...structure,markers:1001},{...structure,markers:-1},{...structure,markers:0},{...structure,legacyTitleMatches:1},{...structure,containers:1.5},Object.defineProperty({...structure},'markers',{get(){throw Error('private');}})])assert.equal(formatDialogStructure(invalid),'');
+for(const invalid of [null,[],{...structure,private:'supplier text'},{...structure,markers:'2'},{...structure,markers:1001},{...structure,markers:-1},{...structure,markers:0},{...structure,legacyTitleMatches:1},{...structure,containers:1.5},{...structure,prefixMarkers:0},{...structure,exactMarkersInContainer:2},{...structure,legacyAcceptedContainers:1},Object.defineProperty({...structure},'markers',{get(){throw Error('private');}})])assert.equal(formatDialogStructure(invalid),'');
 // Deliberately no browser, URLs, numeric tab IDs or supplier DOM in this host.
 function fixture(name,{ready=true,outcome='export_captured',expired=false,notices=true,noticeThrows=false,retrieveThrows=false,deliveryThrows=false,structureReport}={}){
  const log=[],state={};let retrievals=0,finish;

@@ -35,10 +35,10 @@ export function exportFailureMessage(outcome,{refresh=false}={}){
 // A finite numeric schema is the only adapter diagnostic accepted by the host.
 export function formatDialogStructure(value){
  try{
-  const keys=['markers','visibleMarkers','exactMarkers','containers','exactHeadings','headingsInContainer','legacyContainers','legacyTitleMatches'];
+  const keys=['markers','visibleMarkers','exactMarkers','prefixMarkers','exactMarkersInContainer','containers','exactHeadings','headingsInContainer','legacyContainers','legacyTitleMatches','legacyAcceptedContainers'];
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length||!keys.every(key=>Object.hasOwn(value,key)&&Number.isInteger(value[key])&&value[key]>=0&&value[key]<=1000))return '';
-  if(value.visibleMarkers>value.markers||value.exactMarkers>value.visibleMarkers||value.headingsInContainer>value.exactHeadings||value.legacyTitleMatches>value.legacyContainers)return '';
-  return ` Structure check: title markers ${value.markers}, visible ${value.visibleMarkers}, exact ${value.exactMarkers}; expected containers ${value.containers}; exact headings ${value.exactHeadings}, inside expected container ${value.headingsInContainer}; legacy containers ${value.legacyContainers}, title matches ${value.legacyTitleMatches}.`;
+  if(value.visibleMarkers>value.markers||value.exactMarkers>value.visibleMarkers||value.prefixMarkers<value.exactMarkers||value.prefixMarkers>value.visibleMarkers||value.exactMarkersInContainer>value.exactMarkers||value.legacyAcceptedContainers>value.legacyContainers||value.headingsInContainer>value.exactHeadings||value.legacyTitleMatches>value.legacyContainers)return '';
+  return ` Structure check: title markers ${value.markers}, visible ${value.visibleMarkers}, exact ${value.exactMarkers}, prefix ${value.prefixMarkers}, exact inside expected container ${value.exactMarkersInContainer}; expected containers ${value.containers}; exact headings ${value.exactHeadings}, inside expected container ${value.headingsInContainer}; legacy containers ${value.legacyContainers}, title matches ${value.legacyTitleMatches}, accepted by recognition rules ${value.legacyAcceptedContainers}.`;
  }catch{return '';}
 }
 export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>crypto.randomUUID()}={}){
