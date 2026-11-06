@@ -1,4 +1,6 @@
-# Companion 0.2.14 · Refresh prices
+# Companion 0.2.15 · Refresh prices
+
+User-started exports activate only their verified vendor tab after KERDOS accepts the one-use claim. This allows foreground-dependent portal rendering without relaxing any account, list or dialog checks. If that source began in the background, the companion returns to its approved KERDOS receiver only when the source is still selected, its URL is unchanged, and both tabs are in the same window. It preserves an intervening user tab choice or navigation and does not move a manual popup export away from its initially active vendor tab. The eleven-count structural report remains available if recognition fails. This addresses a reproduced rendering condition; live supplier acceptance remains unverified.
 
 When dialog recognition, inspection or initial Download-control selection fails, a structural check reports eleven bounded counts: title markers, visible markers, exact title markers, expected containers, exact headings, headings inside expected containers, legacy containers, legacy title matches, title prefixes, exact markers inside expected containers and legacy containers accepted by the actual recognition rules. A title prefix is diagnostic only and never authorizes selecting a different list. It reads only these structural facts; it does not copy DOM text, HTML, attributes, credentials or raw exceptions. The host rejects unknown keys, non-integers, inconsistent counts and out-of-range values. This diagnoses the installed recognition failure; it does not claim to fix it.
 
