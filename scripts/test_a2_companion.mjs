@@ -25,13 +25,29 @@ shown=true;options=true;checked=false;clicks=[];
 assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested','visible exact two-pane title supports a boxless wrapper');assert.deepEqual(clicks,['check-prices','download']);
 const duplicate=element('Download Example List Select Format CSV',()=>{},{querySelectorAll:modal.querySelectorAll}),secondHeading=element('Download Example List',()=>{},{closest:()=>duplicate});
 document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[heading,secondHeading]:selector==='ion-modal,[role="dialog"]'?[]:legacyQuery(selector);clicks=[];
-assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_unavailable');assert.deepEqual(clicks,[],'two distinct titled modals cannot export');
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_multiple');assert.deepEqual(clicks,[],'two distinct titled modals cannot export');
 const wrapper=element('Download Example List Select Format CSV',()=>{},{contains:node=>node===dual});
 document.querySelectorAll=selector=>selector==='[data-cy="list-download-modal-dual-pane-modal-title"]'?[heading]:selector==='ion-modal,[role="dialog"]'?[wrapper]:legacyQuery(selector);clicks=[];checked=true;
 assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_requested');assert.deepEqual(clicks,['download'],'nested legacy wrapper and modern content are one dialog');
 heading.textContent='Download Example List Extended';wrapper.textContent=wrapper.innerText='Download Example List Extended Select Format CSV';wrapper.contains=node=>node===heading||node===dual;initial.click=()=>{throw Error('no selected dialog');};clicks=[];
-assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_unavailable');assert.deepEqual(clicks,[],'a different title is not the selected modal');
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_open_failed');assert.deepEqual(clicks,[],'a different title is not the selected modal');
 initial.click=()=>{shown=true;clicks.push('open');};document.querySelectorAll=legacyQuery;shown=false;options=false;checked=false;clicks=[];
+
+// Fixed outcomes distinguish structure failures without exposing supplier text.
+const beforeDiagnostics=document.querySelectorAll,controlSelector='button,ion-button,ion-label,p,label,span,div,[role="button"]';
+document.querySelectorAll=selector=>selector===controlSelector?[account]:beforeDiagnostics(selector);
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_control_missing');
+document.querySelectorAll=selector=>selector===controlSelector?[account,initial,element('Download')]:beforeDiagnostics(selector);
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_control_multiple');
+document.querySelectorAll=beforeDiagnostics;
+initial.click=()=>{throw Error('private vendor diagnostic');};
+assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_open_failed'});
+const actualNow=Date.now;let diagnosticClock=0;Date.now=()=>diagnosticClock+=5000;
+initial.click=()=>{clicks.push('open');};
+try{assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_not_found'});}finally{Date.now=actualNow;}
+document.querySelectorAll=selector=>{if(selector==='[data-cy="list-download-modal-dual-pane-modal-title"]')throw Error('private vendor diagnostic');return beforeDiagnostics(selector);};
+assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_inspection_failed'});
+document.querySelectorAll=beforeDiagnostics;initial.click=()=>{shown=true;clicks.push('open');};shown=false;options=false;checked=false;clicks=[];
 
 assert.deepEqual(await exportSelectedMoxeList({...selection,inspectOnly:true}),{outcome:'selection_verified',path:location.pathname});assert.deepEqual(clicks,[],'refresh discovery performs no export clicks');
 assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_requested'});assert.deepEqual(clicks,['open','options','check-prices','download']);
@@ -98,7 +114,7 @@ assert.deepEqual(clicks,[],'ambiguous pricing options never starts the final dow
 modal.querySelectorAll=ordinaryModalQuery;
 const retryQuery=document.querySelectorAll;
 document.querySelectorAll=selector=>selector==='ion-modal,[role="dialog"]'?[modal,element(modal.textContent)]:retryQuery(selector);
-assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_unavailable');
+assert.equal((await exportSelectedMoxeList(selection)).outcome,'download_dialog_multiple');
 assert.deepEqual(clicks,[],'two matching dialogs stop before all export controls');
 document.querySelectorAll=ordinaryQuery;
 shown=false;options=false;checked=false;
