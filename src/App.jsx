@@ -34,6 +34,7 @@ import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
 import TabHeading from "./ui/TabHeading.jsx";
 import {pageName} from "./ui/workspace-pages.js";
 import VendorConnectPage from "./pages/VendorConnectPage.jsx";
+import {settleScheduledImport} from "./services/scheduled-refresh-result.js";
 import {listMessages} from "./services/email-routing.js";
 import {PALETTE,btn,inp} from "./ui/styles.js";
 
@@ -887,13 +888,8 @@ export default function App() {
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
-      {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
+      <div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px",display:tab==="home"?"none":undefined}}>
         <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
-
-        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importInProgress={companionImport?.organizationId===org.id} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
-          if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
-          setCompanionImport(payload);
-        }} />}
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -1377,9 +1373,26 @@ export default function App() {
             <CatalogPanel orgId={org.id} orgIndustry={org.industry} categories={categories} catalogItems={catalogItems} vocabulary={vocabulary} onUpdated={loadData} />
           </>
         )}
-      </div>}
+        {["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} visible={tab==="vendorConnect"} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importInProgress={companionImport?.organizationId===org.id} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
+          if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
+          setCompanionImport(payload);
+        }} />}
+      </div>
 
-      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onIssue={issue=>setCompanionResult({organizationId:companionImport.organizationId,vendorId:companionImport.vendorId,...issue})} onFinished={notice=>{setImportNotice(notice);setCompanionResult({organizationId:companionImport.organizationId,vendorId:companionImport.vendorId,message:notice.message});setCompanionImport(null);}} automaticCompanion initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
+      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onIssue={async issue=>{
+        const payload=companionImport;
+        try{
+          await settleScheduledImport(backend,payload.evidence,issue.importDocumentId);
+          setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,...issue,completedAt:Date.now()});
+        }catch{setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,status:'needs_attention',message:'Pricing was retained, but the scheduled result could not be confirmed. Review this attempt before another scheduled export.'});}
+      }} onFinished={async notice=>{
+        const payload=companionImport;
+        try{
+          await settleScheduledImport(backend,payload.evidence,notice.importDocumentId,{required:true});
+          setImportNotice(notice);setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,message:notice.message,completedAt:Date.now()});
+        }catch{setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,status:'needs_attention',message:'Pricing was retained, but the scheduled result could not be confirmed. Review this attempt before another scheduled export.'});}
+        finally{setCompanionImport(null);}
+      }} automaticCompanion initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
       {showPaste&&!companionImport&&org.role!=="employee"&&<PasteModal industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setShowPaste(false)} onDone={loadData} onFinished={setImportNotice} initialVendorId={selectedVendorId} initialMode={importMode} />}
       {importNotice&&(
         <div role="status" onClick={()=>setImportNotice(null)} style={{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",background:"#1B5E20",color:"white",padding:"12px 18px",borderRadius:8,fontSize:13,fontWeight:700,boxShadow:"0 6px 20px rgba(0,0,0,0.25)",zIndex:1000,cursor:"pointer"}}>

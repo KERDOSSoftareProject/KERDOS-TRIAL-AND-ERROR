@@ -5,7 +5,7 @@ const dayNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const input={padding:'8px 10px',border:'1px solid #B7C8DE',borderRadius:8,font:'inherit',color:'#00204F',background:'white'};
 const dateTime=value=>value?new Date(value).toLocaleString():'';
 const labels={pending:'Pending',missed:'Missed',in_progress:'In progress',outcome_unknown:'Outcome unknown',received:'Received for review',saved:'Saved',unchanged:'Already up to date',failed:'Stopped',verification_needed:'Sign-in verification needed'};
-export default function VendorSchedulePanel({service,request,runnerReady=false}){
+export default function VendorSchedulePanel({service,request,runnerReady=false,resultKey=null}){
  const [history,setHistory]=useState(null),[draft,setDraft]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[unavailable,setUnavailable]=useState(false);
  useEffect(()=>{
   let active=true;setHistory(null);setDraft(null);setError('');setUnavailable(false);setLoading(true);
@@ -15,7 +15,7 @@ export default function VendorSchedulePanel({service,request,runnerReady=false})
    graceMinutes:value.schedule?.grace_minutes||15,enabled:value.schedule?.enabled||false,
   });}).catch(e=>{if(active){setUnavailable(e instanceof VendorConnectUnavailable);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});
   return()=>{active=false;};
- },[service,request.id,request.transfer_revision]);
+ },[service,request.id,request.transfer_revision,resultKey]);
  async function save(){
   if(loading||!history||!draft)return;
   setLoading(true);setError('');
