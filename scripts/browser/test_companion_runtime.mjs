@@ -167,7 +167,16 @@ try{
  assert.equal(await reconnectPage.evaluate(()=>window.availableEvents),1,'repeat enable cannot register another channel');
  await reconnectPage.close();
  assert.equal(await worker.evaluate(async origins=>globalThis.chrome.permissions.contains({origins}),[appOrigin+'/*',vendorOrigin+'/*']),true);
- vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
+ vendorPage=await context.newPage();await vendorPage.goto(vendorUrl);
+ // Recognition failures on a list already open must identify the failed gate
+ // and never start an export, then allow a fresh verified user command.
+ await vendorPage.locator('button').filter({hasText:'Sample Client (12345678)'}).evaluate(el=>{el.textContent='Other Client (12345678)';});
+ await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>window.refreshResult?.outcome==='source_account_unverified');assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);
+ await vendorPage.locator('button').filter({hasText:'Other Client (12345678)'}).evaluate(el=>{el.textContent='Sample Client (12345678)';});
+ await vendorPage.locator('[data-cy="list-banner-list-name-text"]').evaluate(el=>{el.textContent='Other List';});
+ await appPage.locator('#refresh-prices').click();await appPage.waitForFunction(()=>window.refreshResult?.outcome==='source_list_unverified');assert.equal(await vendorPage.evaluate(()=>window.exportCount),0);assert.equal(await appPage.evaluate(()=>window.received.length),0);
+ await vendorPage.locator('[data-cy="list-banner-list-name-text"]').evaluate(el=>{el.textContent='Example List';});
+ await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');await vendorPage.evaluate(()=>window.finishExport());
  await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),1);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);assert.equal((await appPage.evaluate(()=>window.received[0])).text,csv);
  // Leave the actual dialog and checked prices option open. A fresh user
  // refresh must reuse them without confusing the page/modal Download buttons.

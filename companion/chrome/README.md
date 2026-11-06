@@ -1,4 +1,13 @@
-# Companion 0.2.10 · Refresh prices
+# Companion 0.2.11 · Refresh prices
+
+Discovery now preserves fixed account-recognition, list-recognition and page-
+inspection failures for a single already-open approved list page. It no longer
+reports every failure as an instruction to open that list. A verified match
+always wins over other tabs; failed or ambiguous pages cannot export or cache
+a route. No raw page content or errors are reported or stored. This improves
+failure classification; it does not prove the installed recognition issue is fixed.
+
+## Connect after enabling — 0.2.10
 
 Enabling Refresh prices now reconnects already-open approved KERDOS tabs using
 the shipped control channel. A page reload is unnecessary when attachment
