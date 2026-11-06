@@ -1,4 +1,6 @@
-# Companion 0.2.11 · Refresh prices
+# Companion 0.2.12 · Refresh prices
+
+The MOXē adapter also recognizes the published two-pane download modal by its exact selected-list title, including wrappers without their own layout box. Multiple matching dialogs still stop the export.
 
 Discovery now preserves fixed account-recognition, list-recognition and page-
 inspection failures for a single already-open approved list page. It no longer
