@@ -25,7 +25,7 @@ function fixture(name,{ready=true,outcome='export_captured',expired=false,notice
  const runner=createPortableTransferRunner(host,{now:()=>100,randomUUID:()=> 'claim:'+name});
  return {runner,host,state,log,receiverId,sourceId,release:()=>finish(),started:()=>retrievals};
 }
-for(const [name,outcome,report,expected] of [['counts','download_dialog_not_found',structure,true],['rejected-counts','download_dialog_not_found',{...structure,private:'never display'},false],['wrong-outcome','download_open_failed',structure,false]]){
+for(const [name,outcome,report,expected] of [['counts','download_dialog_not_found',structure,true],['open-modal-controls','download_control_multiple',structure,true],['rejected-counts','download_dialog_not_found',{...structure,private:'never display'},false],['wrong-outcome','download_open_failed',structure,false]]){
  const f=fixture(name,{outcome,structureReport:report});await f.runner.run('pair',f.receiverId);const attempt=f.runner.run('export',f.sourceId);while(!f.started())await new Promise(resolve=>setImmediate(resolve));f.release();const result=await attempt;
  assert.equal(result.message.includes('Structure check:'),expected);assert.equal(result.message.includes('never display'),false);assert.equal(f.log.includes('deliver'),false);assert.equal(f.state.pairing,undefined);
 }

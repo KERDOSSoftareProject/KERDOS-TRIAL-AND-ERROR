@@ -99,7 +99,7 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
    await host.clearPairing();
    await save(true,'Checking the selected account and exporting its pricing list… You may close this popup and reopen it for the result.');
    const response=await host.retrieve(target,pairing);
-   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome,{refresh:refreshContext})+(response?.outcome==='download_dialog_not_found'?formatDialogStructure(response.structure):''));}
+   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome,{refresh:refreshContext})+(['download_dialog_not_found','download_dialog_multiple','download_control_missing','download_control_multiple','download_dialog_inspection_failed'].includes(response?.outcome)?formatDialogStructure(response.structure):''));}
    await save(true,'Delivering the selected pricing file to KERDOS… Prices are not confirmed saved.');
    deliveryStarted=true;
    const ack=await host.deliver(pairing,claimId,response.artifact);

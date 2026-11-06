@@ -46,7 +46,7 @@ const actualNow=Date.now;let diagnosticClock=0;Date.now=()=>diagnosticClock+=500
 initial.click=()=>{clicks.push('open');};
 try{assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_not_found',structure:{markers:0,visibleMarkers:0,exactMarkers:0,containers:0,exactHeadings:0,headingsInContainer:0,legacyContainers:0,legacyTitleMatches:0}});}finally{Date.now=actualNow;}
 document.querySelectorAll=selector=>{if(selector==='[data-cy="list-download-modal-dual-pane-modal-title"]')throw Error('private vendor diagnostic');return beforeDiagnostics(selector);};
-assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_inspection_failed'});
+assert.deepEqual(await exportSelectedMoxeList(selection),{outcome:'download_dialog_inspection_failed',structure:null});
 document.querySelectorAll=beforeDiagnostics;initial.click=()=>{shown=true;clicks.push('open');};shown=false;options=false;checked=false;clicks=[];
 
 assert.deepEqual(await exportSelectedMoxeList({...selection,inspectOnly:true}),{outcome:'selection_verified',path:location.pathname});assert.deepEqual(clicks,[],'refresh discovery performs no export clicks');
