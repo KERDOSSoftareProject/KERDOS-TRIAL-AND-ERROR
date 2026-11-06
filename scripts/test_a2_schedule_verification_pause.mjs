@@ -28,7 +28,7 @@ try{
  await f.actor(db,f.owner);assert.equal(await f.claim(db,id),null);
  assert.equal((await db.query("select public.kerdos_stop_scheduled_refresh($1,'verification_needed') as result",[claim.token])).rows[0].result,'verification_needed');
  await db.query('reset role');assert.equal((await db.query('select count(*)::int n from kerdos_scheduling.versions where request_id=$1',[id])).rows[0].n,2,'idempotent stop does not fork a schedule');
- await f.actor(db,f.owner);assert.equal(Number(await f.save(db,id,version+1)),version+2,'only an explicit owner save can enable a future version');
+ await f.actor(db,f.owner);assert.equal(Number(await f.save(db,id,Number(version)+1)),Number(version)+2,'only an explicit owner save can enable a future version');
  console.log('PASS verification pause ('+(server?'isolated PostgreSQL':'PGlite')+'): one stopped slot retires the enabled version atomically; replay is stable; re-enable requires a new owner version.');
 }finally{
  if(client)await client.end();if(!server&&db)await db.close();
