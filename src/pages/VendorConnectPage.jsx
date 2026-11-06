@@ -62,7 +62,12 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
         setMessage('Refreshing the selected vendor pricing…');
         const result=await refreshClient.refresh(handoff.current.nonce);
         if(token!==transferGeneration.current||current!==generation.current)return;
-        if(result.outcome!=='received_for_review'){stopTransfer();setMessage(result.message);}
+        if(result.outcome!=='received_for_review'){
+          stopTransfer();
+          setMessage(result.outcome==='source_selection_required'
+            ? 'Sign in directly with your vendor if needed, open the selected account and pricing list, then return here and click Refresh prices. This attempt did not retrieve a pricing file.'
+            : result.message);
+        }
       }else setMessage('Transfer ready for ten minutes. Click the K companion on this KERDOS tab and choose Pair this KERDOS tab.');
     }catch{if(token===transferGeneration.current&&current===generation.current){setArmed(false);setMessage('Could not prepare browser transfer. Refresh the connection or check the selected account and list, then try again.');}}
     finally{if(current===generation.current&&attempt===prepareAttempt.current)setBusy(false);}
