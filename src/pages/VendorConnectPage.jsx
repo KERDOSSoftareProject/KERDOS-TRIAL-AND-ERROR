@@ -2,6 +2,7 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {createCompanionHandoff} from '../services/companion-handoff.js';
 import {createCompanionRefreshClient} from '../services/companion-refresh.js';
 import {createVendorConnectService,VendorConnectUnavailable} from '../services/vendor-connect.js';
+import VendorSchedulePanel from './VendorSchedulePanel.jsx';
 const box={background:'white',borderRadius:14,padding:'28px 24px',color:'#00204F',maxWidth:760};
 const control={padding:'10px 12px',border:'1px solid #B7C8DE',borderRadius:8,font:'inherit',color:'#00204F',background:'white'};
 const button={...control,background:'#00204F',color:'white',cursor:'pointer'};
@@ -120,6 +121,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
         {refreshAvailable&&<button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(true)}>Refresh prices</button>}
         {refreshAvailable?<details style={{marginTop:12}}><summary>Manual browser transfer</summary><button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button></details>:<button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button>}
         {armed&&<button style={{...control,marginLeft:8}} onClick={()=>{stopTransfer();setMessage('Browser transfer cancelled. Prepare a new transfer to retry.');}}>Cancel browser transfer</button>}
+        {selectedRequest.portal_account_label&&selectedRequest.portal_list_label&&<VendorSchedulePanel service={service} request={selectedRequest}/>}
       </div>}
       {selectedRequest&&<p role="status">{selectedRequest.state==='cancelled'?'This setup request was cancelled.':'Setup requested. Account access is awaiting verification.'}</p>}
       <ul style={{paddingLeft:20}}>{scopedData.requests.map(r=><li key={r.id} style={{marginTop:16}}>
