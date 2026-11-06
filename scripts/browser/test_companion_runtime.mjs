@@ -214,6 +214,9 @@ try{
  // No supplier content or real credential is involved, and granting does not retry.
  const restoreAccess=await context.newPage();await restoreAccess.goto('chrome://extensions/');
  await restoreAccess.evaluate(async({extensionId,host})=>{await globalThis.chrome.developerPrivate.addHostPermission(extensionId,host);},{extensionId,host:vendorOrigin+'/*'});await restoreAccess.close();
+ // Re-establish optional runtime access through the shipped user-gesture path.
+ // A management host entry alone is not a runtime permissions.request grant.
+ view=await popup(appPage);await view.click('enable-refresh');await view.waitStatus('Refresh access enabled');await view.close();
  assert.equal(await worker.evaluate(origins=>globalThis.chrome.permissions.contains({origins}),[appOrigin+'/*',vendorOrigin+'/*']),true,'declared host access restored before explicit retry');
  assert.deepEqual(await appPage.evaluate(()=>window.received),beforeRevocation);assert.equal(await vendorPage.evaluate(()=>window.exportCount),1);
  await vendorPage.evaluate(value=>{window.csv=value;window.finishExport=undefined;},changedCsv);
