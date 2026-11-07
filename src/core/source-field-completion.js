@@ -103,6 +103,7 @@ export function trialSourceValue(row,key,{visible=false}={}){
 }
 
 // Trial identifiers never rewrite a vendor code or allocate production identities.
-export function trialListingLabel(row,fallback='NVIM pending'){
-  return row.import_row?.baseFieldCompletion?.trialIdentifier?.label||fallback||'NVIM pending';
+export function trialListingLabel(row,fallback='NVIN pending'){
+  const label=row.import_row?.baseFieldCompletion?.trialIdentifier?.label||fallback||'NVIN pending';
+  return String(label).replace(/^NVIM(?=-|\b)/,'NVIN');
 }
