@@ -43,7 +43,7 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
   // an uncoded quote when its brand and physical pack could still be the
   // saved listing; a clearly different pack or brand stays independent.
   const sourceTerms=productIdentity(row.description).core;
-  const reviewOverlap=listings.some(item=>{
+  const reviewOverlap=!row.code&&listings.some(item=>{
     if(item.vendor_item_code)return false;
     const names=[item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue].filter(Boolean);
     if(!names.some(name=>{
