@@ -239,7 +239,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   return {
     itemNumber:{...field(item.master_item_number,numAcc,numWhy),label:manualLink?"Manual":"Automated"},
     vendor:field(vendor?.name||"",vendor?STATED:null,"Vendor selected at import"),
-    vendorItemNumber:field(String(vi.vendor_item_code||"").trim()||vendorListingLabel(vi)||"",vi.vendor_item_code||vendorListingLabel(vi)?100:null,"Vendor code or persistent NVIM number"),
+    vendorItemNumber:field(String(vi.vendor_item_code||"").trim()||vendorListingLabel(vi)||"",vi.vendor_item_code||vendorListingLabel(vi)?100:null,"Vendor code or persistent NVIN number"),
     category:clientField("category_id",category?.name||"Uncategorized",catAcc,catWhy||"No category yet"),
     itemName:clientField("item_name",item.name||"",nameAcc,nameWhy),
     product:clientField("description",vi.description,descAcc,descWhy),
@@ -371,7 +371,7 @@ export function rememberImportRow(row,prior,mapping=null){
     const same=incoming===original||incoming===corrected||!incoming||
       (input==="description"&&[original,corrected].filter(Boolean).some(d=>compareProductIdentity(incoming,d).status==="same"))||
       (input==="packSize"&&[original,corrected].filter(Boolean).some(p=>comparePurchasingPack(incoming,p).status==="same"));
-    if(!same)throw new Error(`Vendor item ${row.code||`NVIM-${prior.nvim_number}`}: ${input} changed from the known source. The saved correction and association were kept; review this field.`);
+    if(!same)throw new Error(`Vendor item ${row.code||`NVIN-${prior.nvim_number}`}: ${input} changed from the known source. The saved correction and association were kept; review this field.`);
     result[input]=remembered.value??"";
   }
   return result;

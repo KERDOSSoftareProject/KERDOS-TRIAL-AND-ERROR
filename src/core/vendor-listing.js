@@ -1,6 +1,6 @@
 import {compareProductIdentity,comparePurchasingPack,brandsMatch} from "../procurement.js";
 
-// NVIM is a persistent database identity; it is never inferred from sheet row
+// NVIN (No Vendor Item Number) is a persistent database identity; it is never inferred from sheet row
 // position. For a sheet with no vendor code, reuse an identity only when the
 // product, brand and physical pack agree with exactly one saved listing.
 export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}={}){
@@ -28,12 +28,12 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
     !(row.gtin&&item.gtin&&row.gtin===item.gtin)&&
     (!row.brand&&!item.brand||row.brand&&item.brand&&brandsMatch(row.brand,item.brand))))
     return {item:null,conflict:null};
-  if(sameProduct.length)return {item:null,conflict:"A similar unnumbered vendor item exists, but brand or pack is missing or differs. Review the saved listing before assigning a new NVIM."};
+  if(sameProduct.length)return {item:null,conflict:"A similar unnumbered vendor item exists, but brand or pack is missing or differs. Review the saved listing before assigning a new NVIN."};
   return {item:null,conflict:null};
 }
 
 export function vendorListingLabel(item){
   if(String(item?.vendor_item_code||"").trim())return null;
   const n=Number(item?.nvim_number);
-  return Number.isSafeInteger(n)&&n>0?`NVIM-${n}`:null;
+  return Number.isSafeInteger(n)&&n>0?`NVIN-${n}`:null;
 }

@@ -10,6 +10,8 @@ t("empty search matches",itemMatchesSearch(items[0],""));
 t("name match",itemMatchesSearch(items[0],"ham"));
 t("vendor wording match",itemMatchesSearch(items[1],"land o"));
 t("vendor code exact",itemMatchesSearch(items[0],"b12"));
+t("NVIN label finds unnumbered listing",itemMatchesSearch({...items[0],options:[{description:"HAM",vendorNvim:7}]},"nvin-7"));
+t("legacy NVIM search still finds listing",itemMatchesSearch({...items[0],options:[{description:"HAM",vendorNvim:7}]},"nvim-7"));
 t("master number",itemMatchesSearch(items[1],"7001"));
 t("no false match",!itemMatchesSearch(items[0],"cheese"));
 const s=m=>[...items].sort((a,b)=>compareItems(a,b,m)).map(i=>i.name).join(",");

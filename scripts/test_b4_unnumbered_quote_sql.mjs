@@ -55,5 +55,5 @@ try{
   assert.equal(history.length,4);
   assert.deepEqual(history.filter(r=>r.source_row_key==='row:1').map(r=>Number(r.price)).sort(),[16.75,18.75]);
   assert.equal(mappings.size,2);
-  console.log('PASS B4 real importer/SQL: two uncoded listings, stable separate NVIM, changed price, source replay with no duplicate history');
+  console.log('PASS B4 real importer/SQL: two uncoded listings, stable separate NVIN, changed price, source replay with no duplicate history');
 }finally{await db.close();}
