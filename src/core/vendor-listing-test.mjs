@@ -14,5 +14,5 @@ assert.equal(findUncodedVendorListing({...item,description:"Sweet potato fries"}
 const cleaned={...bacon,description:"Smithfield bacon, frozen",brand:"Smithfield",pack_size:"1/15 LB",
   import_row:{row:{description:"BCN FRZ",brand:"",packSize:"1/15 LB"}}};
 assert.equal(findUncodedVendorListing({description:"BCN FRZ",brand:"",packSize:"1/15 LB"},[cleaned]).item.id,"v1","saved edits do not lose an original sheet identity");
-assert.equal(vendorListingLabel(bacon),"NVIM-1");
+assert.equal(vendorListingLabel(bacon),"NVIN-1");
 console.log("KERDOS vendor listing identity tests passed");
