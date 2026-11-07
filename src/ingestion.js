@@ -1241,7 +1241,7 @@ function parseDocumentRows(text, options={}) {
     const stitchedLines = mergeBareDollarContinuations(rawLines);
     const headerIdx = findFreeformHeaderIndex(stitchedLines);
     const descriptionPriceOnly=headerIdx!==-1&&/^(?:product(?: description| name)?|description|item description)\s+(?:price|unit price|cost)\s*$/i.test(stitchedLines[headerIdx].trim());
-    const explicitCodeRole=headerIdx!==-1&&/\b(?:sku|code|item\s*(?:no\.?|number|#)|vendor\s*(?:item|code))\b/i.test(stitchedLines[headerIdx]);
+    const explicitCodeRole=headerIdx!==-1&&/(?:\b(?:sku|code|item\s*(?:no\.?|number)|vendor\s*(?:item|code))\b|\bitem\s*#)/i.test(stitchedLines[headerIdx]);
     let dataStart = headerIdx !== -1 ? headerIdx + 1 : 0;
 
     // Junk can appear both before the real item table (addresses,
