@@ -70,6 +70,18 @@ assert.deepEqual(freeformRoles.explicitWordCode.rows.map(({code,description,pric
 assert.deepEqual(freeformRoles.explicitMixedCode.rows.map(({code,description,price})=>({code,description,price})),[{code:'AB-C7',description:'APPLE (NY)',price:26.15}]);
 assert.equal(freeformRoles.itemNumberSymbol.rows[0].code,'CIDER');
 assert.equal(freeformRoles.explicitMixedCode.rows[0].sourceLine,'AB-C7 APPLE (NY) 26.15');
+const mixedProductWord=parseDocument('Qty Description Price\nB12 VITAMIN 100 CT 12.50');
+assert.deepEqual(mixedProductWord.rows.map(({code,description,price})=>({code,description,price})),
+  [{code:null,description:'B12 VITAMIN 100 CT',price:12.50}],
+  'a product word and pack count cannot supply an unlabeled code or quote');
+const trailingCodeLikeDetail=parseDocument('Product,Price,Notes\nVITAMIN B12,12.50,AB-100\nWIDGET,8.75,ZX-90');
+assert.deepEqual(trailingCodeLikeDetail.rows.map(({code,description,details,price})=>({code,description,details,price})),[
+  {code:null,description:'VITAMIN B12 AB-100',details:['AB-100'],price:12.50},
+  {code:null,description:'WIDGET ZX-90',details:['ZX-90'],price:8.75},
+], 'a trailing unlabeled note is retained as detail, never promoted to a vendor code');
+assert.equal(trailingCodeLikeDetail.rows[0].sourceLine,'VITAMIN B12\t12.50\tAB-100');
+const leadingUnknownCode=parseDocument('Material,Description,Price\nX2700,TERRY TOWEL WHITE,12.90');
+assert.equal(leadingUnknownCode.rows[0].code,'X2700','a distinct leading source cell beside an explicit description still supports a code');
 const differentPriceColumns=parseDocument('Product,Your Price,List Price\nAPPLE GALA,34.00,47.50');
 assert.equal(differentPriceColumns.rows.length,1);
 assert.equal(differentPriceColumns.rows[0].price,34);
