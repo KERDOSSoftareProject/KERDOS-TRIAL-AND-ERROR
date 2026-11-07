@@ -68,5 +68,5 @@ export function itemMatchesSearch(item, query){
   if(item.name.toLowerCase().includes(q)) return true;
   if(String(item.masterItemNumber||"")===q) return true;
   return item.options.some(o=>String(o.description||"").toLowerCase().includes(q)||String(o.vendorItemCode||"").toLowerCase()===q||
-    (o.vendorNvim!=null&&(`nvim-${o.vendorNvim}`===q||String(o.vendorNvim)===q)));
+    (o.vendorNvim!=null&&([`nvin-${o.vendorNvim}`,`nvim-${o.vendorNvim}`,String(o.vendorNvim)].includes(q))));
 }
