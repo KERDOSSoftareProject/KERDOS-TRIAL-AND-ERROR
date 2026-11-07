@@ -63,10 +63,12 @@ const freeformRoles={
   description:parseDocument('Description Price\nCIDER APPLE (NY) 26.15'),
   explicitWordCode:parseDocument('Code Description Price\nCIDER APPLE (NY) 26.15'),
   explicitMixedCode:parseDocument('SKU Description Price\nAB-C7 APPLE (NY) 26.15'),
+  itemNumberSymbol:parseDocument('Item # Description Price\nCIDER APPLE (NY) 26.15'),
 };
 assert.deepEqual(freeformRoles.description.rows.map(({code,description,price})=>({code,description,price})),[{code:null,description:'CIDER APPLE (NY)',price:26.15}]);
 assert.deepEqual(freeformRoles.explicitWordCode.rows.map(({code,description,price})=>({code,description,price})),[{code:'CIDER',description:'APPLE (NY)',price:26.15}]);
 assert.deepEqual(freeformRoles.explicitMixedCode.rows.map(({code,description,price})=>({code,description,price})),[{code:'AB-C7',description:'APPLE (NY)',price:26.15}]);
+assert.equal(freeformRoles.itemNumberSymbol.rows[0].code,'CIDER');
 assert.equal(freeformRoles.explicitMixedCode.rows[0].sourceLine,'AB-C7 APPLE (NY) 26.15');
 const differentPriceColumns=parseDocument('Product,Your Price,List Price\nAPPLE GALA,34.00,47.50');
 assert.equal(differentPriceColumns.rows.length,1);
