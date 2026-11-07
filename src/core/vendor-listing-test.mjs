@@ -47,5 +47,7 @@ assert.equal(findUncodedVendorListing({...uncertain,packSize:"1/10 LB"},[bacon])
   "a physically different pack can remain a separate offering");
 assert.equal(findUncodedVendorListing({...uncertain,brand:"Different"},[bacon]).conflict,null,
   "a stated different brand can remain a separate offering");
+assert.equal(findUncodedVendorListing({...uncertain,code:"NEW-71"},[bacon]).conflict,null,
+  "a separately printed code is not held as an unnumbered source");
 assert.equal(vendorListingLabel(bacon),"NVIN-1");
 console.log("KERDOS vendor listing identity tests passed");
