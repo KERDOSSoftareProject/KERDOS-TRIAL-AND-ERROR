@@ -1,4 +1,4 @@
-import {compareProductIdentity,comparePurchasingPack,brandsMatch} from "../procurement.js";
+import {compareProductIdentity,comparePurchasingPack,brandsMatch,productIdentity} from "../procurement.js";
 
 // NVIN (No Vendor Item Number) is a persistent database identity; it is never inferred from sheet row
 // position. For a sheet with no vendor code, reuse an identity only when the
@@ -42,10 +42,14 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
   // A review-grade description overlap is not proof of a new product. Hold
   // an uncoded quote when its brand and physical pack could still be the
   // saved listing; a clearly different pack or brand stays independent.
+  const sourceTerms=productIdentity(row.description).core;
   const reviewOverlap=listings.some(item=>{
     if(item.vendor_item_code)return false;
     const names=[item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue].filter(Boolean);
-    if(!names.some(name=>compareProductIdentity(row.description,name).status==="review"))return false;
+    if(!names.some(name=>{
+      const candidateTerms=productIdentity(name).core;
+      return [...sourceTerms].some(term=>candidateTerms.has(term))&&compareProductIdentity(row.description,name).status==="review";
+    }))return false;
     const packs=[item.pack_size,item.import_row?.row?.packSize].filter(Boolean);
     const brands=[item.brand,item.import_row?.row?.brand].filter(Boolean);
     return (!row.packSize||!packs.length||packs.some(pack=>comparePurchasingPack(row.packSize,pack).status!=="different"))&&
