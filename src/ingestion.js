@@ -862,6 +862,9 @@ function findMoneyTokens(line) {
     // A match starting inside a longer digit run is an identifier fragment,
     // never a smaller monetary amount (730002 must not become price 2).
     if(start>0&&isDigit(line[start-1]))return null;
+    // A digit attached to a letter or code separator is part of a source
+    // identifier (AB-C7, SKU-4821), not an item price.
+    if(start>0&&/[A-Za-z#-]/.test(line[start-1]))return null;
     // A number directly followed by "%" is a percentage, not a price
     // (e.g. "10% off" should never be read as a $10 line item).
     if (line[end] === "%") return null;
@@ -908,7 +911,7 @@ function mergeBareDollarContinuations(lines) {
 }
 
 
-function extractRowFreeform(line, {descriptionPriceOnly=false}={}) {
+function extractRowFreeform(line, {descriptionPriceOnly=false,explicitCodeRole=false}={}) {
   const tokens = findMoneyTokens(line);
   if (tokens.length === 0) return null;
 
@@ -961,12 +964,12 @@ function extractRowFreeform(line, {descriptionPriceOnly=false}={}) {
     head = head.slice(unitTypeMatch[0].length);
   }
 
-  // Strip a leading item code, e.g. "GREENLEAF LETTUCE GREENLEAF..."
-  // A code looks like a short all-caps/alphanumeric token immediately
-  // followed by more descriptive text.
+  // A word at the start of a product description is not evidence of an item
+  // code. Alphabetic codes require an explicit code role in the table header;
+  // otherwise only a compact token containing a digit can be proposed.
   let code = null;
   const codeMatch = head.match(/^([A-Z0-9\-]{3,14})\s+/);
-  if (codeMatch) {
+  if (codeMatch && (explicitCodeRole || /\d/.test(codeMatch[1]))) {
     code = codeMatch[1];
     head = head.slice(codeMatch[0].length);
   }
@@ -985,6 +988,7 @@ function extractRowFreeform(line, {descriptionPriceOnly=false}={}) {
     price: priceTok.value,
     amount: amountTok.value,
     requiresReview: priceRequiresReview || undefined,
+    sourceLine:line,
   };
 }
 
@@ -1237,6 +1241,7 @@ function parseDocumentRows(text, options={}) {
     const stitchedLines = mergeBareDollarContinuations(rawLines);
     const headerIdx = findFreeformHeaderIndex(stitchedLines);
     const descriptionPriceOnly=headerIdx!==-1&&/^(?:product(?: description| name)?|description|item description)\s+(?:price|unit price|cost)\s*$/i.test(stitchedLines[headerIdx].trim());
+    const explicitCodeRole=headerIdx!==-1&&/\b(?:sku|code|item\s*(?:no\.?|number|#)|vendor\s*(?:item|code))\b/i.test(stitchedLines[headerIdx]);
     let dataStart = headerIdx !== -1 ? headerIdx + 1 : 0;
 
     // Junk can appear both before the real item table (addresses,
@@ -1245,7 +1250,7 @@ function parseDocumentRows(text, options={}) {
     // started — so first find where a genuine, parseable row begins.
     for (let i = dataStart; i < stitchedLines.length; i++) {
       if (isJunkRow([stitchedLines[i]])) continue;
-      if (extractLabeledFields(stitchedLines[i]) || extractRowFreeform(stitchedLines[i],{descriptionPriceOnly})) {
+      if (extractLabeledFields(stitchedLines[i]) || extractRowFreeform(stitchedLines[i],{descriptionPriceOnly,explicitCodeRole})) {
         dataStart = i;
         break;
       }
@@ -1272,7 +1277,7 @@ function parseDocumentRows(text, options={}) {
         skipped.push({ line, reason: "looks like a total/note/address line" });
         continue;
       }
-      const row = extractLabeledFields(line) || extractRowFreeform(line,{descriptionPriceOnly});
+      const row = extractLabeledFields(line) || extractRowFreeform(line,{descriptionPriceOnly,explicitCodeRole});
       if (!row) {
         skipped.push({ line, reason: "couldn't find a valid price or description" });
         continue;
