@@ -32,6 +32,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Verify B4 uncoded listing identity guard
+        run: node src/core/vendor-listing-test.mjs
       - name: Verify separate-session draft, order, receipt and payment races
         env:
           KERDOS_CONCURRENCY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
