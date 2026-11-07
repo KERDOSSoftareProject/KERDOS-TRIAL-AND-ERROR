@@ -579,16 +579,19 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     .filter(cell=>cell.value&&isSourceMetadataHeader(cell.header));
   const metadataIndices=new Set(sourceMetadata.map(cell=>cell.columnIndex));
   let details=cells.map((value,index)=>({value:value.trim(),index}))
-    .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value))
-    .map(cell=>cell.value);
-  // A row with no item code whose unlabeled cell looks like one ("X2700",
-  // "1234567", "AB-100") gets that cell as its code; the engine says so.
+    .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value));
+  // An unlabeled cell can support an item code only when it precedes the
+  // explicitly identified product column. A trailing Notes/Details value
+  // may have the same shape as a code but is still source detail.
   let rowCode=code;
   let codeSource=code?"column":null;
-  if(!rowCode){
-    const codeLike=details.find(detail=>/^[A-Z0-9][A-Z0-9\-\/\.]{2,15}$/i.test(detail)&&/\d/.test(detail)&&!/^\d+(?:\.\d+)?[/-]\d+(?:\.\d+)?$/.test(detail)&&!parsePackSize(detail)?.parsed);
-    if(codeLike){rowCode=codeLike;codeSource="details";details=details.filter(detail=>detail!==codeLike);}
+  if(!rowCode&&Number.isInteger(columnMap.description)){
+    const candidate=details.find(({value,index})=>index<columnMap.description&&
+        /^[A-Z0-9][A-Z0-9\-\/\.]{2,15}$/i.test(value)&&/\d/.test(value)&&
+        !/^\d+(?:\.\d+)?[/-]\d+(?:\.\d+)?$/.test(value)&&!parsePackSize(value)?.parsed);
+    if(candidate){rowCode=candidate.value;codeSource="details";details=details.filter(cell=>cell.index!==candidate.index);}
   }
+  details=details.map(cell=>cell.value);
   const fullDescription=[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
   const issues=[];
 
@@ -926,18 +929,15 @@ function extractRowFreeform(line, {descriptionPriceOnly=false,explicitCodeRole=f
 
   // The rightmost money-looking number is the line total; the one
   // before it (if present) is the unit price — UNLESS that "price"
-  // token is actually just the line's leading quantity. A bare integer
-  // (no decimal point, no $ sign, no thousands comma) sitting at the
-  // very start of the line, with nothing before it, is almost always
-  // a quantity like "5 Swiss Cheese 5lb block  24.99" — not a second
-  // real price. Only treat it as a genuine price if it looks like one.
+  // token is a count, size or quantity. Without a price-role column, a
+  // bare integer before the final amount is not enough evidence to make
+  // it a quote; a decimal or currency mark is required.
   const amountTok = tokens[tokens.length - 1];
   let priceTok = amountTok;
   if (tokens.length >= 2) {
     const candidate = tokens[tokens.length - 2];
     const looksLikeCurrency = /[.$,]/.test(candidate.raw);
-    const isLeadingBareNumber = !looksLikeCurrency && line.slice(0, candidate.index).trim() === "";
-    if (!isLeadingBareNumber) priceTok = candidate;
+    if (looksLikeCurrency) priceTok = candidate;
   }
 
   if (amountTok.value === 0 || Math.abs(amountTok.value) > 1000000) return null;
@@ -964,12 +964,11 @@ function extractRowFreeform(line, {descriptionPriceOnly=false,explicitCodeRole=f
     head = head.slice(unitTypeMatch[0].length);
   }
 
-  // A word at the start of a product description is not evidence of an item
-  // code. Alphabetic codes require an explicit code role in the table header;
-  // otherwise only a compact token containing a digit can be proposed.
+  // A leading word or mixed token is still part of the product description
+  // unless the table header explicitly declares a code role.
   let code = null;
   const codeMatch = head.match(/^([A-Z0-9\-]{3,14})\s+/);
-  if (codeMatch && (explicitCodeRole || /\d/.test(codeMatch[1]))) {
+  if (codeMatch && explicitCodeRole) {
     code = codeMatch[1];
     head = head.slice(codeMatch[0].length);
   }
