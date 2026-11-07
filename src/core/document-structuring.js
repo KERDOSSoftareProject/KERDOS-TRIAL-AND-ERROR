@@ -193,12 +193,15 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
     const rows=parsed.rows.map(row=>{
       const at=available.findIndex(source=>lineText(source)===row.sourceLine);
       const source=Number.isInteger(row.sourceIndex)?segment.rows[row.sourceIndex]:(at>=0?available.splice(at,1)[0]:null);
+      const sourceCells=Number.isInteger(row.sourceColumnStart)
+        ?source?.cells.slice(row.sourceColumnStart,row.sourceColumnStart+row.sourceColumnCount)
+        :source?.cells;
       const page=reading.pages?.find(page=>page.number===segment.page);
-      const confidence=source?.cells.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
+      const confidence=sourceCells?.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
       if(page?.source==='local-ocr'&&typeof page.ocr?.confidence==='number')confidence.push(page.ocr.confidence);
       const lowOcr=confidence.some(value=>value<90);
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
-      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:source?.cells??[],fallback}};
+      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback}};
     });
     return {...parsed,rows,segment:index};
   });

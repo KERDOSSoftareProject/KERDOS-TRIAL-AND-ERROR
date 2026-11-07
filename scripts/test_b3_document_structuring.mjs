@@ -50,6 +50,14 @@ await check('native CSV preserves quoted commas/newlines and source cells instea
   assert.equal(p.rows[0].sourceProvenance.cells[1].cells[0].value,'Chicken, boneless\nbreast');
   assert.equal(r.text,text);
 });
+await check('repeated product/price blocks retain separate source cells and row identities',async()=>{
+  const csv='Product,Price,Product,Price\nApple Gala 40 LB,34.00,Lime 150CT,47.50';
+  const r=await reader(file('paired.csv',new TextEncoder().encode(csv))),p=parseStructuredDocument(csv,r);
+  assert.deepEqual(p.rows.map(row=>row.price),[34,47.5]);
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.cells.map(cell=>cell.text)),[['Apple Gala 40 LB','34.00'],['Lime 150CT','47.50']]);
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.lines),[[2],[2]]);
+  assert.notEqual(p.rows[0].sourceLine,p.rows[1].sourceLine);
+});
 await check('priced rows with separate header-like words stay data, including zero and price/unit amounts',async()=>{
   const source=[['Code','Description','Brand','Price'],['A1','Description of Sample Product','Price Brand','41.25'],['A2','Description of Sample Product','Price Brand','0.00'],['A3','Description of Sample Product','Price Brand','45.00/cs']];
   const csv=source.map(row=>row.join(',')).join('\n');
