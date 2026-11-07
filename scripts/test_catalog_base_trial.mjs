@@ -23,7 +23,7 @@ try{
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true})));
  assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'brand'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'pack'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'sellingUnit'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'unitCost'}).length,2);
  assert.equal(tree.root.findAllByProps({'aria-label':'brand for HM1'}).length,0);assert.ok(!JSON.stringify(tree.toJSON()).includes('70%'));assert.ok(!JSON.stringify(tree.toJSON()).includes('90%'));
- assert.match(JSON.stringify(tree.toJSON()),/NVIM-69/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Confirmed group|Provisional group/);assert.equal(calls.length,0);
+ assert.match(JSON.stringify(tree.toJSON()),/NVIN-69/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Confirmed group|Provisional group/);assert.equal(calls.length,0);
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
  const rowFor=label=>{let n=tree.root.findByProps({'aria-label':label});while(n&&n.type!=='tr')n=n.parent;return n;};
  const apply=async label=>{const row=rowFor(label);await act(async()=>row.findAllByType('button').find(b=>text(b)==='Apply').props.onClick());};
