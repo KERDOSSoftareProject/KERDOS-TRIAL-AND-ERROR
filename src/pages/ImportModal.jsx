@@ -586,9 +586,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         if(row.selectedVendorItemId){
           const selected=await importService.vendorItemById(orgId,vendorId,row.selectedVendorItemId);
           if(!selected||selected.vendor_item_code&&selected.vendor_item_code!==row.code)
-            throw new Error("The selected NVIM belongs to a different vendor item code. Choose its actual listing.");
+            throw new Error("The selected NVIN belongs to a different vendor item code. Choose its actual listing.");
           const checked=findUncodedVendorListing(row,[selected]);
-          if(checked.item!==selected)throw new Error("The selected NVIM does not agree on product, pack and brand. Correct the row before linking it.");
+          if(checked.item!==selected)throw new Error("The selected NVIN does not agree on product, pack and brand. Correct the row before linking it.");
           if(ex&&ex.id!==selected.id)throw new Error("The vendor's printed code already belongs to another listing. Review both listings.");
           ex=selected;
         }
@@ -600,7 +600,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           if(ex&&row.code){
             const {error}=await backend.records.query("vendor_items").update({vendor_item_code:row.code})
               .eq("id",ex.id).eq("organization_id",orgId).eq("vendor_id",vendorId);
-            if(error)throw new Error(`Could not attach the vendor's new printed code to ${ex.nvim_number?`NVIM-${ex.nvim_number}`:"the saved listing"}: ${error.message}`);
+            if(error)throw new Error(`Could not attach the vendor's new printed code to ${ex.nvim_number?`NVIN-${ex.nvim_number}`:"the saved listing"}: ${error.message}`);
             ex={...ex,vendor_item_code:row.code};
           }
         }
