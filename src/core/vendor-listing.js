@@ -39,6 +39,15 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
     (!row.brand&&!item.brand||row.brand&&item.brand&&brandsMatch(row.brand,item.brand))))
     return {item:null,conflict:null};
   if(sameProduct.length)return {item:null,conflict:"A similar unnumbered vendor item exists, but brand or pack is missing or differs. Review the saved listing before assigning a new NVIN."};
+  // A formerly unnumbered listing may now carry a vendor-printed code. An
+  // older code-free sheet must not allocate a second identity for that same
+  // offering, and must not overwrite a coded listing without review.
+  const codedOverlap=!row.code&&listings.some(item=>item.vendor_item_code&&
+    [item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue]
+      .filter(Boolean).some(name=>compareProductIdentity(row.description,name).status==="same")&&
+    (!row.packSize||!item.pack_size||comparePurchasingPack(row.packSize,item.pack_size).status!=="different")&&
+    (!row.brand||!item.brand||brandsMatch(row.brand,item.brand)));
+  if(codedOverlap)return {item:null,conflict:"A saved listing with a vendor item number may be this code-free source row. Review its vendor number before applying a quote or assigning a new NVIN."};
   return {item:null,conflict:null};
 }
 
