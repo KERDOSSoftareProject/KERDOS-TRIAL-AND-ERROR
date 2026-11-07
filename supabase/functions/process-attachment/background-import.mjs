@@ -24,6 +24,7 @@ import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
 import { createImportService } from "../../../src/services/imports.js";
 import { createCatalogService } from "../../../src/services/catalog.js";
 import { importPriceRow } from "../../../src/core/import-price-row.js";
+import { findUncodedVendorListing } from "../../../src/core/vendor-listing.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
 import { prepareAutomaticInvoice } from "../../../src/core/automatic-invoice.js";
@@ -347,10 +348,18 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // resolve them, and an unresolved row must never become a permanent skip.
       if (completedRows.has(completedKey)) continue;
 
-      // Find existing vendor item for this row's code.
-      const ex = workingVendorItems.find(
-        v => v.vendor_item_code === sourceRow.code
-      ) || null;
+      // A missing vendor code is not an identity shared by all unnumbered
+      // products. Reuse only one source-compatible listing; retain ambiguous
+      // rows for review instead of applying their price to another product.
+      const found=sourceRow.code
+        ?{item:workingVendorItems.find(v=>v.vendor_item_code===sourceRow.code)||null,conflict:null}
+        :findUncodedVendorListing(sourceRow,workingVendorItems);
+      if(found.conflict){
+        heldKeys.push(completedKey);
+        heldRows.push({key:completedKey,reasons:[found.conflict]});
+        continue;
+      }
+      const ex=found.item;
       const priorMapping = ex
         ? workingMappings.find(m => m.vendor_item_id === ex.id) || null
         : null;
