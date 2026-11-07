@@ -23,5 +23,18 @@ assert.equal(findUncodedVendorListing(noteRow("AB-100"),[savedWithNote]).item.id
 const changedNote=findUncodedVendorListing(noteRow("AB-101"),[savedWithNote]);
 assert.equal(changedNote.item,null,"changed source detail cannot update the prior listing");
 assert.match(changedNote.conflict,/different source details/i,"changed source detail is held for review rather than assigned a new NVIN");
+const numberedLater={...bacon,vendor_item_code:"43700"};
+assert.equal(findUncodedVendorListing(item,[numberedLater]).item,null,"a code-free row never overwrites a coded listing");
+assert.match(findUncodedVendorListing(item,[numberedLater]).conflict,/saved listing with a vendor item number/i,
+  "the old code-free sheet is held before allocating a duplicate NVIN");
+assert.match(findUncodedVendorListing(item,[{...numberedLater,brand:"Corrected",pack_size:"1/20 LB",
+  import_row:{row:{description:"BACON FROZEN",brand:"Smithfield",packSize:"1/15 LB"}}}]).conflict,/vendor item number/i,
+  "saved field corrections do not hide the original coded-listing overlap");
+assert.equal(findUncodedVendorListing({...item,packSize:"1/10 LB"},[numberedLater]).conflict,null,
+  "a stated different pack remains a separate offering");
+assert.equal(findUncodedVendorListing({...item,brand:"Other"},[numberedLater]).conflict,null,
+  "a stated different brand remains a separate offering");
+assert.equal(findUncodedVendorListing({...item,code:"47432"},[numberedLater]).conflict,null,
+  "a separately printed vendor code is not mistaken for the old code-free sheet");
 assert.equal(vendorListingLabel(bacon),"NVIN-1");
 console.log("KERDOS vendor listing identity tests passed");
