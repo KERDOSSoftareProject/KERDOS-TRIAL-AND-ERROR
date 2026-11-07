@@ -23,8 +23,8 @@ export async function priceQuoteFixture(db,{upgrade=true}={}){
  await db.exec(original.slice(0,original.indexOf('create or replace function public.kerdos_save_catalog_row(')));
  if(upgrade)await upgradePriceQuoteRecovery(db);
  async function document(){const versioned=(await db.query("select exists(select 1 from information_schema.columns where table_schema='public' and table_name='import_documents' and column_name='staged_receipts_version') as available")).rows[0].available;return (await db.query(versioned?'insert into import_documents(organization_id,vendor_id,staged_receipts_version) values($1,$2,1) returning id':'insert into import_documents(organization_id,vendor_id) values($1,$2) returning id',[org,vendor])).rows[0].id;}
- function quote(doc,{item=null,price=41.25,key='row:0',line='TEST-1,Example product,2/10 LB,CS,41.25',description='Example product',unavailable=false}={}){
-  const args=[item,org,vendor,'TEST-1',description,'2/10 LB',price,unavailable,'2026-11-02T12:00:00Z',null,null,'Synthetic.csv',line,doc,'CS','case',null,null,JSON.stringify({rowKey:key,sourceDocumentId:doc,row:{price,sourceLine:line},reviewRequired:unavailable}),null,'Example'];
+ function quote(doc,{item=null,code='TEST-1',pack='2/10 LB',price=41.25,key='row:0',line='TEST-1,Example product,2/10 LB,CS,41.25',description='Example product',unavailable=false,brand='Example',importRow=null}={}){
+  const args=[item,org,vendor,code,description,pack,price,unavailable,'2026-11-02T12:00:00Z',null,null,'Synthetic.csv',line,doc,'CS','case',null,null,JSON.stringify(importRow??{rowKey:key,sourceDocumentId:doc,row:{price,sourceLine:line},reviewRequired:unavailable}),null,brand];
   return {sql:`select kerdos_apply_price_quote(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`,args};
  }
  async function actor(c,user){await c.query('reset role');await c.query("select set_config('request.jwt.claim.sub',$1,false)",[user]);await c.query('set role authenticated');}
