@@ -343,6 +343,25 @@ function isTableHeader(cells, previousColumns={}) {
     parseMoneyLenient(cells[map.price])===null&&parseMoneyLenient(cells[previousColumns.price])===null;
 }
 
+// Some delimited lists print the same product/price table twice across one
+// physical row. Split only exact, explicit header repetitions; a coincidental
+// second monetary value is not enough evidence to create another product.
+function repeatedColumnGroups(headers) {
+  const normalized=headers.map(cell=>cell.toLowerCase().trim().replace(/\s+/g,' '));
+  for(let width=2;width<=Math.floor(headers.length/2);width++){
+    if(headers.length%width)continue;
+    const count=headers.length/width;
+    if(!Array.from({length:count-1},(_,n)=>normalized.slice((n+1)*width,(n+2)*width))
+      .every(block=>block.every((cell,i)=>cell===normalized[i])))continue;
+    const groups=Array.from({length:count},(_,n)=>{
+      const start=n*width,sourceHeaders=headers.slice(start,start+width);
+      return {start,sourceHeaders,columnMap:mapColumnsFromHeader(sourceHeaders)};
+    });
+    if(groups.every(({columnMap})=>columnMap.description!==undefined&&columnMap.price!==undefined&&columnMap.description!==columnMap.price))return groups;
+  }
+  return null;
+}
+
 // Profiles each column's DATA (rather than its header text) to guess
 // its role, based on shape: how numeric it is, how long the text is,
 // etc. Used in two situations:
@@ -1300,6 +1319,7 @@ function parseDocumentRows(text, options={}) {
   const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:options.layoutAnswers||{}}):{headers:[],unknown:[],fingerprint:""};
   let priceHeader=headerFound?grid[headerIndex].cells[columnMap.price]:"";
   let sourceHeaders=headerFound?grid[headerIndex].cells:[];
+  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders):null;
   const rows = [];
   const skipped = [];
 
@@ -1315,7 +1335,23 @@ function parseDocumentRows(text, options={}) {
     // preceding worksheet's price header into the next table.
     const header=mapColumnsFromHeader(cells);
     if(isTableHeader(cells,columnMap)){
-      columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;continue;
+      columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;
+      repeatedGroups=repeatedColumnGroups(cells);continue;
+    }
+    if(repeatedGroups){
+      for(const {start,sourceHeaders:groupHeaders,columnMap:groupMap} of repeatedGroups){
+        const part=cells.slice(start,start+groupHeaders.length);
+        if(!part.some(Boolean))continue;
+        const row=extractRow(part,groupMap,groupHeaders[groupMap.price],new Set(Object.values(groupMap)),groupHeaders);
+        if(!row){skipped.push({line:part.join('\t'),reason:"couldn't find a valid price or description"});continue;}
+        if(options.includeSourceIndex)row.sourceIndex=i;
+        row.sourceColumnStart=start;
+        row.sourceColumnCount=groupHeaders.length;
+        const cellIssues=checkRowCells(part,groupMap);
+        if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
+        rows.push(row);
+      }
+      continue;
     }
     const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders);
     if (!row) {
