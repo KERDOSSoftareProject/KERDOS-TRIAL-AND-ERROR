@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {findUncodedVendorListing,vendorListingLabel} from "./vendor-listing.js";
 import {parseDocument} from "../ingestion.js";
+import {compareProductIdentity} from "../procurement.js";
 
 const bacon={id:"v1",vendor_item_code:null,nvim_number:1,description:"BACON FROZEN",brand:"Smithfield",pack_size:"1/15 LB"};
 const item={description:"Bacon frozen",brand:"Smithfield",packSize:"1/15 LB",price:3.83};
@@ -36,5 +37,17 @@ assert.equal(findUncodedVendorListing({...item,brand:"Other"},[numberedLater]).c
   "a stated different brand remains a separate offering");
 assert.equal(findUncodedVendorListing({...item,code:"47432"},[numberedLater]).conflict,null,
   "a separately printed vendor code is not mistaken for the old code-free sheet");
+const uncertain={...item,description:"Bacon frozen sliced"};
+assert.equal(compareProductIdentity(uncertain.description,bacon.description).status,"review",
+  "the source has one unverified defining term");
+assert.equal(findUncodedVendorListing(uncertain,[bacon]).item,null);
+assert.match(findUncodedVendorListing(uncertain,[bacon]).conflict,/description needs review/i,
+  "an uncertain product match must not allocate another NVIN");
+assert.equal(findUncodedVendorListing({...uncertain,packSize:"1/10 LB"},[bacon]).conflict,null,
+  "a physically different pack can remain a separate offering");
+assert.equal(findUncodedVendorListing({...uncertain,brand:"Different"},[bacon]).conflict,null,
+  "a stated different brand can remain a separate offering");
+assert.equal(findUncodedVendorListing({...uncertain,code:"NEW-71"},[bacon]).conflict,null,
+  "a separately printed code is not held as an unnumbered source");
 assert.equal(vendorListingLabel(bacon),"NVIN-1");
 console.log("KERDOS vendor listing identity tests passed");

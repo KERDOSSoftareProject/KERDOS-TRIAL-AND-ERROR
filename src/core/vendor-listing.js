@@ -1,4 +1,4 @@
-import {compareProductIdentity,comparePurchasingPack,brandsMatch} from "../procurement.js";
+import {compareProductIdentity,comparePurchasingPack,brandsMatch,productIdentity} from "../procurement.js";
 
 // NVIN (No Vendor Item Number) is a persistent database identity; it is never inferred from sheet row
 // position. For a sheet with no vendor code, reuse an identity only when the
@@ -39,6 +39,23 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
     (!row.brand&&!item.brand||row.brand&&item.brand&&brandsMatch(row.brand,item.brand))))
     return {item:null,conflict:null};
   if(sameProduct.length)return {item:null,conflict:"A similar unnumbered vendor item exists, but brand or pack is missing or differs. Review the saved listing before assigning a new NVIN."};
+  // A review-grade description overlap is not proof of a new product. Hold
+  // an uncoded quote when its brand and physical pack could still be the
+  // saved listing; a clearly different pack or brand stays independent.
+  const sourceTerms=productIdentity(row.description).core;
+  const reviewOverlap=!row.code&&listings.some(item=>{
+    if(item.vendor_item_code)return false;
+    const names=[item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue].filter(Boolean);
+    if(!names.some(name=>{
+      const candidateTerms=productIdentity(name).core;
+      return [...sourceTerms].some(term=>candidateTerms.has(term))&&compareProductIdentity(row.description,name).status==="review";
+    }))return false;
+    const packs=[item.pack_size,item.import_row?.row?.packSize].filter(Boolean);
+    const brands=[item.brand,item.import_row?.row?.brand].filter(Boolean);
+    return (!row.packSize||!packs.length||packs.some(pack=>comparePurchasingPack(row.packSize,pack).status!=="different"))&&
+      (!row.brand||!brands.length||brands.some(brand=>brandsMatch(row.brand,brand)));
+  });
+  if(reviewOverlap)return {item:null,conflict:"A saved unnumbered listing may match this source product, but its description needs review. Check the saved listing before assigning another NVIN."};
   // A formerly unnumbered listing may now carry a vendor-printed code. An
   // older code-free sheet must not allocate a second identity for that same
   // offering, and must not overwrite a coded listing without review.
