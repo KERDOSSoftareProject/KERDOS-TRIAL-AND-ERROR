@@ -7,12 +7,20 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
   const sameProduct=listings.filter(item=>!item.vendor_item_code&&
     [item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue]
       .filter(Boolean).some(name=>compareProductIdentity(row.description,name).status==="same"));
+  // A detail retained from an unlabeled source cell may distinguish two
+  // otherwise identical products. Do not silently update one with the other.
+  const sameDetails=item=>{
+    const prior=item.import_row?.row?.details;
+    if(!Array.isArray(prior)||!Array.isArray(row.details))return true;
+    const normalize=values=>values.map(value=>String(value).trim().replace(/\s+/g," ").toLowerCase());
+    return JSON.stringify(normalize(prior))===JSON.stringify(normalize(row.details));
+  };
   const compatible=sameProduct.filter(item=>{
     const brands=[item.brand];
     if(item.import_row?.row&&Object.hasOwn(item.import_row.row,"brand"))brands.push(item.import_row.row.brand);
     if(item.field_resolutions?.brand&&Object.hasOwn(item.field_resolutions.brand,"sourceValue"))
       brands.push(item.field_resolutions.brand.sourceValue);
-    return row.packSize&&[item.pack_size,item.import_row?.row?.packSize,item.field_resolutions?.pack_size?.sourceValue]
+    return sameDetails(item)&&row.packSize&&[item.pack_size,item.import_row?.row?.packSize,item.field_resolutions?.pack_size?.sourceValue]
       .filter(Boolean).some(pack=>comparePurchasingPack(row.packSize,pack).status==="same")&&
       brands.some(brand=>!row.brand&&!brand||row.brand&&brand&&brandsMatch(row.brand,brand))&&
       (!row.gtin||!item.gtin||row.gtin===item.gtin)&&
@@ -20,6 +28,8 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
   });
   if(compatible.length===1)return {item:compatible[0],conflict:null};
   if(compatible.length>1)return {item:null,conflict:"More than one saved listing fits this unnumbered vendor item. Choose the existing listing before applying a new quote."};
+  if(sameProduct.some(item=>!sameDetails(item)))
+    return {item:null,conflict:"A saved unnumbered vendor item has different source details. Review the source row before applying its price or assigning a new NVIN."};
   // A separately stated, physically different pack is another offering, not
   // an update to the first listing. Missing/uncertain packs still fail closed.
   // Opt in only for the manual source-retention flow; worker policy is unchanged.
