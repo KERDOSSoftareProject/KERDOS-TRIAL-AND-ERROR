@@ -2,9 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 
 export const mobileOrderQuery='(max-width: 960px)';
 
-export function OrderBasket({summary,children}){
+export function useMobileOrderLayout(){
   const [mobile,setMobile]=useState(()=>window.matchMedia?.(mobileOrderQuery).matches??false);
-  const dialog=useRef(null);
   useEffect(()=>{
     const media=window.matchMedia?.(mobileOrderQuery);
     if(!media)return;
@@ -13,7 +12,11 @@ export function OrderBasket({summary,children}){
     sync();
     return ()=>media.removeEventListener('change',sync);
   },[]);
+  return mobile;
+}
 
+export function OrderBasket({mobile,summary,children}){
+  const dialog=useRef(null);
   if(!mobile)return <aside className="order-aside">{children}</aside>;
   return <>
     <button type="button" className="mobile-basket-launch" aria-haspopup="dialog" onClick={()=>dialog.current.showModal()}>
