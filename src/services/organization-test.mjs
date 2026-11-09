@@ -7,7 +7,9 @@ function query(table){
   const chain={select(value){state.select=value;return chain;},insert(value){state.insert=value;return chain;},update(value){state.update=value;return chain;},upsert(value){state.upsert=value;return chain;},delete(){state.delete=true;return chain;},eq(column,value){(state.eq??=[]).push([column,value]);return chain;},in(column,value){state.in=[column,value];return chain;},order(value,options){state.order=[value,options];return chain;},single(){state.single=true;return chain;},then(resolve){calls.push({...state});const data=state.single?{id:"org1",...state.insert}:[];resolve({data,error:null});}};
   return chain;
 }
-const service=createOrganizationService({records:{query}});
+const service=createOrganizationService({records:{query},rpc:async(name,args)=>{
+  calls.push({name,args});return {data:{vendorLayouts:{v1:{fp:{5:'ignore'}}},other:'preserved'},error:null};
+}});
 const organization=await service.create({name:"Universal Supply",industry:"Construction",userId:"u1",vendors:[{name:" Vendor A ",minDollar:"100",minUnits:"5"}]});
 assert.equal(organization.id,"org1");
 assert.equal(calls.find(call=>call.table==="vendors").insert[0].delivery_minimum_units,5);
@@ -15,4 +17,7 @@ await service.changeRole({organizationId:"org1",userId:"u2",role:"manager"});
 assert.deepEqual(calls.at(-1).eq,[["organization_id","org1"],["user_id","u2"]]);
 await service.update("org1",{name:"Renamed"});
 assert.deepEqual(calls.at(-1).update,{name:"Renamed"});
+const settings=await service.rememberVendorLayout('org1','v1','fp',{5:'ignore'});
+assert.deepEqual(calls.at(-1),{name:'kerdos_remember_vendor_layout',args:{p_organization_id:'org1',p_vendor_id:'v1',p_fingerprint:'fp',p_answers:{5:'ignore'}}});
+assert.equal(settings.vendorLayouts.v1.fp[5],'ignore');
 console.log("KERDOS provider-neutral organization-service tests passed");

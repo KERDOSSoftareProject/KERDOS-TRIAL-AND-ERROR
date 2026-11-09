@@ -419,8 +419,8 @@ function profileColumns(grid, dataStartIndex) {
 
 // Fills in any role the header-text pass didn't find, using the data
 // profile — without overwriting anything already matched by name.
-function fillMissingRolesFromData(columnMap, grid, dataStartIndex) {
-  const usedColumns = new Set(Object.values(columnMap));
+function fillMissingRolesFromData(columnMap, grid, dataStartIndex, ignoredColumns=new Set()) {
+  const usedColumns = new Set([...Object.values(columnMap),...ignoredColumns]);
   const dataProfile = profileColumns(grid, dataStartIndex);
 
   const filled = { ...columnMap };
@@ -490,7 +490,7 @@ export function normalizeColumnPack(value){
   return normalizeMixedFraction(text);
 }
 
-function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, sourceHeaders=[]) {
+function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, sourceHeaders=[], ignoredColumns=new Set()) {
   const get = role => (columnMap[role] !== undefined ? cells[columnMap[role]] : undefined);
 
   const priceRaw = get("price");
@@ -577,7 +577,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // metadata. They are not product description or culinary vocabulary evidence.
   const sourceMetadata=cells.map((value,index)=>({header:sourceHeaders[index]||"",value:value.trim(),columnIndex:index}))
     .filter(cell=>cell.value&&isSourceMetadataHeader(cell.header));
-  const metadataIndices=new Set(sourceMetadata.map(cell=>cell.columnIndex));
+  const metadataIndices=new Set([...sourceMetadata.map(cell=>cell.columnIndex),...ignoredColumns]);
   let details=cells.map((value,index)=>({value:value.trim(),index}))
     .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value));
   // An unlabeled cell can support an item code only when it precedes the
@@ -1315,7 +1315,8 @@ function parseDocumentRows(text, options={}) {
   const headerCells=headerFound?grid[headerIndex].cells:[];
   const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
   const answered=applyLayoutAnswers(engineMap,options.layoutAnswers||{});
-  let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart);
+  const ignoredColumns=new Set(Object.entries(options.layoutAnswers||{}).filter(([,role])=>role==="ignore").map(([index])=>Number(index)).filter(Number.isInteger));
+  let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart, ignoredColumns);
   // confirmedRoles: columns whose role is supported by explicit header text or client decision.
   // Inferred roles (data-shape guesses from fillMissingRolesFromData) are NOT confirmed.
   // Cell analysis only constrains confirmed columns; inferred roles remain challengeable.
@@ -1357,7 +1358,7 @@ function parseDocumentRows(text, options={}) {
       }
       continue;
     }
-    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders);
+    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, ignoredColumns);
     if (!row) {
       skipped.push({ line, reason: "couldn't find a valid price or description" });
       continue;

@@ -24,6 +24,12 @@ export function createOrganizationService(backend){
     update(organizationId,patch){
       return run(table("organizations").update(patch).eq("id",organizationId),"Could not update the organization");
     },
+    rememberVendorLayout(organizationId,vendorId,fingerprint,answers){
+      return run(backend.rpc("kerdos_remember_vendor_layout",{
+        p_organization_id:organizationId,p_vendor_id:vendorId,
+        p_fingerprint:fingerprint,p_answers:answers,
+      }),"Could not remember the column choice");
+    },
     syncProfile(user){
       return run(table("profiles").upsert({id:user.id,email:user.email,updated_at:new Date().toISOString()}),"Could not sync the profile");
     },

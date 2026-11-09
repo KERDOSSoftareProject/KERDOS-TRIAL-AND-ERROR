@@ -275,8 +275,10 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
       if(changed){
         try{
-          await organizationService.update(orgId,{settings:next});
-          layoutSettings.current.value=next;
+          for(const [fingerprint,answers] of toRemember){
+            const saved=await organizationService.rememberVendorLayout(orgId,vendorId,fingerprint,answers);
+            layoutSettings.current.value=saved;
+          }
           setLayoutMemoryWarning("");
         }catch{
           setLayoutMemoryWarning("These column choices apply to this import, but could not be remembered. You may be asked again next time.");
