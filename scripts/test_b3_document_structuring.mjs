@@ -93,6 +93,26 @@ await check('ragged geometry keeps freeform parsing rather than forcing invented
   const p=parseStructuredDocument(text,r);assert.equal(p.structure.segments[0].kind,'freeform');
   assert.deepEqual(p.rows.map(row=>[row.description,row.price]),parseDocument(text).rows.map(row=>[row.description,row.price]));
   assert.ok(p.rows.every(row=>row.sourceProvenance.fallback));
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.lines),[[0],[1]]);
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.cells[0].words[0].transform),[[1,0,0,12,20,510],[1,0,0,12,250,450]]);
+});
+await check('a stale parser index can only attach the uniquely matching source cells',()=>{
+  const reading=positioned([...headings,...product('12345','Chicken Breast',40,510),...product('12346','Turkey Breast',50,470)]);
+  const parsed=parseStructuredDocument('',reading,(input,options)=>{
+    const result=parseDocument(input,options);
+    return {...result,rows:result.rows.map(row=>row.code==='12346'?{...row,sourceIndex:1}:row)};
+  });
+  assert.deepEqual(parsed.rows.map(row=>row.sourceProvenance.lines),[[1],[2]]);
+  assert.equal(parsed.rows[1].sourceProvenance.cells[1].text,'Turkey Breast');
+});
+await check('a repeated parser result cannot claim the same source cells twice',()=>{
+  const reading=positioned([...headings,...product('12345','Chicken Breast',40,510),...product('12345','Chicken Breast',40,470)]);
+  const parsed=parseStructuredDocument('',reading,(input,options)=>{
+    const result=parseDocument(input,options);
+    return {...result,rows:[result.rows[0],...result.rows]};
+  });
+  assert.deepEqual(parsed.rows.map(row=>row.sourceProvenance.lines),[[1],[],[2]]);
+  assert.deepEqual(parsed.rows[1].sourceProvenance.cells,[]);
 });
 await check('OCR boxes convert scale/direction correctly and retain their original coordinates',()=>{
   const words=[...headings,...product('12345','Chicken Breast',40,510)].map(word=>({text:word.text,bbox:{x0:word.transform[4]*2,y0:(600-word.transform[5]-12)*2,x1:(word.transform[4]+word.width)*2,y1:(600-word.transform[5])*2},confidence:95}));
