@@ -284,9 +284,9 @@ function savedSources(state){return [
   ...state.vendorItems.filter(v=>v.import_row).map(v=>({key:v.import_row.rowKey,sourceLine:v.import_row.row.sourceLine})),
 ];}
 const run=state=>processAttachmentInBackground(state.backend,state.attachment,state.options);
+const blankDescriptionCsv='Code,Description,Brand,Pack,Price Unit,Price\nB4-BLANK,,Brand Only Text,20 LB,CASE,42.50\nB4-VALID,Chicken Breast Boneless Skinless,Other Brand,20 LB,CASE,53.20';
 await check('blank description is held as source evidence while adjacent prices save and retry safely',async()=>{
- const csv='Code,Description,Brand,Pack,Price Unit,Price\nB4-BLANK,,Brand Only Text,20 LB,CASE,42.50\nB4-VALID,Chicken Breast Boneless Skinless,Other Brand,20 LB,CASE,53.20';
- const state=makeBackend({csv});
+ const state=makeBackend({csv:blankDescriptionCsv});
  for(let i=0;i<2;i++){
   const result=await run(state);
   assert.equal(result.outcome,'needs_review');
@@ -310,6 +310,17 @@ await check('blank description is held as source evidence while adjacent prices 
  assert.equal(state.calls.setStatus.at(-1).importDocId,DOC_ID);
  assert.equal(state.calls.applyQuote.length,1);
  assert.deepEqual(docFor(state).completed_keys,['row:1']);
+});
+await check('legacy blank-description retry keeps unverified saved row positions intact',async()=>{
+ const state=makeBackend({csv:blankDescriptionCsv,preSeededKeys:['row:0']});
+ const result=await run(state);
+ assert.equal(result.outcome,'needs_review');
+ assert.match(result.reason,/no retained row snapshot to verify saved row positions/);
+ assert.equal(state.calls.setStatus.at(-1).importDocId,DOC_ID);
+ assert.deepEqual(docFor(state).completed_keys,['row:0']);
+ for(const writes of [state.calls.applyQuote,state.calls.vendorItemUpdate,state.calls.insertImportDoc,state.calls.updateImportDoc,state.mappingsArr,state.catalogItems]){
+   assert.equal(writes.length,0);
+ }
 });
 for(const [name,uncertain] of [['uncertain-first',[0]],['uncertain-middle',[1]],['all-uncertain',[0,1,2]]]){
   const csv=buildCsv(CODES.map((code,i)=>({code,priceUnit:uncertain.includes(i)?'':'CASE'})));

@@ -280,8 +280,16 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return { outcome: "auto_imported" };
   }
 
+  const hasMissingDescription = parsedRows.some(row=>!row.description?.trim());
   let documentId;
   if (existingDoc) {
+    if (hasMissingDescription && !existingDoc.source_rows) {
+      // A legacy import may have skipped a blank row and assigned later rows
+      // different keys. Keep its saved results until the positions can be verified.
+      const reason = "This partial import has a blank product description and no retained row snapshot to verify saved row positions.";
+      await backend.attachments.setStatus(attachmentId, "needs_review", reason, existingDoc.id);
+      return { outcome: "needs_review", reason };
+    }
     if (existingDoc.source_rows) {
       try {
         verifyResumeRows(parsedRows, existingDoc.completed_keys || [], [], existingDoc.source_rows);
@@ -300,7 +308,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       file_name:        filename,
       file_path:        storagePath,
       original_text:    rawText,
-      ...(parsedRows.some(row=>!row.description?.trim())?{source_rows:createSourceRowSnapshot(parsedRows)}:{}),
+      ...(hasMissingDescription?{source_rows:createSourceRowSnapshot(parsedRows)}:{}),
       status:           "processing",
     });
     documentId = newDoc.id;
