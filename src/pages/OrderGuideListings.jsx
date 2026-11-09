@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {createCatalogRowsService} from '../services/catalog-rows.js';
 import {formatMoney} from '../localization.js';
 import {QuotedPerControl} from './QuotedPerControl.jsx';
@@ -80,6 +80,23 @@ export function useOrderGuideListingAutosave({backend,organizationId,userId,canM
 }
 
 const editorStyle={padding:6,border:'1px solid #CBD5E1',borderRadius:5,boxSizing:'border-box',width:'100%'};
+
+export function MobileVendorPicker({itemName,onMinimize,children}){
+ const dialog=useRef(null);
+ useLayoutEffect(()=>{
+  const panel=dialog.current;
+  panel.showModal();
+  return ()=>panel.close();
+ },[]);
+ return <dialog ref={dialog} className="mobile-vendor-picker" aria-label={`Vendor options for ${itemName}`}
+   onClose={event=>{if(!event.currentTarget.open)onMinimize();}}>
+   <div className="mobile-vendor-picker-heading">
+     <div><h3>Vendor options</h3><span>{itemName}</span></div>
+     <button type="button" onClick={()=>dialog.current.close()}>Minimize</button>
+   </div>
+   <div className="mobile-vendor-picker-scroll">{children}</div>
+ </dialog>;
+}
 
 export function OrderGuideListings({canManage,offers,selectedId,vendorItems,industry,vocabulary,unit='case',onSelect,listingEdits}){
  return <div role="region" aria-label="Group listings" data-price-menu style={{padding:'8px 0',minWidth:0}}>

@@ -1,6 +1,6 @@
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
-import {OrderBasket,mobileOrderQuery} from './pages/OrderBasket.jsx';
-import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
+import {OrderBasket,mobileOrderQuery,useMobileOrderLayout} from './pages/OrderBasket.jsx';
+import {MobileVendorPicker,OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -158,14 +158,15 @@ export default function App() {
     }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
+  const mobileOrder=useMobileOrderLayout();
   useEffect(()=>{
-    if(openPriceMenu==null)return;
+    if(openPriceMenu==null||mobileOrder)return;
     const closeOutside=event=>{if(!(event.target instanceof Element)||!event.target.closest("[data-price-menu]"))setOpenPriceMenu(null);};
     const closeEscape=event=>{if(event.key==="Escape")setOpenPriceMenu(null);};
     document.addEventListener("pointerdown",closeOutside);
     document.addEventListener("keydown",closeEscape);
     return ()=>{document.removeEventListener("pointerdown",closeOutside);document.removeEventListener("keydown",closeEscape);};
-  },[openPriceMenu]);
+  },[openPriceMenu,mobileOrder]);
   const [expandedOrderTabOrder,setExpandedOrderTabOrder]=useState(null);
   const [expandedInvoiceId,setExpandedInvoiceId]=useState(null);
   const [expandedPricePeriod,setExpandedPricePeriod]=useState(null);
@@ -971,7 +972,6 @@ export default function App() {
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
               .order-item-listings { border-top:1px solid #E3E7ED; }
-              .order-listings-heading { display:none; }
               .order-item-grid { display:grid; grid-template-columns:minmax(220px,1fr) 88px 104px minmax(370px,420px); gap:2px 10px; align-items:center; padding:8px 12px; }
               .order-item { display:contents; }
               @media (max-width:1240px) {
@@ -981,15 +981,27 @@ export default function App() {
                 .order-layout { display:block; }
                 .order-item-grid { display:block; }
                 .order-column-head { display:none; }
-                .order-item { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,1fr); border-top:1px solid #DEE7F0; padding:8px 0; }
+                .order-item { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,1fr); border:1px solid #6B9BCD; border-bottom-width:2px; border-radius:10px; background:#DCEBFC; padding:8px; margin-bottom:10px; }
                 .order-item-name,.order-item-price,.order-item-listings { grid-column:1 / -1; }
+                .order-item-name,.order-item-price { border:0!important; }
+                .order-item-name { color:#003584; }
+                .order-item-price { background:transparent!important; padding:6px 0 0!important; }
+                .order-item-unit,.order-item-qty { background:#EEF5FF!important; border-color:#C6DAF3!important; }
                 .order-item-name > div:first-child { white-space:normal!important; font-size:16px!important; overflow-wrap:anywhere; }
                 .order-item select,.order-item input { font-size:16px!important; min-height:44px; }
                 .order-item-qty button { width:44px!important; height:44px!important; }
                 .order-price-card > button:first-child { min-height:44px; font-size:14px!important; }
                 .order-price-card > button[aria-expanded="true"] { background:#003584!important; border-color:#003584!important; color:white; }
-                .order-item-listings { margin:4px 0; border:2px solid #003584; border-radius:10px; background:#E8F1FF; }
-                .order-listings-heading { display:block; margin:0; padding:9px 12px; border-radius:7px 7px 0 0; background:#003584; color:white; font-size:14px; }
+                .mobile-vendor-picker { position:fixed; inset:0; margin:auto; width:min(calc(100% - 24px),720px); max-height:min(85dvh,720px); box-sizing:border-box; padding:0; overflow:hidden; border:2px solid #003584; border-radius:12px; background:#E8F1FF; color:#17243A; }
+                .mobile-vendor-picker[open] { display:flex; flex-direction:column; }
+                .mobile-vendor-picker::backdrop { background:#17243A99; }
+                .mobile-vendor-picker-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; background:#003584; color:white; }
+                .mobile-vendor-picker-heading h3 { margin:0; font-size:16px; }
+                .mobile-vendor-picker-heading span { font-size:13px; overflow-wrap:anywhere; }
+                .mobile-vendor-picker-heading button { min-height:44px; flex-shrink:0; padding:0 12px; border:1px solid #B8C8DC; border-radius:8px; background:white; color:#003584; font:inherit; cursor:pointer; }
+                .mobile-vendor-picker-scroll { min-height:0; overflow:auto; overscroll-behavior:contain; }
+                .mobile-vendor-picker input,.mobile-vendor-picker select { font-size:16px!important; min-height:44px; }
+                html:has(.mobile-vendor-picker[open]) { overflow-y:hidden; }
                 .mobile-basket-launch { position:fixed; z-index:130; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:flex; gap:12px; justify-content:space-between; align-items:center; min-height:48px; padding:8px 16px; border:1px solid #C8DAF2; border-radius:10px; background:#003584; color:white; font-family:inherit; font-size:16px; font-weight:700; box-shadow:0 3px 14px #00204F66; cursor:pointer; }
                 .mobile-basket-dialog { position:fixed; inset:auto 0 0; margin:0; width:100%; max-width:none; max-height:85dvh; box-sizing:border-box; padding:0 14px calc(14px + env(safe-area-inset-bottom)); border:0; border-radius:16px 16px 0 0; background:#F2F6FA; overflow:auto; overscroll-behavior:contain; }
                 .mobile-basket-dialog::backdrop { background:#17243A88; }
@@ -1001,6 +1013,13 @@ export default function App() {
                 .order-aside-inner { position:static; }
                 .order-price-grid { grid-template-columns:1fr; }
                 .order-browse-filters select { flex:1; }
+              }
+              @media (min-width:721px) and ${mobileOrderQuery} {
+                .mobile-vendor-picker td { overflow-wrap:anywhere; }
+                .mobile-vendor-picker td[data-field-label="Vendor"] button { max-width:112px; overflow-wrap:anywhere; }
+                .mobile-vendor-picker td[data-field-label="Product"] { min-width:140px!important; }
+                .mobile-vendor-picker td[data-field-label="Pack"] { min-width:80px!important; }
+                .mobile-vendor-picker input[aria-label^="Price"] { width:76px!important; }
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
@@ -1120,7 +1139,7 @@ export default function App() {
                           <div className="order-item-price" key={item.catalogItemId+"_price"} style={{padding:"6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#FAFBFC"}}>
                             <div className="order-price-grid">
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
-                              <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup="true" aria-expanded={menuOpen}
+                              <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup={mobileOrder?"dialog":"true"} aria-expanded={menuOpen}
                                 aria-description={multipleVendors?`${vendorCount} vendors quote this item`:undefined}
                                 title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?'2px solid #008577':'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?'#E0F2F1':'white',cursor:'pointer',fontSize:12}}>
                                 {activeVendorName||'Select listing'} · {activePrice==null?'Price unavailable':formatMoney(activePrice)} <span style={{float:'right'}}>{menuOpen?'▴':'▾'}</span>
@@ -1152,10 +1171,9 @@ export default function App() {
                               )}
                             </div>
                           </div>,
-                          ...(menuOpen?[<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>
-                            <h3 className="order-listings-heading">Vendor options</h3>
-                            {alternativesMenu}
-                          </div>]:[]),
+                          ...(menuOpen?[mobileOrder
+                            ?<MobileVendorPicker key={item.catalogItemId+'_listings'} itemName={item.name} onMinimize={()=>setOpenPriceMenu(null)}>{alternativesMenu}</MobileVendorPicker>
+                            :<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>{alternativesMenu}</div>]:[]),
                         ];
 
                         return <div className="order-item" key={item.catalogItemId}>{cells}</div>;
@@ -1209,7 +1227,7 @@ export default function App() {
             </main>
 
             {/* BASKETS */}
-            <OrderBasket summary={`${totalUnits} units · ${formatMoney(totalSpend)}`}>
+            <OrderBasket mobile={mobileOrder} summary={`${totalUnits} units · ${formatMoney(totalSpend)}`}>
               <div className="order-aside-inner"
                 onDragOver={event=>{if(dragItem){event.preventDefault();event.dataTransfer.dropEffect="copy";if(dropTarget==null)setDropTarget("auto");}}}
                 onDragLeave={event=>{if(dropTarget==="auto"&&!event.currentTarget.contains(event.relatedTarget))setDropTarget(null);}}
