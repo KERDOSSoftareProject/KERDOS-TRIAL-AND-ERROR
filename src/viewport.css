@@ -9,6 +9,7 @@
   }
 
   body {
+    position: relative;
     overflow-x: clip;
     overscroll-behavior-x: none;
   }
