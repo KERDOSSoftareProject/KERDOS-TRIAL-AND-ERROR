@@ -1,7 +1,9 @@
-const coinUrl = `${import.meta.env?.BASE_URL ?? "/"}kerdos-owl-coin.svg`;
+const baseUrl = import.meta.env?.BASE_URL ?? "/";
+const coinUrl = `${baseUrl}kerdos-owl-coin.svg`;
+const reverseCoinUrl = `${baseUrl}kerdos-owl-coin-reverse.svg`;
 
-export function BrandCoin({size = 24, className}) {
-  return <img src={coinUrl} alt="" width={size} height={size} className={className} />;
+export function BrandCoin({size = 24, className, reverse = false}) {
+  return <img src={reverse ? reverseCoinUrl : coinUrl} alt="" width={size} height={size} className={className} />;
 }
 
 export function BrandLogo() {

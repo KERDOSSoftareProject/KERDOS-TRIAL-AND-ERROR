@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="176 96 448 448">
+  <title>ΚΕΡΔΟΣ coin reverse</title>
+  <defs>
+    <path id="rim" d="M398 97 Q427 93 447 99 C545 112 608 179 620 269 C641 369 599 457 524 512 C496 534 452 545 413 544 C350 545 301 521 256 487 C211 452 177 390 177 323 C175 259 196 206 240 164 C283 124 338 103 398 97Z"/>
+  </defs>
+  <use xlink:href="#rim" fill="#8e6a24"/>
+  <use xlink:href="#rim" fill="#dcbd6a" transform="translate(400 320) scale(.93) translate(-400 -320)"/>
+  <circle cx="400" cy="320" r="193" fill="none" stroke="#8e6a24" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 17.57"/>
+  <g fill="#0e2a57" font-family="Arial, Helvetica, sans-serif" font-weight="700" text-anchor="middle">
+    <text x="400" y="378" font-size="160">Μ</text>
+    <g font-size="43">
+      <text x="400" y="190">θ</text>
+      <text x="400" y="190" transform="rotate(40 400 320)">Ε</text>
+      <text x="400" y="190" transform="rotate(80 400 320)">Π</text>
+      <text x="400" y="190" transform="rotate(120 400 320)">Σ</text>
+      <text x="400" y="190" transform="rotate(160 400 320)">Α</text>
+      <text x="400" y="190" transform="rotate(200 400 320)">Θ</text>
+      <text x="400" y="190" transform="rotate(240 400 320)">Σ</text>
+      <text x="400" y="190" transform="rotate(280 400 320)">Ε</text>
+      <text x="400" y="190" transform="rotate(320 400 320)">Ο</text>
+    </g>
+  </g>
+</svg>
