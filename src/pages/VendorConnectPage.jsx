@@ -160,11 +160,15 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
         {armed&&<button style={{...control,marginLeft:8}} onClick={()=>{stopTransfer();setMessage('Browser transfer cancelled. Prepare a new transfer to retry.');}}>Cancel browser transfer</button>}
         {selectedRequest.portal_account_label&&selectedRequest.portal_list_label&&<VendorSchedulePanel service={service} request={selectedRequest} runnerReady={refreshAvailable} resultKey={importResult?.completedAt}/>}
       </div>}
-      {selectedRequest&&<p role="status">{selectedRequest.state==='cancelled'?'This setup request was cancelled.':'Setup requested. Account access is awaiting verification.'}</p>}
+      {selectedRequest&&<p role="status">{selectedRequest.state==='cancelled'
+        ? 'Disconnected from KERDOS. Previously imported pricing remains available. Use Prepare connection to connect again.'
+        : transferEligible&&refreshAvailable&&selectedRequest.portal_account_label&&selectedRequest.portal_list_label
+          ? 'Browser refresh is available. KERDOS checks your vendor sign-in when you click Refresh prices.'
+          : 'Connection prepared. Sign in directly with your vendor when you use browser refresh.'}</p>}
       <ul style={{paddingLeft:20}}>{scopedData.requests.map(r=><li key={r.id} style={{marginTop:16}}>
         <strong>{vendors.find(v=>v.id===r.vendor_id)?.name||'Vendor'}</strong> · {scopedData.adapters.find(a=>a.adapter_key===r.adapter_key)?.display_name||'Connection provider'}
-        <p style={{margin:'4px 0'}}>{r.state==='cancelled'?'Setup cancelled':'Setup requested · Account access is not active'}</p>
-        {r.state==='setup_requested'&&<button style={control} disabled={busy} onClick={()=>change(()=>service.cancel({organizationId,requestId:r.id}))}>Cancel setup</button>}
+        <p style={{margin:'4px 0'}}>{r.state==='cancelled'?'Disconnected from KERDOS · prior imports retained':r.id===selectedRequest?.id&&transferEligible&&refreshAvailable&&r.portal_account_label&&r.portal_list_label?'Browser refresh available · vendor sign-in checked on each run':'Connection prepared · vendor sign-in required for refresh'}</p>
+        {r.state==='setup_requested'&&<button style={control} disabled={busy} onClick={()=>change(()=>service.cancel({organizationId,requestId:r.id}))}>Disconnect from KERDOS</button>}
       </li>)}</ul>
     </>}
   </section>;
