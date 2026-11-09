@@ -1,3 +1,4 @@
+import {BrandCoin,BrandLogo} from "../ui/Brand.jsx";
 import {useEffect,useState} from "react";
 import {backend} from "../backend/index.js";
 import {createOrganizationService} from "../services/organization.js";
@@ -44,8 +45,7 @@ export function LandingGate() {
   return (
     <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#003584 0%,#00204F 100%)",padding:"48px 20px 60px"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
-        <div style={{fontSize:64,marginBottom:14}}>🦉</div>
-        <div style={{fontWeight:900,fontSize:34,letterSpacing:"0.2em",color:"white",marginBottom:14}}>KERDOS</div>
+        <BrandLogo />
         <div style={{fontWeight:900,fontSize:22,color:"white",marginBottom:10,maxWidth:480,marginLeft:"auto",marginRight:"auto",lineHeight:1.3}}>
           Stop overpaying because you didn't check the other vendor.
         </div>
@@ -160,7 +160,7 @@ function Setup({user,onComplete}) {
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:536,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-          <span style={{fontSize:20}}>🦉</span>
+          <BrandCoin />
           <span style={{fontWeight:900,fontSize:16,letterSpacing:"0.18em",color:"#003584"}}>KERDOS</span>
         </div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Welcome — let's get set up</h2>
@@ -233,7 +233,7 @@ export function OrgGate({user,onComplete}) {
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:476,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",textAlign:"center"}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><span style={{fontSize:36}}>🦉</span></div>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><BrandCoin size={44} /></div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Welcome to KERDOS</h2>
         <p style={{color:"#888",fontSize:13,margin:"0 0 24px"}}>Are you starting a new organization, or joining one your team already set up?</p>
         <button onClick={()=>setPath("create")} style={{...btn("#003584"),width:"100%",marginBottom:10}}>Create a new organization</button>
@@ -262,7 +262,7 @@ function JoinWithCode({user,onComplete,onBack}) {
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:476,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
-          <span style={{fontSize:20}}>🦉</span>
+          <BrandCoin />
           <span style={{fontWeight:900,fontSize:16,letterSpacing:"0.18em",color:"#003584"}}>KERDOS</span>
         </div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Join your team</h2>
