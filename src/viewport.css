@@ -1,0 +1,26 @@
+/* Keep the document still during sideways swipes. This also covers sign-in
+   and dialogs rendered outside the workspace. Nested scrollers can still
+   handle their own gestures. */
+@media (max-width: 960px), (hover: none) and (pointer: coarse) {
+  html {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  body {
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+  }
+
+  #root {
+    overflow-x: clip;
+  }
+}
+
+@media (max-width: 720px), (hover: none) and (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]), select, textarea {
+    max-width: 100%;
+    font-size: 16px !important;
+  }
+}
