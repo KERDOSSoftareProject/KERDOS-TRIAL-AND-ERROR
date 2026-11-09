@@ -7,13 +7,13 @@ try{
  await build({entryPoints:['src/pages/OrderGuideListings.jsx'],outfile:join(dir,'listing.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-test-renderer'],logLevel:'silent'});
  writeFileSync(join(dir,'run.mjs'),String.raw`
 import React from 'react';import Renderer,{act} from 'react-test-renderer';import assert from 'node:assert/strict';
-const {OrderGuideListings,useOrderGuidePriceAutosave}=await import('./listing.mjs');
+const {OrderGuideListings,useOrderGuideListingAutosave}=await import('./listing.mjs');
 const rows=['one','two'].map((id,i)=>({id,organization_id:'org',vendor_id:'same-vendor',description:'Honey Mustard',pack_size:'4/1 GAL',selling_unit:'CS',price:20+i*5,row_revision:3,field_resolutions:{}}));
 const mappings=rows.map(row=>({id:'mapping-'+row.id,organization_id:'org',catalog_item_id:'catalog',vendor_item_id:row.id}));
 let saved,selected,applied=0,fail=false;
-const backend={catalog:{saveRow:async request=>{if(fail)throw Error('Listing changed; refresh.');saved=request;rows.find(row=>row.id===request.vendorItemId).price=request.patch.price;}}};
+const backend={catalog:{saveRow:async request=>{if(fail)throw Error('Listing changed; refresh.');saved=request;Object.assign(rows.find(row=>row.id===request.vendorItemId),request.patch);}}};
 const offers=rows.map(row=>({vendorId:row.vendor_id,vendorName:'Same supplier',vendorItemId:row.id,description:row.description,packSize:row.pack_size,casePrice:row.price,matchTrack:'exact',matchConfidence:100}));
-function Editor(){const priceEdits=useOrderGuidePriceAutosave({backend,organizationId:'org',userId:'owner',canManage:true,vendorItems:rows,mappings,onSaved:async()=>{applied++;}});return React.createElement(OrderGuideListings,{canManage:true,offers,selectedId:'one',vendorItems:rows,onSelect:offer=>{selected=offer.vendorItemId;},priceEdits});}
+function Editor(){const listingEdits=useOrderGuideListingAutosave({backend,organizationId:'org',userId:'owner',canManage:true,vendorItems:rows,mappings,onSaved:async()=>{applied++;}});return React.createElement(OrderGuideListings,{canManage:true,offers,selectedId:'one',vendorItems:rows,onSelect:offer=>{selected=offer.vendorItemId;},listingEdits});}
 let tree;await act(async()=>{tree=Renderer.create(React.createElement(Editor));});
 assert.equal(tree.root.findByProps({'aria-label':'Group listings'}).props['data-price-menu'],true,'editor clicks stay inside the open dropdown');
 const input=()=>tree.root.findByProps({'aria-label':'Price for listing two'});
@@ -40,6 +40,14 @@ await act(async()=>input().props.onChange({target:{value:'15.750'}}));
 await act(async()=>input().props.onBlur());
 await settle();
 assert.equal(applied,4,'unchanged prices do not trigger a write');
+for(const [label,value] of [['Product','Honey Mustard Dressing'],['Brand','House'],['Pack','6/1 GAL'],['Quoted per','each']]){
+ await act(async()=>tree.root.findByProps({'aria-label':label+' for listing two'}).props.onChange({target:{value}}));
+}
+await settle();
+assert.equal(applied,5,'listing changes share one debounced save');
+assert.deepEqual(saved.patch,{description:'Honey Mustard Dressing',brand:'House',pack_size:'6/1 GAL',selling_unit:'EACH'});
+assert.equal(saved.priceBasis,'each');assert.equal(saved.priceAvailable,true);
+assert.equal(rows[0].description,'Honey Mustard');
 await act(async()=>tree.root.findByProps({'aria-label':'Select Same supplier listing two'}).props.onClick());assert.equal(selected,'two');
 await act(async()=>tree.unmount());console.log('PASS listing price autosave: debounce, Enter and blur, exact listing/revision, same-vendor isolation, validation, retained errors, retry and selection.');
 `);

@@ -1,5 +1,5 @@
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
-import {OrderGuideListings,useOrderGuidePriceAutosave} from './pages/OrderGuideListings.jsx';
+import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -140,10 +140,10 @@ export default function App() {
   const [unitSelection,setUnitSelection]=useState({});
   const [vendorOverride,setVendorOverride]=useState({});
   const [negotiatedPrices,setNegotiatedPrices]=useState({}); // unit key -> vendor ID -> agreed price
-  const priceEdits=useOrderGuidePriceAutosave({backend,organizationId:org?.id,userId:session?.user?.id,
-    canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping)=>{
+  const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,
+    canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping,patch)=>{
       // A legacy device-only price must not conceal a freshly saved quote.
-      setNegotiatedPrices(previous=>{
+      if(['price','pack_size','selling_unit'].some(field=>Object.hasOwn(patch,field)))setNegotiatedPrices(previous=>{
         const next={...previous};
         for(const unit of ['case','each']){
           const key=`${mapping.catalog_item_id}_${unit}`;
@@ -400,7 +400,8 @@ export default function App() {
     if(!org||org.role==="employee"||loading||autoPlacing||backfilling)return;
     const ready=autoPlaceable({catalogItems,vendorItems,mappings,vendors,categories,settings:org.settings});
     if(!ready.length)return;
-    const key=JSON.stringify([org.id,autoPlaceRetry,ready.map(r=>r.mappingId).sort()]);
+    const revisions=new Map(vendorItems.map(row=>[row.id,row.row_revision??0]));
+    const key=JSON.stringify([org.id,autoPlaceRetry,ready.map(r=>[r.mappingId,revisions.get(r.vendorItemId)]).sort()]);
     if(attemptedAutoPlace.current.has(key))return;
     attemptedAutoPlace.current.add(key);
     setAutoPlacing(true);setAutoPlaceError("");
@@ -1006,11 +1007,11 @@ export default function App() {
                         const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
                         const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
                         const allListings=rankVendorOffers(item.linkedOptions||[],negotiation,selectedUnit);
-                        const pendingPriceEdit=menuOpen?null:allListings.map(offer=>priceEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
+                        const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
                         const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
                         const multipleVendors=vendorCount>1;
                         const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}
-                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} unit={selectedUnit} priceEdits={priceEdits}
+                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} industry={org.industry} vocabulary={vocabulary} unit={selectedUnit} listingEdits={listingEdits}
                           onSelect={offer=>{
                             const nextUnit=selectedUnit==='each'&&!offer.eachPrice?'case':selectedUnit;
                             if(nextUnit!==selectedUnit)setUnitSelection(previous=>({...previous,[item.catalogItemId]:nextUnit}));
@@ -1055,7 +1056,7 @@ export default function App() {
                                 <small style={{color:'#52647A'}}>{[displayOption?.vendorItemCode,displayOption?.brand,displayOption?.packSize].filter(Boolean).join(' · ')}</small>
                                 <button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:'none',border:0,padding:0,cursor:'pointer'}}>Clear selection</button>
                               </div>}
-                              {pendingPriceEdit&&<small role={pendingPriceEdit.error?'alert':'status'} style={{display:'block',color:pendingPriceEdit.error?'#B42318':'#52647A',marginTop:4}}>{pendingPriceEdit.error||'Saving price change…'}</small>}
+                              {pendingListingEdit&&<small role={pendingListingEdit.error?'alert':'status'} style={{display:'block',color:pendingListingEdit.error?'#B42318':'#52647A',marginTop:4}}>{pendingListingEdit.error||'Saving listing changes…'}</small>}
                               </div>
                               {activeQty>1&&rankedOptions.some(opt=>opt.vendorId!==activeVendorId)&&(
                                 <details open={!!splitOrders[activeKey]?.vendorId} style={{marginTop:6,fontSize:11,color:"#475569"}}>
