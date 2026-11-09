@@ -14,8 +14,10 @@ try{
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
  const request={id:'request-one',transfer_revision:1};
  let state={request_id:request.id,server_now:'2026-11-06T12:00:00Z',schedule:null,slots:[]};
- const writes=[];
- const backend={vendorConnect:{reconcileSchedule:async()=>0,scheduleHistory:async()=>structuredClone(state),setSchedule:async input=>{
+ const writes=[],closures=[];
+ const backend={vendorConnect:{reconcileSchedule:async()=>0,scheduleHistory:async()=>structuredClone(state),closeUnknownSchedule:async(id,token)=>{
+  closures.push([id,token]);state={...state,blocked_by_unknown:false,unknown_token:null,slots:[{version:4,slot_at:'2026-11-06T11:00:00Z',state:'closed_unverified'}]};return 'closed_unverified';
+ },setSchedule:async input=>{
   writes.push(input);state={...state,schedule:{version:1,weekdays:input.weekdays,local_time:input.localTime+':00',timezone:input.timezone,enabled:input.enabled,grace_minutes:input.graceMinutes},slots:[{version:1,slot_at:'2026-11-05T11:00:00Z',state:'missed'}]};return 1;
  }}};
  const service=createVendorConnectService(backend);
@@ -40,13 +42,17 @@ try{
  state={...state,schedule:{...state.schedule,version:3,effective_to:null},slots:[...state.slots]};
  await act(async()=>{tree.update(React.createElement(VendorSchedulePanel,{service,request,resultKey:'later-off'}));});
  assert.doesNotMatch(text(tree.toJSON()),/schedule was turned off/,'an older sign-in stop cannot explain a later owner edit');
- state={...state,schedule:{...state.schedule,version:4,enabled:true},slots:[],blocked_by_unknown:true};
+ state={...state,schedule:{...state.schedule,version:4,enabled:true},slots:[],blocked_by_unknown:true,unknown_token:'unknown-token'};
  await act(async()=>{tree.update(React.createElement(VendorSchedulePanel,{service,request,resultKey:'old-unknown'}));});
  assert.match(text(tree.toJSON()),/Enabled · scheduled runs blocked/);
  assert.match(text(tree.toJSON()),/changing the schedule will not clear this hold/);
- state={...state,blocked_by_unknown:false};
- await act(async()=>{tree.update(React.createElement(VendorSchedulePanel,{service,request,resultKey:'resolved'}));});
+ const closeButton=tree.root.findAllByType('button').find(n=>text(n)==='Close unverified attempt');
+ assert.equal(closeButton.props.disabled,true);
+ await act(async()=>{tree.root.findByProps({'aria-label':'Confirm unknown refresh review'}).props.onChange({target:{checked:true}});});
+ await act(async()=>{await tree.root.findAllByType('button').find(n=>text(n)==='Close unverified attempt').props.onClick();});
+ assert.deepEqual(closures,[['request-one','unknown-token']]);
  assert.doesNotMatch(text(tree.toJSON()),/scheduled runs blocked/);
+ assert.match(text(tree.toJSON()),/Closed after review · outcome unverified/);
  await act(async()=>{tree.unmount();});
  console.log('PASS schedule controls: owner settings, versioned save, missed history, explicit disabled state before runner. No schedule enabled.');
  `,resolveDir:process.cwd(),loader:'jsx'},bundle:true,platform:'node',format:'esm',packages:'external',jsx:'automatic',outfile});

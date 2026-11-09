@@ -10,6 +10,8 @@ try{
  await db.exec(migration);await db.exec(migration);
  const blockerMigration=readFileSync('supabase/migrations/20261109161555_vendor_schedule_unknown_blocker.sql','utf8');
  await db.exec(blockerMigration);await db.exec(blockerMigration);
+ const reviewMigration=readFileSync('supabase/migrations/20261109163536_vendor_schedule_review_unknown.sql','utf8');
+ await db.exec(reviewMigration);await db.exec(reviewMigration);
  const history=async(request=id)=>(await db.query('select public.kerdos_vendor_refresh_history($1) as result',[request])).rows[0].result;
  await f.actor(db,f.owner);let h=await history();assert.equal(h.schedule,null);assert.deepEqual(h.slots,[]);assert.equal(h.blocked_by_unknown,false);
  await assert.rejects(history(f.otherRequest),/access_denied/);
@@ -20,7 +22,7 @@ try{
  assert.equal(h.slots.length,1);assert.equal(h.slots[0].state,'pending');
  const token=(await f.claim(db,id)).token;h=await history();assert.equal(h.slots[0].token,token);assert.equal(h.slots[0].state,'in_progress');
  await db.query('reset role');await db.query("update kerdos_scheduling.attempts set started_at=started_at-interval '1 hour',lease_until=lease_until-interval '1 hour' where token=$1",[token]);
- await f.actor(db,f.owner);h=await history();assert.equal(h.slots[0].state,'outcome_unknown');assert.equal(h.blocked_by_unknown,true);
+ await f.actor(db,f.owner);h=await history();assert.equal(h.slots[0].state,'outcome_unknown');assert.equal(h.blocked_by_unknown,true);assert.equal(h.unknown_token,token);
  await db.query('reset role');await db.query("update kerdos_scheduling.attempts set slot_at=slot_at-interval '31 days',started_at=started_at-interval '31 days',lease_until=lease_until-interval '31 days' where token=$1",[token]);
  await f.actor(db,f.owner);h=await history();assert.equal(h.blocked_by_unknown,true,'old unresolved attempts still block later claims');assert.ok(!h.slots.some(s=>s.state==='outcome_unknown'));
  assert.equal(await f.claim(db,id),null,'an old unknown attempt must not be claimed again');

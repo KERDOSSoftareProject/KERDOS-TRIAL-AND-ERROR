@@ -57,6 +57,7 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
       request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc('kerdos_request_vendor_connection',{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),'Prepare vendor connection');},
       scheduleHistory(requestId){return providerResult(client.rpc('kerdos_vendor_refresh_history',{p_request_id:requestId}),'Load vendor refresh schedule');},
       reconcileSchedule(requestId){return providerResult(client.rpc('kerdos_reconcile_scheduled_refresh',{p_request_id:requestId}),'Check saved scheduled refresh evidence');},
+      closeUnknownSchedule(requestId,token){return providerResult(client.rpc('kerdos_close_unknown_scheduled_refresh',{p_request_id:requestId,p_token:token,p_confirmed:true}),'Close unverified scheduled refresh');},
       setSchedule(input){return providerResult(client.rpc('kerdos_set_vendor_refresh_schedule',{p_request_id:input.requestId,p_expected_version:input.expectedVersion,p_weekdays:input.weekdays,p_local_time:input.localTime,p_timezone:input.timezone,p_enabled:input.enabled,p_grace_minutes:input.graceMinutes}),'Save vendor refresh schedule');},
       claimSchedule(requestId){return providerResult(client.rpc('kerdos_claim_scheduled_refresh',{p_request_id:requestId}),'Claim scheduled refresh');},
       verifySchedule(token){return providerResult(client.rpc('kerdos_verify_scheduled_refresh',{p_token:token}),'Check scheduled refresh');},
