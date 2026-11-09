@@ -318,9 +318,7 @@ export function qualificationSummary({catalogItems=[],vendorItems=[],mappings=[]
 }
 
 // Rows the app can place in the Order Guide on its own: ready by the rule
-// above and not yet an exact association. Multi-vendor items also need
-// the other vendor's row to agree on identity, brand and pack; single-
-// vendor items only need the row to agree with its own catalog item.
+// above with independently verified identity or a current product approval.
 export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendors=[],categories=[],settings={},now}){
   const ciById=new Map(catalogItems.map(ci=>[ci.id,ci]));
   const viById=new Map(vendorItems.map(vi=>[vi.id,vi]));
@@ -336,11 +334,19 @@ export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendor
     const category=cById.get(ci.category_id);
     const allOnEntry=(byCatalog.get(m.catalog_item_id)||[]);
     const peers=allOnEntry.filter(o=>o.id!==m.id).map(o=>viById.get(o.vendor_item_id)).filter(Boolean);
-    if(!orderGuideReady({item:ci,vendorItem:vi,mapping:m,vendor:vById.get(vi.vendor_id),category,peers,categories,settings,now}))continue;
-    const verification=mappingVerification(vi,ci,peers);
+    // A pack correction reopens the mapping, but an explicit product-group
+    // approval still applies if the approved description, brand and target agree.
+    const approval=vi.field_resolutions?.product_group,packCorrection=vi.field_resolutions?.pack_size;
+    const approvedMapping={...m,comparison_track:"exact",confidence_score:100};
+    const reuseGroupApproval=ci.comparison_mode!=="exact"&&m.comparison_track==="review"&&m.confidence_score===null&&
+      !!approval?.confirmedBy&&approval.confirmed!==false&&!!packCorrection?.confirmedBy&&packCorrection.value===vi.pack_size&&
+      productGroupApproved(vi,ci,approvedMapping);
+    if(!orderGuideReady({item:ci,vendorItem:vi,mapping:reuseGroupApproval?approvedMapping:m,vendor:vById.get(vi.vendor_id),category,peers,categories,settings,now}))continue;
+    const verification=reuseGroupApproval?{comparison_track:"exact",confidence_score:100,match_method:"manual"}:
+      {...mappingVerification(vi,ci,peers),match_method:"rule_based"};
     if(verification.comparison_track!=="exact")continue;
     out.push({mappingId:m.id,vendorItemId:vi.id,catalogItemId:ci.id,description:vi.description,packSize:vi.pack_size,
-      verification:{...verification,match_method:"rule_based"},clearCategoryReview:!!ci.category_review});
+      verification,clearCategoryReview:!!ci.category_review});
   }
   return out;
 }
