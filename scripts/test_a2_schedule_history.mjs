@@ -8,8 +8,10 @@ try{
  await db.exec("alter table kerdos_scheduling.attempts add column import_document_id uuid, add column receipt_sha256 text, add column received_at timestamptz");
  const migration=readFileSync('supabase/migrations/20261106223111_vendor_schedule_history.sql','utf8');
  await db.exec(migration);await db.exec(migration);
+ const blockerMigration=readFileSync('supabase/migrations/20261109161555_vendor_schedule_unknown_blocker.sql','utf8');
+ await db.exec(blockerMigration);await db.exec(blockerMigration);
  const history=async(request=id)=>(await db.query('select public.kerdos_vendor_refresh_history($1) as result',[request])).rows[0].result;
- await f.actor(db,f.owner);let h=await history();assert.equal(h.schedule,null);assert.deepEqual(h.slots,[]);
+ await f.actor(db,f.owner);let h=await history();assert.equal(h.schedule,null);assert.deepEqual(h.slots,[]);assert.equal(h.blocked_by_unknown,false);
  await assert.rejects(history(f.otherRequest),/access_denied/);
  await f.actor(db,f.employee);await assert.rejects(history(),/access_denied/);
  await db.query('set role anon');await assert.rejects(history(),/permission denied/);
@@ -18,12 +20,15 @@ try{
  assert.equal(h.slots.length,1);assert.equal(h.slots[0].state,'pending');
  const token=(await f.claim(db,id)).token;h=await history();assert.equal(h.slots[0].token,token);assert.equal(h.slots[0].state,'in_progress');
  await db.query('reset role');await db.query("update kerdos_scheduling.attempts set started_at=started_at-interval '1 hour',lease_until=lease_until-interval '1 hour' where token=$1",[token]);
- await f.actor(db,f.owner);h=await history();assert.equal(h.slots[0].state,'outcome_unknown');
+ await f.actor(db,f.owner);h=await history();assert.equal(h.slots[0].state,'outcome_unknown');assert.equal(h.blocked_by_unknown,true);
+ await db.query('reset role');await db.query("update kerdos_scheduling.attempts set slot_at=slot_at-interval '31 days',started_at=started_at-interval '31 days',lease_until=lease_until-interval '31 days' where token=$1",[token]);
+ await f.actor(db,f.owner);h=await history();assert.equal(h.blocked_by_unknown,true,'old unresolved attempts still block later claims');assert.ok(!h.slots.some(s=>s.state==='outcome_unknown'));
+ assert.equal(await f.claim(db,id),null,'an old unknown attempt must not be claimed again');
  await db.query('reset role');await db.query("update kerdos_scheduling.attempts set finished_at=clock_timestamp(),outcome='received' where token=$1",[token]);
- await f.actor(db,f.owner);h=await history();assert.equal(h.slots[0].state,'received');
+ await f.actor(db,f.owner);h=await history();assert.equal(h.blocked_by_unknown,false);assert.ok(!h.slots.some(s=>s.state==='outcome_unknown'));
  await f.actor(db,f.outsider);await f.due(db,f.otherRequest);
  await db.query('reset role');await db.query("update kerdos_scheduling.versions set local_time=((clock_timestamp()-interval '20 minutes') at time zone 'UTC')::time,weekdays=array[extract(isodow from (clock_timestamp()-interval '20 minutes') at time zone 'UTC')::smallint],effective_from=clock_timestamp()-interval '30 minutes' where request_id=$1",[f.otherRequest]);
  await f.actor(db,f.outsider);h=await history(f.otherRequest);assert.equal(h.slots[0].state,'missed');
- await f.actor(db,f.owner);await f.save(db,id,version,{enabled:false});h=await history();assert.equal(h.schedule.enabled,false);assert.equal(h.slots.length,1,'disabled versions retain only historical slots');
+ await f.actor(db,f.owner);await f.save(db,id,version,{enabled:false});h=await history();assert.equal(h.schedule.enabled,false);
  console.log('PASS schedule history: ownership, server clock, pending, claimed, unknown, received, missed and version retirement. No runner enabled.');
 }finally{await db.close();}

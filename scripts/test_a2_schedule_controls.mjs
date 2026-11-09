@@ -40,6 +40,13 @@ try{
  state={...state,schedule:{...state.schedule,version:3,effective_to:null},slots:[...state.slots]};
  await act(async()=>{tree.update(React.createElement(VendorSchedulePanel,{service,request,resultKey:'later-off'}));});
  assert.doesNotMatch(text(tree.toJSON()),/schedule was turned off/,'an older sign-in stop cannot explain a later owner edit');
+ state={...state,schedule:{...state.schedule,version:4,enabled:true},slots:[],blocked_by_unknown:true};
+ await act(async()=>{tree.update(React.createElement(VendorSchedulePanel,{service,request,resultKey:'old-unknown'}));});
+ assert.match(text(tree.toJSON()),/Enabled · scheduled runs blocked/);
+ assert.match(text(tree.toJSON()),/changing the schedule will not clear this hold/);
+ state={...state,blocked_by_unknown:false};
+ await act(async()=>{tree.update(React.createElement(VendorSchedulePanel,{service,request,resultKey:'resolved'}));});
+ assert.doesNotMatch(text(tree.toJSON()),/scheduled runs blocked/);
  await act(async()=>{tree.unmount();});
  console.log('PASS schedule controls: owner settings, versioned save, missed history, explicit disabled state before runner. No schedule enabled.');
  `,resolveDir:process.cwd(),loader:'jsx'},bundle:true,platform:'node',format:'esm',packages:'external',jsx:'automatic',outfile});

@@ -31,6 +31,7 @@ export default function VendorSchedulePanel({service,request,runnerReady=false,r
  if(unavailable)return null;
  const pausedForSignIn=!!(history?.schedule&&!history.schedule.enabled&&history.schedule.effective_to==null&&history.slots?.some(slot=>
   slot.state==='verification_needed'&&Number(slot.version)===Number(history.schedule.version)-1));
+ const blockedByUnknown=history?.blocked_by_unknown===true||history?.slots?.some(slot=>slot.state==='outcome_unknown');
  return <section aria-label="Pricing refresh schedule" style={{borderTop:'1px solid #B7C8DE',marginTop:22,paddingTop:18}}>
   <h3 style={{margin:'0 0 8px'}}>Pricing refresh schedule</h3>
   <p style={{lineHeight:1.5}}>A scheduled refresh can run only while a signed-in KERDOS tab and your vendor session are open. Missed times are shown below. Refresh prices remains available at any time.</p>
@@ -48,8 +49,9 @@ export default function VendorSchedulePanel({service,request,runnerReady=false,r
    <label style={{display:'block',margin:'14px 0'}}><input type="checkbox" aria-label="Enable schedule" checked={draft.enabled} disabled={loading||(!runnerReady&&!history.schedule?.enabled)} onChange={e=>setDraft(v=>({...v,enabled:e.target.checked}))}/> Enable this schedule</label>
    {!runnerReady&&<p role="status">Scheduling is being prepared. You can save settings with the schedule off; automatic runs cannot be enabled yet.</p>}
    <button style={{...input,background:'#00204F',color:'white',cursor:'pointer'}} disabled={loading||!draft.weekdays.length||(!runnerReady&&draft.enabled&&!history.schedule?.enabled)} onClick={save}>Save schedule settings</button>
-   {history.schedule&&<p role="status">Version {history.schedule.version} · {history.schedule.enabled?'Enabled':'Off'}</p>}
+   {history.schedule&&<p role="status">Version {history.schedule.version} · {history.schedule.enabled?'Enabled':'Off'}{blockedByUnknown?' · scheduled runs blocked':''}</p>}
    {pausedForSignIn&&<p role="alert">A scheduled refresh stopped for vendor sign-in verification, so the schedule was turned off. Sign in directly with your vendor, open the selected pricing list, and click Refresh prices. Once that works, enable the schedule and save its settings.</p>}
+   {blockedByUnknown&&<p role="alert">A scheduled refresh has an unknown outcome. KERDOS will not start another scheduled export until that attempt is resolved from its original evidence. Check Price Sheets for the source file; changing the schedule will not clear this hold.</p>}
    <h4>Recent scheduled times</h4>
    {history.slots.length?<ul>{history.slots.map(slot=><li key={`${slot.version}-${slot.slot_at}`}>{dateTime(slot.slot_at)} · {labels[slot.state]||slot.state}{slot.received_at?' · pricing received':''}</li>)}</ul>:<p>No scheduled times in the past 30 days.</p>}
   </>}
