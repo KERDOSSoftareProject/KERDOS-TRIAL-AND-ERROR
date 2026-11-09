@@ -1,3 +1,4 @@
+import {MobileDetailWindow} from '../ui/MobileDetailWindow.jsx';
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {ProductAssociationTrial} from "./ProductAssociationTrial.jsx";
 import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
@@ -24,7 +25,7 @@ const importService=createImportService(backend);
 
 const CATEGORY_REVIEW_FILTER="__category_review__";
 
-export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
+export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,userId,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
   const canManage=role==="owner"||role==="manager";
   const [search,setSearch]=useState("");
   const [rowView,setRowView]=useState(true);
@@ -627,7 +628,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"
@@ -645,7 +646,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
             <span style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>({group.items.length})</span>
           </div>
           <div style={{background:"white",borderRadius:10,overflowX:"auto",boxShadow:"0 3px 14px rgba(0,20,65,.12)"}}>
-            <div className="catalog-product-details" style={{minWidth:890}}>
+            <div className="catalog-product-details" data-mobile-detail={mobileDetails||undefined} style={{minWidth:890}}>
               <div className="catalog-product-columns" style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,padding:"14px 18px",background:"#E8F0FA",color:"#173C70",fontSize:10,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase"}}>
                 <span></span><span></span><span>Item</span><span>Vendor / description</span><span>Pack size</span><span>Case price</span><span>Cost per unit</span><span>Match</span>
               </div>
@@ -653,9 +654,10 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                 const status=statusFor(item);
                 const first=item.options.find(orderable)||item.options[0]||null;
                 const expanded=mapPanelOpenFor===item.catalogItemId;
+                const showDetails=()=>setMapPanelOpenFor(expanded?null:item.catalogItemId);
                 return <div key={item.catalogItemId} style={{borderTop:"1px solid #E7ECF3",background:expanded?"#F1F7FF":index%2?"#FAFCFF":"white"}}>
-                  <div className="catalog-product-summary" role="button" tabIndex={0} aria-expanded={expanded} onClick={()=>setMapPanelOpenFor(expanded?null:item.catalogItemId)}
-                    onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setMapPanelOpenFor(expanded?null:item.catalogItemId);}}}
+                  <div className="catalog-product-summary" data-mobile-detail={mobileDetails||undefined} aria-haspopup={mobileDetails?"dialog":undefined} role="button" tabIndex={0} aria-expanded={expanded} onClick={showDetails}
+                    onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();showDetails();}}}
                     style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,alignItems:"center",padding:"14px 18px",cursor:"pointer",borderLeft:expanded?"4px solid #397CC3":"4px solid transparent"}}>
                     {canManage
                       ?<input type="checkbox" aria-label={`Select ${item.name} for linking`}
@@ -699,11 +701,13 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       )}
                     </div>
                   </div>
-                  {expanded&&<div className="catalog-product-expanded" style={{padding:"2px 18px 18px 50px",borderLeft:"4px solid #397CC3"}}>
+                  {expanded&&<MobileDetailWindow title="Catalog item" itemName={item.name} kind="catalog" inline={!mobileDetails} onMinimize={()=>setMapPanelOpenFor(null)}>
+                  <div className="catalog-product-expanded" style={{padding:"2px 18px 18px 50px",borderLeft:"4px solid #397CC3"}}>
+                    {mobileDetails&&error&&<div role="alert" style={{color:"#A32B20",marginBottom:10}}>{error}</div>}
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:10}}>
                       <div style={{display:"flex",alignItems:"center",gap:9}}>
                         {canManage&&<input type="checkbox" checked={selectedIds.has(item.catalogItemId)} title="Select for category change" onChange={e=>setSelectedIds(prev=>{const next=new Set(prev);e.target.checked?next.add(item.catalogItemId):next.delete(item.catalogItemId);return next;})} />}
-                        {canManage&&renamingId===item.catalogItemId?<><input autoFocus style={{...inp,width:220,fontSize:12}} value={renameValue} onChange={e=>setRenameValue(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(item.catalogItemId);if(e.key==="Escape")setRenamingId(null);}} /><button onClick={()=>saveRename(item.catalogItemId)} style={{...btn("#003584","white",{fontSize:11})}}>Save</button></>:<><strong style={{fontSize:13,color:"#19395F"}}>{item.name}</strong>{canManage&&<button onClick={()=>{setRenamingId(item.catalogItemId);setRenameValue(item.name);}} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Rename</button>}</>}
+                        {canManage&&renamingId===item.catalogItemId?<><input autoFocus style={{...inp,width:220,fontSize:12}} value={renameValue} onChange={e=>setRenameValue(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(item.catalogItemId);if(e.key==="Escape"){e.preventDefault();setRenamingId(null);}}} /><button onClick={()=>saveRename(item.catalogItemId)} style={{...btn("#003584","white",{fontSize:11})}}>Save</button></>:<><strong style={{fontSize:13,color:"#19395F"}}>{item.name}</strong>{canManage&&<button onClick={()=>{setRenamingId(item.catalogItemId);setRenameValue(item.name);}} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Rename</button>}</>}
                         {canManage&&categoryEditId===item.catalogItemId?<select autoFocus defaultValue="" onChange={e=>handleAssignCategory(item.catalogItemId,e.target.value)} style={{...inp,width:165,fontSize:11}}><option value="" disabled>Move category to...</option>{categories.filter(c=>!c.is_holding_pen&&c.name!==item.category&&(!industry||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:canManage&&<button onClick={()=>setCategoryEditId(item.catalogItemId)} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Change category</button>}
                       </div>
                       <button onClick={()=>setShowItemNumberFor(showItemNumberFor===item.catalogItemId?null:item.catalogItemId)} style={{border:"1px solid #CBD9E9",borderRadius:6,background:"white",color:"#173C70",padding:"6px 9px",fontWeight:700,cursor:"pointer",fontSize:11}}>{showItemNumberFor===item.catalogItemId?`KERDOS #${item.masterItemNumber} ▴`:"KERDOS number ▾"}</button>
@@ -769,7 +773,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       const sel={...inp,fontSize:11,padding:"4px 6px",width:"auto"};
                       const lbl={fontSize:10,fontWeight:700,color:"#AAA",letterSpacing:"0.06em",textTransform:"uppercase"};
                       return (
-                        <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"flex-end",background:"white",border:"1px solid #EEE",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
+                        <div className="catalog-product-preferences" style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"flex-end",background:"white",border:"1px solid #EEE",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
                           <div>
                             <label style={{display:"block",fontSize:12}}><input type="checkbox" checked={item.comparisonMode!=="exact"} onChange={e=>handleItemSetting(item.catalogItemId,{comparison_mode:e.target.checked?"alternatives":"exact"})}/> Accept client-approved alternatives across brands</label>
                             <small>To add an alternative, set its KERDOS number to this item's number in Edit catalog rows, then Apply. Each vendor keeps its description, brand and pack.</small>
@@ -813,7 +817,8 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                           </div>
                         </div>
                       );
-                    })()}                  </div>}
+                    })()}
+                  </div></MobileDetailWindow>}
                 </div>;
               })}
             </div>

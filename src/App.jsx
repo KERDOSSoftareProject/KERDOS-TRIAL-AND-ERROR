@@ -1,6 +1,7 @@
+import {MobileDetailWindow} from './ui/MobileDetailWindow.jsx';
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
-import {OrderBasket,mobileOrderQuery,useMobileOrderLayout} from './pages/OrderBasket.jsx';
-import {MobileVendorPicker,OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
+import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
+import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -158,15 +159,16 @@ export default function App() {
     }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
-  const mobileOrder=useMobileOrderLayout();
+  const mobileOrder=useLayoutQuery(mobileOrderQuery);
+  const mobileDetails=useLayoutQuery(`${mobileOrderQuery}, (hover: none) and (pointer: coarse)`);
   useEffect(()=>{
-    if(openPriceMenu==null||mobileOrder)return;
+    if(openPriceMenu==null||mobileDetails)return;
     const closeOutside=event=>{if(!(event.target instanceof Element)||!event.target.closest("[data-price-menu]"))setOpenPriceMenu(null);};
     const closeEscape=event=>{if(event.key==="Escape")setOpenPriceMenu(null);};
     document.addEventListener("pointerdown",closeOutside);
     document.addEventListener("keydown",closeEscape);
     return ()=>{document.removeEventListener("pointerdown",closeOutside);document.removeEventListener("keydown",closeEscape);};
-  },[openPriceMenu,mobileOrder]);
+  },[openPriceMenu,mobileDetails]);
   const [expandedOrderTabOrder,setExpandedOrderTabOrder]=useState(null);
   const [expandedInvoiceId,setExpandedInvoiceId]=useState(null);
   const [expandedPricePeriod,setExpandedPricePeriod]=useState(null);
@@ -901,18 +903,6 @@ export default function App() {
           .workspace-browse-controls input,.workspace-browse-controls select { min-height:44px; min-width:0!important; max-width:100%; font-size:16px!important; }
           .catalog-browse-filters { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px!important; padding:10px!important; margin-bottom:8px!important; }
           .catalog-browse-filters > select { width:100%!important; }
-          .catalog-product-details { min-width:0!important; overflow-wrap:anywhere; }
-          .catalog-product-columns { display:none!important; }
-          .catalog-product-summary { grid-template-columns:24px 20px repeat(2,minmax(0,1fr))!important; gap:8px!important; padding:10px!important; }
-          .catalog-product-summary > :nth-child(3) { grid-column:3 / -1; }
-          .catalog-product-summary > :nth-child(4) { grid-column:1 / -1; }
-          .catalog-product-summary > :nth-child(4) div { white-space:normal!important; }
-          .catalog-product-expanded { padding:8px!important; }
-          .catalog-product-expanded > div:first-child,.catalog-product-expanded > div:first-child > div { flex-wrap:wrap; }
-          .catalog-product-expanded input:not([type=checkbox]),.catalog-product-expanded select { max-width:100%; min-height:44px; font-size:16px!important; }
-          .catalog-vendor-detail { grid-template-columns:repeat(2,minmax(0,1fr))!important; }
-          .catalog-vendor-detail > :nth-child(-n+2),.catalog-vendor-detail > button { grid-column:1 / -1; }
-          .catalog-vendor-detail button { min-height:44px; }
           .mobile-edit-table,.mobile-edit-table > tbody { display:block; width:100%; min-width:0!important; }
           .mobile-edit-table > thead { display:none; }
           .mobile-edit-table > tbody > tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:8px; border-top:1px solid #DEE7F0; }
@@ -992,16 +982,6 @@ export default function App() {
                 .order-item-qty button { width:44px!important; height:44px!important; }
                 .order-price-card > button:first-child { min-height:44px; font-size:14px!important; }
                 .order-price-card > button[aria-expanded="true"] { background:#003584!important; border-color:#003584!important; color:white; }
-                .mobile-vendor-picker { position:fixed; inset:0; margin:auto; width:min(calc(100% - 24px),720px); max-height:min(85dvh,720px); box-sizing:border-box; padding:0; overflow:hidden; border:2px solid #003584; border-radius:12px; background:#E8F1FF; color:#17243A; }
-                .mobile-vendor-picker[open] { display:flex; flex-direction:column; }
-                .mobile-vendor-picker::backdrop { background:#17243A99; }
-                .mobile-vendor-picker-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; background:#003584; color:white; }
-                .mobile-vendor-picker-heading h3 { margin:0; font-size:16px; }
-                .mobile-vendor-picker-heading span { font-size:13px; overflow-wrap:anywhere; }
-                .mobile-vendor-picker-heading button { min-height:44px; flex-shrink:0; padding:0 12px; border:1px solid #B8C8DC; border-radius:8px; background:white; color:#003584; font:inherit; cursor:pointer; }
-                .mobile-vendor-picker-scroll { min-height:0; overflow:auto; overscroll-behavior:contain; }
-                .mobile-vendor-picker input,.mobile-vendor-picker select { font-size:16px!important; min-height:44px; }
-                html:has(.mobile-vendor-picker[open]) { overflow-y:hidden; }
                 .mobile-basket-launch { position:fixed; z-index:130; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:flex; gap:12px; justify-content:space-between; align-items:center; min-height:48px; padding:8px 16px; border:1px solid #C8DAF2; border-radius:10px; background:#003584; color:white; font-family:inherit; font-size:16px; font-weight:700; box-shadow:0 3px 14px #00204F66; cursor:pointer; }
                 .mobile-basket-dialog { position:fixed; inset:auto 0 0; margin:0; width:100%; max-width:none; max-height:85dvh; box-sizing:border-box; padding:0 14px calc(14px + env(safe-area-inset-bottom)); border:0; border-radius:16px 16px 0 0; background:#F2F6FA; overflow:auto; overscroll-behavior:contain; }
                 .mobile-basket-dialog::backdrop { background:#17243A88; }
@@ -1013,13 +993,6 @@ export default function App() {
                 .order-aside-inner { position:static; }
                 .order-price-grid { grid-template-columns:1fr; }
                 .order-browse-filters select { flex:1; }
-              }
-              @media (min-width:721px) and ${mobileOrderQuery} {
-                .mobile-vendor-picker td { overflow-wrap:anywhere; }
-                .mobile-vendor-picker td[data-field-label="Vendor"] button { max-width:112px; overflow-wrap:anywhere; }
-                .mobile-vendor-picker td[data-field-label="Product"] { min-width:140px!important; }
-                .mobile-vendor-picker td[data-field-label="Pack"] { min-width:80px!important; }
-                .mobile-vendor-picker input[aria-label^="Price"] { width:76px!important; }
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
@@ -1139,7 +1112,7 @@ export default function App() {
                           <div className="order-item-price" key={item.catalogItemId+"_price"} style={{padding:"6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#FAFBFC"}}>
                             <div className="order-price-grid">
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
-                              <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup={mobileOrder?"dialog":"true"} aria-expanded={menuOpen}
+                              <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup={mobileDetails?"dialog":"true"} aria-expanded={menuOpen}
                                 aria-description={multipleVendors?`${vendorCount} vendors quote this item`:undefined}
                                 title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?'2px solid #008577':'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?'#E0F2F1':'white',cursor:'pointer',fontSize:12}}>
                                 {activeVendorName||'Select listing'} · {activePrice==null?'Price unavailable':formatMoney(activePrice)} <span style={{float:'right'}}>{menuOpen?'▴':'▾'}</span>
@@ -1171,8 +1144,8 @@ export default function App() {
                               )}
                             </div>
                           </div>,
-                          ...(menuOpen?[mobileOrder
-                            ?<MobileVendorPicker key={item.catalogItemId+'_listings'} itemName={item.name} onMinimize={()=>setOpenPriceMenu(null)}>{alternativesMenu}</MobileVendorPicker>
+                          ...(menuOpen?[mobileDetails
+                            ?<MobileDetailWindow title="Vendor options" kind="vendor" key={item.catalogItemId+'_listings'} itemName={item.name} onMinimize={()=>setOpenPriceMenu(null)}>{alternativesMenu}</MobileDetailWindow>
                             :<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>{alternativesMenu}</div>]:[]),
                         ];
 
@@ -1440,7 +1413,7 @@ export default function App() {
             {autoPlaceError&&org.role!=="employee"&&<div role="alert" style={{background:"#FFF3E0",padding:12,marginBottom:12,borderRadius:8}}>
               {autoPlaceError} <button disabled={autoPlacing} onClick={()=>setAutoPlaceRetry(n=>n+1)} style={btn("#003584")}>Retry</button>
             </div>}
-            <ItemCatalogPanel industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} userId={session.user.id} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
+            <ItemCatalogPanel mobileDetails={mobileDetails} industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} userId={session.user.id} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
               vendorItems={vendorItems} categories={categories} vocabulary={vocabulary} editors={editors}
               onUpdated={loadData} />
           </>
