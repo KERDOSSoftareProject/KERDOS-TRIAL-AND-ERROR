@@ -30,7 +30,7 @@ try{
  globalThis.setTimeout=(fn,ms,...args)=>ms===30000?(scheduledTick=fn,1):oldSet(fn,ms,...args);
  globalThis.clearTimeout=id=>{if(id===1)scheduledTick=null;else oldClear(id);};
  const backend={records:createRecords(async spec=>({data:spec.table==='vendor_connection_adapters'?[adapter]:[request]})),vendorConnect:{
-  verifySelection:async()=>true,scheduleHistory:async()=>({schedule:null,slots:[]}),
+  verifySelection:async()=>true,reconcileSchedule:async()=>0,scheduleHistory:async()=>({schedule:null,slots:[]}),
   claimSchedule:async id=>{claims.push(id);if(!claimAvailable)return null;claimAvailable=false;return {token:'scheduled-token',request_id:id,organization_id:'org',vendor_id:'vendor',transfer_revision:5};},
   verifySchedule:async token=>{verified.push(token);return true;},stopSchedule:async()=>{throw Error('unexpected stop')},
  }};
