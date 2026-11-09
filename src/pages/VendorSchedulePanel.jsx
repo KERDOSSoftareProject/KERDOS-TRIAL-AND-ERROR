@@ -9,7 +9,7 @@ export default function VendorSchedulePanel({service,request,runnerReady=false,r
  const [history,setHistory]=useState(null),[draft,setDraft]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[unavailable,setUnavailable]=useState(false);
  useEffect(()=>{
   let active=true;setHistory(null);setDraft(null);setError('');setUnavailable(false);setLoading(true);
-  service.scheduleHistory(request.id).then(value=>{if(!active)return;setHistory(value);setDraft({
+  service.reconcileSchedule(request.id).then(()=>service.scheduleHistory(request.id)).then(value=>{if(!active)return;setHistory(value);setDraft({
    weekdays:value.schedule?.weekdays||[1,2,3,4,5],localTime:value.schedule?.local_time?.slice(0,5)||'06:00',
    timezone:value.schedule?.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone||'America/New_York',
    graceMinutes:value.schedule?.grace_minutes||15,enabled:value.schedule?.enabled||false,
