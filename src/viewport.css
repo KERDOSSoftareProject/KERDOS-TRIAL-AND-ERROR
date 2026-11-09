@@ -1,3 +1,11 @@
+.landing-gate, .workspace-shell {
+  font-family: "DM Sans", Inter, -apple-system, sans-serif;
+}
+
+.landing-gate button, .landing-gate input {
+  font-family: inherit;
+}
+
 /* Keep the document still during sideways swipes. This also covers sign-in
    and dialogs rendered outside the workspace. Nested scrollers can still
    handle their own gestures. */

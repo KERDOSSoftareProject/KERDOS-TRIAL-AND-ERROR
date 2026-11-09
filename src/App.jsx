@@ -887,7 +887,7 @@ export default function App() {
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
   return (
-    <div className="workspace-shell" style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+    <div className="workspace-shell" style={{minHeight:"100vh",background:"#003584"}}>
       <style>{`
         .workspace-shell { --workspace-header-height:60px; --workspace-tabs-height:54px; --browse-top:calc(var(--workspace-header-height) + var(--workspace-tabs-height)); }
         .workspace-sticky-tabs { position:sticky; top:var(--workspace-header-height); z-index:120; height:var(--workspace-tabs-height); max-width:1400px; margin:12px auto 18px; padding:0 18px; background:#003584; }
