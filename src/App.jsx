@@ -1,4 +1,5 @@
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
+import {OrderBasket,mobileOrderQuery} from './pages/OrderBasket.jsx';
 import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
@@ -889,6 +890,43 @@ export default function App() {
         .workspace-sticky-tabs nav { overflow-x:auto; padding:4px 2px; }
         .workspace-sticky-tabs nav button { flex:none; white-space:nowrap; }
         .workspace-browse-controls { position:sticky; top:var(--browse-top); z-index:100; background:#003584; padding-bottom:10px; }
+        .mobile-page-picker { display:none; }
+        @media (max-width:720px) {
+          .workspace-shell { overflow-x:clip; overflow-wrap:anywhere; }
+          .workspace-shell input:not([type=checkbox]):not([type=radio]),.workspace-shell select { max-width:100%; font-size:16px!important; }
+          .workspace-sticky-tabs { justify-content:space-between; }
+          .workspace-sticky-tabs h1 { flex:1; min-width:0; font-size:14px!important; overflow-wrap:anywhere; }
+          .workspace-sticky-tabs nav { display:none!important; }
+          .mobile-page-picker { display:block; max-width:56%; min-height:44px; border:1px solid #B7C8DE; background:white; color:#003584; border-radius:8px; font:inherit; font-size:16px; padding:4px 8px; }
+          .workspace-browse-controls input,.workspace-browse-controls select { min-height:44px; min-width:0!important; max-width:100%; font-size:16px!important; }
+          .catalog-browse-filters { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px!important; padding:10px!important; margin-bottom:8px!important; }
+          .catalog-browse-filters > select { width:100%!important; }
+          .catalog-product-details { min-width:0!important; overflow-wrap:anywhere; }
+          .catalog-product-columns { display:none!important; }
+          .catalog-product-summary { grid-template-columns:24px 20px repeat(2,minmax(0,1fr))!important; gap:8px!important; padding:10px!important; }
+          .catalog-product-summary > :nth-child(3) { grid-column:3 / -1; }
+          .catalog-product-summary > :nth-child(4) { grid-column:1 / -1; }
+          .catalog-product-summary > :nth-child(4) div { white-space:normal!important; }
+          .catalog-product-expanded { padding:8px!important; }
+          .catalog-product-expanded > div:first-child,.catalog-product-expanded > div:first-child > div { flex-wrap:wrap; }
+          .catalog-product-expanded input:not([type=checkbox]),.catalog-product-expanded select { max-width:100%; min-height:44px; font-size:16px!important; }
+          .catalog-vendor-detail { grid-template-columns:repeat(2,minmax(0,1fr))!important; }
+          .catalog-vendor-detail > :nth-child(-n+2),.catalog-vendor-detail > button { grid-column:1 / -1; }
+          .catalog-vendor-detail button { min-height:44px; }
+          .mobile-edit-table,.mobile-edit-table > tbody { display:block; width:100%; min-width:0!important; }
+          .mobile-edit-table > thead { display:none; }
+          .mobile-edit-table > tbody > tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:8px; border-top:1px solid #DEE7F0; }
+          .mobile-edit-table > tbody > tr > td { display:block; min-width:0!important; overflow-wrap:anywhere; }
+          .mobile-edit-table td[colspan],.mobile-edit-table td[data-mobile-wide] { grid-column:1 / -1; }
+          .mobile-edit-table td[data-field-label]::before { display:block; content:attr(data-field-label); margin-bottom:4px; font-weight:700; color:#52647A; }
+          .mobile-edit-table input,.mobile-edit-table select { width:100%!important; min-width:0!important; min-height:44px; font-size:16px!important; }
+          .mobile-edit-table button { min-height:44px; }
+          .document-browse-row { flex-wrap:wrap; }
+          .document-browse-title { flex:1 1 100%; white-space:normal!important; overflow-wrap:anywhere; }
+          .document-browse-title > div:first-child { white-space:normal!important; overflow-wrap:anywhere; }
+          .document-browse-actions { flex-wrap:wrap; min-width:0; max-width:100%; }
+          .vendor-detail-item-name { white-space:normal!important; overflow-wrap:anywhere; }
+        }
         @media (max-height:480px) { .workspace-browse-controls { position:relative; top:auto; } }
       `}</style>
 
@@ -933,8 +971,27 @@ export default function App() {
               .order-browse-filters select { max-width:48%; min-width:0; }
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
-              @media (max-width:720px) {
-                .order-layout { flex-direction:column; }
+              .order-item-grid { display:grid; grid-template-columns:minmax(220px,1fr) 88px 104px minmax(370px,420px); gap:2px 10px; align-items:center; padding:8px 12px; }
+              .order-item { display:contents; }
+              @media (max-width:1240px) {
+                .order-item-grid { grid-template-columns:minmax(120px,1fr) 80px 104px minmax(190px,1.35fr); }
+              }
+              @media ${mobileOrderQuery} {
+                .order-layout { display:block; }
+                .order-item-grid { display:block; }
+                .order-column-head { display:none; }
+                .order-item { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,1fr); border-top:1px solid #DEE7F0; padding:8px 0; }
+                .order-item-name,.order-item-price,.order-item-listings { grid-column:1 / -1; }
+                .order-item-name > div:first-child { white-space:normal!important; font-size:16px!important; overflow-wrap:anywhere; }
+                .order-item select,.order-item input { font-size:16px!important; min-height:44px; }
+                .order-item-qty button { width:44px!important; height:44px!important; }
+                .order-price-card > button:first-child { min-height:44px; font-size:14px!important; }
+                .mobile-basket-launch { position:fixed; z-index:130; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:flex; gap:12px; justify-content:space-between; align-items:center; min-height:48px; padding:8px 16px; border:1px solid #C8DAF2; border-radius:10px; background:#003584; color:white; font-family:inherit; font-size:16px; font-weight:700; box-shadow:0 3px 14px #00204F66; cursor:pointer; }
+                .mobile-basket-dialog { position:fixed; inset:auto 0 0; margin:0; width:100%; max-width:none; max-height:85dvh; box-sizing:border-box; padding:0 14px calc(14px + env(safe-area-inset-bottom)); border:0; border-radius:16px 16px 0 0; background:#F2F6FA; overflow:auto; overscroll-behavior:contain; }
+                .mobile-basket-dialog::backdrop { background:#17243A88; }
+                .mobile-basket-heading { display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:1; background:#F2F6FA; padding:6px 0; color:#003584; }
+                .mobile-basket-heading button { min-height:44px; padding:0 14px; border:1px solid #B8C8DC; background:white; border-radius:8px; font-size:16px; cursor:pointer; }
+                body:has(.mobile-basket-dialog[open]) { overflow:hidden; }
                 .order-layout > main { width:100%; }
                 .order-aside { width:100%; position:static; max-height:none; overflow:visible; }
                 .order-aside-inner { position:static; }
@@ -985,12 +1042,12 @@ export default function App() {
               {filtered.map(group=>(
                 <div key={group.category} style={{marginBottom:8}}>
                   <div style={{background:"white",borderRadius:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"minmax(220px,1fr) 88px 104px minmax(370px,420px)",columnGap:10,rowGap:2,alignItems:"center",padding:"8px 12px"}}>
+                    <div className="order-item-grid">
                       <div className="order-column-head" style={{padding:"2px 2px 7px"}}>Item</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px",textAlign:"center"}}>Qty</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>PRICE</div>
-                      {group.items.flatMap(item=>{
+                      {group.items.map(item=>{
                         const caseKey=`${item.catalogItemId}_case`;
                         const eachKey=`${item.catalogItemId}_each`;
                         const caseQty=quantities[caseKey]||0;
@@ -1031,7 +1088,7 @@ export default function App() {
                             setOpenPriceMenu(null);
                           }}/>;
                         const cells=[
-                          <div key={item.catalogItemId+"_name"} draggable={!activeBlocked}
+                          <div className="order-item-name" key={item.catalogItemId+"_name"} draggable={!activeBlocked}
                             onDragStart={event=>{event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("text/plain",activeKey);setDragItem({catalogItemId:item.catalogItemId,key:activeKey,name:item.name});}}
                             onDragEnd={()=>{setDragItem(null);setDropTarget(null);}}
                             title={activeBlocked?undefined:"Drag onto a vendor basket to order from that vendor"}
@@ -1041,22 +1098,22 @@ export default function App() {
                             </div>
                             <div style={{fontSize:10,color:'#52647A',marginTop:4}}>KERDOS #{item.masterItemNumber}</div>
                           </div>,
-                          <div key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?"#E0F2F1":"#FAFBFC"}}>
+                          <div className="order-item-unit" key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?"#E0F2F1":"#FAFBFC"}}>
                             <select aria-label={`Order unit for ${item.name}`} value={selectedUnit} onChange={e=>setUnitSelection(prev=>({...prev,[item.catalogItemId]:e.target.value}))}
                               style={{width:"100%",fontSize:11,padding:"4px 2px",borderRadius:6,border:hasEach?"2px solid #008577":"1px solid #DDD",background:"white",color:hasEach?"#00695C":"#444",fontWeight:hasEach?800:400}}>
                               <option value="case">Case</option>
                               <option value="each" disabled={!hasEach}>Each {!hasEach?"(unavailable)":""}</option>
                             </select>
                           </div>,
-                          <div key={item.catalogItemId+"_qty"} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#F5F8FF"}}>
-                            <button onClick={()=>setQty(activeKey,activeQty-1)}
+                          <div className="order-item-qty" key={item.catalogItemId+"_qty"} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#F5F8FF"}}>
+                            <button aria-label={`Remove one ${selectedUnit} of ${item.name}`} onClick={()=>setQty(activeKey,activeQty-1)}
                               style={{width:26,height:26,borderRadius:7,border:"1px solid #FFCDD2",background:"#FFEBEE",cursor:"pointer",fontSize:15,fontWeight:800,color:"#D32F2F",flexShrink:0}}>−</button>
                             <span style={{width:18,textAlign:"center",fontWeight:800,fontSize:13,color:activeQty>0?vc.accent:"#CCC"}}>{activeQty||"·"}</span>
-                            <button onClick={()=>{if(!activeBlocked) setQty(activeKey,activeQty+1);}} disabled={activeBlocked}
+                            <button aria-label={`Add one ${selectedUnit} of ${item.name}`} onClick={()=>{if(!activeBlocked) setQty(activeKey,activeQty+1);}} disabled={activeBlocked}
                               title={activeBlocked?activeBlockReason:undefined}
                               style={{width:26,height:26,borderRadius:7,border:"none",background:activeBlocked?"#DDD":"#2E7D32",cursor:activeBlocked?"not-allowed":"pointer",fontSize:15,fontWeight:800,color:"white",flexShrink:0}}>+</button>
                           </div>,
-                          <div key={item.catalogItemId+"_price"} style={{padding:"6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#FAFBFC"}}>
+                          <div className="order-item-price" key={item.catalogItemId+"_price"} style={{padding:"6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#FAFBFC"}}>
                             <div className="order-price-grid">
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
                               <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup="true" aria-expanded={menuOpen}
@@ -1091,10 +1148,10 @@ export default function App() {
                               )}
                             </div>
                           </div>,
-                          ...(menuOpen?[<div key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0,borderTop:'1px solid #E3E7ED'}}>{alternativesMenu}</div>]:[]),
+                          ...(menuOpen?[<div className="order-item-listings" key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0,borderTop:'1px solid #E3E7ED'}}>{alternativesMenu}</div>]:[]),
                         ];
 
-                        return cells;
+                        return <div className="order-item" key={item.catalogItemId}>{cells}</div>;
                       })}
                     </div>
                   </div>
@@ -1145,7 +1202,7 @@ export default function App() {
             </main>
 
             {/* BASKETS */}
-            <aside className="order-aside">
+            <OrderBasket summary={`${totalUnits} units · ${formatMoney(totalSpend)}`}>
               <div className="order-aside-inner"
                 onDragOver={event=>{if(dragItem){event.preventDefault();event.dataTransfer.dropEffect="copy";if(dropTarget==null)setDropTarget("auto");}}}
                 onDragLeave={event=>{if(dropTarget==="auto"&&!event.currentTarget.contains(event.relatedTarget))setDropTarget(null);}}
@@ -1287,7 +1344,7 @@ export default function App() {
                   </div>
                 </>)}
               </div>
-            </aside>
+            </OrderBasket>
           </div>
         )}
 
