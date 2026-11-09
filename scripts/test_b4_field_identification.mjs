@@ -21,13 +21,12 @@ const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 let passed=0,failed=0;
 function fixture(){
  const f=createPriceImportFixture({text:sheet()});f.settings={price_refresh_days:7,vendorLayouts:{otherVendor:{otherLayout:{0:'ignore'}}}};f.settingWrites=[];
- f.backend.rpc=async(name,args)=>{
-  assert.equal(name,'kerdos_remember_vendor_layout');assert.equal(args.p_organization_id,org);
-  if(f.failSettings)return {data:null,error:{message:'Controlled settings outage'}};
-  const v=args.p_vendor_id,fp=args.p_fingerprint;
-  f.settings.vendorLayouts[v]={...(f.settings.vendorLayouts[v]||{}),[fp]:{...(f.settings.vendorLayouts[v]?.[fp]||{}),...args.p_answers}};
-  f.settingWrites.push(structuredClone(args));return {data:structuredClone(f.settings),error:null};
- };
+ f.backend.organization={rememberVendorLayout:async(organizationId,v,fp,answers)=>{
+  assert.equal(organizationId,org);
+  if(f.failSettings)throw new Error('Controlled settings outage');
+  f.settings.vendorLayouts[v]={...(f.settings.vendorLayouts[v]||{}),[fp]:{...(f.settings.vendorLayouts[v]?.[fp]||{}),...answers}};
+  f.settingWrites.push(structuredClone({organizationId,v,fp,answers}));return structuredClone(f.settings);
+ }};
  globalThis.__b1Backend=f.backend;return f;
 }
 async function open(settings){let tree;await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B4 Vendor'},{id:'otherVendor',name:'Other Vendor'}],orgId:org,orgSettings:settings,catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose(){},onDone:async()=>{},initialVendorId:vendor,initialMode:'pricelist'}));});return tree;}
@@ -122,7 +121,7 @@ try{
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
   b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.reading)onRead?.(file.reading);return file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
-  b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},rpc:(...args)=>globalThis.__b1Backend.rpc(...args),documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
+  b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},organization:{rememberVendorLayout:(...args)=>globalThis.__b1Backend.organization.rememberVendorLayout(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});
  try{process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',timeout:60000,stdio:['ignore','pipe','pipe']}));}catch(error){process.stdout.write(error.stdout||'');process.stderr.write(error.stderr||'');process.exitCode=1;}
 }finally{rmSync(dir,{recursive:true,force:true});}

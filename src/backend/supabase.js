@@ -25,6 +25,14 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
   const client=clientFactory(url,anonKey,{auth:{storage:window.sessionStorage,storageKey,persistSession:true}});
   return {
     kind:"supabase",
+    organization:{
+      rememberVendorLayout(organizationId,vendorId,fingerprint,answers){
+        return providerResult(client.rpc("kerdos_remember_vendor_layout",{
+          p_organization_id:organizationId,p_vendor_id:vendorId,
+          p_fingerprint:fingerprint,p_answers:answers,
+        }),"Remember vendor column choice");
+      },
+    },
     session:{
       get:()=>providerResult(client.auth.getSession(),"Load session").then(x=>x?.session||null),
       subscribe(listener){
