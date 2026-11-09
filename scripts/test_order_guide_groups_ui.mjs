@@ -17,7 +17,9 @@ const catalogItems=vendorItems.map((v,i)=>({id:'ci'+i,name:v.description,master_
 const snapshot={vendors:[{id:'vendor',name:'Sample Vendor'}],catalogItems,vendorItems,mappings:vendorItems.map((v,i)=>({id:'m'+i,catalog_item_id:'ci'+i,vendor_item_id:v.id,comparison_track:'review',confidence_score:70,match_method:'rule_based'})),categories,vocabulary:[],invoices:[],purchaseOrders:[],priceHistory:[],importDocuments:[]};
 vendorItems.push({...vendorItems[1],id:'honey-second',vendor_id:'second-vendor',description:'HONEY MUSTRD OTHER SUPPLIER',pack_size:'4/3 L',price:30});snapshot.vendors.push({id:'second-vendor',name:'Second Vendor'});snapshot.mappings.push({id:'honey-second-map',catalog_item_id:'ci1',vendor_item_id:'honey-second',comparison_track:'review',confidence_score:70,match_method:'rule_based'});
 const noop=async()=>({});
-const backend={session:{get:async()=>({user:{id:'user',email:'test@example.test'}}),subscribe:()=>()=>{},signIn:noop,signUp:noop,signOut:noop},workspace:{memberships:async()=>[{role:'employee',organizations:{id:'org',name:'Trial',industry:'restaurant',settings:{}}}],snapshot:async()=>snapshot},documents:{upload:noop,signedUrl:noop,remove:noop,deletePriceSheet:noop,deleteInvoiceRecord:noop},realtime:{subscribeToOrganization:()=>()=>{}},pricing:{applyQuote:noop},catalog:{saveRow:noop},invoices:{record:noop},team:{acceptInvite:noop},records:{query:()=>new Proxy({then:resolve=>Promise.resolve({data:[],error:null}).then(resolve)},{get:(target,key)=>key==='then'?target.then:()=>backend.records.query()})},inbox:{beginManualReview:noop,markAttachmentIngested:noop}};
+const emptyQuery=()=>new Proxy({then:resolve=>Promise.resolve({data:[],error:null}).then(resolve)},{get:(target,key)=>key==='then'?target.then:emptyQuery});
+let queryRecords=emptyQuery;
+const backend={session:{get:async()=>({user:{id:'user',email:'test@example.test'}}),subscribe:()=>()=>{},signIn:noop,signUp:noop,signOut:noop},workspace:{memberships:async()=>[{role:'employee',organizations:{id:'org',name:'Trial',industry:'restaurant',settings:{}}}],snapshot:async()=>snapshot},documents:{upload:noop,signedUrl:noop,remove:noop,deletePriceSheet:noop,deleteInvoiceRecord:noop},realtime:{subscribeToOrganization:()=>()=>{}},pricing:{applyQuote:noop},catalog:{saveRow:noop},invoices:{record:noop},team:{acceptInvite:noop},records:{query:(...args)=>queryRecords(...args)},inbox:{beginManualReview:noop,markAttachmentIngested:noop}};
 globalThis.__KERDOS_CONFIG__={backendAdapter:backend};const {default:App}=await import('./app.mjs');
 let tree;await act(async()=>{tree=Renderer.create(React.createElement(App));});
 const text=node=>typeof node==='string'?node:(node?.children||[]).map(text).join('');
@@ -116,14 +118,31 @@ const honeyPlus=()=>tree.root.findAllByType('button').filter(b=>text(b)==='+')[1
 await selectHoney('Sample Vendor');assert.equal(honeyPlus().props.disabled,false);
 await act(async()=>honeyPlus().props.onClick());assert.match(text(tree.root.findByProps({className:'order-aside'})),/20.00/);assert.match(text(tree.root.findByProps({className:'order-aside'})),/Sample Vendor/);
 await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
+const incompleteMapping=snapshot.mappings.find(m=>m.vendor_item_id===incompletePeer.id);
+const saveCatalogRow=backend.catalog.saveRow;
+backend.catalog.saveRow=async request=>{
+ await saveCatalogRow(request);
+ incompletePeer.field_resolutions.pack_size={value:request.patch.pack_size,confirmedBy:'user'};
+ Object.assign(incompleteMapping,{comparison_track:'review',confidence_score:null,match_method:'manual'});
+};
+queryRecords=table=>table==='item_mappings'?{
+ update:patch=>({eq:(idField,id)=>({eq:(itemField,itemId)=>({select:async()=>{
+  assert.equal(idField,'id');assert.equal(itemField,'catalog_item_id');
+  assert.equal(id,incompleteMapping.id);assert.equal(itemId,incompleteMapping.catalog_item_id);
+  Object.assign(incompleteMapping,patch);return {data:[{id}],error:null};
+ }})})})
+}:emptyQuery();
+delete incompletePeer.field_resolutions.row_approval;
 await act(async()=>{tree=Renderer.create(React.createElement(App));});await selectHoney('Second Vendor');assert.equal(honeyPlus().props.disabled,true,'incomplete peer remains visible but cannot use the valid offer price or pack');
 await act(async()=>priceButton().props.onClick());
-for(const [label,value] of [['Pack','4/1 GAL'],['Quoted per','case'],['Price','16.25']]){
+for(const [label,value] of [['Pack','6/1 GAL'],['Quoted per','case'],['Price','16.25']]){
  await act(async()=>tree.root.findByProps({'aria-label':label+' for listing honey-second'}).props.onChange({target:{value}}));
 }
 await settlePrice();
-assert.deepEqual(savedRequest.patch,{pack_size:'4/1 GAL',selling_unit:'CASE',price:16.25});
-assert.equal(honeyPlus().props.disabled,false,'the edited listing becomes orderable after save');
+assert.deepEqual(savedRequest.patch,{pack_size:'6/1 GAL',selling_unit:'CASE',price:16.25});
+assert.equal(incompleteMapping.comparison_track,'exact','the save and placement refresh restore the existing product-group approval');
+assert.equal(incompleteMapping.match_method,'manual');
+assert.equal(honeyPlus().props.disabled,false,'the edited listing becomes orderable despite the peer having a different pack');
 assert.match(text(priceButton()),/Second Vendor.*16\.25/);
 await act(async()=>honeyPlus().props.onClick());
 assert.match(text(tree.root.findByProps({className:'order-aside'})),/Second Vendor.*16\.25/);
@@ -131,6 +150,7 @@ await act(async()=>tree.root.findByProps({'aria-label':'Workspace tabs'}).findAl
 const catalogPrices=tree.root.findAllByType('input').filter(input=>input.props['aria-label']?.startsWith('price for '));
 assert.equal(catalogPrices.find(input=>input.props.value===16.25)?.props.value,16.25,'Item Catalog shows the same saved quote');
 await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
+backend.catalog.saveRow=saveCatalogRow;queryRecords=emptyQuery;
 store.set('kerdos.activeTab.v2','order');
 // F1.6: execute the actual one-minute App refresh callback at a controlled
 // new date. The ordering core itself has no independent freshness clock.

@@ -248,6 +248,26 @@ assert.equal(groupedItem.comparison_mode,'alternatives');
 assert.equal(orderGuideAssessment({item:{...groupedItem,brand_locked:true,locked_brand:'Other brand'},vendorItem:checked.vendorItem,mapping:checked.mapping,category:{id:cat,name:'General'},peers:[alternative]}).ready,false,'required brand still blocks a different brand');
 assert.equal(orderGuideAssessment({item:{...groupedItem,comparison_mode:'exact'},vendorItem:checked.vendorItem,mapping:checked.mapping,category:{id:cat,name:'General'},peers:[alternative]}).ready,false,'exact mode retains identity checks');
 console.log('Selected alternatives passed: atomic grouping, different brands/packs, persistent preference, stale selection, role isolation and exact/required-brand modes.');
+const approval={catalogItemId:target,description:checked.vendorItem.description,brand:checked.vendorItem.brand,confirmedBy:user};
+await db.query("update vendor_items set field_resolutions=jsonb_set(field_resolutions-'row_approval','{product_group}',$2::jsonb) where id=$1",[vi,JSON.stringify(approval)]);
+await save(await nextRevision(),{pack_size:'1/600 FT'},'each');
+checked=await readAssessment();
+assert.equal(checked.mapping.comparison_track,'review','the catalog save reopens mapping verification after a pack edit');
+const correctedGroup={catalogItems:[groupedItem],vendorItems:[checked.vendorItem,alternative],mappings:[checked.mapping,{id:alternativeMapping,vendor_item_id:alternativeId,catalog_item_id:target,comparison_track:'exact',confidence_score:100}],vendors:[{id:vendor}],categories:[{id:cat,name:'General'}]};
+const [requalified]=autoPlaceable(correctedGroup);
+assert.equal(requalified?.mappingId,mapping,'a valid new pack can reuse the explicit product approval across different vendor packs');
+assert.equal(requalified.verification.match_method,'manual','the existing client approval retains its provenance');
+for(const row of [
+ {...checked.vendorItem,description:'Different product'},
+ {...checked.vendorItem,brand:'Different brand'},
+ {...checked.vendorItem,price_quote_valid_until:'2000-01-01'},
+ {...checked.vendorItem,import_row:{reviewRequired:true}},
+ {...checked.vendorItem,field_resolutions:{...checked.vendorItem.field_resolutions,product_group:{...approval,confirmed:false}}},
+]){
+ assert.equal(autoPlaceable({...correctedGroup,vendorItems:[row,alternative]}).length,0);
+}
+assert.equal(autoPlaceable({...correctedGroup,catalogItems:[{...groupedItem,comparison_mode:'exact'}]}).length,0);
+console.log('Pack correction passed: manual product approval can be reused for a current, independently valid alternative.');
 await db.exec(fs.readFileSync(root+'/knowledge/migration_023_automatic_alternatives.sql','utf8'));
 await db.exec(fs.readFileSync(root+'/knowledge/migration_023_automatic_alternatives.sql','utf8'));
 const {alternativeKey,automaticAlternativeVerified,alternativeGroups}=await import('../core/alternative-groups.js');
