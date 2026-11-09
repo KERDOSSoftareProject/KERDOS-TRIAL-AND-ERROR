@@ -55,6 +55,11 @@ export function createVendorConnectService(backend){
       try{return await backend.vendorConnect.scheduleHistory(requestId);}
       catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw new Error('Could not load this refresh schedule. Please try again.');}
     },
+    async reconcileSchedule(requestId){
+      if(!requestId||!backend.vendorConnect?.reconcileSchedule)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.reconcileSchedule(requestId);}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw new Error('Could not check saved scheduled refresh evidence. Please try again.');}
+    },
     async setSchedule({requestId,expectedVersion,weekdays,localTime,timezone,enabled,graceMinutes}){
       if(!requestId||!Number.isSafeInteger(expectedVersion)||expectedVersion<0||!Array.isArray(weekdays)||
         !weekdays.length||weekdays.some(day=>!Number.isInteger(day)||day<1||day>7)||new Set(weekdays).size!==weekdays.length||

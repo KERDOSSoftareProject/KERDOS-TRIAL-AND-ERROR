@@ -15,7 +15,7 @@ try{
  const request={id:'request-one',transfer_revision:1};
  let state={request_id:request.id,server_now:'2026-11-06T12:00:00Z',schedule:null,slots:[]};
  const writes=[];
- const backend={vendorConnect:{scheduleHistory:async()=>structuredClone(state),setSchedule:async input=>{
+ const backend={vendorConnect:{reconcileSchedule:async()=>0,scheduleHistory:async()=>structuredClone(state),setSchedule:async input=>{
   writes.push(input);state={...state,schedule:{version:1,weekdays:input.weekdays,local_time:input.localTime+':00',timezone:input.timezone,enabled:input.enabled,grace_minutes:input.graceMinutes},slots:[{version:1,slot_at:'2026-11-05T11:00:00Z',state:'missed'}]};return 1;
  }}};
  const service=createVendorConnectService(backend);
