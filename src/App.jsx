@@ -881,10 +881,19 @@ export default function App() {
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
   return (
-    <div style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+    <div className="workspace-shell" style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+      <style>{`
+        .workspace-shell { --workspace-header-height:60px; --workspace-tabs-height:54px; --browse-top:calc(var(--workspace-header-height) + var(--workspace-tabs-height)); }
+        .workspace-sticky-tabs { position:sticky; top:var(--workspace-header-height); z-index:120; height:var(--workspace-tabs-height); max-width:1400px; margin:12px auto 18px; padding:0 18px; background:#003584; }
+        .workspace-sticky-tabs h1 { flex:none; }
+        .workspace-sticky-tabs nav { overflow-x:auto; padding:4px 2px; }
+        .workspace-sticky-tabs nav button { flex:none; white-space:nowrap; }
+        .workspace-browse-controls { position:sticky; top:var(--browse-top); z-index:100; background:#003584; padding-bottom:10px; }
+        @media (max-height:480px) { .workspace-browse-controls { position:relative; top:auto; } }
+      `}</style>
 
       {/* HEADER */}
-      <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:60,
+      <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:"var(--workspace-header-height)",
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
         <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",fontFamily:tab==="home"?'"Times New Roman",Times,serif':"inherit",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
@@ -904,12 +913,13 @@ export default function App() {
         </div>
       )}
 
+      <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} sticky onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+
       {tab==="home"&&<WelcomeScreen orgName={org.name} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
-      <div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px",display:tab==="home"?"none":undefined}}>
-        <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+      <div style={{maxWidth:1400,margin:"0 auto",padding:"0 18px 80px",display:tab==="home"?"none":undefined}}>
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -917,41 +927,43 @@ export default function App() {
           <div className="order-layout">
             <style>{`
               .order-layout { display:flex; gap:18px; align-items:flex-start; max-width:1320px; margin:0 auto; }
-              .order-aside { width:330px; flex-shrink:0; position:sticky; top:104px; align-self:flex-start; max-height:calc(100vh - 112px); overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+              .order-aside { width:330px; flex-shrink:0; position:sticky; top:var(--browse-top); align-self:flex-start; max-height:calc(100vh - var(--browse-top) - 8px); overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
               .order-aside-inner { position:static; }
               .order-column-head { font-size:9px; font-weight:800; color:#718096; letter-spacing:.06em; text-transform:uppercase; }
-              .order-browse-filters select { max-width:48%; }
+              .order-browse-filters select { max-width:48%; min-width:0; }
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
               @media (max-width:720px) {
                 .order-layout { flex-direction:column; }
+                .order-layout > main { width:100%; }
                 .order-aside { width:100%; position:static; max-height:none; overflow:visible; }
                 .order-aside-inner { position:static; }
                 .order-price-grid { grid-template-columns:1fr; }
-                .order-browse-filters { width:100%; }
-                .order-browse-filters select { flex:1; min-width:0!important; }
+                .order-browse-filters select { flex:1; }
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
-              <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
-                <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="">Vendors</option>
-                  {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
-                <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="">Item Categories</option>
-                  {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-                <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="alphabetical">Item A–Z</option>
-                  <option value="added">Date Added</option>
-                  <option value="itemNumber">Item #</option>
-                  <option value="vendorCode">Vendor Code</option>
-                </select>
+              <div className="workspace-browse-controls" role="region" aria-label="Order Guide controls">
+                <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
+                  <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:180,background:"white",color:"#174EAB",fontWeight:700}}>
+                    <option value="">Vendors</option>
+                    {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                  <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);}} style={{...inp,width:220,background:"white",color:"#174EAB",fontWeight:700}}>
+                    <option value="">Item Categories</option>
+                    {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:180,background:"white",color:"#174EAB",fontWeight:700}}>
+                    <option value="alphabetical">Item A–Z</option>
+                    <option value="added">Date Added</option>
+                    <option value="itemNumber">Item #</option>
+                    <option value="vendorCode">Vendor Code</option>
+                  </select>
+                </div>
+                <input value={search} onChange={e=>setSearch(e.target.value)}
+                  placeholder={`🔍 Search ${productList.length} items by name, vendor wording, or code...`}
+                  style={inp} />
               </div>
-              <input value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder={`🔍 Search ${productList.length} items by name, vendor wording, or code...`}
-                style={{...inp,marginBottom:10}} />
 
               {productList.length===0&&(
                 <div style={{background:"white",borderRadius:10,padding:32,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
@@ -1375,7 +1387,7 @@ export default function App() {
               logoUrl={logoUrl} onLogoUpload={handleLogoUpload} logoUploading={logoUploading} />
             <div style={{height:28}} />
             <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div className="workspace-browse-controls" role="region" aria-label="Vendor management controls" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,background:"white",paddingBottom:0}}>
                 <h4 style={{margin:0,fontSize:14}}>Your Vendors</h4>
                 <button onClick={()=>setShowAddVendor(true)} style={{...btn("#003584","white",{fontSize:12,padding:"6px 12px"})}}>+ Add Vendor</button>
               </div>

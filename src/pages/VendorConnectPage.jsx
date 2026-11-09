@@ -145,11 +145,11 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     {importInProgress&&<p role="status">KERDOS is processing the received pricing. Refresh will be available when this intake finishes.</p>}
     {!unavailable&&!scopedData&&!message&&<p role="status">Loading your vendor connections…</p>}
     {!unavailable&&scopedData&&<>
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:20}}>
+      <div className="workspace-browse-controls" role="region" aria-label="Vendor connection controls" style={{display:'flex',alignItems:'end',gap:14,flexWrap:'wrap',marginTop:20,background:'white'}}>
         <label style={{display:'grid',gap:6}}>Vendor<select aria-label="Vendor account vendor" style={control} value={vendorId} disabled={busy} onChange={e=>setVendorId(e.target.value)}><option value="">Select your vendor</option>{vendors.filter(v=>v.is_active!==false).map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
         <label style={{display:'grid',gap:6}}>Connection provider<select aria-label="Connection provider" style={control} value={adapterKey} disabled={busy} onChange={e=>setAdapterKey(e.target.value)}><option value="">Select a provider</option>{scopedData.adapters.filter(a=>a.setup_available).map(a=><option key={a.adapter_key} value={a.adapter_key}>{a.display_name}</option>)}</select></label>
+        <button style={button} disabled={busy||!vendorId||!adapterKey||selectedRequest?.state==='setup_requested'} onClick={()=>change(()=>service.request({organizationId,vendorId,adapterKey}))}>Prepare connection</button>
       </div>
-      <button style={{...button,marginTop:14}} disabled={busy||!vendorId||!adapterKey||selectedRequest?.state==='setup_requested'} onClick={()=>change(()=>service.request({organizationId,vendorId,adapterKey}))}>Prepare connection</button>
       {transferEligible&&<div style={{marginTop:20}}>
         <h3>Transfer a pricing list from your browser</h3>
         <p>Sign in with your vendor directly. After retrieval, KERDOS processes the pricing file automatically for the selected vendor and retains unresolved details for review.</p>

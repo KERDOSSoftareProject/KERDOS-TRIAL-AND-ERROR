@@ -397,43 +397,74 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
   return (
     <div>
-      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
-        {!showReview&&<select aria-label="Vendors" value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-          <option value="">Vendors</option>
-          {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>}
-        {!showReview&&<select aria-label="Item Categories" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
-          <option value="">Item Categories</option>
-          {categoryList.map(category=><option key={category} value={category}>{category}</option>)}
-          {categoryFilter===CATEGORY_REVIEW_FILTER&&<option value={CATEGORY_REVIEW_FILTER}>Review categories</option>}
-        </select>}
-        {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-          <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
-        </select>}
+      <div className="workspace-browse-controls" role="region" aria-label="Item Catalog controls">
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
+          {!showReview&&<select aria-label="Vendors" value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+            <option value="">Vendors</option>
+            {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>}
+          {!showReview&&<select aria-label="Item Categories" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
+            <option value="">Item Categories</option>
+            {categoryList.map(category=><option key={category} value={category}>{category}</option>)}
+            {categoryFilter===CATEGORY_REVIEW_FILTER&&<option value={CATEGORY_REVIEW_FILTER}>Review categories</option>}
+          </select>}
+          {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+            <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
+          </select>}
 
-        <button aria-pressed={baseFieldsOnly} onClick={()=>{setBaseFieldsOnly(value=>!value);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn(baseFieldsOnly?"#003584":"#E8F1FB",baseFieldsOnly?"white":"#003584")}>{baseFieldsOnly?"Full catalog":"Base fields trial"}</button>
-        {!baseFieldsOnly&&<details aria-label="Item catalog actions" open={actionsOpen} onToggle={e=>setActionsOpen(e.currentTarget.open)} onKeyDown={e=>{if(e.key==='Escape')setActionsOpen(false);}} style={{position:'relative',marginLeft:'auto'}}>
-          <summary style={{...btn('#E8F1FB','#003584'),listStyle:'none'}}>Actions ▾</summary>
-          <div className="catalog-actions-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',zIndex:20,background:'white',color:'#173C70',border:'1px solid #CCD9EC',borderRadius:8,padding:10,width:'min(300px, calc(100vw - 40px))',maxHeight:'55vh',overflowY:'auto',boxShadow:'0 6px 18px #102B4930'}}>
-            <style>{`.catalog-actions-menu button { width:100%; text-align:left; margin:3px 0; } .catalog-actions-menu hr { border:0; border-top:1px solid #DEE7F0; margin:8px 0; }`}</style>
-            <div onClick={()=>setActionsOpen(false)}><EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/></div>
-            {canManage&&<button onClick={()=>{setActionsOpen(false);setAddingItem(true);}} style={btn('#E8F1FB','#003584')}>+ Add Item</button>}
-            <button disabled={!productList.length} onClick={()=>{setActionsOpen(false);downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv");}} style={btn('#E8F1FB','#003584')}>Export (CSV)</button>
-            <hr/>
-            <button onClick={()=>{setActionsOpen(false);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Item list</button>
-            <button onClick={()=>{setActionsOpen(false);setRowView(false);setShowReview(false);}} style={btn('#EEE','#173C70')}>Product details</button>
-            <button onClick={()=>{setActionsOpen(false);setSourceReviewOpen(true);}} style={btn('#EEE','#173C70')}>Review incoming rows</button>
-            {canManage&&<>
+          <button aria-pressed={baseFieldsOnly} onClick={()=>{setBaseFieldsOnly(value=>!value);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn(baseFieldsOnly?"#003584":"#E8F1FB",baseFieldsOnly?"white":"#003584")}>{baseFieldsOnly?"Full catalog":"Base fields trial"}</button>
+          {!baseFieldsOnly&&<details aria-label="Item catalog actions" open={actionsOpen} onToggle={e=>setActionsOpen(e.currentTarget.open)} onKeyDown={e=>{if(e.key==='Escape')setActionsOpen(false);}} style={{position:'relative',marginLeft:'auto'}}>
+            <summary style={{...btn('#E8F1FB','#003584'),listStyle:'none'}}>Actions ▾</summary>
+            <div className="catalog-actions-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',zIndex:20,background:'white',color:'#173C70',border:'1px solid #CCD9EC',borderRadius:8,padding:10,width:'min(300px, calc(100vw - 40px))',maxHeight:'55vh',overflowY:'auto',boxShadow:'0 6px 18px #102B4930'}}>
+              <style>{`.catalog-actions-menu button { width:100%; text-align:left; margin:3px 0; } .catalog-actions-menu hr { border:0; border-top:1px solid #DEE7F0; margin:8px 0; }`}</style>
+              <div onClick={()=>setActionsOpen(false)}><EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/></div>
+              {canManage&&<button onClick={()=>{setActionsOpen(false);setAddingItem(true);}} style={btn('#E8F1FB','#003584')}>+ Add Item</button>}
+              <button disabled={!productList.length} onClick={()=>{setActionsOpen(false);downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv");}} style={btn('#E8F1FB','#003584')}>Export (CSV)</button>
               <hr/>
-              <button onClick={()=>{setActionsOpen(false);setShowReview(true);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Review listings</button>
-              <button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(true);}} style={btn('#EEE','#173C70')}>Verified listings</button>
-              {categoryCorrections.size>0&&<button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={btn('#EEE','#173C70')}>Review categories</button>}
-              <button onClick={()=>{setActionsOpen(false);setCatalogTool('associations');}} style={btn('#EEE','#173C70')}>Review suggested associations</button>
-              <button onClick={()=>{setActionsOpen(false);setCatalogTool('groups');}} style={btn('#EEE','#173C70')}>Grouping review</button>
-              {unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={()=>{setActionsOpen(false);handleSetCaseBasis();}} style={btn('#EEE','#173C70')}>{settingBasis?'Setting…':'Set missing quote units to case'}</button>}
-            </>}
+              <button onClick={()=>{setActionsOpen(false);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Item list</button>
+              <button onClick={()=>{setActionsOpen(false);setRowView(false);setShowReview(false);}} style={btn('#EEE','#173C70')}>Product details</button>
+              <button onClick={()=>{setActionsOpen(false);setSourceReviewOpen(true);}} style={btn('#EEE','#173C70')}>Review incoming rows</button>
+              {canManage&&<>
+                <hr/>
+                <button onClick={()=>{setActionsOpen(false);setShowReview(true);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Review listings</button>
+                <button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(true);}} style={btn('#EEE','#173C70')}>Verified listings</button>
+                {categoryCorrections.size>0&&<button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={btn('#EEE','#173C70')}>Review categories</button>}
+                <button onClick={()=>{setActionsOpen(false);setCatalogTool('associations');}} style={btn('#EEE','#173C70')}>Review suggested associations</button>
+                <button onClick={()=>{setActionsOpen(false);setCatalogTool('groups');}} style={btn('#EEE','#173C70')}>Grouping review</button>
+                {unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={()=>{setActionsOpen(false);handleSetCaseBasis();}} style={btn('#EEE','#173C70')}>{settingBasis?'Setting…':'Set missing quote units to case'}</button>}
+              </>}
+            </div>
+          </details>}
+        </div>
+        {!showReview&&<input style={inp} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />}
+        {!showReview&&canManage&&selectedIds.size>0&&(
+          <div style={{background:"white",borderRadius:10,padding:12,marginTop:10,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
+            display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:700,color:"#003584"}}>{selectedIds.size} selected</span>
+            {selectedIds.size>=2&&<button disabled={bulkBusy} style={{...btn("#003584","white",{fontSize:12,padding:"7px 14px",fontWeight:700})}}
+              onClick={async()=>{
+                setBulkBusy(true);setError("");
+                try{
+                  // All vendor items linked to the selected catalog entries
+                  const vids=mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id);
+                  // Use the lowest KERDOS number as the target entry
+                  const linkedEntries=catalogItems.filter(c=>selectedIds.has(c.id)).sort((a,b)=>Number(a.master_item_number)-Number(b.master_item_number));
+                  const target=linkedEntries[0];
+                  if(!target||vids.length<2)throw new Error("Select at least two items from different vendors to link.");
+                  const revisions=Object.fromEntries(vendorItems.filter(vi=>vids.includes(vi.id)).map(vi=>[vi.id,vi.row_revision??0]));
+                  await backend.catalog.associateAlternatives({organizationId:orgId,vendorItemIds:vids,targetCatalogItemId:target.id,name:target.name,preferredBrand:"",revisions});
+                  setSelectedIds(new Set());await onUpdated();
+                }catch(e){setError(e.message);}finally{setBulkBusy(false);}
+              }}>Link selected</button>}
+            <AssociateAlternatives orgId={orgId} selectedVendorIds={mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id)} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelectedIds(new Set())}/>
+            <select defaultValue="" disabled={bulkBusy} onChange={e=>{handleBulkAssign(e.target.value);e.target.value="";}}
+              style={{...inp,fontSize:12,padding:"7px 9px",width:"auto",flex:"0 1 220px"}}>
+              <option value="" disabled>{bulkBusy?"Moving...":"Move all to..."}</option>
+              {categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button onClick={()=>setSelectedIds(new Set())} style={{...btn("#EEE","#555",{fontSize:12,padding:"7px 12px"})}}>Clear</button>
           </div>
-        </details>}
+        )}
       </div>
       {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
       {baseFieldsOnly&&rowView&&!showReview&&<p style={{color:"#003584"}}></p>}
@@ -559,8 +590,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
       )}
 
       {!showReview&&<>
-      <input style={{...inp,marginBottom:10}} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />
-
       {canManage&&teach&&(
         <div style={{background:"#E8F5E9",border:"2px solid #2E7D32",borderRadius:10,padding:14,marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1B5E20",marginBottom:4}}>Teach the catalog so this doesn't happen again</div>
@@ -587,35 +616,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
             </button>
             <button onClick={()=>setTeach(null)} style={{...btn("#EEE","#555",{fontSize:12,padding:"8px 14px"})}}>Not now</button>
           </div>
-        </div>
-      )}
-
-      {canManage&&selectedIds.size>0&&(
-        <div style={{background:"white",borderRadius:10,padding:12,marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
-          display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:8,zIndex:5}}>
-          <span style={{fontSize:13,fontWeight:700,color:"#003584"}}>{selectedIds.size} selected</span>
-          {selectedIds.size>=2&&<button disabled={bulkBusy} style={{...btn("#003584","white",{fontSize:12,padding:"7px 14px",fontWeight:700})}}
-            onClick={async()=>{
-              setBulkBusy(true);setError("");
-              try{
-                // All vendor items linked to the selected catalog entries
-                const vids=mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id);
-                // Use the lowest KERDOS number as the target entry
-                const linkedEntries=catalogItems.filter(c=>selectedIds.has(c.id)).sort((a,b)=>Number(a.master_item_number)-Number(b.master_item_number));
-                const target=linkedEntries[0];
-                if(!target||vids.length<2)throw new Error("Select at least two items from different vendors to link.");
-                const revisions=Object.fromEntries(vendorItems.filter(vi=>vids.includes(vi.id)).map(vi=>[vi.id,vi.row_revision??0]));
-                await backend.catalog.associateAlternatives({organizationId:orgId,vendorItemIds:vids,targetCatalogItemId:target.id,name:target.name,preferredBrand:"",revisions});
-                setSelectedIds(new Set());await onUpdated();
-              }catch(e){setError(e.message);}finally{setBulkBusy(false);}
-            }}>Link selected</button>}
-          <AssociateAlternatives orgId={orgId} selectedVendorIds={mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id)} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelectedIds(new Set())}/>
-          <select defaultValue="" disabled={bulkBusy} onChange={e=>{handleBulkAssign(e.target.value);e.target.value="";}}
-            style={{...inp,fontSize:12,padding:"7px 9px",width:"auto",flex:"0 1 220px"}}>
-            <option value="" disabled>{bulkBusy?"Moving...":"Move all to..."}</option>
-            {categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <button onClick={()=>setSelectedIds(new Set())} style={{...btn("#EEE","#555",{fontSize:12,padding:"7px 12px"})}}>Clear</button>
         </div>
       )}
 
