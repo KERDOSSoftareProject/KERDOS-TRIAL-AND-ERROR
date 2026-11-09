@@ -1,42 +1,41 @@
 import {providers} from './providers.mjs';
-import {pairKerdosTab,approvedKerdosTab} from './bridge.mjs';
+import {approvedKerdosTab} from './bridge.mjs';
+// This view can close without owning or cancelling the companion's transfer.
 const button=document.getElementById('export'),pair=document.getElementById('pair'),status=document.getElementById('status');
-pair.addEventListener('click',async()=>{
- pair.disabled=true;
+let revision=0;
+function render(value){
+ if(typeof value?.message!=='string')return;
+ status.textContent=value.message;button.disabled=pair.disabled=value.busy===true;
+}
+async function command(action){
+ const request=++revision;button.disabled=pair.disabled=true;
  try{
   const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
-  if(!tab?.id||!approvedKerdosTab(tab.url))throw new Error('wrong_app');
-  await chrome.storage.session.remove('pairing');
-  const result=await chrome.scripting.executeScript({target:{tabId:tab.id},func:pairKerdosTab});
-  const response=result[0]?.result;
-  if(!response?.ok||!response.ticket)throw new Error('not_ready');
-  await chrome.storage.session.set({pairing:{...response.ticket,tabId:tab.id}});
-  status.textContent='Paired for one export. Open the selected vendor list, then click K and Send pricing to KERDOS.';
- }catch{status.textContent='In KERDOS, select the client/vendor and prepare a browser transfer first. Then pair from that KERDOS tab.';}
- finally{pair.disabled=false;}
-});
-button.addEventListener('click',async()=>{
- button.disabled=true;pair.disabled=true;
- try{
-  const {pairing}=await chrome.storage.session.get('pairing');
-  if(!pairing||Date.now()>=pairing.expiresAt)throw new Error('pair_first');
-  const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
-  const provider=tab?.url&&providers.find(p=>p.origin===new URL(tab.url).origin&&p.key===pairing.adapterKey&&p.origin===pairing.portalOrigin);
-  if(!tab?.id||!provider)throw new Error('wrong_origin');
-  if(pairing.protocolVersion!==2){await chrome.storage.session.remove('pairing');status.textContent='Refresh KERDOS, prepare a new browser transfer and pair this companion again before exporting.';return;}
-  const claimId=crypto.randomUUID();
-  // The app atomically reserves this exact export attempt before any vendor action.
-  const ready=await chrome.tabs.sendMessage(pairing.tabId,{type:'kerdos-claim',nonce:pairing.nonce,claimId});
-  if(!ready?.ok||ready.outcome!=='ready_for_export'){await chrome.storage.session.remove('pairing');status.textContent='KERDOS is no longer ready for this transfer. Prepare and pair a new transfer. No vendor export was started.';return;}
-  // Remove before export so this one-use selection cannot be replayed by popup.
-  await chrome.storage.session.remove('pairing');
-  status.textContent='Checking the selected account and exporting its pricing list… Keep this popup open.';
-  const result=await chrome.scripting.executeScript({target:{tabId:tab.id},world:'MAIN',func:provider.execute,args:[{account:pairing.account,list:pairing.list,capture:true}]});
-  const response=result[0]?.result;
-  if(response?.outcome==='verification_needed'){status.textContent='Your vendor requires sign-in or verification. Complete it directly with the vendor, then prepare and pair a new transfer. No file was sent to KERDOS.';return;}
-  if(response?.outcome!=='export_captured'){status.textContent=`Stopped: ${response?.outcome||'page_unavailable'}. No file was sent to KERDOS. Prepare a new transfer to retry.`;return;}
-  const ack=await chrome.tabs.sendMessage(pairing.tabId,{type:'kerdos-deliver',nonce:pairing.nonce,claimId,artifact:response.artifact});
-  status.textContent=ack?.ok&&ack.outcome==='received_for_review'?'KERDOS received the CSV for import review. Return to its tab to check the import result. This receipt does not confirm saved prices.':'KERDOS did not accept the file. Prepare a new transfer and retry.';
- }catch{status.textContent='Transfer unavailable. Keep your signed-in KERDOS tab open and prepare/pair a new transfer. No completed import has been confirmed.';}
- finally{button.disabled=false;pair.disabled=false;}
-});
+  const result=await chrome.runtime.sendMessage({type:'kerdos-companion-control',action,tabId:tab?.id});
+  if(request===revision)render(result);
+ }catch{if(request===revision)render({busy:false,message:'Companion unavailable. Reopen it and check KERDOS before starting another transfer.'});}
+}
+pair.addEventListener('click',()=>command('pair'));
+button.addEventListener('click',()=>command('export'));
+chrome.storage.onChanged.addListener((changes,area)=>{if(area==='session'&&changes.transferStatus?.newValue){revision++;render(changes.transferStatus.newValue);}});
+const initial=++revision;
+chrome.runtime.sendMessage({type:'kerdos-companion-control',action:'status'}).then(value=>{if(initial===revision)render(value);},()=>{if(initial===revision)render({busy:false,message:'Companion unavailable. Reopen it and check KERDOS before starting another transfer.'});});
+
+const enableRefresh=document.getElementById('enable-refresh'),providerSelect=document.getElementById('provider');
+if(enableRefresh&&providerSelect){
+ for(const provider of providers){const option=document.createElement('option');option.value=provider.key;option.textContent=provider.name;providerSelect.appendChild(option);}
+ enableRefresh.addEventListener('click',()=>{
+  const provider=providers.find(p=>p.key===providerSelect.value);if(!provider)return;
+  // Request synchronously within this explicit extension-page click, once per provider.
+  const request=chrome.permissions.request({origins:['https://kerdossoftareproject.github.io/*',provider.origin+'/*']});
+  request.then(async granted=>{
+   if(!granted){render({busy:false,message:'Refresh access was not granted. The manual transfer remains available.'});return;}
+   try{
+    const tabs=await chrome.tabs.query({url:'https://kerdossoftareproject.github.io/*'});
+    const results=await Promise.allSettled(tabs.filter(tab=>Number.isInteger(tab.id)&&approvedKerdosTab(tab.url)).map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},files:['app-channel.js']})));
+    const failed=results.some(result=>result.status==='rejected');
+    render({busy:false,message:failed?'Refresh access enabled. Reload KERDOS to reconnect, then click Refresh prices.':'Refresh access enabled. Return to KERDOS and click Refresh prices.'});
+   }catch{render({busy:false,message:'Refresh access enabled. Reload KERDOS to reconnect, then click Refresh prices.'});}
+  },()=>render({busy:false,message:'Could not enable refresh access. Manual transfer remains available.'}));
+ });
+}

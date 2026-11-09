@@ -17,6 +17,7 @@ const execute=async spec=>{
     if(operator==="in")return value.includes(actual);
     if(operator==="ilike")return String(actual||"").toLowerCase()===String(value).toLowerCase();
     if(operator==="lte")return actual<=value;
+    if(operator==="lt")return actual<value;
     throw new Error(`Unsupported filter: ${operator}`);
   });
   let result;

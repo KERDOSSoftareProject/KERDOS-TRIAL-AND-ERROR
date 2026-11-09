@@ -286,6 +286,23 @@ await test("auto-import: clean CSV price list → auto_imported with rows saved"
 
 // ── Test 2: unsupported MIME type → needs_review ──────────────────────────────
 
+await test("unnumbered products use their own listing, never the first null code", async () => {
+  const csv="Product,Pack,Price\nCIDER APPLE,4/1 GAL,26.15\nCHEESE AMERICAN,5 LB,16.75";
+  const items=[
+    {id:"cider",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CIDER APPLE",pack_size:"4/1 GAL",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list"},
+    {id:"cheese",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CHEESE AMERICAN",pack_size:"5 LB",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list"},
+  ];
+  const backend=createInMemoryBackend({bytes:csvBytes(csv),vendorItems:items,mappings:items.map((item,index)=>({id:`map-${index}`,organization_id:"org-1",vendor_item_id:item.id,catalog_item_id:`cat-${index}`,comparison_track:"exact",confidence_score:100}))});
+  const result=await processAttachmentInBackground(backend,{...ATTACHMENT_BASE},{organizationId:"org-1",vendorId:"vendor-1",documentType:"pricelist"});
+  assert.equal(result.outcome,"auto_imported",result.reason);
+  assert.deepEqual(backend._appliedQuotes.map(q=>[q.vendorItemId,q.description,q.price]),[["cider","CIDER APPLE",26.15],["cheese","CHEESE AMERICAN",16.75]]);
+  const ambiguous=createInMemoryBackend({bytes:csvBytes("Product,Pack,Price\nCIDER APPLE,4/1 GAL,26.15"),vendorItems:[items[0],{...items[0],id:"another-cider"}]});
+  const held=await processAttachmentInBackground(ambiguous,{...ATTACHMENT_BASE},{organizationId:"org-1",vendorId:"vendor-1",documentType:"pricelist"});
+  assert.equal(held.outcome,"needs_review");
+  assert.deepEqual(held.heldKeys,["row:0"]);
+  assert.equal(ambiguous._appliedQuotes.length,0);
+});
+
 await test("needs_review: unsupported MIME type", async () => {
   const backend = createInMemoryBackend({
     bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]), // PDF magic bytes but wrong MIME

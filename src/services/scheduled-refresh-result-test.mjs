@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {settleScheduledImport} from './scheduled-refresh-result.js';
+const calls=[],backend={vendorConnect:{completeSchedule:async(...args)=>{calls.push(args);return 'saved';}}};
+const evidence={attempt_token:'server-claim',sha256:'a'.repeat(64)};
+assert.equal(await settleScheduledImport(backend,evidence,null),null);
+assert.deepEqual(calls,[],'queued bytes never mark a slot saved');
+await assert.rejects(settleScheduledImport(backend,evidence,null,{required:true}),/Missing scheduled import receipt/);
+assert.equal(await settleScheduledImport(backend,evidence,'actual-document',{required:true}),'saved');
+assert.deepEqual(calls,[['server-claim','actual-document','a'.repeat(64)]]);
+assert.equal(await settleScheduledImport(backend,{sha256:evidence.sha256},'manual-document',{required:true}),null);
+await assert.rejects(settleScheduledImport(backend,{...evidence,sha256:'bad'},'document'),/Invalid scheduled import hash/);
+console.log('PASS scheduled completion: only the importer document and closed-over hash finish a claimed slot; queued/manual/invalid results do not.');

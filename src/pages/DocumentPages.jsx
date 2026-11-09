@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from "react";
+import PriceVarianceReport from "./PriceVarianceReport.jsx";
 import {InvoiceReconciliation} from './InvoiceReconciliation.jsx';
 import {createPortal} from "react-dom";
 
@@ -32,7 +33,7 @@ function MoreMenu({children,label="Vendor actions"}){
     setOpen(!open);
   }
   return <div onClick={event=>event.stopPropagation()}><button ref={trigger} aria-label={label} aria-expanded={open} title={label} onClick={toggle} style={{...button("white",navy),border:`1px solid ${line}`,padding:"7px 11px",fontSize:17,lineHeight:1}}>•••</button>
-    {open&&createPortal(<div ref={panel} role="menu" onClick={()=>setOpen(false)} style={{position:"fixed",left:position.left,top:position.top,zIndex:1000,width:"min(240px, calc(100vw - 16px))",maxHeight:"min(220px, 60vh)",overflowY:"auto",background:"white",border:`1px solid ${line}`,borderRadius:10,boxShadow:"0 12px 30px rgba(16,35,61,.25)",padding:6}}>{children}</div>,document.body)}
+    {open&&createPortal(<div ref={panel} role="menu" onClick={()=>setOpen(false)} style={{position:"fixed",left:position.left,top:position.top,zIndex:1000,width:"min(240px, calc(100vw - 16px))",boxSizing:"border-box",maxHeight:"min(220px, 60vh)",overflowY:"auto",background:"white",border:`1px solid ${line}`,borderRadius:10,boxShadow:"0 12px 30px rgba(16,35,61,.25)",padding:6}}>{children}</div>,document.body)}
   </div>;
 }
 
@@ -52,17 +53,18 @@ function VendorSection({name,count,accent,children,actions,defaultOpen=false}){
 
 function DocumentRow({title,meta,amount,warning,open,onToggle,children,controls}){
   return <article style={{...card,boxShadow:"none",marginBottom:8}}>
-    <div onClick={onToggle} title="Click to open details" style={{padding:"13px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,cursor:"pointer",userSelect:"none"}}>
-      <div style={{minWidth:0}}><div style={{fontWeight:800,fontSize:13,color:ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>▤ {title}</div><div style={{fontSize:11,color:muted,marginTop:3}}>{meta}</div>{warning}</div>
-      <div style={{display:"flex",alignItems:"center",gap:11,flexShrink:0}}>{amount&&<b style={{fontSize:14,color:ink}}>{amount}</b>}{controls}<span style={{color:"#9AA6B5"}}>{open?"▲":"▼"}</span></div>
+    <div className="document-browse-row" onClick={onToggle} title="Click to open details" style={{padding:"13px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,cursor:"pointer",userSelect:"none"}}>
+      <div className="document-browse-title" style={{minWidth:0}}><div style={{fontWeight:800,fontSize:13,color:ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>▤ {title}</div><div style={{fontSize:11,color:muted,marginTop:3}}>{meta}</div>{warning}</div>
+      <div className="document-browse-actions" style={{display:"flex",alignItems:"center",gap:11,flexShrink:0}}>{amount&&<b style={{fontSize:14,color:ink}}>{amount}</b>}{controls}<span style={{color:"#9AA6B5"}}>{open?"▲":"▼"}</span></div>
     </div>{open&&<div style={{borderTop:`1px solid ${line}`,padding:14,background:"#FBFCFE"}}>{children}</div>}
   </article>;
 }
 
 export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilter,vendorColors,formatDate,formatMoney,
-  attentionCount,role,onImport,onExport,onViewOriginal,onEdit,onDelete,expandedId,setExpandedId,reconciliationService,approvalService,paymentService}){
+  attentionCount,role,onImport,onExport,onViewOriginal,onViewSource,onEdit,onDelete,expandedId,setExpandedId,reconciliationService,approvalService,paymentService}){
   const [search,setSearch]=useState("");
   const [reconciliationId,setReconciliationId]=useState(null);
+  const [reportOpen,setReportOpen]=useState(false);
   const query=search.trim().toLocaleLowerCase();
   const groups=new Map();
   for(const invoice of invoices){
@@ -76,12 +78,15 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
   const vendorGroups=[...groups.entries()].map(([vendorId,rows])=>({vendorId,vendorName:rows[0]?.vendors?.name||vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",rows:rows.sort((a,b)=>new Date(b.invoice_date||b.created_at)-new Date(a.invoice_date||a.created_at))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,rows:group.rows.filter(invoice=>!query||[group.vendorName,invoice.invoice_number,invoice.file_name,invoice.invoice_date,invoice.created_at,formatDate(invoice.invoice_date||invoice.created_at)].some(value=>String(value??"").toLocaleLowerCase().includes(query)))})).filter(group=>group.rows.length);
   return <div>
-    <div aria-label="Invoice browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
-      <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
-      {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
-      <button type="button" onClick={onExport} style={button("#003584")}>Price Variance Report</button>
+    {reportOpen&&<PriceVarianceReport orgId={orgId} invoices={invoices} vendors={vendors} onClose={()=>setReportOpen(false)} onExport={onExport} onViewOriginal={onViewOriginal} onViewSource={onViewSource}/>}
+    <div className="workspace-browse-controls" role="region" aria-label="Invoice browse controls">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
+        <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
+        {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
+        <button type="button" onClick={()=>setReportOpen(true)} style={button("#003584")}>Price Variance Report</button>
+      </div>
+      <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,background:"white",color:ink}}/>
     </div>
-    <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {attentionCount>0&&<div style={{background:"#FFF3E0",color:"#8A5A00",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:14}}>{attentionCount} invoice price comparison{attentionCount===1?"":"s"} need review. The original invoice remains the source record.</div>}
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>{query?"No invoices match your search. Try another vendor, invoice number, filename, or date.":vendorFilter?"No invoices recorded for this vendor yet.":"No invoices recorded yet."}</div>:visible.map(group=>{
       const color=vendorColors.get(group.vendorId)||{accent:"#003584"};
@@ -106,11 +111,13 @@ export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setV
   const vendorGroups=[...groups.entries()].map(([vendorId,docs])=>({vendorId,vendorName:vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",documents:docs.sort((a,b)=>new Date(b.date)-new Date(a.date))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,documents:group.documents.filter(doc=>!query||[group.vendorName,doc.fileName,doc.date,formatDate(doc.date)].some(value=>String(value||"").toLocaleLowerCase().includes(query)))})).filter(group=>group.documents.length);
   return <div>
-    <div aria-label="Price sheet browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
-      <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
-      {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
+    <div className="workspace-browse-controls" role="region" aria-label="Price sheet browse controls">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
+        <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
+        {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
+      </div>
+      <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,background:"white",color:ink}}/>
     </div>
-    <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>
       {query?<>No price sheets match your search. Try another vendor, filename, or date.</>:vendorFilter
         ? <>No price sheets on file for <b>{vendors.find(v=>v.id===vendorFilter)?.name||"this vendor"}</b> yet. Use <b>Import Price Sheet</b> above.</>

@@ -34,7 +34,7 @@ export function explainImportRow(source,{vendor=null,categories=[],catalogItems=
   const input={item,vendorItem:vi,mapping,vendor,category,peers,categories};
   const evidence=catalogRowEvidence(input);
   for(const field of Object.values(evidence))if(field.value==="")field.value=null;
-  evidence.vendor.value=vendor?.name?`${vendor.name} · ${row.code?`Vendor #${row.code}`:vendorListingLabel(prior)||"NVIM assigned on save"}`:null;
+  evidence.vendor.value=vendor?.name?`${vendor.name} · ${row.code?`Vendor #${row.code}`:vendorListingLabel(prior)||"NVIN assigned on save"}`:null;
   evidence.category.source=selectedCategory?"manual selection":"category profile";
   evidence.price.source=source.manualFields?.includes("price")||source.priceEdited?"manual correction":"document";
   evidence.sellingUnit.source=row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource||"document";

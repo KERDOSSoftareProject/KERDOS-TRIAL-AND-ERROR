@@ -221,7 +221,7 @@ async function reimport(backend,{orgId,vendorId,vendorItemId,mappingId,catalogSe
   };
   return importPriceRow({
     backend,importService,catalogService,
-    sourceRow:{code:ex.vendor_item_code,description:ex.description,price:"1.50",sellingUnit:"LB"},
+    sourceRow:{code:ex.vendor_item_code,description:ex.description,price:"1.50",sellingUnit:"LB",...(opts.sourceOverrides||{})},
     row:{...rowBase,...(opts.rowOverrides||{})},
     ex,priorMapping,rowIssues:[],rowNeedsReview:false,invoiceSources:[],
     orgId,vendorId,sourceDocumentId:"doc-2",completedKey:ex.vendor_item_code,
@@ -419,3 +419,41 @@ run("confirmed category and manual field correction both survive reimport — Im
 });
 
 console.log("\nAll Module E · Reimport Persistence tests done.\n");
+
+// E closure: exercise real orchestration at the accepted/held quote boundary.
+for(const held of [false,true])run(held?'held conflicting source preserves saved amount overrides, mapping and history':'accepted fresh quote replaces stale amount overrides without changing product decisions',async()=>{
+ const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+ const {catItemId,vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+ const fields={description:{value:'Romaine Lettuce',sourceValue:'ROM LETTUCE'},
+  pack_size:{value:'4/10 LB',sourceValue:'4/10 LB'},
+  price:{value:9,sourceValue:2},unit_cost_override:{value:{price:2,unit:'LB',packPrice:80}},
+  rejected_catalog_item_ids:['previous-rejected-target']};
+ backend._stores.vendors.set(vendorItemId,{...backend._stores.vendors.get(vendorItemId),field_resolutions:fields});
+ backend.pricing._priceHistory.set(vendorItemId,[{sourceDocumentId:'doc-1',price:2}]);
+ const beforeMapping=structuredClone(backend._stores.mappings.get(mappingId));
+ const beforeCatalog=structuredClone(backend._stores.catalogs.get(catItemId));
+ const {catalogService,importService}=makeServices(backend,ORG);
+ catalogService.matchOrCreate=async()=>assert.fail('existing mapping must bypass matching');
+ catalogService.confirmMappings=async()=>assert.fail('existing review mapping must not be promoted during reimport');
+ if(held)backend.pricing.applyQuote=async()=>assert.fail('held observation must not replace the accepted quotation');
+ const result=await reimport(backend,{orgId:ORG,vendorId:VENDOR,vendorItemId,mappingId,catalogService,importService},held?{rowOverrides:{packSize:'99/1 LB'},sourceOverrides:{packSize:'99/1 LB'}}:{});
+ assert.equal(result.needsBasis,held);assert.equal(result.vendorItemId,vendorItemId);
+ const saved=backend._stores.vendors.get(vendorItemId);
+ if(held){
+  assert.deepEqual(saved.field_resolutions,fields);
+  assert.equal(saved.import_row.reviewRequired,true);
+  assert.equal(saved.import_row.row.packSize,'99/1 LB','retain incoming conflict as source evidence');
+  assert.equal(saved.pack_size,'4/10 LB');
+  assert.deepEqual(backend.pricing._priceHistory.get(vendorItemId),[{sourceDocumentId:'doc-1',price:2}]);
+ }else{
+  assert.equal(Object.hasOwn(saved.field_resolutions,'price'),false);
+  assert.equal(Object.hasOwn(saved.field_resolutions,'unit_cost_override'),false);
+  assert.deepEqual(saved.field_resolutions.description,fields.description);
+  assert.deepEqual(saved.field_resolutions.pack_size,fields.pack_size);
+  assert.deepEqual(saved.field_resolutions.rejected_catalog_item_ids,fields.rejected_catalog_item_ids);
+  assert.deepEqual(backend.pricing._priceHistory.get(vendorItemId),[{sourceDocumentId:'doc-1',price:2},{sourceDocumentId:'doc-2',price:1.50}]);
+ }
+ assert.deepEqual(backend._stores.mappings.get(mappingId),beforeMapping);
+ assert.deepEqual(backend._stores.catalogs.get(catItemId),beforeCatalog);
+ assert.equal(backend._stores.vendors.size,1);assert.equal(backend._stores.mappings.size,1);
+});

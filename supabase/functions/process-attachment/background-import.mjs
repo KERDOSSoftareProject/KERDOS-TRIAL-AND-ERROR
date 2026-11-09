@@ -23,9 +23,9 @@
 import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
 import { createImportService } from "../../../src/services/imports.js";
 import { createCatalogService } from "../../../src/services/catalog.js";
-import {createSourceRowSnapshot,verifyResumeRows} from '../../../src/core/import-resume.js';
-import {requireItemDescription} from '../../../src/core/field-validation.js';
-import { importPriceRow } from "../../../src/core/import-price-row.js";
+import { importPriceRow, MISSING_DESCRIPTION } from "../../../src/core/import-price-row.js";
+import { createSourceRowSnapshot, verifyResumeRows } from "../../../src/core/import-resume.js";
+import { findUncodedVendorListing } from "../../../src/core/vendor-listing.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
 import { prepareAutomaticInvoice } from "../../../src/core/automatic-invoice.js";
@@ -240,7 +240,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     if(lowImageEvidence){const reason='Invoice image text needs source clarification';await backend.attachments.setStatus(attachmentId,'needs_review',reason);return {outcome:'needs_review',reason};}
     const service = createImportService(backend);
     const vendorItems = await service.vendorItems(organizationId, vendorId);
-    const prepared = prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems});
+    const prepared = await prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems,importService:service});
     if (prepared.reason) {
       await backend.attachments.setStatus(attachmentId, "needs_review", prepared.reason);
       return {outcome:"needs_review",reason:prepared.reason};
@@ -280,9 +280,24 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return { outcome: "auto_imported" };
   }
 
+  const hasMissingDescription = parsedRows.some(row=>!row.description?.trim());
   let documentId;
-  if(existingDoc?.source_rows)verifyResumeRows(groups.flatMap(group=>group.rows),existingDoc.completed_keys||[],[],existingDoc.source_rows);
   if (existingDoc) {
+    if (hasMissingDescription && !existingDoc.source_rows) {
+      // A legacy import may have skipped a blank row and assigned later rows
+      // different keys. Keep its saved results until the positions can be verified.
+      const reason = "This partial import has a blank product description and no retained row snapshot to verify saved row positions.";
+      await backend.attachments.setStatus(attachmentId, "needs_review", reason, existingDoc.id);
+      return { outcome: "needs_review", reason };
+    }
+    if (existingDoc.source_rows) {
+      try {
+        verifyResumeRows(parsedRows, existingDoc.completed_keys || [], [], existingDoc.source_rows);
+      } catch (error) {
+        await backend.attachments.setStatus(attachmentId, "needs_review", error.message, existingDoc.id);
+        return { outcome: "needs_review", reason: error.message };
+      }
+    }
     documentId = existingDoc.id;
   } else {
     const newDoc = await importService.createPriceDocument({
@@ -293,7 +308,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       file_name:        filename,
       file_path:        storagePath,
       original_text:    rawText,
-      source_rows:      createSourceRowSnapshot(groups.flatMap(group=>group.rows)),
+      ...(hasMissingDescription?{source_rows:createSourceRowSnapshot(parsedRows)}:{}),
       status:           "processing",
     });
     documentId = newDoc.id;
@@ -322,7 +337,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 6: run the import engine row by row ───────────────────────────────
   const newCompletedKeys = [...completedRows];
   // completed_keys contains only successfully saved row:N keys (A1.7 contract).
-  // Held-row source/reasons remain on the vendor listing and linked original;
+  // Held-row evidence remains with the linked original or vendor listing;
   // report their row keys separately without corrupting resume's saved-row set.
   const heldKeys = [];
   const heldRows = [];
@@ -350,16 +365,24 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // Skip only saved rows. Reassess unresolved rows: new trusted evidence can
       // resolve them, and an unresolved row must never become a permanent skip.
       if (completedRows.has(completedKey)) continue;
-      // A missing B4 anchor is an unsaved source observation, not a failed
-      // database operation. Retain its row key and continue the other rows.
-      try{requireItemDescription(sourceRow);}catch(error){
-        heldKeys.push(completedKey);heldRows.push({key:completedKey,reasons:[error.message]});continue;
+      if (!sourceRow.description?.trim()) {
+        heldKeys.push(completedKey);
+        heldRows.push({key:completedKey,reasons:[MISSING_DESCRIPTION]});
+        continue;
       }
 
-      // Find existing vendor item for this row's code.
-      const ex = workingVendorItems.find(
-        v => v.vendor_item_code === sourceRow.code
-      ) || null;
+      // A missing vendor code is not an identity shared by all unnumbered
+      // products. Reuse only one source-compatible listing; retain ambiguous
+      // rows for review instead of applying their price to another product.
+      const found=sourceRow.code
+        ?{item:workingVendorItems.find(v=>v.vendor_item_code===sourceRow.code)||null,conflict:null}
+        :findUncodedVendorListing(sourceRow,workingVendorItems);
+      if(found.conflict){
+        heldKeys.push(completedKey);
+        heldRows.push({key:completedKey,reasons:[found.conflict]});
+        continue;
+      }
+      const ex=found.item;
       const priorMapping = ex
         ? workingMappings.find(m => m.vendor_item_id === ex.id) || null
         : null;

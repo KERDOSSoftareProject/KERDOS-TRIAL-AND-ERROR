@@ -27,6 +27,10 @@ function fixture(onValidate){
  const f=fixture(async()=>{throw Error('unavailable private diagnostics');});assert.equal((await f.send({type:'pair'})).ok,false);assert.equal(f.received.length,0);assert.ok(!JSON.stringify(f.messages).includes('diagnostics'));f.h.cancel();
 }
 {
+ const phases=[];const f=fixture(async phase=>{phases.push(phase);if(phase==='receive')throw Error('private receive diagnostics');return true;});const t=await f.pair(),id=crypto.randomUUID();await f.send({type:'claim',nonce:t.nonce,claimId:id});
+ assert.equal((await f.send({type:'deliver',nonce:t.nonce,claimId:id,artifact})).ok,false);assert.deepEqual(phases,['pair','export','receive']);assert.equal(f.received.length,0);assert.equal(f.h.state,'rejected');assert.ok(!JSON.stringify(f.messages).includes('diagnostics'));f.h.cancel();
+}
+{
  const phases=[];const f=fixture(async phase=>{phases.push(phase);return true;});const t=await f.pair(),id=crypto.randomUUID();
  assert.equal((await f.send({type:'claim',nonce:t.nonce,claimId:id})).ok,true);
  assert.equal((await f.send({type:'deliver',nonce:t.nonce,claimId:id,artifact})).ok,true);assert.equal(f.received.length,1);assert.deepEqual(phases,['pair','export','receive']);

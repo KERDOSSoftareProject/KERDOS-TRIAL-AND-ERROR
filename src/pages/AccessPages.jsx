@@ -54,7 +54,7 @@ export function LandingGate() {
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(min(260px,100%), 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>
         {SERVICES.map((s,i)=>(
           <div key={i} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.28)",borderRadius:14,padding:"20px",position:"relative"}}>
             {s.tag&&<div style={{position:"absolute",top:14,right:14,fontSize:10,fontWeight:800,color:"white",background:"rgba(255,255,255,0.2)",padding:"3px 8px",borderRadius:20}}>{s.tag}</div>}
@@ -66,7 +66,7 @@ export function LandingGate() {
         ))}
       </div>
 
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:380,margin:"0 auto",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:436,margin:"0 auto",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",background:"#F0F2F5",borderRadius:8,padding:3,marginBottom:20}}>
           <button onClick={()=>{setMode("login");setError("");setNotice("");}}
             style={{flex:1,padding:"9px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
@@ -158,7 +158,7 @@ function Setup({user,onComplete}) {
 
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:480,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:536,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
           <span style={{fontSize:20}}>🦉</span>
           <span style={{fontWeight:900,fontSize:16,letterSpacing:"0.18em",color:"#003584"}}>KERDOS</span>
@@ -232,7 +232,7 @@ export function OrgGate({user,onComplete}) {
 
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:420,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",textAlign:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:476,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",textAlign:"center"}}>
         <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><span style={{fontSize:36}}>🦉</span></div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Welcome to KERDOS</h2>
         <p style={{color:"#888",fontSize:13,margin:"0 0 24px"}}>Are you starting a new organization, or joining one your team already set up?</p>
@@ -260,7 +260,7 @@ function JoinWithCode({user,onComplete,onBack}) {
 
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:420,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:476,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
           <span style={{fontSize:20}}>🦉</span>
           <span style={{fontWeight:900,fontSize:16,letterSpacing:"0.18em",color:"#003584"}}>KERDOS</span>

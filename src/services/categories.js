@@ -24,14 +24,14 @@ export function holdingPen(categories){
 //     excluded so it can never be chosen as a destination.
 //   legacyCurrent — set when the item's current category is a real (non-holding-
 //     pen) category that falls outside industryCategories.  Injected as a
-//     one-off selectable option labeled "<name> (legacy — reclassify)" so the
+//     one-off selectable option showing its saved category name so the
 //     operator can see it and move the item; null otherwise.
 //   holdingPenCurrent — set when the item's current category IS the holding pen.
 //     Injected as a disabled option labeled "Unclassified — assign a category"
 //     so the select value renders (instead of going blank) while preventing the
 //     operator from re-choosing the holding pen as the destination; null otherwise.
-export function buildCategoryDropdown({categories,industry,currentCategory}){
-  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry));
+export function buildCategoryDropdown({categories,industry,currentCategory,clientCategories=false}){
+  const industryCategories=categories.filter(c=>!c.is_holding_pen&&(clientCategories||!industry||c.industry===industry));
   const legacyCurrent=currentCategory&&!currentCategory.is_holding_pen&&!industryCategories.find(c=>c.id===currentCategory.id)?currentCategory:null;
   const holdingPenCurrent=currentCategory?.is_holding_pen?currentCategory:null;
   return {industryCategories,legacyCurrent,holdingPenCurrent};

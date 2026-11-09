@@ -1,0 +1,7 @@
+# A2.b.vi open-tab scheduled refresh wiring
+
+The signed-in KERDOS page asks the server every 30 seconds whether a selected vendor connection has a due slot. The browser does not supply a clock or slot. A server claim returns a one-use token; a second tab/device gets no token. The page checks that token before pairing, export authorization and admission. The existing companion 0.2.16 protocol and extension files are unchanged.
+
+The token is added by the app to the hashed browser evidence, never copied from vendor content. Receipt admission binds it to the first price document in the database transaction. The importer reports a saved or partial document ID after persistence, and only then does the app finish the scheduled attempt. If the outcome cannot be proven, the slot remains Outcome unknown and cannot be automatically re-exported. A confirmed sign-in/selection/permission interruption stops that slot and atomically turns off the future schedule, requiring an explicit owner re-enable. Manual Refresh prices remains available.
+
+The due-check requires a signed-in KERDOS browser tab, an enabled companion, permissions, an active vendor account and a current vendor session. It cannot run while the computer/browser/tab is closed. This is an attended browser-session schedule, not unattended server retrieval. No schedule is enabled or supplier contacted by deploying these files alone. Hosted migrations and live two-tab/missed/unknown acceptance are separate gates.

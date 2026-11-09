@@ -17,22 +17,17 @@ One source-linked listing provides continuity. Missing purchasing fields need no
 
 ## B4 implementation checkpoint
 
-`src/ingestion.js` previously chose a replacement description by taking the longest nonnumeric cell when the mapped description was blank. This could promote the brand column into the product description. The tabular row routine also combined binding, value interpretation and validation.
+The tabular parser studies the layout before assigning fields. `identifyRowFields` binds each assigned field to the supplied row and column, preserves its raw value, and records whether the role came from the header, a remembered answer, or inference. The description anchor distinguishes identified, inferred, missing, and ambiguous cells. Repeated table headers supply fresh evidence and side-by-side blocks retain their column offsets.
 
-`identifyRowFields` now owns raw field binding using the studied column map. It exposes an identified, inferred, missing or ambiguous description anchor and same-row/cell evidence. It does not import procurement vocabulary, grouping, readers, persistence or purchasing logic. A separate B5 admission check, `requireItemDescription`, prevents a missing anchor from reaching quote/catalog/mapping writes.
+The tabular parser retains a priced observation with a missing or ambiguous description and preserves its other assigned fields. The existing draft #192 import guards retain that observation for review, keep it out of quote and catalog writes, and let valid neighbors save. Retrying an older background import with unverified row positions stays in review.
 
-The parser retains priced rows with missing descriptions and their original values. Manual import keeps them partial for review while processing valid rows. Automatic import treats a missing description as a held source observation, rather than an operational database failure, and continues valid rows. New automatic source documents retain the existing source-row proof format; existing proofs are checked, not overwritten, when resuming.
-
-Source readers, geometric structuring, grouping rules, purchasing rules and the deployed application are unchanged by this prepared source branch. Legacy parsing of unlabelled descriptive details remains for compatibility; broader separation of interpretation/validation belongs to subsequent explicit tasks. No paid services or runtime AI calls are added.
+B5 owns validation. The existing numeric, unit, and pack checks still run after B4 field placement. Source readers and geometric structuring still supply the input, and their provenance remains attached. Grouping and purchasing use their existing rules.
 
 ## Verification and remaining work
 
-- Full local `npm test` and production build passed. Existing SQL tests execute against local PostgreSQL fixtures; they are not hosted database acceptance.
-- Focused checks cover reordered columns, long brands beside short descriptions, absent/ambiguous anchors, raw source bindings, repeated headers and wrapped cells provided by readers.
-- Rendered manual import and actual automatic-import orchestration use mocked persistence to verify partial source retention, valid-row saves, replay safety and no brand-named product creation.
-- Existing B3/B4/B5 tests cover structure, remembered/unknown headings, source proof and retained-row display.
-- Reader, structuring, product-grouping and ordering source files were compared with the base commit and remain unchanged.
-- Code is prepared for review. Hosted schema compatibility/write-path verification and signed-in acceptance remain open. Any eventual release must publish the frontend and shared `process-attachment` worker together; no new schema migration is included.
+- Field-binding checks cover raw values, evidence origins, reordered and repeated headers, wrapped cells, ignored columns, and missing or conflicting description roles.
+- Existing manual upload and background attachment checks cover held rows, valid neighboring rows, and safe retries.
+- Review of the B5 draft #131, hosted verification, and signed-in acceptance remain open. Any release must coordinate the web app and the attachment worker, which share the parser.
 
 ## Other responsibility boundaries
 

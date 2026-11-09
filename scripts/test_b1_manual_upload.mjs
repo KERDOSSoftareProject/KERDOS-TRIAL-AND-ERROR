@@ -30,9 +30,9 @@ function fixture(){
 function file(name='B1_Prices.csv',content=csv){return {name,size:Buffer.byteLength(content),text:async()=>content};}
 function writes(f){return f.invoices.length+f.uploads.length+f.calls.applyQuote.length+f.calls.insertImportDoc.length+f.calls.createMapping.length;}
 async function open(initialVendorId=vendor,initialMode='pricelist',overrides={}){
- let tree;const finished=[];
- await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B1 Test Vendor'}],orgId:org,orgSettings:{},catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose:()=>{},onDone:async()=>{},onFinished:v=>finished.push(v),initialVendorId,initialMode,...overrides}));});
- return {tree,finished};
+ let tree;const finished=[],issues=[];
+ await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B1 Test Vendor'}],orgId:org,orgSettings:{},catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose:()=>{},onDone:async()=>{},onFinished:v=>finished.push(v),onIssue:v=>issues.push(v),initialVendorId,initialMode,...overrides}));});
+ return {tree,finished,issues};
 }
 function button(p,label){return p.tree.root.findAllByType('button').find(b=>text(b)===label);}
 async function upload(p,method,input=file()){
@@ -51,6 +51,20 @@ async function save(p){
  }
 }
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
+await check('positioned invoice non-product sections render safely before saving',async()=>{
+ const f=fixture(),p=await open(vendor,'invoice');
+ const line=(values,y)=>values.map((value,index)=>({text:value,transform:[1,0,0,12,[30,140,390,490,590,690,790][index],y],width:60,height:12}));
+ const raw='INVOICE SKIPPED-REGRESSION\nItem,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\nB1-001,Chicken Breast Boneless Skinless,2/10 LB,CASE,2,41.25,82.50\nSubtotal 82.50';
+ const reading={filename:'invoice-sections.pdf',text:raw,worksheets:[],pages:[{number:1,width:950,height:650,source:'embedded-text',text:raw,items:[...line(['Item','Description','Pack','Price Unit','Qty','Unit Price','Extended Price'],550),...line(['B1-001','Chicken Breast Boneless Skinless','2/10 LB','CASE','2','41.25','82.50'],510),...line(['Subtotal','82.50'],450),...line(['Following items were out of stock'],420)]}]};
+ await upload(p,'drop',{...file('invoice-sections.pdf',raw),reading});
+ assert.match(text(p.tree.toJSON()),/1 product row read/);assert.equal(writes(f),0);
+ await save(p);
+ assert.match(text(p.tree.toJSON()),/Subtotal/);
+ assert.doesNotMatch(text(p.tree.toJSON()),/undefined|\[object Object\]/);
+ assert.match(text(p.tree.toJSON()),/Following items were out of stock/);
+ assert.equal(writes(f),0,'preview must not write any records');
+ p.tree.unmount();
+});
 await check('drop previews exact filename and row count without any writes; cancel remains read-only',async()=>{
  const f=fixture(),p=await open();await upload(p,'drop');
  assert.ok(text(p.tree.toJSON()).includes('B1_Prices.csv'));
@@ -86,6 +100,21 @@ await check('drop Save retains original and writes exact vendor/organization/doc
  assert.ok(text(replay.tree.toJSON()).includes('already imported in full'));
  assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);
  assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.createMapping.length,1);replay.tree.unmount();
+});
+await check('a blank description retains the source row and saves only the described product',async()=>{
+ const f=fixture(),p=await open();
+ const content='Code,Description,Brand,Pack,Price Unit,Price\nB4-BLANK,,Brand Only Text,20 LB,CASE,42.50\nB4-VALID,Chicken Breast Boneless Skinless,Other Brand,20 LB,CASE,53.20\n';
+ await upload(p,'picker',file('B4_Blank_Description.csv',content));await save(p);
+ const doc=Object.values(f.importDocs)[0],held=doc.source_rows.rows[0];
+ assert.equal(doc.status,'partial');
+ assert.deepEqual(doc.completed_keys,['row:1']);
+ assert.deepEqual(held.values.slice(0,3),['B4-BLANK','','Brand Only Text']);
+ assert.equal(held.values[5],42.5);
+ assert.equal(held.sourceLine,'B4-BLANK\t\tBrand Only Text\t20 LB\tCASE\t42.50');
+ assert.deepEqual(f.calls.applyQuote.map(row=>row.vendorItemCode),['B4-VALID']);
+ assert.equal(f.calls.createMapping.length,1);
+ assert.match(text(p.tree.toJSON()),/Product description is missing/);
+ p.tree.unmount();
 });
 await check('file picker follows the same preview and retained-original save path',async()=>{
  const f=fixture(),p=await open();await upload(p,'picker',file('B1_Picker.csv'));
@@ -328,6 +357,13 @@ await check('automatic stored-original read failure retains a partial source and
  const failed=await autoOpen();await automaticResult(failed);assert.equal(failed.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.match(text(failed.tree.toJSON()),/Original download denied/);failed.tree.unmount();
  f.backend.documents.download=download;const retry=await autoOpen();await automaticResult(retry);assert.equal(retry.finished.length,1,text(retry.tree.toJSON()));assert.match(retry.finished[0].message,/Stored original verified/);assert.equal(f.calls.applyQuote.length,1);assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);retry.tree.unmount();
 });
+await check('scheduled partial intake reports its actual retained document for receipt completion',async()=>{
+ const f=fixture();f.backend.documents.download=async()=>{throw Error('Synthetic original download denied');};
+ const p=await autoOpen(csv,{companionEvidence:{...autoProof,attempt_token:'synthetic-claim'}});await automaticResult(p);
+ const retained=Object.values(f.importDocs)[0];assert.equal(retained.status,'partial');
+ assert.equal(p.finished.length,0);assert.equal(p.issues.at(-1).importDocumentId,retained.id);
+ assert.equal(f.calls.applyQuote.length,0);p.tree.unmount();
+});
 await check('automatic corruption checks block new quotes and preserve completed pricing on same-size or truncated stored files',async()=>{
  const f=fixture(),upload=f.backend.documents.upload;f.backend.documents.upload=async(...args)=>{await upload(...args);f.uploads[0].bytes=csv.replace('41.25','99.25');};
  const first=await autoOpen();await automaticResult(first);assert.equal(first.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(Object.values(f.importDocs)[0].status,'partial');assert.match(text(first.tree.toJSON()),/SHA-256 differs/);first.tree.unmount();
@@ -339,14 +375,14 @@ await check('automatic corruption checks block new quotes and preserve completed
 await check('automatic original verification never claims legacy proof and rejects malformed new transfer evidence',async()=>{
  const f=fixture(),manual=await open();await upload(manual,'picker');await save(manual);manual.tree.unmount();const before=writes(f);
  const legacy=await autoOpen();await automaticResult(legacy);assert.equal(legacy.finished.length,1);assert.doesNotMatch(legacy.finished[0].message,/Stored original verified/);assert.equal(f.downloads.length,0);assert.equal(writes(f),before);legacy.tree.unmount();
- const g=fixture(),bad=await autoOpen(csv,{companionEvidence:{...autoProof,sha256:'invalid'}});await automaticResult(bad);assert.equal(bad.finished.length,0);assert.equal(g.calls.applyQuote.length,0);assert.equal(g.downloads.length,0);assert.equal(Object.values(g.importDocs)[0].status,'partial');assert.match(text(bad.tree.toJSON()),/no valid transfer-byte evidence/);bad.tree.unmount();
+ const g=fixture(),bad=await autoOpen(csv,{companionEvidence:{...autoProof,sha256:'invalid'}});await automaticResult(bad);assert.equal(bad.finished.length,0);assert.equal(g.calls.applyQuote.length,0);assert.equal(g.downloads.length,0);assert.equal(Object.values(g.importDocs)[0].status,'partial');assert.match(text(bad.tree.toJSON()),/no valid transfer-byte evidence/);assert.equal(bad.issues.length,1);assert.equal(bad.issues[0].status,'needs_attention');assert.match(bad.issues[0].message,/no valid transfer-byte evidence/);bad.tree.unmount();
 });
 await check('automatic unmount while downloading the retained original prevents quotes, progress and success',async()=>{
  const f=fixture();let release,started=false;f.backend.documents.download=async()=>{started=true;await new Promise(resolve=>{release=resolve;});return new TextEncoder().encode(csv);};
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/38 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/41 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

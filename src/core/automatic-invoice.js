@@ -4,12 +4,13 @@ import {invoiceBilledQuantityEvidence} from './invoice-quantity-evidence.js';
 // No writes happen here. Uncertain lines keep the whole invoice in review.
 import {findDate,findInvoiceNumber} from '../ingestion.js';
 import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY} from '../procurement.js';
+import {lookupQuoteComparison} from './quote-provenance.js';
 import {billingUnitEvidence} from './billing-unit-evidence.js';
 
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
 const numeric = value => value != null && value !== '' && Number.isFinite(Number(value));
 
-export function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendorItems=[]}) {
+export async function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendorItems=[],importService}) {
   const review = reason => ({reason,header:null,lines:[]});
   const date=findDate(text);
   if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(new Date(`${date}T12:00:00Z`).getTime()) || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)!==date)
@@ -19,10 +20,11 @@ export function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendo
   const lines=[];
   for(const [index,row] of rows.entries()){
     const fail=reason=>review(`Invoice line ${index+1}: ${reason}`);
+    if(!row.description?.trim())return fail('Product description is missing.');
     if(row.requiresReview||row.issues?.length||row.details?.length)
       return fail(row.issues?.join('; ')||'Source fields require review.');
-    if(!row.description?.trim()||!numeric(row.qty)||Number(row.qty)<=0||!numeric(row.price)||Number(row.price)<0||!numeric(row.amount))
-      return fail('Description, billed quantity, unit price and extended amount must be stated.');
+    if(!numeric(row.qty)||Number(row.qty)<=0||!numeric(row.price)||Number(row.price)<0||!numeric(row.amount))
+      return fail('Billed quantity, unit price and extended amount must be stated.');
     if(Math.abs(money(Number(row.qty)*Number(row.price))-Number(row.amount))>0.025)
       return fail('Billed quantity and unit price do not reconcile with the extended amount.');
     if(!billingUnitEvidence(row))return fail('Billed unit is not established by source evidence.');
@@ -41,14 +43,21 @@ export function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendo
       if(candidates.length>1)return fail('Description matches multiple vendor products.');
     }
     if(!candidates.length){
-      const match=bestInvoiceMatch(row.description,listings.filter(item=>comparePurchasingPack(row.packSize,item.pack_size).status==='same'),Math.max(0.9,MATCH_POLICY.autoLink));
+      const match=bestInvoiceMatch(row.description,listings.filter(item=>comparePurchasingPack(row.packSize,item.pack_size).status==='same'),Math.max(0.9,MATCH_POLICY.invoiceMatchFloor));
       if(match){candidates=[match.vendorItem];confidence=Math.round(match.score*100);method='fuzzy';}
     }
     if(!candidates.length)return fail('No sufficiently verified vendor product match; review the product before importing.');
+    // Preserve automatic quote eligibility; interactive refresh preferences are
+    // explicitly supplied only by ImportModal pending requirement reconciliation.
+    const {variance,quoteProvenance,comparisonNote}=await lookupQuoteComparison({
+      importService,organizationId,vendorItemId:candidates[0].id,invoiceDate:date,
+      billedUnit:row.sellingUnit,packSize:row.packSize||candidates[0].pack_size||null,
+      unitPrice:Number(row.price),
+    });
     lines.push({vendor_item_id:candidates[0].id,vendor_item_code:row.code||null,description:row.description,
       quantity:Number(row.qty),unit_price:Number(row.price),line_total:Number(row.amount),
       selling_unit:row.sellingUnit,pack_size:row.packSize,source_line:row.sourceLine,
-      billing_unit_evidence:billingUnitEvidence(row),quantity_source:row.quantitySource??null,billed_quantity_evidence:invoiceBilledQuantityEvidence(row),price_variance:null,match_confidence:confidence,match_method:method});
+      billing_unit_evidence:billingUnitEvidence(row),quantity_source:row.quantitySource??null,billed_quantity_evidence:invoiceBilledQuantityEvidence(row),price_variance:variance,...quoteProvenance,quoted_comparison_note:comparisonNote,match_confidence:confidence,match_method:method});
   }
   const total=money(lines.reduce((sum,line)=>sum+line.line_total,0));
   // A stated total must reconcile; taxes, fees, credits and unexplained differences

@@ -146,7 +146,11 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   if(category&&!category.is_holding_pen){
     catAcc=item.category_review?GUESSED:item.category_reason?DERIVED:STATED;
     catWhy=item.category_review?(item.category_reason||"Best guess"):item.category_reason?item.category_reason:"Set or accepted";
-    const independent=categories.length?suggestCategory(vi.description,categories,[]):null;
+    // Once the listing's product identity is confirmed, its KERDOS item's
+    // category is authoritative. Do not reclassify each supplier's wording.
+    const grouped=productGroupApproved(vi,item,mapping);
+    if(grouped&&!item.category_review)catWhy='Category defined by the confirmed KERDOS item';
+    const independent=!grouped&&categories.length?suggestCategory(vi.description,categories,[]):null;
     if(item.category_review&&independent?.confidence==="confident"&&independent.category?.id===category.id){
       catAcc=DERIVED;catWhy=independent.reason;
     }
@@ -235,7 +239,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   return {
     itemNumber:{...field(item.master_item_number,numAcc,numWhy),label:manualLink?"Manual":"Automated"},
     vendor:field(vendor?.name||"",vendor?STATED:null,"Vendor selected at import"),
-    vendorItemNumber:field(String(vi.vendor_item_code||"").trim()||vendorListingLabel(vi)||"",vi.vendor_item_code||vendorListingLabel(vi)?100:null,"Vendor code or persistent NVIM number"),
+    vendorItemNumber:field(String(vi.vendor_item_code||"").trim()||vendorListingLabel(vi)||"",vi.vendor_item_code||vendorListingLabel(vi)?100:null,"Vendor code or persistent NVIN number"),
     category:clientField("category_id",category?.name||"Uncategorized",catAcc,catWhy||"No category yet"),
     itemName:clientField("item_name",item.name||"",nameAcc,nameWhy),
     product:clientField("description",vi.description,descAcc,descWhy),
@@ -314,9 +318,7 @@ export function qualificationSummary({catalogItems=[],vendorItems=[],mappings=[]
 }
 
 // Rows the app can place in the Order Guide on its own: ready by the rule
-// above and not yet an exact association. Multi-vendor items also need
-// the other vendor's row to agree on identity, brand and pack; single-
-// vendor items only need the row to agree with its own catalog item.
+// above with independently verified identity or a current product approval.
 export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendors=[],categories=[],settings={},now}){
   const ciById=new Map(catalogItems.map(ci=>[ci.id,ci]));
   const viById=new Map(vendorItems.map(vi=>[vi.id,vi]));
@@ -332,11 +334,19 @@ export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendor
     const category=cById.get(ci.category_id);
     const allOnEntry=(byCatalog.get(m.catalog_item_id)||[]);
     const peers=allOnEntry.filter(o=>o.id!==m.id).map(o=>viById.get(o.vendor_item_id)).filter(Boolean);
-    if(!orderGuideReady({item:ci,vendorItem:vi,mapping:m,vendor:vById.get(vi.vendor_id),category,peers,categories,settings,now}))continue;
-    const verification=mappingVerification(vi,ci,peers);
+    // A pack correction reopens the mapping, but an explicit product-group
+    // approval still applies if the approved description, brand and target agree.
+    const approval=vi.field_resolutions?.product_group,packCorrection=vi.field_resolutions?.pack_size;
+    const approvedMapping={...m,comparison_track:"exact",confidence_score:100};
+    const reuseGroupApproval=ci.comparison_mode!=="exact"&&m.comparison_track==="review"&&m.confidence_score===null&&
+      !!approval?.confirmedBy&&approval.confirmed!==false&&!!packCorrection?.confirmedBy&&packCorrection.value===vi.pack_size&&
+      productGroupApproved(vi,ci,approvedMapping);
+    if(!orderGuideReady({item:ci,vendorItem:vi,mapping:reuseGroupApproval?approvedMapping:m,vendor:vById.get(vi.vendor_id),category,peers,categories,settings,now}))continue;
+    const verification=reuseGroupApproval?{comparison_track:"exact",confidence_score:100,match_method:"manual"}:
+      {...mappingVerification(vi,ci,peers),match_method:"rule_based"};
     if(verification.comparison_track!=="exact")continue;
     out.push({mappingId:m.id,vendorItemId:vi.id,catalogItemId:ci.id,description:vi.description,packSize:vi.pack_size,
-      verification:{...verification,match_method:"rule_based"},clearCategoryReview:!!ci.category_review});
+      verification,clearCategoryReview:!!ci.category_review});
   }
   return out;
 }
@@ -367,7 +377,7 @@ export function rememberImportRow(row,prior,mapping=null){
     const same=incoming===original||incoming===corrected||!incoming||
       (input==="description"&&[original,corrected].filter(Boolean).some(d=>compareProductIdentity(incoming,d).status==="same"))||
       (input==="packSize"&&[original,corrected].filter(Boolean).some(p=>comparePurchasingPack(incoming,p).status==="same"));
-    if(!same)throw new Error(`Vendor item ${row.code||`NVIM-${prior.nvim_number}`}: ${input} changed from the known source. The saved correction and association were kept; review this field.`);
+    if(!same)throw new Error(`Vendor item ${row.code||`NVIN-${prior.nvim_number}`}: ${input} changed from the known source. The saved correction and association were kept; review this field.`);
     result[input]=remembered.value??"";
   }
   return result;

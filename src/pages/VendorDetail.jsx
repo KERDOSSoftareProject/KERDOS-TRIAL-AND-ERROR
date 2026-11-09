@@ -183,7 +183,7 @@ export function VendorDetail({vendor,vc,vendorItems,invoices,purchaseOrders,pric
                 return (
                 <div key={item.id} style={{padding:"8px 0",borderBottom:"1px solid #F0F0F0"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.description}</div>
+                    <div className="vendor-detail-item-name" style={{fontSize:13,flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.description}</div>
                     {priceEditId===item.id?(
                       <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
                         <input style={{...inp,width:80,padding:"4px 8px",fontSize:13}} type="number" step="0.01" autoFocus

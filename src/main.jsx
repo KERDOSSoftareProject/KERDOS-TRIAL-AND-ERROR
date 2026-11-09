@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./viewport.css";
 import App from "./App.jsx";
 import { ErrorBoundary } from "./ui/ErrorBoundary.jsx";
 ReactDOM.createRoot(document.getElementById("root")).render(

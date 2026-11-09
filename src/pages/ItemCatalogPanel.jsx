@@ -1,4 +1,6 @@
+import {MobileDetailWindow} from '../ui/MobileDetailWindow.jsx';
 import {MovableDialog} from "../ui/MovableDialog.jsx";
+import {ProductAssociationTrial} from "./ProductAssociationTrial.jsx";
 import {AssociateAlternatives} from "./AssociateAlternatives.jsx";
 import {useMemo,useState} from "react";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
@@ -12,25 +14,30 @@ import {createCatalogService,mappingVerification,mappingGap,GAP_LABELS} from "..
 import {createCategoryService} from "../services/categories.js";
 import {bestCatalogMatch,bestPurchasingSuggestion,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,parsePackSize,unitsForDimension,contextualCategorySuggestion,priceBasisFor} from "../procurement.js";
 import {blockReason,orderable} from "../core/ordering.js";
-import {itemMatchesSearch} from "../core/catalog-browse.js";
+import {itemMatchesSearch,compareItems} from "../core/catalog-browse.js";
 import {formatMoney} from "../localization.js";
 import {buildCatalogExportCSV,downloadTextFile} from "../reporting.js";
-import {btn,chipStyle,inp} from "../ui/styles.js";
+import {btn,inp} from "../ui/styles.js";
 
 const catalogService=createCatalogService(backend);
 const categoryService=createCategoryService(backend);
 const importService=createImportService(backend);
 
-const MULTI_VENDOR_FILTER="__multi_vendor__";
 const CATEGORY_REVIEW_FILTER="__category_review__";
 
-export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
+export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,userId,productList,vendors,catalogItems,mappings,vendorItems,categories,vocabulary=[],settings={},editors={},onUpdated}) {
   const canManage=role==="owner"||role==="manager";
   const [search,setSearch]=useState("");
   const [rowView,setRowView]=useState(true);
+  const [baseFieldsOnly,setBaseFieldsOnly]=useState(false);
+  const [actionsOpen,setActionsOpen]=useState(false);
+  const [catalogTool,setCatalogTool]=useState(null);
+  const [sourceReviewOpen,setSourceReviewOpen]=useState(false);
   const [showReview,setShowReview]=useState(false);
   const [mappedOnly,setMappedOnly]=useState(false);
   const [categoryFilter,setCategoryFilter]=useState("");
+  const [vendorFilter,setVendorFilter]=useState("");
+  const [catalogSortMode,setCatalogSortMode]=useState("alphabetical");
   const [remapOpenFor,setRemapOpenFor]=useState(null);
   const [remapSearch,setRemapSearch]=useState("");
   const [busyMappingId,setBusyMappingId]=useState(null);
@@ -87,9 +94,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
     return {packs,vendorsCount,brands:[...new Set(linked.map(v=>v.brand||"Brand not stated"))],descriptions:[...new Set(linked.map(v=>v.description))],warning:!commonPack&&packs.length>1?"Mixed or incomplete existing packs — inspect first":compared?.status!=="same"?"Pack needs verification":null};
   }
 
-  // Categories are ordered alphabetically - same as Order Guide, so both screens'
-  // category chips read the same way. Internal KERDOS item identifiers
-  // are retained in the data but never shown to customers.
+  // Keep the category menu alphabetized, matching the Order Guide.
   const categoryList=useMemo(()=>{
     const set=new Set(productList.map(p=>p.category));
     return [...set].sort((a,b)=>a.localeCompare(b));
@@ -97,8 +102,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
   const multiVendorItems=useMemo(()=>productList.filter(item=>new Set(item.options.map(o=>o.vendorId)).size>=2),[productList]);
   const isMapped=item=>item.options.length>0&&item.options.every(o=>!o.unverified);
-  const mappedCount=productList.filter(isMapped).length;
-  const notMappedCount=productList.length-mappedCount;
   const comparableItems=useMemo(()=>multiVendorItems.filter(item=>{
     const eligible=item.options.filter(orderable);
     return eligible.some((a,i)=>eligible.slice(i+1).some(b=>a.vendorId!==b.vendorId&&comparePurchasingPack(a.packSize,b.packSize).status==="same"));
@@ -111,36 +114,26 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
     return suggested?.category?.id&&suggested.category.id!==item.category_id&&
       suggested.reason?.includes("Prepared product form")?[[item.id,suggested]]:[];
   })),[catalogItems,categories,vocabulary]);
-  const uncategorizedName=categories.find(c=>c.is_holding_pen)?.name||"Uncategorized";
-  const uncategorizedItems=productList.filter(item=>item.category===uncategorizedName);
 
-  // Full List is one alphabetical client catalog. Selecting a product type
-  // narrows that same alphabetized list without changing item identity or
-  // client master numbers. Vendor codes remain mappings beneath each item.
+  // Browse saved KERDOS items by category and linked vendor without changing
+  // their identity or the vendor listings beneath each item.
   const groupedItems=useMemo(()=>{
     const items=productList.filter(item=>{
       if(mappedOnly&&!isMapped(item))return false;
-      if(categoryFilter===MULTI_VENDOR_FILTER){if(new Set(item.options.map(o=>o.vendorId)).size<2)return false;}
-      else if(categoryFilter===CATEGORY_REVIEW_FILTER){if(!categoryCorrections.has(item.catalogItemId))return false;}
+      if(vendorFilter&&!item.options.some(option=>option.vendorId===vendorFilter))return false;
+      if(categoryFilter===CATEGORY_REVIEW_FILTER){if(!categoryCorrections.has(item.catalogItemId))return false;}
       else if(categoryFilter&&item.category!==categoryFilter) return false;
       return itemMatchesSearch(item,search);
     });
-    // Sort by name within each category so related products (all chicken, all lettuce)
-    // cluster together — makes cross-vendor linking visible without any extra filtering.
-    const sorted=[...items].sort((a,b)=>a.category.localeCompare(b.category)||a.name.localeCompare(b.name));
-    // When a filter is active, return one group with that label.
-    // When showing everything, group by category so the category headers are visible.
+    // Apply the selected sort to the filtered KERDOS item list.
+    const sorted=[...items].sort((a,b)=>compareItems(a,b,catalogSortMode));
+    // Product details uses a single heading for the current category.
     if(categoryFilter){
-      const label=categoryFilter===MULTI_VENDOR_FILTER?"Multiple Vendors":categoryFilter===CATEGORY_REVIEW_FILTER?"Review categories":categoryFilter;
+      const label=categoryFilter===CATEGORY_REVIEW_FILTER?"Review categories":categoryFilter;
       return sorted.length?[{category:label,items:sorted}]:[];
     }
-    // No filter: one group per category, each sorted by name.
-    const byCategory=new Map();
-    for(const item of sorted){
-      const list=byCategory.get(item.category)||[];list.push(item);byCategory.set(item.category,list);
-    }
-    return [...byCategory.entries()].map(([category,catItems])=>({category,items:catItems}));
-  },[productList,search,categoryFilter,mappedOnly,categoryCorrections]);
+    return sorted.length?[{category:'Items',items:sorted}]:[];
+  },[productList,search,categoryFilter,vendorFilter,mappedOnly,categoryCorrections,catalogSortMode]);
 
   function statusFor(item){
     if(!isMapped(item))return {label:"Not mapped",color:"#B26A00",bg:"#FFF3E0"};
@@ -405,21 +398,82 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <h3 style={{margin:0,fontSize:16,color:"white"}}>Item Catalog</h3>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/>
-          {canManage&&<button onClick={()=>setAddingItem(true)} style={{...btn("#003584","white",{fontSize:12,padding:"8px 14px"})}}>+ Add Item</button>}
-          <button onClick={()=>downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv")}
-            disabled={!productList.length} style={{...btn("#2E7D32","white",{fontSize:12,padding:"8px 14px"})}}>
-            📄 Export (CSV)
-          </button>
-        </div>
-      </div>
+      <div className="workspace-browse-controls" role="region" aria-label="Item Catalog controls">
+        <div className="catalog-browse-filters" style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
+          {!showReview&&<select aria-label="Vendors" value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+            <option value="">Vendors</option>
+            {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>}
+          {!showReview&&<select aria-label="Item Categories" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
+            <option value="">Item Categories</option>
+            {categoryList.map(category=><option key={category} value={category}>{category}</option>)}
+            {categoryFilter===CATEGORY_REVIEW_FILTER&&<option value={CATEGORY_REVIEW_FILTER}>Review categories</option>}
+          </select>}
+          {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+            <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
+          </select>}
 
-      <div style={{display:"flex",gap:8,marginBottom:12}}><button onClick={()=>setRowView(true)} style={btn(rowView?"#003584":"#EEE",rowView?"white":"#333")}>Edit catalog rows</button><button onClick={()=>setRowView(false)} style={btn(!rowView?"#003584":"#EEE",!rowView?"white":"#333")}>Product details</button></div>
+          <button aria-pressed={baseFieldsOnly} onClick={()=>{setBaseFieldsOnly(value=>!value);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn(baseFieldsOnly?"#003584":"#E8F1FB",baseFieldsOnly?"white":"#003584")}>{baseFieldsOnly?"Full catalog":"Base fields trial"}</button>
+          {!baseFieldsOnly&&<details aria-label="Item catalog actions" open={actionsOpen} onToggle={e=>setActionsOpen(e.currentTarget.open)} onKeyDown={e=>{if(e.key==='Escape')setActionsOpen(false);}} style={{position:'relative',marginLeft:'auto'}}>
+            <summary style={{...btn('#E8F1FB','#003584'),listStyle:'none'}}>Actions ▾</summary>
+            <div className="catalog-actions-menu" style={{position:'absolute',right:0,top:'calc(100% + 6px)',zIndex:20,background:'white',color:'#173C70',border:'1px solid #CCD9EC',borderRadius:8,padding:10,width:'min(300px, calc(100vw - 40px))',maxHeight:'55vh',overflowY:'auto',boxShadow:'0 6px 18px #102B4930'}}>
+              <style>{`.catalog-actions-menu button { width:100%; text-align:left; margin:3px 0; } .catalog-actions-menu hr { border:0; border-top:1px solid #DEE7F0; margin:8px 0; }`}</style>
+              <div onClick={()=>setActionsOpen(false)}><EstimatedDraftLauncher onOrderRecorded={onUpdated} key={`${orgId}:${userId}`} orgId={orgId} userId={userId} role={role} vendors={vendors} vendorItems={vendorItems} mappings={mappings} catalogItems={catalogItems} settings={settings}/></div>
+              {canManage&&<button onClick={()=>{setActionsOpen(false);setAddingItem(true);}} style={btn('#E8F1FB','#003584')}>+ Add Item</button>}
+              <button disabled={!productList.length} onClick={()=>{setActionsOpen(false);downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv");}} style={btn('#E8F1FB','#003584')}>Export (CSV)</button>
+              <hr/>
+              <button onClick={()=>{setActionsOpen(false);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Item list</button>
+              <button onClick={()=>{setActionsOpen(false);setRowView(false);setShowReview(false);}} style={btn('#EEE','#173C70')}>Product details</button>
+              <button onClick={()=>{setActionsOpen(false);setSourceReviewOpen(true);}} style={btn('#EEE','#173C70')}>Review incoming rows</button>
+              {canManage&&<>
+                <hr/>
+                <button onClick={()=>{setActionsOpen(false);setShowReview(true);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Review listings</button>
+                <button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(true);}} style={btn('#EEE','#173C70')}>Verified listings</button>
+                {categoryCorrections.size>0&&<button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={btn('#EEE','#173C70')}>Review categories</button>}
+                <button onClick={()=>{setActionsOpen(false);setCatalogTool('associations');}} style={btn('#EEE','#173C70')}>Review suggested associations</button>
+                <button onClick={()=>{setActionsOpen(false);setCatalogTool('groups');}} style={btn('#EEE','#173C70')}>Grouping review</button>
+                {unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={()=>{setActionsOpen(false);handleSetCaseBasis();}} style={btn('#EEE','#173C70')}>{settingBasis?'Setting…':'Set missing quote units to case'}</button>}
+              </>}
+            </div>
+          </details>}
+        </div>
+        {!showReview&&<input style={inp} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />}
+        {!showReview&&canManage&&selectedIds.size>0&&(
+          <div style={{background:"white",borderRadius:10,padding:12,marginTop:10,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
+            display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,fontWeight:700,color:"#003584"}}>{selectedIds.size} selected</span>
+            {selectedIds.size>=2&&<button disabled={bulkBusy} style={{...btn("#003584","white",{fontSize:12,padding:"7px 14px",fontWeight:700})}}
+              onClick={async()=>{
+                setBulkBusy(true);setError("");
+                try{
+                  // All vendor items linked to the selected catalog entries
+                  const vids=mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id);
+                  // Use the lowest KERDOS number as the target entry
+                  const linkedEntries=catalogItems.filter(c=>selectedIds.has(c.id)).sort((a,b)=>Number(a.master_item_number)-Number(b.master_item_number));
+                  const target=linkedEntries[0];
+                  if(!target||vids.length<2)throw new Error("Select at least two items from different vendors to link.");
+                  const revisions=Object.fromEntries(vendorItems.filter(vi=>vids.includes(vi.id)).map(vi=>[vi.id,vi.row_revision??0]));
+                  await backend.catalog.associateAlternatives({organizationId:orgId,vendorItemIds:vids,targetCatalogItemId:target.id,name:target.name,preferredBrand:"",revisions});
+                  setSelectedIds(new Set());await onUpdated();
+                }catch(e){setError(e.message);}finally{setBulkBusy(false);}
+              }}>Link selected</button>}
+            <AssociateAlternatives orgId={orgId} selectedVendorIds={mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id)} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelectedIds(new Set())}/>
+            <select defaultValue="" disabled={bulkBusy} onChange={e=>{handleBulkAssign(e.target.value);e.target.value="";}}
+              style={{...inp,fontSize:12,padding:"7px 9px",width:"auto",flex:"0 1 220px"}}>
+              <option value="" disabled>{bulkBusy?"Moving...":"Move all to..."}</option>
+              {categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button onClick={()=>setSelectedIds(new Set())} style={{...btn("#EEE","#555",{fontSize:12,padding:"7px 12px"})}}>Clear</button>
+          </div>
+        )}
+      </div>
       {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
-      <RetainedImportRows orgId={orgId} vendors={vendors} service={importService} search={search}/>
+      {baseFieldsOnly&&rowView&&!showReview&&<p style={{color:"#003584"}}></p>}
+      {sourceReviewOpen&&<MovableDialog label="Incoming source review" maxWidth={900}><div style={{background:'white',padding:20}}><button onClick={()=>setSourceReviewOpen(false)} style={btn('#EEE','#173C70')}>Close</button><RetainedImportRows orgId={orgId} vendors={vendors} service={importService} search={search}/></div></MovableDialog>}
+      {canManage&&catalogTool&&<MovableDialog label="Catalog maintenance" maxWidth={1000}><div style={{background:'white',padding:20}}>
+        <button onClick={()=>setCatalogTool(null)} style={btn('#EEE','#173C70')}>Close</button>
+        {catalogTool==='groups'?<ProductAssociationTrial key={orgId} industry={industry} orgId={orgId} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} canManage={canManage}/>:<AssociateAlternatives orgId={orgId} selectedVendorIds={[]} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>{}}/>}
+      </div></MovableDialog>}
 
       {canManage&&addingItem&&(
         <MovableDialog label="Add a catalog item" maxWidth={428} zIndex={1000}>
@@ -439,19 +493,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         </MovableDialog>
       )}
 
-      <div style={{display:"flex",gap:8,marginBottom:14}}>
-        <button onClick={()=>{setShowReview(false);setMappedOnly(false);}} style={{...btn(showReview||mappedOnly?"#E8F1FB":"white","#003584",{fontSize:12,padding:"9px 14px",fontWeight:800})}}>All products ({productList.length})</button>
-        <button onClick={()=>{setShowReview(false);setMappedOnly(true);}} style={{...btn(mappedOnly?"#E8F5E9":"white","#2E7D32",{fontSize:12,padding:"9px 14px",fontWeight:800})}}>Mapped ({mappedCount})</button>
-        {canManage&&notMappedCount>0&&<button onClick={()=>{setShowReview(true);setMappedOnly(false);}} style={{...btn(showReview?"#E65100":"#FFF3E0",showReview?"white":"#B26A00",{fontSize:12,padding:"9px 14px",fontWeight:800})}}>Not mapped ({notMappedCount})</button>}
-        {canManage&&unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={handleSetCaseBasis} title="Rows with a price but no stated unit" style={{...btn("#EDE7F6","#4527A0",{fontSize:12,padding:"9px 14px",fontWeight:800,marginLeft:"auto"})}}>{settingBasis?"Setting…":`Quoted per case: ${unstatedBasisRows.length} row${unstatedBasisRows.length===1?"":"s"} without a unit`}</button>}
-      </div>
-
-      {categoryCorrections.size>0&&<div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:14}}>
-        {categoryCorrections.size>0&&<button onClick={()=>{setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={{background:"#FFF8E1",border:"1px solid #E8D79B",borderRadius:9,padding:"11px 14px",cursor:"pointer",textAlign:"left",minWidth:220}}>
-          <b style={{display:"block",fontSize:20,color:"#8D6E00"}}>{categoryCorrections.size}</b><span style={{fontSize:12,color:"#405A76"}}>Older category placements to review</span>
-        </button>}
-      </div>}
-
       {canManage&&showReview&&totalCount>0&&(
         <div style={{marginBottom:24,paddingBottom:4}}>
           <div style={{marginBottom:20}}>
@@ -459,7 +500,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
             <p style={{fontSize:12,color:"rgba(255,255,255,0.85)",margin:"0 0 10px"}}>Check where each vendor product belongs. Moving a vendor price here changes only that vendor product.</p>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
               {gapCounts.map(g=>(
-                <button key={g.code} onClick={()=>setGapFilter(gapFilter===g.code?"":g.code)} title={g.code==="single-vendor-ready"?"Placed automatically once its fields are complete":undefined}
+                <button key={g.code} onClick={()=>setGapFilter(gapFilter===g.code?"":g.code)} title={g.code==="single-vendor-ready"?"Placed once its fields are complete":undefined}
                   style={{...btn(gapFilter===g.code?"white":"rgba(255,255,255,0.15)",gapFilter===g.code?"#B26A00":"white",{fontSize:11,padding:"6px 10px",fontWeight:800,border:"1px solid rgba(255,255,255,0.4)"})}}>
                   {g.label} · {g.count}
                 </button>
@@ -472,7 +513,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                 {m.oneVendor&&<div style={{fontSize:11,color:"#9C5A00",fontWeight:800,marginBottom:4}}>Found on one vendor list · places itself once its fields are complete</div>}
                 <div style={{fontWeight:700,fontSize:13}}>{m.vendorDescription}</div>
                 <div style={{fontSize:11,color:"#555",marginTop:3}}>Pack: <b>{m.packSize||"Not provided"}</b>{m.brand?` · Brand: ${m.brand}`:""}</div>
-                <div style={{fontSize:12,color:"#555",marginTop:5,marginBottom:8}}>Currently under <b>{m.catalogName}</b> <span style={{color:"#B26A00"}}>· {m.confidence>0?`${m.confidence}% wording similarity; verify details`:"Awaiting verification"}</span></div>
+                <div style={{fontSize:12,color:"#555",marginTop:5,marginBottom:8}}>Currently under <b>{m.catalogName}</b> <span style={{color:"#B26A00"}}>· {m.confidence>0?"Verify item placement":"Awaiting verification"}</span></div>
                 {m.matchMethod==="rejected"&&<div style={{display:"inline-flex",alignItems:"center",gap:5,background:"#FFF3E0",border:"1px solid #FFCC80",borderRadius:5,padding:"3px 9px",fontSize:11,color:"#8D4600",fontWeight:700,marginBottom:8}}>Rejected match — kept separate</div>}
                 <div style={{fontSize:11,color:"#B26A00",marginBottom:8}}><b>{m.gap.label}.</b> {m.packSize?m.gap.detail||m.reason:"Enter the pack shown on the original vendor document."} Similar wording is not proof of the same product.</div>
                 {!m.packSize&&<div style={{marginBottom:8}}>{packEditFor===m.mappingId?(
@@ -482,7 +523,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                 ):<button onClick={()=>{setPackEditFor(m.mappingId);setPackValue("");}} style={{...btn("#003584","white",{fontSize:11})}}>Enter pack size</button>}</div>}
                 {m.suggestion&&(
                   <div style={{fontSize:11,color:"#555",marginBottom:8}}>
-                    Another possible item: <b>{m.suggestion.name}</b> <span style={{color:"#999"}}>({m.suggestion.score}% suggested match)</span>
+                    Another possible item: <b>{m.suggestion.name}</b> <span style={{color:"#999"}}>(suggested item)</span>
                   </div>
                 )}
                 {remapOpenFor===m.mappingId?(
@@ -550,33 +591,11 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
       )}
 
       {!showReview&&<>
-      <input style={{...inp,marginBottom:10}} placeholder="Search by item, vendor description, or vendor code..." value={search} onChange={e=>setSearch(e.target.value)} />
-
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:18}}>
-        <button onClick={()=>setCategoryFilter("")} style={chipStyle(!categoryFilter)}>
-          Full List
-        </button>
-        {uncategorizedItems.length>0&&<button onClick={()=>{setCategoryFilter(uncategorizedName);setShowReview(false);}} style={chipStyle(categoryFilter===uncategorizedName)}>
-          Needs a category ({uncategorizedItems.length})
-        </button>}
-        {multiVendorItems.length>0&&<button onClick={()=>setCategoryFilter(categoryFilter===MULTI_VENDOR_FILTER?"":MULTI_VENDOR_FILTER)} style={chipStyle(categoryFilter===MULTI_VENDOR_FILTER)}>
-          Multiple Vendors ({multiVendorItems.length})
-        </button>}
-        {categoryList.filter(c=>c!==uncategorizedName).map(c=>{
-          const isSelected=categoryFilter===c;
-          return (
-            <button key={c} onClick={()=>setCategoryFilter(isSelected?"":c)} style={chipStyle(isSelected)}>
-              {c}
-            </button>
-          );
-        })}
-      </div>
-
       {canManage&&teach&&(
         <div style={{background:"#E8F5E9",border:"2px solid #2E7D32",borderRadius:10,padding:14,marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:700,color:"#1B5E20",marginBottom:4}}>Teach the catalog so this doesn't happen again</div>
           <div style={{fontSize:12,color:"#33691E",marginBottom:8}}>
-            Add any of these words to <b>{teach.categoryName}</b> and items like these will classify automatically from now on, on every future import.
+            Add any of these words to <b>{teach.categoryName}</b> to classify similar items on future imports.
           </div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
             {teach.words.map(({word,count})=>{
@@ -601,35 +620,6 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         </div>
       )}
 
-      {canManage&&selectedIds.size>0&&(
-        <div style={{background:"white",borderRadius:10,padding:12,marginBottom:12,boxShadow:"0 1px 3px rgba(0,0,0,0.06)",
-          display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",position:"sticky",top:8,zIndex:5}}>
-          <span style={{fontSize:13,fontWeight:700,color:"#003584"}}>{selectedIds.size} selected</span>
-          {selectedIds.size>=2&&<button disabled={bulkBusy} style={{...btn("#003584","white",{fontSize:12,padding:"7px 14px",fontWeight:700})}}
-            onClick={async()=>{
-              setBulkBusy(true);setError("");
-              try{
-                // All vendor items linked to the selected catalog entries
-                const vids=mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id);
-                // Use the lowest KERDOS number as the target entry
-                const linkedEntries=catalogItems.filter(c=>selectedIds.has(c.id)).sort((a,b)=>Number(a.master_item_number)-Number(b.master_item_number));
-                const target=linkedEntries[0];
-                if(!target||vids.length<2)throw new Error("Select at least two items from different vendors to link.");
-                const revisions=Object.fromEntries(vendorItems.filter(vi=>vids.includes(vi.id)).map(vi=>[vi.id,vi.row_revision??0]));
-                await backend.catalog.associateAlternatives({organizationId:orgId,vendorItemIds:vids,targetCatalogItemId:target.id,name:target.name,preferredBrand:"",revisions});
-                setSelectedIds(new Set());await onUpdated();
-              }catch(e){setError(e.message);}finally{setBulkBusy(false);}
-            }}>Link selected</button>}
-          <AssociateAlternatives orgId={orgId} selectedVendorIds={mappings.filter(m=>selectedIds.has(m.catalog_item_id)).map(m=>m.vendor_item_id)} vendorItems={vendorItems} catalogItems={catalogItems} mappings={mappings} vendors={vendors} onUpdated={onUpdated} onClear={()=>setSelectedIds(new Set())}/>
-          <select defaultValue="" disabled={bulkBusy} onChange={e=>{handleBulkAssign(e.target.value);e.target.value="";}}
-            style={{...inp,fontSize:12,padding:"7px 9px",width:"auto",flex:"0 1 220px"}}>
-            <option value="" disabled>{bulkBusy?"Moving...":"Move all to..."}</option>
-            {categories.filter(c=>!c.is_holding_pen&&(!industry||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <button onClick={()=>setSelectedIds(new Set())} style={{...btn("#EEE","#555",{fontSize:12,padding:"7px 12px"})}}>Clear</button>
-        </div>
-      )}
-
       {productList.length===0?(
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>Nothing in the catalog yet — import a price list to get started.</p>
@@ -638,7 +628,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"
@@ -656,17 +646,18 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
             <span style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>({group.items.length})</span>
           </div>
           <div style={{background:"white",borderRadius:10,overflowX:"auto",boxShadow:"0 3px 14px rgba(0,20,65,.12)"}}>
-            <div style={{minWidth:890}}>
-              <div style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,padding:"14px 18px",background:"#E8F0FA",color:"#173C70",fontSize:10,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase"}}>
+            <div className="catalog-product-details" data-mobile-detail={mobileDetails||undefined} style={{minWidth:890}}>
+              <div className="catalog-product-columns" style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,padding:"14px 18px",background:"#E8F0FA",color:"#173C70",fontSize:10,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase"}}>
                 <span></span><span></span><span>Item</span><span>Vendor / description</span><span>Pack size</span><span>Case price</span><span>Cost per unit</span><span>Match</span>
               </div>
               {group.items.map((item,index)=>{
                 const status=statusFor(item);
                 const first=item.options.find(orderable)||item.options[0]||null;
                 const expanded=mapPanelOpenFor===item.catalogItemId;
+                const showDetails=()=>setMapPanelOpenFor(expanded?null:item.catalogItemId);
                 return <div key={item.catalogItemId} style={{borderTop:"1px solid #E7ECF3",background:expanded?"#F1F7FF":index%2?"#FAFCFF":"white"}}>
-                  <div role="button" tabIndex={0} aria-expanded={expanded} onClick={()=>setMapPanelOpenFor(expanded?null:item.catalogItemId)}
-                    onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setMapPanelOpenFor(expanded?null:item.catalogItemId);}}}
+                  <div className="catalog-product-summary" data-mobile-detail={mobileDetails||undefined} aria-haspopup={mobileDetails?"dialog":undefined} role="button" tabIndex={0} aria-expanded={expanded} onClick={showDetails}
+                    onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();showDetails();}}}
                     style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,alignItems:"center",padding:"14px 18px",cursor:"pointer",borderLeft:expanded?"4px solid #397CC3":"4px solid transparent"}}>
                     {canManage
                       ?<input type="checkbox" aria-label={`Select ${item.name} for linking`}
@@ -710,11 +701,13 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       )}
                     </div>
                   </div>
-                  {expanded&&<div style={{padding:"2px 18px 18px 50px",borderLeft:"4px solid #397CC3"}}>
+                  {expanded&&<MobileDetailWindow title="Catalog item" itemName={item.name} kind="catalog" inline={!mobileDetails} onMinimize={()=>setMapPanelOpenFor(null)}>
+                  <div className="catalog-product-expanded" style={{padding:"2px 18px 18px 50px",borderLeft:"4px solid #397CC3"}}>
+                    {mobileDetails&&error&&<div role="alert" style={{color:"#A32B20",marginBottom:10}}>{error}</div>}
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:10}}>
                       <div style={{display:"flex",alignItems:"center",gap:9}}>
                         {canManage&&<input type="checkbox" checked={selectedIds.has(item.catalogItemId)} title="Select for category change" onChange={e=>setSelectedIds(prev=>{const next=new Set(prev);e.target.checked?next.add(item.catalogItemId):next.delete(item.catalogItemId);return next;})} />}
-                        {canManage&&renamingId===item.catalogItemId?<><input autoFocus style={{...inp,width:220,fontSize:12}} value={renameValue} onChange={e=>setRenameValue(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(item.catalogItemId);if(e.key==="Escape")setRenamingId(null);}} /><button onClick={()=>saveRename(item.catalogItemId)} style={{...btn("#003584","white",{fontSize:11})}}>Save</button></>:<><strong style={{fontSize:13,color:"#19395F"}}>{item.name}</strong>{canManage&&<button onClick={()=>{setRenamingId(item.catalogItemId);setRenameValue(item.name);}} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Rename</button>}</>}
+                        {canManage&&renamingId===item.catalogItemId?<><input autoFocus style={{...inp,width:220,fontSize:12}} value={renameValue} onChange={e=>setRenameValue(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveRename(item.catalogItemId);if(e.key==="Escape"){e.preventDefault();setRenamingId(null);}}} /><button onClick={()=>saveRename(item.catalogItemId)} style={{...btn("#003584","white",{fontSize:11})}}>Save</button></>:<><strong style={{fontSize:13,color:"#19395F"}}>{item.name}</strong>{canManage&&<button onClick={()=>{setRenamingId(item.catalogItemId);setRenameValue(item.name);}} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Rename</button>}</>}
                         {canManage&&categoryEditId===item.catalogItemId?<select autoFocus defaultValue="" onChange={e=>handleAssignCategory(item.catalogItemId,e.target.value)} style={{...inp,width:165,fontSize:11}}><option value="" disabled>Move category to...</option>{categories.filter(c=>!c.is_holding_pen&&c.name!==item.category&&(!industry||c.industry===industry)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:canManage&&<button onClick={()=>setCategoryEditId(item.catalogItemId)} style={{border:0,background:"none",color:"#2870B8",cursor:"pointer"}}>Change category</button>}
                       </div>
                       <button onClick={()=>setShowItemNumberFor(showItemNumberFor===item.catalogItemId?null:item.catalogItemId)} style={{border:"1px solid #CBD9E9",borderRadius:6,background:"white",color:"#173C70",padding:"6px 9px",fontWeight:700,cursor:"pointer",fontSize:11}}>{showItemNumberFor===item.catalogItemId?`KERDOS #${item.masterItemNumber} ▴`:"KERDOS number ▾"}</button>
@@ -723,8 +716,8 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                     {new Set(item.options.map(o=>o.vendorId)).size>=2&&<div style={{background:comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"#E6F5ED":"#FFF3E0",color:comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"#23764C":"#9C5A00",padding:"8px 10px",borderRadius:6,fontSize:11,fontWeight:700,marginBottom:8}}>
                       {comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"At least two vendors have current, matching-pack offers for this product.":"Multiple vendors are linked, but their current offers or packs are not yet verified as comparable."}
                     </div>}
-                    <div style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"8px 10px",fontSize:10,fontWeight:800,color:"#49617C",background:"#DFEAF7",borderRadius:"6px 6px 0 0"}}><span>Vendor</span><span>Description</span><span>Pack</span><span>Price</span><span>Per unit</span><span>Association</span></div>
-                    {item.options.map(o=><div key={o.vendorItemId} style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"10px",alignItems:"center",background:"white",borderBottom:"1px solid #E8EDF4",fontSize:11}}>
+                    <div className="catalog-product-columns" style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"8px 10px",fontSize:10,fontWeight:800,color:"#49617C",background:"#DFEAF7",borderRadius:"6px 6px 0 0"}}><span>Vendor</span><span>Description</span><span>Pack</span><span>Price</span><span>Per unit</span><span>Association</span></div>
+                    {item.options.map(o=><div className="catalog-vendor-detail" key={o.vendorItemId} style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"10px",alignItems:"center",background:"white",borderBottom:"1px solid #E8EDF4",fontSize:11}}>
                       <b>{o.vendorName}</b><span>{o.description}{o.brand?` · ${o.brand}`:""}</span><b>{o.packSize||"Unknown"}</b><b>{o.casePrice!=null?formatMoney(o.casePrice):"No quote"}</b><b>{o.perUnit?`${formatMoney(o.perUnit.price)}/${o.perUnit.unit}`:"—"}</b>
                       <button disabled={!canManage} onClick={()=>{setRemapOpenFor(o.mappingId);setRemapSearch("");}} style={{...btn("#E8F1FB","#003584",{fontSize:10,padding:"6px"})}}>Change association</button>
                       {canManage&&<div style={{gridColumn:"1 / -1"}}>
@@ -752,7 +745,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       </div>}
                       <details style={{gridColumn:"1 / -1",fontSize:11,color:"#49617C"}}><summary style={{cursor:"pointer",fontWeight:700}}>Mapping details</summary>
                         <div style={{marginTop:6,padding:"7px 9px",background:"#F4F8FE",borderRadius:6}}>
-                          {o.unverified?"Not mapped":"Mapped"} · {o.unverified?o.matchConfidence!=null?`${o.matchConfidence}% wording similarity; verification still needed`:"Verification still needed":"100% verified"} · {o.matchMethod==="manual"?"Association selected by client":o.matchMethod==="rule_based"?"Association selected by KERDOS engine":"Association source unavailable"}
+                          {o.unverified?"Not mapped":"Mapped"} · {o.unverified?"Verification still needed":"Verified"} · {o.matchMethod==="manual"?"Association selected by client":o.matchMethod==="rule_based"?"Association selected by KERDOS engine":"Association source unavailable"}
                         </div>
                           {o.cellUnresolved?.length>0&&<div style={{marginTop:6,background:"#FFF8E1",borderRadius:4,padding:"5px 7px"}}>
                             <b style={{color:"#7A5000"}}>Unresolved fields:</b>
@@ -780,7 +773,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       const sel={...inp,fontSize:11,padding:"4px 6px",width:"auto"};
                       const lbl={fontSize:10,fontWeight:700,color:"#AAA",letterSpacing:"0.06em",textTransform:"uppercase"};
                       return (
-                        <div style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"flex-end",background:"white",border:"1px solid #EEE",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
+                        <div className="catalog-product-preferences" style={{display:"flex",flexWrap:"wrap",gap:14,alignItems:"flex-end",background:"white",border:"1px solid #EEE",borderRadius:6,padding:"8px 10px",marginBottom:8}}>
                           <div>
                             <label style={{display:"block",fontSize:12}}><input type="checkbox" checked={item.comparisonMode!=="exact"} onChange={e=>handleItemSetting(item.catalogItemId,{comparison_mode:e.target.checked?"alternatives":"exact"})}/> Accept client-approved alternatives across brands</label>
                             <small>To add an alternative, set its KERDOS number to this item's number in Edit catalog rows, then Apply. Each vendor keeps its description, brand and pack.</small>
@@ -824,7 +817,8 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                           </div>
                         </div>
                       );
-                    })()}                  </div>}
+                    })()}
+                  </div></MobileDetailWindow>}
                 </div>;
               })}
             </div>

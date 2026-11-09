@@ -74,7 +74,11 @@ export function createImportService(backend){
       return !!rows?.length;
     },
     async historicalQuote({organizationId,vendorItemId,invoiceDate}){
-      const rows=await run(table("price_history").select("price,effective_date,quote_valid_until,source,price_basis,selling_unit").eq("organization_id",organizationId).eq("vendor_item_id",vendorItemId).lte("effective_date",`${invoiceDate}T23:59:59.999Z`).order("effective_date",{ascending:false}).limit(1),"Unable to verify historic quote");
+      // PostgreSQL retains microseconds. An exclusive next-midnight bound includes
+      // the entire existing UTC invoice-day window without admitting tomorrow.
+      const nextDay=new Date(`${invoiceDate}T00:00:00Z`);
+      nextDay.setUTCDate(nextDay.getUTCDate()+1);
+      const rows=await run(table("price_history").select("id,source_document_id,price,effective_date,quote_valid_until,source,price_basis,selling_unit").eq("organization_id",organizationId).eq("vendor_item_id",vendorItemId).lt("effective_date",nextDay.toISOString()).order("effective_date",{ascending:false}).limit(1),"Unable to verify historic quote");
       return rows?.[0]||null;
     },
   };
