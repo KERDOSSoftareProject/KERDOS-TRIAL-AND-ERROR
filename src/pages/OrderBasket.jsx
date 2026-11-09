@@ -2,16 +2,16 @@ import {useEffect,useRef,useState} from 'react';
 
 export const mobileOrderQuery='(max-width: 960px)';
 
-export function useMobileOrderLayout(){
-  const [mobile,setMobile]=useState(()=>window.matchMedia?.(mobileOrderQuery).matches??false);
+export function useLayoutQuery(query){
+  const [mobile,setMobile]=useState(()=>window.matchMedia?.(query).matches??false);
   useEffect(()=>{
-    const media=window.matchMedia?.(mobileOrderQuery);
+    const media=window.matchMedia?.(query);
     if(!media)return;
     const sync=()=>setMobile(media.matches);
     media.addEventListener('change',sync);
     sync();
     return ()=>media.removeEventListener('change',sync);
-  },[]);
+  },[query]);
   return mobile;
 }
 

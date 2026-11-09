@@ -1,3 +1,4 @@
+import {MobileDetailWindow} from '../ui/MobileDetailWindow.jsx';
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {clientProductName} from '../core/client-product-name.js';
 import {trialSourceValue,sourceTrialUnitCost,trialListingLabel} from '../core/source-field-completion.js';
@@ -213,8 +214,11 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
     </td></tr>}
   </>;
 }
-export function CatalogRows({autoSave=false,userId,baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
+export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,settings={},editors={}}){
   const [expanded,setExpanded]=useState(new Set());
+  const [mobileGroup,setMobileGroup]=useState(null);
+  // Keep opened editors mounted so a pending autosave can finish after Minimize.
+  const [visited,setVisited]=useState(new Set());
   const [sort,setSort]=useState({key:"itemName",direction:1});
   const [variableApprovals,setVariableApprovals]=useState({}),[approvalError,setApprovalError]=useState('');
   const variableIds=vendorItems.filter(v=>parsePackSize(v.pack_size)?.catchWeight&&priceBasisFor(v.selling_unit)?.basis==='measure').map(v=>v.id).sort().join('|');
@@ -256,12 +260,24 @@ export function CatalogRows({autoSave=false,userId,baseFieldsOnly=false,sortMode
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div data-catalog-base-trial={baseFieldsOnly} style={{borderRadius:10,background:"white",marginBottom:16}}>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
-    {orderedGroups.map(group=><details key={group.id} data-catalog-group={group.id} open={expanded.has(group.id)} onToggle={event=>{const open=event.currentTarget.open;setExpanded(prior=>{if(prior.has(group.id)===open)return prior;const next=new Set(prior);if(open)next.add(group.id);else next.delete(group.id);return next;});}} style={{borderTop:'1px solid #DEE7F0'}}>
-      <summary style={{padding:'14px 16px',color:'#003584',background:'#E8F0FA',cursor:'pointer',fontWeight:700}}>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></summary>
-      <div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>
-      <tbody role="rowgroup">{group.rows.map(row=><EditableRow autoSave={autoSave} userId={userId} baseFieldsOnly={baseFieldsOnly} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={`${orgId}:${userId||""}:${row.vendorItem.id}`} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
-      {!group.rows.length&&<tr><td colSpan={CATALOG_COLUMNS.length+(!autoSave?1:0)} style={cellStyle}>No vendor listing linked yet. <button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
-      </tbody>
-    </table></div></details>)}
+    {orderedGroups.map(group=>{
+      const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;
+      const listings=<div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>
+        <tbody role="rowgroup">{group.rows.map(row=><EditableRow autoSave={autoSave} userId={userId} baseFieldsOnly={baseFieldsOnly} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={`${orgId}:${userId||""}:${row.vendorItem.id}`} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
+        {!group.rows.length&&<tr><td colSpan={CATALOG_COLUMNS.length+(!autoSave?1:0)} style={cellStyle}>No vendor listing linked yet. <button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
+        </tbody>
+      </table></div>;
+      if(mobileDetails)return <div key={group.id} data-catalog-group={group.id}>
+        <button type="button" className="mobile-catalog-item" aria-haspopup="dialog" aria-expanded={mobileGroup===group.id} onClick={()=>{
+          setVisited(previous=>previous.has(group.id)?previous:new Set([...previous,group.id]));
+          setMobileGroup(group.id);
+        }}>{label}</button>
+        {visited.has(group.id)&&<MobileDetailWindow title="Catalog item" itemName={group.name} kind="catalog" open={mobileGroup===group.id} onMinimize={()=>setMobileGroup(null)}>{listings}</MobileDetailWindow>}
+      </div>;
+      return <details key={group.id} data-catalog-group={group.id} open={expanded.has(group.id)} onToggle={event=>{const open=event.currentTarget.open;setExpanded(prior=>{if(prior.has(group.id)===open)return prior;const next=new Set(prior);if(open)next.add(group.id);else next.delete(group.id);return next;});}} style={{borderTop:'1px solid #DEE7F0'}}>
+        <summary style={{padding:'14px 16px',color:'#003584',background:'#E8F0FA',cursor:'pointer',fontWeight:700}}>{label}</summary>
+        {listings}
+      </details>;
+    })}
   </div>;
 }
