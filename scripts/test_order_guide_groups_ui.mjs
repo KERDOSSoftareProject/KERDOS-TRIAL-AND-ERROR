@@ -31,8 +31,9 @@ assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,
 assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));
 const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
 await act(async()=>alternatives.props.onClick());
-const listingRegion=tree.root.findByProps({'aria-label':'Group listings'});assert.equal(listingRegion.findAllByType('input').length,2,'both source listings remain under one row');
-assert.equal(listingRegion.findAllByType('input').every(input=>input.props.disabled),true,'employee has selection but no price write permission');
+const listingRegion=tree.root.findByProps({'aria-label':'Group listings'});assert.equal(listingRegion.findAllByType('input').filter(input=>input.props.type==='number').length,2,'both source listings remain under one row');
+assert.equal(listingRegion.findAllByType('summary').length,0,'held listings do not show a Review control in the price dropdown');
+assert.equal([...listingRegion.findAllByType('input'),...listingRegion.findAllByType('select')].every(input=>input.props.disabled),true,'employee has selection but no listing write permission');
 await act(async()=>listingRegion.findAllByType('button').find(button=>button.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'selection closes dropdown');assert.match(text(tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'})),/Second Vendor/);
 assert.equal(text(tree.root.findByProps({className:'order-aside'})),basketBefore,'selecting a held listing does not change baskets');
@@ -47,7 +48,12 @@ Object.assign(vendorItems.find(row=>row.id==='honey-second'),{pack_size:'4/1 GAL
 for(const m of snapshot.mappings){m.organization_id='org';m.comparison_track='exact';m.confidence_score=100;m.match_method='manual';}
 backend.workspace.snapshot=async()=>structuredClone(snapshot);
 let savedRequest;
-backend.catalog.saveRow=async request=>{savedRequest=request;const row=vendorItems.find(v=>v.id===request.vendorItemId);row.price=request.patch.price;row.row_revision++;};
+backend.catalog.saveRow=async request=>{savedRequest=request;const row=vendorItems.find(v=>v.id===request.vendorItemId);Object.assign(row,request.patch);
+if(['price','pack_size','selling_unit'].some(field=>Object.hasOwn(request.patch,field))){
+ row.price_basis=request.priceBasis;row.price_unavailable=!request.priceAvailable;
+}
+row.row_revision++;
+};
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 const priceButton=()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});
 assert.match(text(priceButton()),/Sample Vendor/);
@@ -64,7 +70,7 @@ assert.doesNotMatch(text(tree.toJSON()),/Use lowest price/);
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'9.00'}}));
 await act(async()=>priceButton().props.onClick());
-assert.match(text(tree.toJSON()),/Saving price change/);
+assert.match(text(tree.toJSON()),/Saving listing changes/);
 await settlePrice();
 assert.equal(savedRequest.patch.price,9,'closing the menu does not discard a price edit');
 assert.match(text(priceButton()),/Sample Vendor.*20\.00/,'saving another listing preserves the explicit vendor selection');
@@ -111,7 +117,21 @@ await selectHoney('Sample Vendor');assert.equal(honeyPlus().props.disabled,false
 await act(async()=>honeyPlus().props.onClick());assert.match(text(tree.root.findByProps({className:'order-aside'})),/20.00/);assert.match(text(tree.root.findByProps({className:'order-aside'})),/Sample Vendor/);
 await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
 await act(async()=>{tree=Renderer.create(React.createElement(App));});await selectHoney('Second Vendor');assert.equal(honeyPlus().props.disabled,true,'incomplete peer remains visible but cannot use the valid offer price or pack');
+await act(async()=>priceButton().props.onClick());
+for(const [label,value] of [['Pack','4/1 GAL'],['Quoted per','case'],['Price','16.25']]){
+ await act(async()=>tree.root.findByProps({'aria-label':label+' for listing honey-second'}).props.onChange({target:{value}}));
+}
+await settlePrice();
+assert.deepEqual(savedRequest.patch,{pack_size:'4/1 GAL',selling_unit:'CASE',price:16.25});
+assert.equal(honeyPlus().props.disabled,false,'the edited listing becomes orderable after save');
+assert.match(text(priceButton()),/Second Vendor.*16\.25/);
+await act(async()=>honeyPlus().props.onClick());
+assert.match(text(tree.root.findByProps({className:'order-aside'})),/Second Vendor.*16\.25/);
+await act(async()=>tree.root.findByProps({'aria-label':'Workspace tabs'}).findAllByType('button').find(b=>text(b)==='Item Catalog').props.onClick());
+const catalogPrices=tree.root.findAllByType('input').filter(input=>input.props['aria-label']?.startsWith('price for '));
+assert.equal(catalogPrices.find(input=>input.props.value===16.25)?.props.value,16.25,'Item Catalog shows the same saved quote');
 await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
+store.set('kerdos.activeTab.v2','order');
 // F1.6: execute the actual one-minute App refresh callback at a controlled
 // new date. The ordering core itself has no independent freshness clock.
 Object.assign(incompletePeer,{pack_size:'4/1 GAL',selling_unit:'CASE',price_basis:'case',price:40,price_unavailable:false});
