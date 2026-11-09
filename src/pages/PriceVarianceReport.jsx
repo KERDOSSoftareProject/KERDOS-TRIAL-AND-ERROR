@@ -24,13 +24,15 @@ export default function PriceVarianceReport({orgId,invoices=[],vendors,onClose,o
   const period=report.period.from&&report.period.to?`${formatDate(report.period.from)} – ${formatDate(report.period.to)}`:'All recorded dates';
   return <MovableDialog label="Price Variance Report" maxWidth={1100}>
     <div style={{background:'white',color:'#17243A',padding:22}} onKeyDown={e=>{if(e.key==='Escape')onClose();}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:14}}>
-        <h2 style={{margin:0,fontSize:22,color:'#003584'}}>Price Variance Report</h2>
-        <div style={{display:'flex',gap:8}}><button type="button" style={action} disabled={loading||invalid||!!error} onClick={()=>onExport({report,invoices:report.invoices,vendors})}>Download CSV</button><button type="button" style={{...action,background:'#E8F0FA',color:'#003584'}} onClick={onClose}>Close</button></div>
-      </div>
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:12}}>
-        <label>From <input type="date" aria-label="Report from date" value={from} onChange={e=>setFrom(e.target.value)}/></label>
-        <label>To <input type="date" aria-label="Report to date" value={to} onChange={e=>setTo(e.target.value)}/></label>
+      <div role="region" aria-label="Price Variance Report controls" style={{position:'sticky',top:0,zIndex:1,background:'white',paddingBottom:12}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:14}}>
+          <h2 style={{margin:0,fontSize:22,color:'#003584'}}>Price Variance Report</h2>
+          <div style={{display:'flex',gap:8}}><button type="button" style={action} disabled={loading||invalid||!!error} onClick={()=>onExport({report,invoices:report.invoices,vendors})}>Download CSV</button><button type="button" style={{...action,background:'#E8F0FA',color:'#003584'}} onClick={onClose}>Close</button></div>
+        </div>
+        <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+          <label>From <input type="date" aria-label="Report from date" value={from} onChange={e=>setFrom(e.target.value)}/></label>
+          <label>To <input type="date" aria-label="Report to date" value={to} onChange={e=>setTo(e.target.value)}/></label>
+        </div>
       </div>
       {invalid?<p role="alert">Choose an end date on or after the start date.</p>:loading?<p role="status">Loading invoice comparisons…</p>:error?<div role="alert">{error} <button style={action} onClick={()=>setRetry(n=>n+1)}>Retry</button></div>:<>
         <p style={{fontSize:13,color:'#64748B'}}>Report period: {period}. Compared rates use the invoice’s billed unit. A missing comparison is not a confirmed price match.</p>

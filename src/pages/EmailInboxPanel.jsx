@@ -413,18 +413,20 @@ export function EmailInboxPanel({
   useEffect(()=>{setLimit(50);},[orgId,search,vendorFilter,sort]);
 
   return <div>
-    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,background:"#DCE9FA",borderRadius:10,marginBottom:14}}>
-      <select aria-label="Inbox vendors" value={vendorFilter} onChange={event=>setVendorFilter(event.target.value)} style={{...inp,width:"auto",minWidth:180,color:"#174EAB",fontWeight:700}}>
-        <option value="">All vendors</option>
-        {archiveVendors.map(vendor=><option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
-        <option value="__unassigned__">Vendor not recorded</option>
-      </select>
-      <select aria-label="Sort emails" value={sort} onChange={event=>setSort(event.target.value)} style={{...inp,width:"auto",minWidth:180,color:"#174EAB",fontWeight:700}}>
-        <option value="newest">Date · Newest first</option><option value="oldest">Date · Oldest first</option><option value="vendor">Vendor · A–Z</option><option value="sender">Sender · A–Z</option><option value="subject">Subject · A–Z</option>
-      </select>
-      <button type="button" onClick={()=>load()} disabled={loading} style={btn("#003584")}>↺ Refresh</button>
+    <div className="workspace-browse-controls" role="region" aria-label="Inbox controls">
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,background:"#DCE9FA",borderRadius:10,marginBottom:14}}>
+        <select aria-label="Inbox vendors" value={vendorFilter} onChange={event=>setVendorFilter(event.target.value)} style={{...inp,width:"auto",minWidth:180,color:"#174EAB",fontWeight:700}}>
+          <option value="">All vendors</option>
+          {archiveVendors.map(vendor=><option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
+          <option value="__unassigned__">Vendor not recorded</option>
+        </select>
+        <select aria-label="Sort emails" value={sort} onChange={event=>setSort(event.target.value)} style={{...inp,width:"auto",minWidth:180,color:"#174EAB",fontWeight:700}}>
+          <option value="newest">Date · Newest first</option><option value="oldest">Date · Oldest first</option><option value="vendor">Vendor · A–Z</option><option value="sender">Sender · A–Z</option><option value="subject">Subject · A–Z</option>
+        </select>
+        <button type="button" onClick={()=>load()} disabled={loading} style={btn("#003584")}>↺ Refresh</button>
+      </div>
+      <input type="search" aria-label="Search emails" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search emails by vendor, sender, subject, or date..." style={inp}/>
     </div>
-    <input type="search" aria-label="Search emails" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search emails by vendor, sender, subject, or date..." style={{...inp,marginBottom:14}}/>
     <Section title={<>Email Inbox{pendingTotal>0&&<Badge n={pendingTotal} color="#E65100"/>}</>}>
       {error&&<p role="alert" style={{color:"#c62828",fontSize:13,margin:"0 0 10px"}}>{error}</p>}
       {loading&&!messages.length?<p style={{fontSize:13,color:"#888",margin:0}}>Loading…</p>:

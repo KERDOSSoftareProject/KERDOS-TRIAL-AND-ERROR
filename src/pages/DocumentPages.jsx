@@ -79,12 +79,14 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,rows:group.rows.filter(invoice=>!query||[group.vendorName,invoice.invoice_number,invoice.file_name,invoice.invoice_date,invoice.created_at,formatDate(invoice.invoice_date||invoice.created_at)].some(value=>String(value??"").toLocaleLowerCase().includes(query)))})).filter(group=>group.rows.length);
   return <div>
     {reportOpen&&<PriceVarianceReport orgId={orgId} invoices={invoices} vendors={vendors} onClose={()=>setReportOpen(false)} onExport={onExport} onViewOriginal={onViewOriginal} onViewSource={onViewSource}/>}
-    <div aria-label="Invoice browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
-      <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
-      {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
-      <button type="button" onClick={()=>setReportOpen(true)} style={button("#003584")}>Price Variance Report</button>
+    <div className="workspace-browse-controls" role="region" aria-label="Invoice browse controls">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
+        <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
+        {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>🧾 Import Invoice</button>}
+        <button type="button" onClick={()=>setReportOpen(true)} style={button("#003584")}>Price Variance Report</button>
+      </div>
+      <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,background:"white",color:ink}}/>
     </div>
-    <input type="search" aria-label="Search invoices" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search invoices by vendor, invoice number, filename, or date..." style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {attentionCount>0&&<div style={{background:"#FFF3E0",color:"#8A5A00",borderRadius:8,padding:"9px 12px",fontSize:12,marginBottom:14}}>{attentionCount} invoice price comparison{attentionCount===1?"":"s"} need review. The original invoice remains the source record.</div>}
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>{query?"No invoices match your search. Try another vendor, invoice number, filename, or date.":vendorFilter?"No invoices recorded for this vendor yet.":"No invoices recorded yet."}</div>:visible.map(group=>{
       const color=vendorColors.get(group.vendorId)||{accent:"#003584"};
@@ -109,11 +111,13 @@ export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setV
   const vendorGroups=[...groups.entries()].map(([vendorId,docs])=>({vendorId,vendorName:vendors.find(v=>v.id===vendorId)?.name||"Unknown vendor",documents:docs.sort((a,b)=>new Date(b.date)-new Date(a.date))})).sort((a,b)=>a.vendorName.localeCompare(b.vendorName));
   const visible=vendorGroups.filter(group=>!vendorFilter||group.vendorId===vendorFilter).map(group=>({...group,documents:group.documents.filter(doc=>!query||[group.vendorName,doc.fileName,doc.date,formatDate(doc.date)].some(value=>String(value||"").toLocaleLowerCase().includes(query)))})).filter(group=>group.documents.length);
   return <div>
-    <div aria-label="Price sheet browse controls" style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
-      <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
-      {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
+    <div className="workspace-browse-controls" role="region" aria-label="Price sheet browse controls">
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center",margin:"0 0 14px",padding:18,background:"#DCE9FA",borderRadius:10}}>
+        <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
+        {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
+      </div>
+      <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,background:"white",color:ink}}/>
     </div>
-    <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,marginBottom:14,background:"white",color:ink}}/>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>
       {query?<>No price sheets match your search. Try another vendor, filename, or date.</>:vendorFilter
         ? <>No price sheets on file for <b>{vendors.find(v=>v.id===vendorFilter)?.name||"this vendor"}</b> yet. Use <b>Import Price Sheet</b> above.</>
