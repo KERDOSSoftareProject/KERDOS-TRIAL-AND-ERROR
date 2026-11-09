@@ -1,4 +1,4 @@
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import {createDocumentReader} from "./core/document-reading.js";
 
 function localOcrPath(name="") {
@@ -11,7 +11,7 @@ export async function readDocument(file){
   let worker;
   const reader=createDocumentReader({
     loadPdf:async data=>{
-      const pdfjsLib=await import("pdfjs-dist");
+      const pdfjsLib=await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjsLib.GlobalWorkerOptions.workerSrc=pdfWorkerUrl;
       const task=pdfjsLib.getDocument({data});
       try{return await task.promise;}catch(error){await task.destroy();throw error;}
