@@ -1,9 +1,68 @@
-# Vendor Connect local browser pilot — 0.2.1
+# Companion 0.2.16 · Refresh prices
+
+A fresh app command reopens a previously verified, client/vendor/account/list-scoped saved route in the foreground before checking its visible account header. Bringing a tab forward is navigation only: account/list proof and the one-use export claim remain mandatory. Wrong accounts, wrong lists and verification pages still stop without exporting or replacing the saved route. The controlled regression models account rendering dependent on native tab selection; it does not establish the cause of any particular supplier sign-in behavior.
+
+## Foreground export — 0.2.15
+
+User-started exports activate only their verified vendor tab after KERDOS accepts the one-use claim. This allows foreground-dependent portal rendering without relaxing any account, list or dialog checks. If that source began in the background, the companion returns to its approved KERDOS receiver only when the source is still selected, its URL is unchanged, and both tabs are in the same window. It preserves an intervening user tab choice or navigation and does not move a manual popup export away from its initially active vendor tab. The eleven-count structural report remains available if recognition fails. This addresses a reproduced rendering condition; live supplier acceptance remains unverified.
+
+When dialog recognition, inspection or initial Download-control selection fails, a structural check reports eleven bounded counts: title markers, visible markers, exact title markers, expected containers, exact headings, headings inside expected containers, legacy containers, legacy title matches, title prefixes, exact markers inside expected containers and legacy containers accepted by the actual recognition rules. A title prefix is diagnostic only and never authorizes selecting a different list. It reads only these structural facts; it does not copy DOM text, HTML, attributes, credentials or raw exceptions. The host rejects unknown keys, non-integers, inconsistent counts and out-of-range values. This diagnoses the installed recognition failure; it does not claim to fix it.
+
+This diagnostic release distinguishes a missing or multiple list-page Download control, failure clicking that control, a dialog recognition timeout, multiple matching dialogs, and a dialog inspection error. It retains exact list-title matching. It does not claim to fix the installed supplier failure. Only fixed outcome codes reach KERDOS; no DOM text or raw vendor errors are reported.
+
+The MOXē adapter also recognizes the published two-pane download modal by its exact selected-list title, including wrappers without their own layout box. Multiple matching dialogs still stop the export.
+
+Discovery now preserves fixed account-recognition, list-recognition and page-
+inspection failures for a single already-open approved list page. It no longer
+reports every failure as an instruction to open that list. A verified match
+always wins over other tabs; failed or ambiguous pages cannot export or cache
+a route. No raw page content or errors are reported or stored. This improves
+failure classification; it does not prove the installed recognition issue is fixed.
+
+## Connect after enabling — 0.2.10
+
+Enabling Refresh prices now reconnects already-open approved KERDOS tabs using
+the shipped control channel. A page reload is unnecessary when attachment
+succeeds. Repeating enable does not install a second command listener. Access
+denial touches no tabs; a closed/inaccessible app tab gives reload guidance.
+This action never prepares, exports, delivers or retries pricing. It does not
+add scheduling, keep-alive behavior, host permissions or automatic supplier access.
+
+## Product Prices labels — 0.2.9
+
+Version 0.2.9 recognizes the Product Prices checkbox by its own primary label,
+including the nested Ionic label, before considering its enclosing text. A
+parent containing several download options no longer hides an exact label.
+After a click, confirmation re-reads the current unique labelled control so a
+replaced component host does not leave the check waiting on a detached node.
+Exact matching and ambiguity guards remain; other export options are untouched.
+Reload the complete folder, then refresh KERDOS before installed acceptance.
+
+## Export-dialog recovery — 0.2.8
+
+Version 0.2.8 reuses one open download dialog for the selected list and leaves an
+already enabled Product Prices option enabled. A fresh explicit retry no longer
+mistakes the page and modal Download buttons for ambiguous controls. Multiple
+matching dialogs or pricing checkboxes still stop the export. Fixed guidance now
+identifies download-dialog, Download Options, Product Prices or final Download
+failures without recording page content or raw diagnostics. A failure never
+automatically retries. Reload the complete folder, then refresh KERDOS; existing
+site permissions, client/vendor binding and one-use handoff remain unchanged.
+
+The first installed 0.2.7 failure was reported with a shared generic message;
+its precise export substep is not established. The open-dialog retry defect is
+reproduced separately. Synthetic tests are not real-supplier acceptance.
+
+Install the complete folder including adapters and core. Enable only this version, then refresh the KERDOS tab. In the K popup, choose the provider and click **Enable Refresh prices** once to grant access to the KERDOS host and that vendor portal. Open the correct account/list with the vendor for initial setup. Later use **Refresh prices** in KERDOS; preparation, pairing, export and processing run through the existing checked handoff. The verified list route can reopen when its tab is closed. Login/MFA pauses for the user; no password/code is read or stored.
+
+This is user-started Chrome-host refresh, not unattended login, scheduling or a delivered universal desktop host. Legacy manual instructions below remain a fallback.
+
+# Vendor Connect local browser pilot — 0.2.6
 
 This unpacked Chrome prototype adds a preflight-reserved one-use transfer to a signed-in KERDOS
-tab. The app changes and database drafts must be deployed before testing it.
+tab. It uses the existing deployed protocol-v2 KERDOS app and its connection checks.
 The previous 0.1.0 export-only pilot remains historical evidence; installing
-0.2.1 alone does not upgrade the live KERDOS application.
+0.2.6 does not change the live KERDOS application.
 
 The client signs into the vendor directly and completes verification there.
 The selected client/vendor comes from KERDOS, with account/list labels entered
@@ -19,8 +78,8 @@ No AI calls, paid service, login automation or order actions are involved.
 4. Open the signed-in selected vendor pricing list. Click K, then Send pricing
    to KERDOS. The companion first reserves the still-valid app ticket. A closed,
    reloaded, cancelled, expired or incompatible receiver stops before vendor
-   export. Keep the popup open until it reports a result.
-5. Return to KERDOS for the normal import review/save result. A receipt means
+   export. The companion continues the bounded transfer if its popup closes; reopen K to see the current result. Keep the KERDOS and vendor tabs open.
+5. Return to KERDOS for the automatic import result. A receipt means
    received for review, not that prices were saved.
 
 This pilot still requires installing/reloading the unpacked extension through
@@ -31,7 +90,7 @@ installation experience.
 
 Permissions are activeTab, scripting and storage. Pairing metadata lives in
 chrome.storage.session, which is restricted to trusted extension contexts by
-default. There are no cookies, download-history, background, all-sites or
+default. The extension uses a module service worker for the explicitly started transfer. There are no cookies, download-history, all-sites or
 remote-script permissions. Storage contains no passwords, auth tokens or CSV.
 No permanent content script or externally_connectable endpoint is registered.
 The approved KERDOS deployment URL is in bridge.mjs; other installations require
@@ -77,7 +136,7 @@ Official API references: [scripting](https://developer.chrome.com/docs/extension
 
 Use the new reviewed 0.2.1 folder for the existing unpacked pilot and reload it
 on Chrome's Extensions page. Permissions remain activeTab, scripting and storage;
-no new site access, background process or credential storage is requested.
+no new site access or credential storage is requested. Version 0.2.2 adds the bounded transfer service worker described below.
 Refresh the deployed KERDOS app, then prepare and pair again. Old pairing metadata
 is not upgraded automatically. This developer pilot update is not a universal
 extension installation/update experience.
@@ -94,3 +153,110 @@ upgraded app's protocol acknowledgement and stops safely against older app tabs.
 The reservation is a point-in-time check. If the app closes or is cancelled
 after the acknowledgement, supplier export may already be underway; the
 existing nonce/expiry/cancellation fences still prevent an invalid import.
+
+
+## Popup-independent transfer — 0.2.2
+
+Replace the existing pilot folder with this complete 0.2.2 folder and reload the
+unpacked extension. No KERDOS app, database, worker endpoint or provider setup
+change is needed. Refreshing the website alone does not update the companion.
+
+An explicitly started pair/export is now owned by the extension service worker.
+The popup sends a command and observes session-stored status. Closing/reopening
+the popup neither cancels nor resends the operation. Only one command can own the
+executor at a time; a second popup sees its current status. Provider execution,
+pre-export app reservation, one-use claim, source checks and delivery remain the
+same. The worker accepts commands only from this extension's exact popup URL;
+content scripts and other extensions cannot direct it.
+
+Only status text and the existing pairing metadata are retained in session
+storage. CSV bytes stay in memory during delivery; passwords, cookies, MFA codes
+and session tokens are not read or stored. The manifest retains only activeTab,
+scripting and storage permissions. This is still the Chrome pilot behind the
+shared transfer contract, not the completed universal desktop companion.
+
+The browser may stop the service worker. On restart, an unfinished status becomes
+an unconfirmed result and any pairing is removed. It does not resume or resend
+an export or claim prices saved. Check KERDOS before preparing another transfer;
+existing import replay protection remains responsible for an admitted file.
+There is no keep-alive, scheduler or unattended supplier access. Closing the app
+or vendor tab is different from closing the popup and may stop the operation.
+
+Controlled tests use the real worker, runner and popup modules: closure/reopen,
+status/result continuity, concurrent commands, restart uncertainty, sender
+restrictions, rejected/closed/expired receiver and MFA guidance. All A.2 tests
+pass locally. Actual installed 0.2.2 popup closure and supplier acceptance remain
+open, as do fresh/changed-price and private original-byte live checks.
+
+Implementation references:
+- https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle
+- https://developer.chrome.com/docs/extensions/develop/concepts/messaging
+
+
+## Completion ownership — 0.2.3
+
+Version 0.2.2 could publish a ready/terminal status while its previous execution
+lock was still held. An immediate Pair command could see the old busy state and
+leave the popup disabled. Version 0.2.3 releases that ownership before publishing
+ready, returns an immutable status snapshot, and never clears a newer command's
+lock from an older command's completion.
+
+Replace/reload the complete 0.2.3 pilot folder before installed acceptance.
+Permissions, app protocol, provider export, one-use claims and storage boundaries
+are unchanged. No KERDOS website, database or hosted-worker update is needed.
+A deterministic regression reacts immediately to the terminal storage event and
+pairs again before the old write promise resolves; it fails against 0.2.2.
+The native Chromium suite also uses the exact shipped manifest and native toolbar
+activation, with no fixture-origin host grants. Actual signed-in supplier and
+installed-client acceptance remain separate from synthetic browser tests.
+
+
+## Portable runner foundation — 0.2.4
+
+`core/transfer-runner.mjs` owns one-use orchestration, status ownership and
+restart recovery without using browser APIs or a provider registry. The Chrome
+`transfer-runner.mjs` adapter supplies targets, session persistence, approved
+provider dispatch, pairing, reservation and delivery. Existing stored pairing
+keys, message protocol, permissions, CSV handling and status wording remain
+compatible. The portable core is inside this folder so the complete unpacked
+Chrome package remains self-contained.
+
+A browser-free synthetic host with string handles and two provider identities
+checks reuse; it is not an implemented desktop companion. Desktop, Safari and
+Firefox hosts, secure transport, client installation, supplier authentication
+and any scheduler still require their own implementation and acceptance. No
+background retrieval or automatic resend is introduced. Replace/reload the
+complete 0.2.4 folder for installed acceptance; include the `core` subfolder.
+
+
+## Export failure guidance — 0.2.5
+
+Known adapter outcomes now explain account/list mismatch, missing CSV format,
+concurrent or unavailable capture, unsupported text encoding, invalid CSV and
+changed/unverifiable pages. Messages are fixed application text; raw adapter
+diagnostics are never displayed or retained as status. Unknown outcomes keep
+the generic failure guidance. No failure automatically retries or delivers a
+file, and a new prepared/paired transfer is required after the attempt.
+
+The MOXe adapter now reports unsupported encoding explicitly instead of
+mislabeling a strict UTF-8 decode failure as an unavailable page. It does not
+replace characters, convert bytes, or add Windows-1252 support. Keep the original
+file for review. Protocol, narrow permissions, successful transfer handling and
+the app-owned client/vendor assignment are unchanged. Reload the complete 0.2.5
+folder (including core) for installed acceptance.
+
+
+## Failed-export receiver recovery — 0.2.6
+
+Updated KERDOS tickets advertise exportFailureNotice. After an accepted claim,
+a failed capture or pre-delivery execution error sends a nonce/claim-bound
+notice so that exact receiver clears its exporting state immediately. The app
+uses its existing rejected state and Prepare control. No diagnostic text, CSV
+or credentials are sent in the notice. Once byte processing or delivery starts,
+this notice cannot retract admitted work or rewrite a received result.
+
+The host callback is optional; old app tickets skip it. Missing/closed receivers
+do not turn a failed export into success. No automatic retry is introduced.
+Refresh the KERDOS page and reload the complete 0.2.6 companion folder to use
+the matched recovery behavior. App tabs or companions on earlier versions retain
+their prior cancellation/expiry behavior.

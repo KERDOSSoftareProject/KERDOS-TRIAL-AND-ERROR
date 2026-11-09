@@ -7,6 +7,11 @@ const title=value=>String(value||'').replace(/\b[a-z]+/g,word=>word[0].toUpperCa
 const text=value=>dictionaryTokens(value).join(' ');
 export function clientProductName(item,rows=[],industry=''){
  let current=String(item.name||'').trim();
+ const confirmedGroup=rows.length>0&&rows.every(row=>{
+  const decision=row.field_resolutions?.product_group;
+  return decision?.confirmedBy&&decision.catalogItemId===item.id&&decision.description===row.description&&decision.brand===(row.brand??null);
+ });
+ if(confirmedGroup)return current;
  const vocabulary=industryClientNames(industry),profile=associationProfile(industry);
  // A brand is metadata, never the item identity. Remove exact brand phrases
  // supplied by the listings or industry vocabulary before interpreting names.

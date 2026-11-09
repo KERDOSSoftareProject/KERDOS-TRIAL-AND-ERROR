@@ -50,7 +50,7 @@ await check('mixed text/scanned PDF reads each page; text presence never suppres
 const vendorItems=[{id:'vi-1',organization_id:'org',vendor_id:'vendor',vendor_item_code:'12345',description:'Chicken Breast',pack_size:'20 LB'}];
 for(const [name,number] of [['text-invoice','PDF-123456789'],['scanned-invoice','123456789']])await check(`${name} retains invoice number/date, billed CASE evidence and 2×40=80`,async()=>{
   const result=await reader(fixture(name)),text=result.lines.join('\n');
-  const prepared=prepareAutomaticInvoice({text,rows:parseDocument(text).rows,organizationId:'org',vendorId:'vendor',vendorItems});
+  const prepared=await prepareAutomaticInvoice({text,rows:parseDocument(text).rows,organizationId:'org',vendorId:'vendor',vendorItems});
   assert.equal(prepared.reason,null);assert.equal(prepared.header.invoice_number,number);assert.equal(prepared.header.invoice_date,'2026-10-28');assert.equal(prepared.header.total_amount,80);
   assert.deepEqual(prepared.lines.map(l=>[l.quantity,l.unit_price,l.line_total,l.selling_unit]),[[2,40,80,'CASE']]);
   assert.equal(prepared.lines[0].billing_unit_evidence.unit,'CASE');assert.ok(result.ocr.lines.every(l=>l.confidence>=90));

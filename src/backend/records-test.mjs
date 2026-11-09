@@ -10,11 +10,11 @@ const makeChain=()=>new Proxy({}, {get(_target,key){
 const client={from:name=>{calls.push(["from",name]);return makeChain();}};
 const records=createRecords(spec=>executeSupabaseRecordQuery(client,spec));
 const result=await records.query("price_history").select("id,price").eq("organization_id","org")
-  .lte("effective_date","2026-09-23").order("effective_date",{ascending:false}).limit(1);
+  .lte("effective_date","2026-09-23").lt("effective_date","2026-09-24").order("effective_date",{ascending:false}).limit(1);
 assert.deepEqual(result.data,[{id:"ok"}]);
 assert.deepEqual(calls,[
   ["from","price_history"],["select","id,price"],["eq","organization_id","org"],
-  ["lte","effective_date","2026-09-23"],["order","effective_date",{ascending:false}],["limit",1],
+  ["lte","effective_date","2026-09-23"],["lt","effective_date","2026-09-24"],["order","effective_date",{ascending:false}],["limit",1],
 ]);
 calls.length=0;
 await records.query("catalog_items").insert({name:"Item"}).select().single();

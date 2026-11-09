@@ -12,12 +12,18 @@ export function verifyResumeRows(rows,completedKeys,savedRows,snapshot=null){
     if(snapshot.version!==1||!Array.isArray(snapshot.rows)||snapshot.rows.length!==rows.length)
       throw new Error('The retained source-row snapshot does not match this file. Existing data was kept.');
     const current=createSourceRowSnapshot(rows);
-    // The snapshot owns every source-row ordinal, including unfinished rows.
-    // Otherwise a parser upgrade could retain completed rows but assign a
-    // different product to a pending row under the same row:N key.
+    // An unfinished ordinal belongs to the same original product too.
     for(const key of new Set([...current.rows.map(row=>row.key),...completedKeys,...savedRows.map(saved=>saved.key).filter(Boolean)])){
       const match=String(key).match(/^row:(\d+)$/),index=match?Number(match[1]):-1;
-      if(index<0||!snapshot.rows[index]||JSON.stringify(stable(snapshot.rows[index]))!==JSON.stringify(stable(current.rows[index])))
+      const retained=snapshot.rows[index],proof=current.rows[index];
+      if(retained?.position?.lines?.length===0&&retained.position.cells?.length===0&&
+        rows[index]?.sourceProvenance?.kind==='freeform'){
+        // Older freeform snapshots could have exact source text without
+        // coordinates. Accept added evidence if the rest of the proof agrees.
+        proof.position.lines=[];
+        proof.position.cells=[];
+      }
+      if(!retained||!proof||JSON.stringify(stable(retained))!==JSON.stringify(stable(proof)))
         throw new Error("This file's saved row positions or values differ from the retained source snapshot. Existing data was kept.");
     }
     for(const saved of savedRows){

@@ -3,7 +3,7 @@ import {explainImportRow} from "./import-evidence.js";
 
 const row={description:"Chicken breast",brand:"",packSize:"4/10 LB",price:80,sellingUnit:"CASE",sourceLine:"Chicken breast 4/10 LB 80.00"};
 const result=explainImportRow(row,{vendor:{name:"Supplier A"},categories:[{id:"meat",name:"Meat",keywords:["chicken"]}]});
-assert.match(result.vendor.value,/Supplier A · NVIM assigned on save/);
+assert.match(result.vendor.value,/Supplier A · NVIN assigned on save/);
 assert.equal(result.brand.value,null);
 assert.equal(result.brand.accuracy,null);
 assert.equal(result.pack.value,"4/10 LB");

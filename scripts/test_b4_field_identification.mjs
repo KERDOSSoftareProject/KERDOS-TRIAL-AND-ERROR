@@ -12,7 +12,6 @@ import React from 'react';
 import Renderer,{act} from 'react-test-renderer';
 import assert from 'node:assert/strict';
 import {PasteModal} from './src/pages/ImportModal.jsx';
-import {createRecords} from './src/backend/records.js';
 import {createPriceImportFixture} from './scripts/fixtures/price-import-backend.mjs';
 import {parseDocument} from './src/ingestion.js';
 import {rememberedLayout} from './src/core/sheet-layout.js';
@@ -22,15 +21,22 @@ const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 let passed=0,failed=0;
 function fixture(){
  const f=createPriceImportFixture({text:sheet()});f.settings={price_refresh_days:7,vendorLayouts:{otherVendor:{otherLayout:{0:'ignore'}}}};f.settingWrites=[];
- const original=f.backend.records.query;
- const settings=createRecords(async spec=>{assert.equal(spec.action,'update');assert.deepEqual(spec.filters,[{operator:'eq',column:'id',value:org}]);if(f.failSettings)return {data:null,error:{message:'Controlled settings outage'}};f.settings=structuredClone(spec.value.settings);f.settingWrites.push(structuredClone(spec));return {data:[],error:null};});
- f.backend.records.query=table=>table==='organizations'?settings.query(table):original(table);
+ f.backend.organization={rememberVendorLayout:async(organizationId,v,fp,answers)=>{
+  assert.equal(organizationId,org);
+  if(f.failSettings)throw new Error('Controlled settings outage');
+  f.settings.vendorLayouts[v]={...(f.settings.vendorLayouts[v]||{}),[fp]:{...(f.settings.vendorLayouts[v]?.[fp]||{}),...answers}};
+  f.settingWrites.push(structuredClone({organizationId,v,fp,answers}));return structuredClone(f.settings);
+ }};
  globalThis.__b1Backend=f.backend;return f;
 }
 async function open(settings){let tree;await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{industry:'restaurant',vendors:[{id:vendor,name:'B4 Vendor'},{id:'otherVendor',name:'Other Vendor'}],orgId:org,orgSettings:settings,catalogItems:[],categories:[],vendorItems:[],mappings:[],onClose(){},onDone:async()=>{},initialVendorId:vendor,initialMode:'pricelist'}));});return tree;}
 const button=(tree,label)=>tree.root.findAllByType('button').find(b=>text(b)===label);
 async function upload(tree,label='Tariff'){
  const content=sheet(label);await act(async()=>{tree.root.find(n=>n.type==='input'&&n.props.type==='file').props.onChange({target:{files:[{name:'B4_'+label+'.csv',size:content.length,text:async()=>content}],value:'selected'}});await new Promise(r=>setTimeout(r,950));});
+}
+async function uploadWarehouse(tree){
+ const content='Item #,Description,Brand,Pack,Price,Warehouse Bin\n43700,BACON FROZEN,Smithfield,1/15 LB,41.25,A7\n,SWEET POTATO FRIES,Lamb Weston,6/2.5 LB,22.10,B2\n';
+ await act(async()=>{tree.root.find(n=>n.type==='input'&&n.props.type==='file').props.onChange({target:{files:[{name:'b4_fixture_1.csv',size:content.length,text:async()=>content}],value:'selected'}});await new Promise(r=>setTimeout(r,950));});
 }
 async function answer(tree,role='price'){
  assert.match(text(tree.toJSON()),/Check unrecognized column/);
@@ -50,6 +56,16 @@ await check('one recognized column hit cannot promote a row to a confirmed heade
  const parsed=parseDocument('Description,Oddity,Other\nChicken Breast Boneless Skinless,20 LB,41.25\nTurkey Breast Smoked,20 LB,51.75');
  assert.deepEqual(parsed.layout.headers,[],'B4 requires at least two recognized column hits');
  assert.deepEqual(parsed.rows.map(row=>row.price),[41.25,51.75],'fallback must retain both genuine products');
+});
+await check('Warehouse Bin asks once and its ignore answer is remembered for the fixture',async()=>{
+ const f=fixture(),tree=await open(f.settings);try{
+ await uploadWarehouse(tree);
+ assert.match(text(tree.toJSON()),/Warehouse Bin/);
+ await answer(tree,'ignore');
+ assert.match(text(tree.toJSON()),/2 product rows read/);
+ assert.equal(f.settingWrites.length,1);
+ assert.deepEqual(Object.values(f.settings.vendorLayouts[vendor])[0],{'5':'ignore'});
+ }finally{tree.unmount();}
 });
 await check('same vendor/layout is asked once within a still-open modal',async()=>{
  const f=fixture(),tree=await open(f.settings);try{
@@ -105,7 +121,7 @@ try{
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
   b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.reading)onRead?.(file.reading);return file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
-  b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
+  b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},organization:{rememberVendorLayout:(...args)=>globalThis.__b1Backend.organization.rememberVendorLayout(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});
  try{process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',timeout:60000,stdio:['ignore','pipe','pipe']}));}catch(error){process.stdout.write(error.stdout||'');process.stderr.write(error.stderr||'');process.exitCode=1;}
 }finally{rmSync(dir,{recursive:true,force:true});}

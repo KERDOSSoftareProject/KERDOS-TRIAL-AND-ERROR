@@ -70,6 +70,18 @@ test("a fully recognised header needs no question",()=>{
   const r=parseDocument(sheet);
   assert.equal(r.layout.unknown.length,0);assert.equal(r.rows[0].packSize,"100 CT");assert.equal(r.rows[0].sellingUnit,"BX");
 });
+test("ignored warehouse column stays in source evidence, outside product identity",()=>{
+  const sheet="Item #,Description,Brand,Pack,Price,Warehouse Bin\n43700,BACON FROZEN,Smithfield,1/15 LB,41.25,A7\n,SWEET POTATO FRIES,Lamb Weston,6/2.5 LB,22.10,B2";
+  const first=parseDocument(sheet);
+  assert.deepEqual(first.layout.unknown.map(h=>h.label),["Warehouse Bin"]);
+  const answered=parseDocument(sheet,{layoutAnswers:{5:"ignore"}});
+  assert.equal(answered.layout.unknown.length,0);
+  assert.deepEqual(answered.rows.map(r=>r.description),["BACON FROZEN","SWEET POTATO FRIES"]);
+  assert.deepEqual(answered.rows.map(r=>r.code),["43700",null]);
+  assert.deepEqual(answered.rows.map(r=>r.price),[41.25,22.10]);
+  assert.match(answered.rows[0].sourceLine,/A7$/);
+  assert.match(answered.rows[1].sourceLine,/B2$/);
+});
 test("a failing cell is flagged on its row with the reason; the row is kept",()=>{
   const sheet="Item Number,Description,Pack Size,Price,Selling Unit\n1001,ROPE NYLON 3/8,600 FT,88.00,ROLL\n1002,ROPE NYLON 1/2,24/15.5,120.00,ZZ";
   const r=parseDocument(sheet);

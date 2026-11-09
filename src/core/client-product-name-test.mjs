@@ -26,3 +26,9 @@ for(const [name,expected] of [['B3339XH -H.D TUFF LINER','Trash Bags'],['B385813
 assert.equal(clientProductName({name:'BACON, PORK 18-22 COUNT SLICED LAID OUT HICKORY SMOKED CURED RAW 1-DIAMOND'},[{brand:'PATUXENT FARMS'}],'restaurant'),'Bacon');
 assert.equal(clientProductName({name:'BAGGED (CAN)'},[],'restaurant'),null,'packaging alone is not an identified item');
 console.log('PASS client names: exact screenshot examples, plain product vocabulary, unidentifiable fragments kept for review, explicit client names and original source fields preserved.');
+const deliberate={id:'jelly-item',name:'Grape Jelly'};
+const jelly={description:'JELLY GRAPE P.C.',brand:null,field_resolutions:{product_group:{catalogItemId:'jelly-item',description:'JELLY GRAPE P.C.',brand:null,confirmedBy:'reviewer'}}};
+assert.equal(clientProductName(deliberate,[jelly],'restaurant'),'Grape Jelly','confirmed client product types must not collapse back into an ingredient word');
+assert.notEqual(clientProductName(deliberate,[{...jelly,description:'GRAPE GREEN SEEDLESS'}],'restaurant'),'Grape Jelly','changed source identity invalidates the old naming decision');
+
+assert.equal(clientProductName({id:'orzo',name:'Orzo'},[{description:'-- ORZO - PASTA DRY 71',brand:'ORZO',field_resolutions:{product_group:{catalogItemId:'orzo',description:'-- ORZO - PASTA DRY 71',brand:'ORZO',confirmedBy:'reviewer'}}}],'restaurant'),'Orzo','a misplaced source brand cell cannot erase an explicitly identified KERDOS item');

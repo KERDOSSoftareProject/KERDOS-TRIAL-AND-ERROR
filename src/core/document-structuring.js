@@ -9,6 +9,11 @@ const nonProductSection=text=>/(?:following items were out of stock|these are yo
 const roles=cells=>mapColumnsFromHeader(cells.map(cell=>clean(cell.text??cell)));
 const isHeader=(cells,previousColumns={})=>isTableHeader(cells.map(cell=>clean(cell.text??cell)),previousColumns);
 const lineText=row=>row.cells.map(cell=>clean(cell.text)).join('\t');
+const compactLine=value=>String(value??'').replace(/\s+/g,' ').trim();
+const parsedCellText=cell=>{
+  const text=clean(cell.text);
+  return text.startsWith('"')&&text.endsWith('"')?text.slice(1,-1).replace(/""/g,'"'):text;
+};
 
 function ocrWords(nodes,scale,height,result=[]){
   for(const node of nodes||[]){
@@ -181,6 +186,31 @@ function unlabelledRoles(segment){
   return text?.length?{price:money[0],description:text.index}:null;
 }
 
+function matchSourceRow(row,sources,claimed,tabular){
+  if(!row.sourceLine)return null;
+  const match=source=>{
+    if(!source)return null;
+    const start=row.sourceColumnStart??0,count=row.sourceColumnCount??source.cells.length;
+    if(!Number.isInteger(start)||!Number.isInteger(count)||start<0||count<1||start+count>source.cells.length)return null;
+    const cells=source.cells.slice(start,start+count);
+    const matches=tabular
+      ?cells.map(parsedCellText).join('\t').replace(/\t+$/,'')===row.sourceLine.replace(/\t+$/,'')
+      :compactLine(cells.map(cell=>cell.text).join(' '))===compactLine(row.sourceLine);
+    return matches?{source,cells}:null;
+  };
+  let found=Number.isInteger(row.sourceIndex)?match(sources[row.sourceIndex]):null;
+  if(!found){
+    const candidates=sources.map(match).filter(Boolean);
+    if(candidates.length!==1)return null;
+    [found]=candidates;
+  }
+  const used=claimed.get(found.source)||new Set();
+  if(found.cells.some(cell=>used.has(cell)))return null;
+  for(const cell of found.cells)used.add(cell);
+  claimed.set(found.source,used);
+  return found;
+}
+
 // All parts stay inside ONE original file group/document. Row ordinals remain
 // deterministic for duplicate/resume keys, while layouts are tracked per table.
 export function parseStructuredDocument(text,reading,parse=(input,options)=>parseDocument(input,options)){
@@ -190,19 +220,19 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
     const inferredColumns=unlabelledRoles(segment);
     const fallback=segment.kind==='freeform'||(segment.kind==='positioned-unlabelled'&&!inferredColumns);
     const input=fallback?(segment.text??segment.rows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):segment.rows.map(lineText).join('\n');
-    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})}),available=[...segment.rows];
+    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})});
+    const claimed=new Map();
     const rows=parsed.rows.map(row=>{
-      const indexed=Number.isInteger(row.sourceIndex)?segment.rows[row.sourceIndex]:null;
-      const source=indexed&&available.includes(indexed)&&lineText(indexed)===row.sourceLine
-        ?indexed
-        :available.find(candidate=>lineText(candidate)===row.sourceLine)||null;
-      if(source)available.splice(available.indexOf(source),1);
+      // A parser index is only a hint. Side-by-side products can share a
+      // physical row, but their source cells must be distinct.
+      const match=matchSourceRow(row,segment.rows,claimed,parsed.mode==='tabular');
+      const source=match?.source,sourceCells=match?.cells;
       const page=reading.pages?.find(page=>page.number===segment.page);
-      const confidence=source?.cells.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
+      const confidence=sourceCells?.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
       if(page?.source==='local-ocr'&&typeof page.ocr?.confidence==='number')confidence.push(page.ocr.confidence);
       const lowOcr=confidence.some(value=>value<90);
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
-      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:source?.cells??[],fallback}};
+      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback}};
     });
     return {...parsed,rows,segment:index};
   });

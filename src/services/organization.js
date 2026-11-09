@@ -24,6 +24,10 @@ export function createOrganizationService(backend){
     update(organizationId,patch){
       return run(table("organizations").update(patch).eq("id",organizationId),"Could not update the organization");
     },
+    rememberVendorLayout(organizationId,vendorId,fingerprint,answers){
+      if(!backend.organization?.rememberVendorLayout)throw new Error("Column choices cannot be remembered by this backend.");
+      return backend.organization.rememberVendorLayout(organizationId,vendorId,fingerprint,answers);
+    },
     syncProfile(user){
       return run(table("profiles").upsert({id:user.id,email:user.email,updated_at:new Date().toISOString()}),"Could not sync the profile");
     },

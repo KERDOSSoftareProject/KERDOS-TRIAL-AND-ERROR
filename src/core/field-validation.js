@@ -23,7 +23,7 @@ export function assessBoundFields(identification){
   // Confidence describes the field assignment and readable value, not product identity.
   // A guessed layout has no independent corroboration, so it cannot earn 90.
   const accuracy=empty?0:competing.length||!result.ok?null:
-   binding.evidence==='stated-header'||binding.evidence==='remembered-client'?100:
+   binding.evidence==='stated'||binding.evidence==='remembered'?100:
    binding.evidence==='inferred'?70:null;
   fields[role]={status,columnIndex:binding.columnIndex,evidence:binding.evidence,
    accuracy,
@@ -34,10 +34,6 @@ export function assessBoundFields(identification){
  // An unmapped description is missing evidence, not an empty source cell.
  if(!bindings.description)fields.description={status:'missing',columnIndex:null,evidence:'missing',accuracy:0};
  return {fields,cellIssues};
-}
-
-export function requireItemDescription(row){
- if(String(row?.description||'').trim().length<2)throw new Error('Identify the product description before saving this listing. The original source row is retained for review.');
 }
 
 // Assess assigned cells without changing their placement. The caller decides
@@ -53,7 +49,11 @@ export function validateAssignedFields(fields,{price,amount,priceUnavailable=fal
  });
  const unreadable=price==null&&amount==null&&!priceUnavailable&&assigned.length>0&&!headerLike;
  const anchorStatus=fields?.anchor?.status||'missing';
- const issues=[...(fields?.issues||[])];
+ const issues=[];
+ if(anchorStatus==='missing'||anchorStatus==='ambiguous')issues.push({
+  kind:anchorStatus==='ambiguous'?'ambiguous-description':'missing-description',
+  message:anchorStatus==='ambiguous'?'Product description column also has another assigned role.':'Product description is missing.',
+ });
  if(unreadable){
   const evidence=assigned.find(({raw})=>String(raw).trim());
   const hint=evidence?` ("${String(evidence.raw).trim()}")`:'';

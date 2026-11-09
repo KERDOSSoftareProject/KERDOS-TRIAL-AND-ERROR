@@ -15,7 +15,7 @@ export function createVendorConnectService(backend){
       if(!organizationId)throw new Error('Select a client first.');
       const [adapters,requests]=await Promise.all([
         run(backend.records.query('vendor_connection_adapters').select('adapter_key,display_name,retrieval_kind,execution_model,setup_available,portal_origin').order('display_name')),
-        run(backend.records.query('vendor_connection_requests').select('id,organization_id,vendor_id,adapter_key,state,created_at,portal_account_label,portal_list_label').eq('organization_id',organizationId).order('created_at',{ascending:false})),
+        run(backend.records.query('vendor_connection_requests').select('id,organization_id,vendor_id,adapter_key,state,created_at,portal_account_label,portal_list_label,transfer_revision').eq('organization_id',organizationId).order('created_at',{ascending:false})),
       ]);
       return {adapters:adapters||[],requests:requests||[]};
     },
@@ -49,6 +49,50 @@ export function createVendorConnectService(backend){
       try{current=await backend.vendorConnect.verifySelection({organizationId,vendorId,requestId,adapterKey,revision,account:account.trim(),list:list.trim(),portalOrigin});}catch{}
       if(current!==true)throw new Error('This pending vendor transfer is no longer available. Prepare a new transfer.');
       return true;
+    },
+    async scheduleHistory(requestId){
+      if(!requestId||!backend.vendorConnect?.scheduleHistory)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.scheduleHistory(requestId);}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw new Error('Could not load this refresh schedule. Please try again.');}
+    },
+    async reconcileSchedule(requestId){
+      if(!requestId||!backend.vendorConnect?.reconcileSchedule)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.reconcileSchedule(requestId);}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw new Error('Could not check saved scheduled refresh evidence. Please try again.');}
+    },
+    async closeUnknownSchedule(requestId,token){
+      if(!requestId||!token||!backend.vendorConnect?.closeUnknownSchedule)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.closeUnknownSchedule(requestId,token);}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw new Error('Could not close this unverified refresh. Reload its history and review the saved price sheets.');}
+    },
+    async setSchedule({requestId,expectedVersion,weekdays,localTime,timezone,enabled,graceMinutes}){
+      if(!requestId||!Number.isSafeInteger(expectedVersion)||expectedVersion<0||!Array.isArray(weekdays)||
+        !weekdays.length||weekdays.some(day=>!Number.isInteger(day)||day<1||day>7)||new Set(weekdays).size!==weekdays.length||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(localTime)||typeof timezone!=='string'||!timezone.trim()||
+        typeof enabled!=='boolean'||!Number.isInteger(graceMinutes)||graceMinutes<1||graceMinutes>60)
+        throw new Error('Choose weekdays, a local time, time zone and a grace period from 1 to 60 minutes.');
+      if(!backend.vendorConnect?.setSchedule)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.setSchedule({requestId,expectedVersion,weekdays,localTime,timezone,enabled,graceMinutes});}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();
+        if(error instanceof BackendError&&error.cause?.code==='40001')throw new Error('This schedule changed in another tab. Reload its settings before saving.');
+        throw new Error('Could not save this refresh schedule. Check the connection and time zone, then try again.');}
+    },
+    async claimSchedule(requestId){
+      if(!requestId||!backend.vendorConnect?.claimSchedule)throw new VendorConnectUnavailable();
+      try{return await backend.vendorConnect.claimSchedule(requestId);}
+      catch(error){if(error instanceof BackendError&&missingCodes.has(error.cause?.code))throw new VendorConnectUnavailable();throw error;}
+    },
+    async verifySchedule(token){
+      if(!token||!backend.vendorConnect?.verifySchedule)throw new VendorConnectUnavailable();
+      return backend.vendorConnect.verifySchedule(token);
+    },
+    async completeSchedule(token,documentId,sha256){
+      if(!token||!documentId||!sha256||!backend.vendorConnect?.completeSchedule)throw new VendorConnectUnavailable();
+      return backend.vendorConnect.completeSchedule(token,documentId,sha256);
+    },
+    async stopSchedule(token,outcome){
+      if(!token||!['failed','verification_needed'].includes(outcome)||!backend.vendorConnect?.stopSchedule)throw new VendorConnectUnavailable();
+      return backend.vendorConnect.stopSchedule(token,outcome);
     },
     async cancel({organizationId,requestId}){
       if(!organizationId||!requestId)throw new Error('Select a connection setup request.');

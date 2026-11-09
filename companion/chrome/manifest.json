@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "KERDOS Vendor Connect Pilot",
-  "version": "0.2.1",
-  "description": "User-started vendor CSV export and one-use transfer to a paired KERDOS tab. Pilot.",
+  "version": "0.2.16",
+  "description": "Vendor pricing refresh through a connected browser session, with checked one-use KERDOS transfer.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -10,5 +10,26 @@
   ],
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "background": {
+    "service_worker": "background.mjs",
+    "type": "module"
+  },
+  "optional_host_permissions": [
+    "https://kerdossoftareproject.github.io/*",
+    "https://order.usfoods.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://kerdossoftareproject.github.io/KERDOS-TRIAL-AND-ERROR",
+        "https://kerdossoftareproject.github.io/KERDOS-TRIAL-AND-ERROR/*"
+      ],
+      "js": [
+        "app-channel.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
 }

@@ -15,6 +15,7 @@ export function createRecords(execute) {
       in(column,value){spec.filters.push({operator:"in",column,value});return chain;},
       ilike(column,value){spec.filters.push({operator:"ilike",column,value});return chain;},
       lte(column,value){spec.filters.push({operator:"lte",column,value});return chain;},
+      lt(column,value){spec.filters.push({operator:"lt",column,value});return chain;},
       order(column,options){spec.orders.push({column,options});return chain;},
       range(from,to){spec.range={from,to};return chain;},
       limit(value){spec.limit=value;return chain;},

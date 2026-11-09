@@ -9,15 +9,23 @@ let passed=0;async function check(name,fn){await fn();passed++;console.log('PASS
 const snapshot=createSourceRowSnapshot(rows),latestOnly=[{key:'row:1',sourceLine:rows[1].sourceLine}];
 await check('duplicate listing overwrite does not erase independent source-row proof',()=>{verifyResumeRows(rows,['row:0','row:1'],latestOnly,snapshot);});
 await check('source rows without a freeform sourceLine remain verifiable through full retained values/position',()=>{verifyResumeRows(rows,['row:2'],[{key:'row:2'}],snapshot);});
+await check('unfinished source ordinals retain their original values',()=>{
+ const changed=structuredClone(rows);changed[2].price=99;
+ assert.throws(()=>verifyResumeRows(changed,['row:0'],[],snapshot),/positions or values/);
+});
+await check('old freeform snapshots can gain matching coordinates without changing saved evidence',()=>{
+ const old=[{sourceLine:'Chicken Breast 20 LB $40.00',description:'Chicken Breast',price:40,sourceProvenance:{kind:'freeform',page:1,table:0}}];
+ const retained=createSourceRowSnapshot(old);
+ const next=structuredClone(old);
+ Object.assign(next[0].sourceProvenance,{lines:[1],cells:[{text:old[0].sourceLine}]});
+ verifyResumeRows(next,['row:0'],[{key:'row:0',sourceLine:old[0].sourceLine}],retained);
+ next[0].sourceProvenance.page=2;
+ assert.throws(()=>verifyResumeRows(next,['row:0'],[],retained),/positions or values/);
+});
 await check('legacy imports still reject missing or shifted evidence',()=>{assert.throws(()=>verifyResumeRows(rows,['row:0','row:1'],latestOnly),/no matching/);assert.throws(()=>verifyResumeRows([rows[1],rows[0],rows[2]],['row:1'],latestOnly),/positions/);});
 await check('price, identity, pack, position and ordinal changes all block resume',()=>{
  for(const patch of [{price:41},{description:'Beef Tenderloin'},{packSize:'10 LB'},{sourceProvenance:{page:3}}]){const changed=structuredClone(rows);changed[0]={...changed[0],...patch};assert.throws(()=>verifyResumeRows(changed,['row:0'],latestOnly,snapshot),/positions or values/);}
  assert.throws(()=>verifyResumeRows([rows[1],rows[0],rows[2]],['row:0'],[],snapshot),/positions or values/);
-});
-await check('a changed unfinished row cannot reuse its old source-row key',()=>{
- const changed=structuredClone(rows);changed[2]={...changed[2],description:'Different Turkey',price:75};
- assert.throws(()=>verifyResumeRows(changed,['row:0'],[{key:'row:0',sourceLine:rows[0].sourceLine}],snapshot),/positions or values/);
- verifyResumeRows(rows,['row:0'],[{key:'row:0',sourceLine:rows[0].sourceLine}],snapshot);
 });
 await check('malformed versions, lengths and unsupported row keys fail closed',()=>{
  for(const value of [{version:2,rows:snapshot.rows},{version:1,rows:[]},{}])assert.throws(()=>verifyResumeRows(rows,['row:0'],[],value),/snapshot/);
@@ -37,4 +45,4 @@ const db=new PGlite();try{
   await db.exec('SET ROLE snapshot_reader');try{const selected=(await db.query('SELECT id,source_rows FROM import_documents')).rows;assert.equal(selected.length,1);assert.equal(selected[0].id,'legacy');assert.deepEqual(selected[0].source_rows,snapshot);}finally{await db.exec('RESET ROLE');}
  });
 }finally{await db.close();}
-console.log(`${passed}/11 manual source snapshot checks passed (local actual SQL; not applied/deployed).`);
+console.log(`${passed}/12 manual source snapshot checks passed (local actual SQL; not applied/deployed).`);
