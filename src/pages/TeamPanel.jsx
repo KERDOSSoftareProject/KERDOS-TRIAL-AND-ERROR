@@ -1,3 +1,4 @@
+import {BrandCoin} from "../ui/Brand.jsx";
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useState} from "react";
 import {backend} from "../backend/index.js";
@@ -190,7 +191,7 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
             {logoUrl?(
               <img src={logoUrl} alt={orgName} style={{height:56,maxWidth:120,objectFit:"contain",borderRadius:6}} />
             ):(
-              <div style={{fontSize:36,width:56,height:56,display:"flex",alignItems:"center",justifyContent:"center",background:"#F0F2F5",borderRadius:8}}>🦉</div>
+              <BrandCoin size={56} />
             )}
             <label style={{cursor:"pointer",fontSize:12,fontWeight:700,color:"#003584"}}>
               {logoUploading?"Uploading...":logoUrl?"Change logo":"+ Add logo"}
