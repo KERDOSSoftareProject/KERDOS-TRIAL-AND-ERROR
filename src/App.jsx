@@ -970,6 +970,8 @@ export default function App() {
               .order-browse-filters select { max-width:48%; min-width:0; }
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
+              .order-item-listings { border-top:1px solid #E3E7ED; }
+              .order-listings-heading { display:none; }
               .order-item-grid { display:grid; grid-template-columns:minmax(220px,1fr) 88px 104px minmax(370px,420px); gap:2px 10px; align-items:center; padding:8px 12px; }
               .order-item { display:contents; }
               @media (max-width:1240px) {
@@ -985,6 +987,9 @@ export default function App() {
                 .order-item select,.order-item input { font-size:16px!important; min-height:44px; }
                 .order-item-qty button { width:44px!important; height:44px!important; }
                 .order-price-card > button:first-child { min-height:44px; font-size:14px!important; }
+                .order-price-card > button[aria-expanded="true"] { background:#003584!important; border-color:#003584!important; color:white; }
+                .order-item-listings { margin:4px 0; border:2px solid #003584; border-radius:10px; background:#E8F1FF; }
+                .order-listings-heading { display:block; margin:0; padding:9px 12px; border-radius:7px 7px 0 0; background:#003584; color:white; font-size:14px; }
                 .mobile-basket-launch { position:fixed; z-index:130; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:flex; gap:12px; justify-content:space-between; align-items:center; min-height:48px; padding:8px 16px; border:1px solid #C8DAF2; border-radius:10px; background:#003584; color:white; font-family:inherit; font-size:16px; font-weight:700; box-shadow:0 3px 14px #00204F66; cursor:pointer; }
                 .mobile-basket-dialog { position:fixed; inset:auto 0 0; margin:0; width:100%; max-width:none; max-height:85dvh; box-sizing:border-box; padding:0 14px calc(14px + env(safe-area-inset-bottom)); border:0; border-radius:16px 16px 0 0; background:#F2F6FA; overflow:auto; overscroll-behavior:contain; }
                 .mobile-basket-dialog::backdrop { background:#17243A88; }
@@ -1147,7 +1152,10 @@ export default function App() {
                               )}
                             </div>
                           </div>,
-                          ...(menuOpen?[<div className="order-item-listings" key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0,borderTop:'1px solid #E3E7ED'}}>{alternativesMenu}</div>]:[]),
+                          ...(menuOpen?[<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>
+                            <h3 className="order-listings-heading">Vendor options</h3>
+                            {alternativesMenu}
+                          </div>]:[]),
                         ];
 
                         return <div className="order-item" key={item.catalogItemId}>{cells}</div>;
