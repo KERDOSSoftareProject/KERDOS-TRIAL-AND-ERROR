@@ -46,15 +46,15 @@ export default function PriceVarianceReport({orgId,invoices=[],vendors,onClose,o
             {vendor.missingEvidenceCount>0&&<div>{vendor.missingEvidenceCount} recorded {vendor.missingEvidenceCount===1?'comparison lacks':'comparisons lack'} its original quote evidence.</div>}
             {!vendor.lines.length&&<div>No invoice lines in this period.</div>}
           </div>
-          {!!vendor.lines.length&&<div style={{overflowX:'auto'}}><table style={{borderCollapse:'collapse',width:'100%',fontSize:12}}>
+          {!!vendor.lines.length&&<div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label="Invoice line comparisons" style={{borderCollapse:'collapse',width:'100%',fontSize:12}}>
             <thead><tr>{['Invoice / date','Item','Result','Compared quote','Charged','Rate difference','Billed quantity','Line impact','Quote evidence'].map(label=><th key={label} style={cell}>{label}</th>)}</tr></thead>
-            <tbody>{vendor.lines.map(item=><tr key={item.id}>
-              <td style={cell}>{item.invoiceNumber||item.invoiceFile||'Number unavailable'}{item.invoiceNumber&&item.invoiceFile&&<div>{item.invoiceFile}</div>}<br/>{formatDate(item.date)}</td><td style={cell}>{item.description}</td>
-              <td style={cell}>{item.status}{item.reason&&<div>{item.reason}</div>}</td>
-              <td style={cell}>{money(item.quotedPrice)}{item.quotedPrice!=null&&item.billedUnit&&` / ${item.billedUnit}`}</td>
-              <td style={cell}>{money(item.chargedPrice)}{item.billedUnit&&` / ${item.billedUnit}`}</td>
-              <td style={cell}>{money(item.difference)}</td><td style={cell}>{item.quantity==null?'Unavailable':item.quantity}</td><td style={cell}>{money(item.impact)}</td>
-              <td style={cell}>{quoteEvidenceLabel(item)}{item.quotedSourceRate!=null&&<div>Original quote: {money(item.quotedSourceRate)} / {item.quotedUnit||'unit unavailable'}</div>}{item.quotedDate&&<div>Quote date: {formatDate(item.quotedDate)}</div>}
+            <tbody role="rowgroup">{vendor.lines.map(item=><tr role="row" key={item.id}>
+              <td role="cell" data-field-label="Invoice / date" style={cell}>{item.invoiceNumber||item.invoiceFile||'Number unavailable'}{item.invoiceNumber&&item.invoiceFile&&<div>{item.invoiceFile}</div>}<br/>{formatDate(item.date)}</td><td role="cell" data-field-label="Item" data-mobile-wide style={cell}>{item.description}</td>
+              <td role="cell" data-field-label="Result" style={cell}>{item.status}{item.reason&&<div>{item.reason}</div>}</td>
+              <td role="cell" data-field-label="Compared quote" style={cell}>{money(item.quotedPrice)}{item.quotedPrice!=null&&item.billedUnit&&` / ${item.billedUnit}`}</td>
+              <td role="cell" data-field-label="Charged" style={cell}>{money(item.chargedPrice)}{item.billedUnit&&` / ${item.billedUnit}`}</td>
+              <td role="cell" data-field-label="Rate difference" style={cell}>{money(item.difference)}</td><td role="cell" data-field-label="Billed quantity" style={cell}>{item.quantity==null?'Unavailable':item.quantity}</td><td role="cell" data-field-label="Line impact" style={cell}>{money(item.impact)}</td>
+              <td role="cell" data-field-label="Quote evidence" data-mobile-wide style={cell}>{quoteEvidenceLabel(item)}{item.quotedSourceRate!=null&&<div>Original quote: {money(item.quotedSourceRate)} / {item.quotedUnit||'unit unavailable'}</div>}{item.quotedDate&&<div>Quote date: {formatDate(item.quotedDate)}</div>}
                 {item.sourceRow&&<div>Source row: {item.sourceRow}</div>}
                 {item.sourceDocument?.file_path&&onViewOriginal&&<button type="button" style={{...action,fontSize:11,padding:'5px 8px'}} onClick={()=>onViewOriginal(item.sourceDocument.file_path)}>Open price sheet</button>}
                 {item.sourceDocument&&!item.sourceDocument.file_path&&onViewSource&&<button type="button" style={{...action,fontSize:11,padding:'5px 8px'}} onClick={()=>onViewSource(item.sourceDocumentId)}>Open price sheet source</button>}

@@ -53,9 +53,9 @@ function VendorSection({name,count,accent,children,actions,defaultOpen=false}){
 
 function DocumentRow({title,meta,amount,warning,open,onToggle,children,controls}){
   return <article style={{...card,boxShadow:"none",marginBottom:8}}>
-    <div onClick={onToggle} title="Click to open details" style={{padding:"13px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,cursor:"pointer",userSelect:"none"}}>
-      <div style={{minWidth:0}}><div style={{fontWeight:800,fontSize:13,color:ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>▤ {title}</div><div style={{fontSize:11,color:muted,marginTop:3}}>{meta}</div>{warning}</div>
-      <div style={{display:"flex",alignItems:"center",gap:11,flexShrink:0}}>{amount&&<b style={{fontSize:14,color:ink}}>{amount}</b>}{controls}<span style={{color:"#9AA6B5"}}>{open?"▲":"▼"}</span></div>
+    <div className="document-browse-row" onClick={onToggle} title="Click to open details" style={{padding:"13px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,cursor:"pointer",userSelect:"none"}}>
+      <div className="document-browse-title" style={{minWidth:0}}><div style={{fontWeight:800,fontSize:13,color:ink,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>▤ {title}</div><div style={{fontSize:11,color:muted,marginTop:3}}>{meta}</div>{warning}</div>
+      <div className="document-browse-actions" style={{display:"flex",alignItems:"center",gap:11,flexShrink:0}}>{amount&&<b style={{fontSize:14,color:ink}}>{amount}</b>}{controls}<span style={{color:"#9AA6B5"}}>{open?"▲":"▼"}</span></div>
     </div>{open&&<div style={{borderTop:`1px solid ${line}`,padding:14,background:"#FBFCFE"}}>{children}</div>}
   </article>;
 }

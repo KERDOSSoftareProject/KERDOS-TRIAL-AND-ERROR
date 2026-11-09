@@ -398,7 +398,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
   return (
     <div>
       <div className="workspace-browse-controls" role="region" aria-label="Item Catalog controls">
-        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
+        <div className="catalog-browse-filters" style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:18,borderRadius:10,background:"#DCE9FA",marginBottom:14}}>
           {!showReview&&<select aria-label="Vendors" value={vendorFilter} onChange={e=>setVendorFilter(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
             <option value="">Vendors</option>
             {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
@@ -645,8 +645,8 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
             <span style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>({group.items.length})</span>
           </div>
           <div style={{background:"white",borderRadius:10,overflowX:"auto",boxShadow:"0 3px 14px rgba(0,20,65,.12)"}}>
-            <div style={{minWidth:890}}>
-              <div style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,padding:"14px 18px",background:"#E8F0FA",color:"#173C70",fontSize:10,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase"}}>
+            <div className="catalog-product-details" style={{minWidth:890}}>
+              <div className="catalog-product-columns" style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,padding:"14px 18px",background:"#E8F0FA",color:"#173C70",fontSize:10,fontWeight:900,letterSpacing:".08em",textTransform:"uppercase"}}>
                 <span></span><span></span><span>Item</span><span>Vendor / description</span><span>Pack size</span><span>Case price</span><span>Cost per unit</span><span>Match</span>
               </div>
               {group.items.map((item,index)=>{
@@ -654,7 +654,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                 const first=item.options.find(orderable)||item.options[0]||null;
                 const expanded=mapPanelOpenFor===item.catalogItemId;
                 return <div key={item.catalogItemId} style={{borderTop:"1px solid #E7ECF3",background:expanded?"#F1F7FF":index%2?"#FAFCFF":"white"}}>
-                  <div role="button" tabIndex={0} aria-expanded={expanded} onClick={()=>setMapPanelOpenFor(expanded?null:item.catalogItemId)}
+                  <div className="catalog-product-summary" role="button" tabIndex={0} aria-expanded={expanded} onClick={()=>setMapPanelOpenFor(expanded?null:item.catalogItemId)}
                     onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();setMapPanelOpenFor(expanded?null:item.catalogItemId);}}}
                     style={{display:"grid",gridTemplateColumns:"28px 28px minmax(210px,1.8fr) minmax(190px,1.5fr) 118px 112px 115px 120px",gap:14,alignItems:"center",padding:"14px 18px",cursor:"pointer",borderLeft:expanded?"4px solid #397CC3":"4px solid transparent"}}>
                     {canManage
@@ -699,7 +699,7 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                       )}
                     </div>
                   </div>
-                  {expanded&&<div style={{padding:"2px 18px 18px 50px",borderLeft:"4px solid #397CC3"}}>
+                  {expanded&&<div className="catalog-product-expanded" style={{padding:"2px 18px 18px 50px",borderLeft:"4px solid #397CC3"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:10}}>
                       <div style={{display:"flex",alignItems:"center",gap:9}}>
                         {canManage&&<input type="checkbox" checked={selectedIds.has(item.catalogItemId)} title="Select for category change" onChange={e=>setSelectedIds(prev=>{const next=new Set(prev);e.target.checked?next.add(item.catalogItemId):next.delete(item.catalogItemId);return next;})} />}
@@ -712,8 +712,8 @@ export function ItemCatalogPanel({industry="",orgId,role,userId,productList,vend
                     {new Set(item.options.map(o=>o.vendorId)).size>=2&&<div style={{background:comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"#E6F5ED":"#FFF3E0",color:comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"#23764C":"#9C5A00",padding:"8px 10px",borderRadius:6,fontSize:11,fontWeight:700,marginBottom:8}}>
                       {comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"At least two vendors have current, matching-pack offers for this product.":"Multiple vendors are linked, but their current offers or packs are not yet verified as comparable."}
                     </div>}
-                    <div style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"8px 10px",fontSize:10,fontWeight:800,color:"#49617C",background:"#DFEAF7",borderRadius:"6px 6px 0 0"}}><span>Vendor</span><span>Description</span><span>Pack</span><span>Price</span><span>Per unit</span><span>Association</span></div>
-                    {item.options.map(o=><div key={o.vendorItemId} style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"10px",alignItems:"center",background:"white",borderBottom:"1px solid #E8EDF4",fontSize:11}}>
+                    <div className="catalog-product-columns" style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"8px 10px",fontSize:10,fontWeight:800,color:"#49617C",background:"#DFEAF7",borderRadius:"6px 6px 0 0"}}><span>Vendor</span><span>Description</span><span>Pack</span><span>Price</span><span>Per unit</span><span>Association</span></div>
+                    {item.options.map(o=><div className="catalog-vendor-detail" key={o.vendorItemId} style={{display:"grid",gridTemplateColumns:"140px minmax(180px,1fr) 95px 95px 100px 170px",gap:10,padding:"10px",alignItems:"center",background:"white",borderBottom:"1px solid #E8EDF4",fontSize:11}}>
                       <b>{o.vendorName}</b><span>{o.description}{o.brand?` · ${o.brand}`:""}</span><b>{o.packSize||"Unknown"}</b><b>{o.casePrice!=null?formatMoney(o.casePrice):"No quote"}</b><b>{o.perUnit?`${formatMoney(o.perUnit.price)}/${o.perUnit.unit}`:"—"}</b>
                       <button disabled={!canManage} onClick={()=>{setRemapOpenFor(o.mappingId);setRemapSearch("");}} style={{...btn("#E8F1FB","#003584",{fontSize:10,padding:"6px"})}}>Change association</button>
                       {canManage&&<div style={{gridColumn:"1 / -1"}}>
