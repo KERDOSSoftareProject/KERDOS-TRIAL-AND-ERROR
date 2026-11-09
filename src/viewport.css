@@ -103,8 +103,6 @@ html:has(body.mobile-detail-page-locked) { overflow:hidden; overscroll-behavior:
   width: min(100%, 440px);
   aspect-ratio: 1614 / 486;
   margin: 0 auto 18px;
-  border-radius: 12px;
-  background: white;
 }
 
 .kerdos-full-logo img {
