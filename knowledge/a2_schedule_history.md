@@ -4,4 +4,6 @@ The owner or manager can call `kerdos_vendor_refresh_history(request_id)` after 
 
 The history response also reports `blocked_by_unknown` and `unknown_since` for an expired unfinished attempt regardless of age. The claim gate refuses later scheduled exports until original evidence resolves that attempt; changing the schedule does not clear the hold. The owner panel shows this hold separately from the schedule's Enabled/Off setting.
 
+When a retained price document already has a transactionally bound attempt token and finishes as complete or partial, the server reconciles that exact receipt before checking another due slot. The owner/manager schedule panel also reconciles before showing history. The server checks the saved document and existing hash through `complete_refresh`; it never exports again to resolve the old slot. An unknown attempt without a stamped, finished document stays blocked for review.
+
 This migration installs a read function only. It enables no schedule, runner or supplier contact. The browser will use this view for owner controls in the next slice. Historical document identity is preserved even when a document is subsequently deleted; the history status describes the original attempt, not present document availability. The view uses the database clock and IANA time-zone calculation, not the browser clock.
