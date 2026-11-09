@@ -24,12 +24,14 @@ try{
  await db.exec(readFileSync('supabase/migrations/20261101135500_companion_retrieval_evidence.sql','utf8'));
  const migration=readFileSync('supabase/migrations/20261106221206_vendor_schedule_receipts.sql','utf8');await db.exec(migration);await db.exec(migration);
  const recovery=readFileSync('supabase/migrations/20261109162256_vendor_schedule_reconcile_receipt.sql','utf8');await db.exec(recovery);await db.exec(recovery);
+ const review=readFileSync('supabase/migrations/20261109163536_vendor_schedule_review_unknown.sql','utf8');await db.exec(review);await db.exec(review);
  const evidence=(token,patch={})=>({kind:'browser_companion',assurance:'user_approved_browser_session',adapter_key:'us-foods-moxe',origin:'https://order.usfoods.com',account_label:'Synthetic account',list_label:'Synthetic list',sha256:hash,byte_length:20,...(token?{attempt_token:token}:{}),...patch});
  const document=async({token=null,ev=evidence(token),org=f.org,vendor=f.vendor,status='processing',path='synthetic/original.csv',kind='pricelist'}={})=>(await db.query('insert into import_documents(organization_id,vendor_id,document_kind,status,file_path,retrieval_evidence,fingerprint) values($1,$2,$3,$4,$5,$6,$7) returning id',[org,vendor,kind,status,path,ev,randomUUID()])).rows[0].id;
  const finish=async(token,doc,sha=hash)=>(await db.query('select kerdos_complete_scheduled_refresh($1,$2,$3) as outcome',[token,doc,sha])).rows[0].outcome;
  const stop=async(token,result)=>(await db.query('select kerdos_stop_scheduled_refresh($1,$2) as outcome',[token,result])).rows[0].outcome;
  const verify=async token=>(await db.query('select kerdos_verify_scheduled_refresh($1) as current',[token])).rows[0].current;
  const reconcile=async requestId=>(await db.query('select kerdos_reconcile_scheduled_refresh($1) as resolved',[requestId])).rows[0].resolved;
+ const closeUnknown=async(requestId,token,confirmed)=>(await db.query('select kerdos_close_unknown_scheduled_refresh($1,$2,$3) as outcome',[requestId,token,confirmed])).rows[0].outcome;
  const row=async token=>{await db.exec('reset role');const r=(await db.query('select * from kerdos_scheduling.attempts where token=$1',[token])).rows[0];await f.actor(db,f.owner);return r;};
  let version=0;
  async function mint(){await db.exec('reset role');await db.query('delete from kerdos_scheduling.attempts');version=Number(await f.due(db,id,version));return (await f.claim(db,id)).token;}
@@ -60,13 +62,28 @@ try{
  const late=await document({token,status:'complete'});assert.equal(await finish(token,late),'saved');assert.equal(await f.claim(db,id),null,'resolved old slot still cannot run again');
  token=await mint();await db.exec('reset role');await db.query("update kerdos_scheduling.attempts set started_at=started_at-interval '1 hour',lease_until=lease_until-interval '1 hour' where token=$1",[token]);await f.actor(db,f.owner);
  assert.equal(await reconcile(id),0,'an unknown attempt without retained receipt cannot be cleared');assert.equal(await f.claim(db,id),null);
+ await assert.rejects(closeUnknown(id,token,false),/review_required/);
+ await f.actor(db,f.outsider);await assert.rejects(closeUnknown(id,token,true),/access_denied/);
+ await f.actor(db,f.employee);await assert.rejects(closeUnknown(id,token,true),/access_denied/);
+ await f.actor(db,f.owner);
  const recovered=await document({token,status:'complete'});
+ await assert.rejects(closeUnknown(id,token,true),/evidence_required/,'a bound source file must be resolved from evidence');
  await f.actor(db,f.outsider);await assert.rejects(reconcile(id),/access_denied/);
  await f.actor(db,f.employee);await assert.rejects(reconcile(id),/access_denied/);
  await f.actor(db,f.owner);assert.equal(await f.claim(db,id),null,'a due check reconciles the old receipt without exporting that slot again');
  assert.equal((await row(token)).outcome,'saved');assert.equal(await reconcile(id),0,'reconciliation is idempotent');
  await db.exec('reset role');await assert.rejects(db.query("update kerdos_scheduling.attempts set outcome='failed' where token=$1",[token]),/immutable/);
  await f.actor(db,f.owner);assert.ok(recovered);
+ token=await mint();await db.exec('reset role');await db.query("update kerdos_scheduling.attempts set started_at=started_at-interval '1 hour',lease_until=lease_until-interval '1 hour' where token=$1",[token]);await f.actor(db,f.owner);
+ assert.equal(await closeUnknown(id,token,true),'closed_unverified');
+ const closed=await row(token);assert.equal(closed.outcome,'closed_unverified');assert.equal(closed.closed_by,f.owner);
+ assert.equal(await closeUnknown(id,token,true),'closed_unverified');assert.deepEqual(await row(token),closed);
+ await assert.rejects(document({token,status:'complete'}),/invalid_vendor_schedule_receipt/,'reviewed closure cannot admit a late file');
+ assert.equal(await f.claim(db,id),null,'the old scheduled slot cannot be re-claimed after review');
+ token=await mint();const deletedReceipt=await document({token,status:'partial'});await db.query('delete from import_documents where id=$1',[deletedReceipt]);
+ await db.exec('reset role');await db.query("update kerdos_scheduling.attempts set started_at=started_at-interval '1 hour',lease_until=lease_until-interval '1 hour' where token=$1",[token]);await f.actor(db,f.owner);
+ assert.equal(await closeUnknown(id,token,true),'closed_unverified','a deleted original still requires an explicit reviewed closure');
+ assert.equal((await row(token)).import_document_id,deletedReceipt,'historical receipt identity is retained');
  // A genuinely earlier completed document is an unchanged receipt, not a new save.
  await f.actor(db,f.owner);const prior=await document({status:'complete'});const priorEvidence=(await db.query('select retrieval_evidence from import_documents where id=$1',[prior])).rows[0].retrieval_evidence;
  token=await mint();assert.equal(await finish(token,prior),'unchanged');assert.deepEqual((await db.query('select retrieval_evidence from import_documents where id=$1',[prior])).rows[0].retrieval_evidence,priorEvidence);
