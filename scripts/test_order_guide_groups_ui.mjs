@@ -26,6 +26,7 @@ const guideText=text(tree.toJSON());assert.ok(guideText.includes('KERDOS #501'))
 assert.ok(guideText.indexOf('Avocados')<guideText.indexOf('Honey Mustard'));assert.ok(guideText.indexOf('Honey Mustard')<guideText.indexOf('Zucchini'));
 const plus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equal(plus.length,3);assert.ok(plus.every(b=>b.props.disabled),'all candidate offers stay unorderable');
 const alternatives=tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});assert.match(text(alternatives),/Sample Vendor/);assert.match(text(alternatives),/20.00/);assert.equal(alternatives.props['aria-expanded'],false);
+assert.equal(alternatives.props['aria-description'],undefined,'held vendors do not count as ready quotes');
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'listings start collapsed');
 assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));
 const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
@@ -50,16 +51,35 @@ backend.catalog.saveRow=async request=>{savedRequest=request;const row=vendorIte
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 const priceButton=()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});
 assert.match(text(priceButton()),/Sample Vendor/);
+assert.equal(priceButton().props['aria-description'],'2 vendors quote this item');
+assert.equal(priceButton().props.style.border,'2px solid #008577');
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'10.00'}}));
-await act(async()=>tree.root.findByProps({'aria-label':'Apply price for listing honey-second'}).props.onClick());
+const settlePrice=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,750));});
+await settlePrice();
 assert.equal(savedRequest.vendorItemId,'honey-second');assert.deepEqual(savedRequest.patch,{price:10});assert.match(text(priceButton()),/Second Vendor/);assert.match(text(priceButton()),/10.00/,'saved cheaper listing becomes displayed choice');
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Sample Vendor')).props.onClick());
 assert.match(text(priceButton()),/Sample Vendor/);assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0);
+assert.doesNotMatch(text(tree.toJSON()),/Use lowest price/);
+await act(async()=>priceButton().props.onClick());
+await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'9.00'}}));
+await act(async()=>priceButton().props.onClick());
+assert.match(text(tree.toJSON()),/Saving price change/);
+await settlePrice();
+assert.equal(savedRequest.patch.price,9,'closing the menu does not discard a price edit');
+assert.match(text(priceButton()),/Sample Vendor.*20\.00/,'saving another listing preserves the explicit vendor selection');
+await act(async()=>priceButton().props.onClick());
+const selectedPrice=()=>tree.root.findByProps({'aria-label':'Price for listing vi1'});
+await act(async()=>selectedPrice().props.onChange({target:{value:'21.00'}}));
+await act(async()=>selectedPrice().props.onBlur());
+await act(async()=>{await new Promise(resolve=>setTimeout(resolve,25));});
+assert.match(text(priceButton()),/Sample Vendor.*21\.00/,'saving the selected listing keeps the vendor and updates the price');
+await act(async()=>priceButton().props.onClick());
 const ownerPlus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equal(ownerPlus[1].props.disabled,false,priceButton().props.title);
 await act(async()=>ownerPlus[1].props.onClick());
-const populatedBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(populatedBasket,/Sample Vendor/);assert.match(populatedBasket,/Honey Mustard/);assert.match(populatedBasket,/20.00/,'basket uses the explicitly selected listing, not the other lowest quote');
+const populatedBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(populatedBasket,/Sample Vendor/);assert.match(populatedBasket,/Honey Mustard/);assert.match(populatedBasket,/21\.00/,'basket uses the explicitly selected listing and its saved price');
 await act(async()=>tree.unmount());
+vendorItems.find(row=>row.id==='vi1').price=20;
 catalogItems.push({...catalogItems[1],id:'former-honey',master_item_number:400,merged_into_id:'ci1'});
 store.set('kerdos.basket.org',JSON.stringify({quantities:{'former-honey_case':2},unitSelection:{},vendorOverride:{'former-honey_case':'vi1'},negotiatedPrices:{},splitOrders:{}}));
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
@@ -72,8 +92,12 @@ store.delete('kerdos.basket.org');catalogItems.find(c=>c.id==='ci1').name='Honey
 for(const row of vendorItems.filter(v=>v.id==='vi1'||v.id==='honey-second'))row.field_resolutions={row_approval:true,product_group:{catalogItemId:'ci1',description:row.description,brand:row.brand??null,confirmedBy:'reviewer'}};
 Object.assign(vendorItems.find(v=>v.id==='honey-second'),{pack_size:'1/10 LB',selling_unit:'CASE',price_basis:'case'});
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
+const honeyUnit=()=>tree.root.findByProps({'aria-label':'Order unit for Honey Mustard'});
+await act(async()=>honeyUnit().props.onChange({target:{value:'each'}}));assert.equal(honeyUnit().props.value,'each');
+assert.equal(priceButton().props['aria-description'],undefined,'the case-only listing does not count toward the each-price outline');
 await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
+assert.equal(honeyUnit().props.value,'case');assert.match(text(priceButton()),/Second Vendor.*9\.00/);assert.match(text(tree.toJSON()),/1\/10 LB/);
 assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='+')[1].props.disabled,false,'a valid confirmed listing remains purchasable when another supplier quotes a different dimension');
 await act(async()=>tree.unmount());
 // F2.1: actual App assessment -> option flags -> controls -> basket. An
@@ -120,6 +144,29 @@ snapshot.vendors.find(v=>v.id==='vendor').delivery_minimum_dollar=100;
 await act(async()=>{tree=Renderer.create(React.createElement(App));});await selectHoney('Sample Vendor');await act(async()=>honeyPlus().props.onClick());
 const shortBasket=text(tree.root.findByProps({className:'order-aside'}));assert.match(shortBasket,/80.00 to go/,'a locked $20 basket does not claim to meet a $100 minimum');assert.match(shortBasket,/Sample Vendor/);
 await act(async()=>tree.unmount());delete snapshot.vendors.find(v=>v.id==='vendor').delivery_minimum_dollar;
+
+// G: splitting between suppliers must preserve the exact primary listing,
+// even when the selected supplier has another listing for this product.
+Object.assign(expiring,{pack_size:'4/1 GAL',price:20});Object.assign(incompletePeer,{pack_size:'4/1 GAL',price:28});
+const alternate={...expiring,id:'honey-same-vendor-alternate',vendor_item_code:'ALT-32',price:32};
+vendorItems.push(alternate);snapshot.mappings.push({...snapshot.mappings.find(m=>m.vendor_item_id===expiring.id),id:'honey-alt-map',vendor_item_id:alternate.id});
+for(const [unit,primary,secondary] of [['case','64.00','28.00'],['each','16.00','7.00']]){
+ const key='ci1_'+unit;
+ store.set('kerdos.basket.org',JSON.stringify({quantities:{[key]:3},unitSelection:{ci1:unit},vendorOverride:{[key]:alternate.id},negotiatedPrices:{},splitOrders:{[key]:{vendorId:'second-vendor',quantity:1}}}));
+ await act(async()=>{tree=Renderer.create(React.createElement(App));});
+ const basket=text(tree.root.findByProps({className:'order-aside'}));
+ assert.ok(basket.includes(primary),'split '+unit+' basket must charge the exact selected primary listing: '+basket);
+ assert.ok(basket.includes(secondary),'split '+unit+' basket must retain the second vendor allocation');
+ await act(async()=>tree.unmount());
+}
+alternate.price_unavailable=true;
+store.set('kerdos.basket.org',JSON.stringify({quantities:{ci1_case:3},vendorOverride:{ci1_case:alternate.id},splitOrders:{ci1_case:{vendorId:'second-vendor',quantity:1}}}));
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(honeyPlus().props.disabled,true);
+assert.doesNotMatch(text(tree.root.findByProps({className:'order-aside'})),/Record \d+ Order/,'a held selection must never silently order another listing through a split');
+assert.equal(JSON.parse(store.get('kerdos.basket.org')).quantities.ci1_case,3);
+await act(async()=>tree.unmount());
+console.log('PASS G split baskets preserve the selected source listing for Case and Each.');
 console.log('PASS G actual App: three-offer normalized winner, incomplete cheap peer held, whole-pack basket charge and locked supplier minimum shortfall');
 console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);

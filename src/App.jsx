@@ -1,5 +1,5 @@
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
-import {OrderGuideListings} from './pages/OrderGuideListings.jsx';
+import {OrderGuideListings,useOrderGuidePriceAutosave} from './pages/OrderGuideListings.jsx';
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -140,6 +140,21 @@ export default function App() {
   const [unitSelection,setUnitSelection]=useState({});
   const [vendorOverride,setVendorOverride]=useState({});
   const [negotiatedPrices,setNegotiatedPrices]=useState({}); // unit key -> vendor ID -> agreed price
+  const priceEdits=useOrderGuidePriceAutosave({backend,organizationId:org?.id,userId:session?.user?.id,
+    canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping)=>{
+      // A legacy device-only price must not conceal a freshly saved quote.
+      setNegotiatedPrices(previous=>{
+        const next={...previous};
+        for(const unit of ['case','each']){
+          const key=`${mapping.catalog_item_id}_${unit}`;
+          if(!next[key])continue;
+          const prices={...next[key]};delete prices[vendorItem.vendor_id];
+          if(Object.keys(prices).length)next[key]=prices;else delete next[key];
+        }
+        return next;
+      });
+      await loadData();
+    }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
   useEffect(()=>{
@@ -644,12 +659,14 @@ export default function App() {
         const customVendorId=vendorOverride[caseKey]||null;
         const negotiation=negotiatedPrices[caseKey];
         const ranked=rankVendorOffers(prod.options,negotiation);
-        const preferredVendorId=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId))?.vendorId||(ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))||ranked.find(orderable))?.vendorId;
+        const selectedOffer=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId));
+        const preferredOffer=ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand));
+        const primaryOffer=selectedOffer||preferredOffer||ranked.find(orderable);
         const split=splitOrders[caseKey];
-        const splitQty=split&&split.vendorId!==preferredVendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(caseQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
+        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(caseQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
         items.push({...prod,quantity:caseQty-splitQty,orderUnit:"case",
           options:prod.options.map(o=>({...o,price:priceForOffer(o,negotiation),orderUnit:"case"})),
-          forcedVendorId:splitQty>0?preferredVendorId:customVendorId||rankVendorOffers(prod.options,negotiation).find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))?.vendorItemId||null,
+          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,
           forcedPrice:null});
         if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_case`,quantity:splitQty,orderUnit:"case",
           options:prod.options.map(o=>({...o,price:priceForOffer(o,negotiation),orderUnit:"case"})),forcedVendorId:split.vendorId,forcedPrice:null});
@@ -658,12 +675,14 @@ export default function App() {
         const customVendorId=vendorOverride[eachKey]||null;
         const negotiation=negotiatedPrices[eachKey];
         const ranked=rankVendorOffers(prod.options.filter(o=>o.eachPrice),negotiation,"each");
-        const preferredVendorId=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId))?.vendorId||(ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))||ranked.find(orderable))?.vendorId;
+        const selectedOffer=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId));
+        const preferredOffer=ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand));
+        const primaryOffer=selectedOffer||preferredOffer||ranked.find(orderable);
         const split=splitOrders[eachKey];
-        const splitQty=split&&split.vendorId!==preferredVendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&o.eachPrice&&orderable(o))?Math.min(eachQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
+        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&ranked.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(eachQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
         items.push({...prod,catalogItemId:`${prod.catalogItemId}_each`,quantity:eachQty-splitQty,orderUnit:"each",
           options:prod.options.filter(o=>o.eachPrice).map(o=>({...o,price:priceForOffer(o,negotiation,"each"),packSize:o.eachSize,orderUnit:"each"})),
-          forcedVendorId:splitQty>0?preferredVendorId:customVendorId||rankVendorOffers(prod.options.filter(o=>o.eachPrice),negotiation,"each").find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))?.vendorItemId||null,
+          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,
           forcedPrice:null});
         if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_each`,quantity:splitQty,orderUnit:"each",
           options:prod.options.filter(o=>o.eachPrice).map(o=>({...o,price:priceForOffer(o,negotiation,"each"),packSize:o.eachSize,orderUnit:"each"})),forcedVendorId:split.vendorId,forcedPrice:null});
@@ -987,14 +1006,16 @@ export default function App() {
                         const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
                         const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
                         const allListings=rankVendorOffers(item.linkedOptions||[],negotiation,selectedUnit);
-                        const alternativesMenu=menuOpen&&<OrderGuideListings backend={backend} organizationId={org.id} canManage={['owner','manager'].includes(org.role)}
-                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} mappings={mappings} unit={selectedUnit}
-                          onSelect={offer=>{setVendorOverride(previous=>({...previous,[activeKey]:offer.vendorItemId}));setOpenPriceMenu(null);}}
-                          onApplied={async offer=>{
-                            // Old device-only negotiated values must not conceal the saved quote.
-                            setNegotiatedPrices(previous=>{const next={...previous};for(const key of [caseKey,eachKey]){if(!next[key])continue;const prices={...next[key]};delete prices[offer.vendorId];if(Object.keys(prices).length)next[key]=prices;else delete next[key];}return next;});
-                            setVendorOverride(previous=>{const next={...previous};delete next[caseKey];delete next[eachKey];return next;});
-                            await loadData();
+                        const pendingPriceEdit=menuOpen?null:allListings.map(offer=>priceEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
+                        const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
+                        const multipleVendors=vendorCount>1;
+                        const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}
+                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} unit={selectedUnit} priceEdits={priceEdits}
+                          onSelect={offer=>{
+                            const nextUnit=selectedUnit==='each'&&!offer.eachPrice?'case':selectedUnit;
+                            if(nextUnit!==selectedUnit)setUnitSelection(previous=>({...previous,[item.catalogItemId]:nextUnit}));
+                            setVendorOverride(previous=>({...previous,[`${item.catalogItemId}_${nextUnit}`]:offer.vendorItemId}));
+                            setOpenPriceMenu(null);
                           }}/>;
                         const cells=[
                           <div key={item.catalogItemId+"_name"} draggable={!activeBlocked}
@@ -1026,10 +1047,15 @@ export default function App() {
                             <div className="order-price-grid">
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
                               <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup="true" aria-expanded={menuOpen}
-                                title={activeBlocked?activeBlockReason:undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:'1px solid #CBD5E1',borderRadius:6,background:'white',cursor:'pointer',fontSize:12}}>
+                                aria-description={multipleVendors?`${vendorCount} vendors quote this item`:undefined}
+                                title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?'2px solid #008577':'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?'#E0F2F1':'white',cursor:'pointer',fontSize:12}}>
                                 {activeVendorName||'Select listing'} · {activePrice==null?'Price unavailable':formatMoney(activePrice)} <span style={{float:'right'}}>{menuOpen?'▴':'▾'}</span>
                               </button>
-                              {vendorOverride[activeKey]&&<button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:'none',border:0,padding:'4px 0 0',cursor:'pointer'}}>Use lowest price</button>}
+                              {vendorOverride[activeKey]&&<div style={{display:'flex',justifyContent:'space-between',gap:6,alignItems:'baseline',marginTop:4}}>
+                                <small style={{color:'#52647A'}}>{[displayOption?.vendorItemCode,displayOption?.brand,displayOption?.packSize].filter(Boolean).join(' · ')}</small>
+                                <button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:'none',border:0,padding:0,cursor:'pointer'}}>Clear selection</button>
+                              </div>}
+                              {pendingPriceEdit&&<small role={pendingPriceEdit.error?'alert':'status'} style={{display:'block',color:pendingPriceEdit.error?'#B42318':'#52647A',marginTop:4}}>{pendingPriceEdit.error||'Saving price change…'}</small>}
                               </div>
                               {activeQty>1&&rankedOptions.some(opt=>opt.vendorId!==activeVendorId)&&(
                                 <details open={!!splitOrders[activeKey]?.vendorId} style={{marginTop:6,fontSize:11,color:"#475569"}}>
