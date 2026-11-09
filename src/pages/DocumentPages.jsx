@@ -33,7 +33,7 @@ function MoreMenu({children,label="Vendor actions"}){
     setOpen(!open);
   }
   return <div onClick={event=>event.stopPropagation()}><button ref={trigger} aria-label={label} aria-expanded={open} title={label} onClick={toggle} style={{...button("white",navy),border:`1px solid ${line}`,padding:"7px 11px",fontSize:17,lineHeight:1}}>•••</button>
-    {open&&createPortal(<div ref={panel} role="menu" onClick={()=>setOpen(false)} style={{position:"fixed",left:position.left,top:position.top,zIndex:1000,width:"min(240px, calc(100vw - 16px))",maxHeight:"min(220px, 60vh)",overflowY:"auto",background:"white",border:`1px solid ${line}`,borderRadius:10,boxShadow:"0 12px 30px rgba(16,35,61,.25)",padding:6}}>{children}</div>,document.body)}
+    {open&&createPortal(<div ref={panel} role="menu" onClick={()=>setOpen(false)} style={{position:"fixed",left:position.left,top:position.top,zIndex:1000,width:"min(240px, calc(100vw - 16px))",boxSizing:"border-box",maxHeight:"min(220px, 60vh)",overflowY:"auto",background:"white",border:`1px solid ${line}`,borderRadius:10,boxShadow:"0 12px 30px rgba(16,35,61,.25)",padding:6}}>{children}</div>,document.body)}
   </div>;
 }
 
