@@ -32,6 +32,7 @@ assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes
 const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
 await act(async()=>alternatives.props.onClick());
 const listingRegion=tree.root.findByProps({'aria-label':'Group listings'});assert.equal(listingRegion.findAllByType('input').length,2,'both source listings remain under one row');
+assert.equal(listingRegion.findAllByType('summary').length,0,'held listings do not show a Review control in the price dropdown');
 assert.equal(listingRegion.findAllByType('input').every(input=>input.props.disabled),true,'employee has selection but no price write permission');
 await act(async()=>listingRegion.findAllByType('button').find(button=>button.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'selection closes dropdown');assert.match(text(tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'})),/Second Vendor/);

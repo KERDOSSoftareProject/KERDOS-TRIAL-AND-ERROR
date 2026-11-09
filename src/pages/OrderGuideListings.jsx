@@ -1,7 +1,6 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {createCatalogRowsService} from '../services/catalog-rows.js';
 import {formatMoney} from '../localization.js';
-import {blockReason,orderable} from '../core/ordering.js';
 
 const PRICE_AUTOSAVE_DELAY_MS=700;
 
@@ -84,7 +83,6 @@ export function OrderGuideListings({canManage,offers,selectedId,vendorItems,unit
       {unit==='each'&&<small style={{display:'block',color:'#667085'}}>Quoted price · {offer.eachPrice==null?'—':formatMoney(offer.eachPrice)+'/each'}</small>}
      </td><td style={{padding:6}}>{status&&<small role={draft.error?'alert':'status'} style={{display:'block',color:draft.error?'#B42318':'#276742'}}>{status}</small>}
       {canManage&&draft?.phase==='error'&&<><button type="button" onClick={()=>priceEdits.edit(offer.vendorItemId,draft.raw)}>Retry</button><button type="button" onClick={()=>priceEdits.discard(offer.vendorItemId)}>Discard edit</button></>}
-      {!orderable(offer)&&<details style={{marginTop:4,color:'#875200',fontSize:11}}><summary>Review</summary>{blockReason(offer)}</details>}
      </td>
     </tr>;
    })}</tbody>
