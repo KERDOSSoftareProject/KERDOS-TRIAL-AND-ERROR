@@ -23,7 +23,8 @@
 import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
 import { createImportService } from "../../../src/services/imports.js";
 import { createCatalogService } from "../../../src/services/catalog.js";
-import { importPriceRow } from "../../../src/core/import-price-row.js";
+import { importPriceRow, MISSING_DESCRIPTION } from "../../../src/core/import-price-row.js";
+import { createSourceRowSnapshot, verifyResumeRows } from "../../../src/core/import-resume.js";
 import { findUncodedVendorListing } from "../../../src/core/vendor-listing.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
@@ -281,6 +282,14 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   let documentId;
   if (existingDoc) {
+    if (existingDoc.source_rows) {
+      try {
+        verifyResumeRows(parsedRows, existingDoc.completed_keys || [], [], existingDoc.source_rows);
+      } catch (error) {
+        await backend.attachments.setStatus(attachmentId, "needs_review", error.message, existingDoc.id);
+        return { outcome: "needs_review", reason: error.message };
+      }
+    }
     documentId = existingDoc.id;
   } else {
     const newDoc = await importService.createPriceDocument({
@@ -291,6 +300,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       file_name:        filename,
       file_path:        storagePath,
       original_text:    rawText,
+      ...(parsedRows.some(row=>!row.description?.trim())?{source_rows:createSourceRowSnapshot(parsedRows)}:{}),
       status:           "processing",
     });
     documentId = newDoc.id;
@@ -319,7 +329,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // ── Step 6: run the import engine row by row ───────────────────────────────
   const newCompletedKeys = [...completedRows];
   // completed_keys contains only successfully saved row:N keys (A1.7 contract).
-  // Held-row source/reasons remain on the vendor listing and linked original;
+  // Held-row evidence remains with the linked original or vendor listing;
   // report their row keys separately without corrupting resume's saved-row set.
   const heldKeys = [];
   const heldRows = [];
@@ -347,6 +357,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // Skip only saved rows. Reassess unresolved rows: new trusted evidence can
       // resolve them, and an unresolved row must never become a permanent skip.
       if (completedRows.has(completedKey)) continue;
+      if (!sourceRow.description?.trim()) {
+        heldKeys.push(completedKey);
+        heldRows.push({key:completedKey,reasons:[MISSING_DESCRIPTION]});
+        continue;
+      }
 
       // A missing vendor code is not an identity shared by all unnumbered
       // products. Reuse only one source-compatible listing; retain ambiguous

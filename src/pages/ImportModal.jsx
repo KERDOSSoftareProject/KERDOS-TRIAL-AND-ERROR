@@ -18,7 +18,7 @@ import {rememberedLayout,withRememberedLayout,COLUMN_ROLE_LABELS,COLUMN_ROLES_FO
 import {formatMoney} from "../localization.js";
 import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
-import {importPriceRow} from "../core/import-price-row.js";
+import {importPriceRow,MISSING_DESCRIPTION} from "../core/import-price-row.js";
 import {verifyResumeRows,createSourceRowSnapshot} from "../core/import-resume.js";
 import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
@@ -417,6 +417,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     if(mode==="pricelist"&&invoiceLoad==="loading"){setSaveReview("Checking existing invoices. Try again in a moment.");return;}
     if(missingInvoiceDates.length){setSaveReview("Confirm the invoice date for each document before recording invoice charges.");return;}
     if(unsafeDocuments.length&&!automaticImport){setSaveReview("This file identifies itself as an invoice and/or a price update inconsistent with the selected import mode. Split mixed documents, or select the correct mode before saving.");return;}
+    if(mode==="invoice"&&allRows.some(row=>!row.description?.trim())){setSaveReview("Enter a product description for each invoice line before saving.");return;}
     if(mode==="invoice"&&needsReview.length){setSaveReview(`${needsReview.length} ambiguous row(s) still need a deliberate correction or approval. No unreviewed amount will change a current vendor quote.`);return;}
     // Inbox preview does not reserve the attachment. The same row lock used by
     // the worker is acquired here, immediately before any save-side effects.
@@ -578,6 +579,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const rowIssues=[...(sourceRow.issues||[]),...(!acceptedInvoiceConflicts.has(rowKey)?(invoiceClues.get(rowKey)?.conflicts||[]):[])];
         const rowNeedsReview=!!rowIssues.length&&!acceptedIssues.has(rowKey);
         try{
+        if(!row.description?.trim())throw new Error(MISSING_DESCRIPTION);
         if(!rowNeedsReview&&!row.priceUnavailable&&(!Number.isFinite(Number(row.price))||Number(row.price)<=0)) throw new Error("No confirmed positive unit price");
         const stagedReceipt=existingDoc?.staged_row_receipts?.[completedKey]||null;
         let ex=row.code?currentVendorByCode.get(row.code)||null:null;
