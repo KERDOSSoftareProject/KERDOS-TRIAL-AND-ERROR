@@ -5,7 +5,7 @@ import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
 import {fileToText} from "../document-reader.js";
 import {nonemptyWorkbookSheets,parseStructuredDocument} from "../core/document-structuring.js";
-import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
+import {findDate,findInvoiceNumber,placeDocumentFields} from "../ingestion.js";
 import {findUncodedVendorListing,vendorListingLabel} from "../core/vendor-listing.js";
 import {lookupQuoteComparison} from "../core/quote-provenance.js";
 import {createProcurementContext,MATCH_POLICY} from "../procurement.js";
@@ -23,6 +23,7 @@ import {verifyResumeRows,createSourceRowSnapshot,hasWorksheetSnapshot,LEGACY_WOR
 import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
+import {inferDetailBrand} from "../core/document-interpretation.js";
 import {enrichFromInvoices,invoiceEvidence,readInvoiceEvidence} from "../core/invoice-evidence.js";
 import {billingUnitEvidence} from "../core/billing-unit-evidence.js";
 import {btn,inp} from "../ui/styles.js";
@@ -43,7 +44,7 @@ const r2=value=>Math.round(value*100)/100;
 export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=EMPTY_VOCABULARY,vendorItems=[],mappings=[],onClose,onDone,onFinished,onIssue,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,automaticCompanion=false,inboxImportDocumentId=null}) {
   const procurement=useMemo(()=>createProcurementContext({industry,vocabulary}),[industry,vocabulary]);
   const catalogService=useMemo(()=>createCatalogService(backend,procurement),[procurement]);
-  const {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,parsePackSize,priceBasisFor,brandsMatch}=procurement;
+  const {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,parsePackSize,priceBasisFor}=procurement;
   const inboxReview=typeof onBeforeSave==="function";
   const automaticImport=!!(automaticCompanion&&companionEvidence&&!inboxReview&&initialMode==='pricelist'&&initialFiles?.length===1);
   const importActive=useRef(true);
@@ -186,11 +187,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     }
     // An unlabeled cell that matches a brand this organization already
     // knows is that brand; the engine fills it and says where it came from.
-    if(!next.brand&&next.details?.length&&knownBrands.length){
-      const found=next.details.find(detail=>knownBrands.some(known=>brandsMatch(known,detail)));
-      if(found)next={...next,brand:found,brandSource:"details"};
-    }
-    return next;
+    return inferDetailBrand(next,knownBrands,procurement);
   }
   // "Import another" returns to the file picker with the same vendor and
   // sheet setting, ready for the next file.
@@ -218,10 +215,10 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     // a reviewer can edit individual rows or skip completed positions.
     if(inboxImportDocumentId&&multiSheet)return parseStructuredDocument(text,reading,undefined,procurement);
     const parse=(part,options={})=>{
-      const first=parseDocument(part,options,procurement);
+      const first=placeDocumentFields(part,options);
       const fingerprint=first.layout?.fingerprint||"";
       const answers=fingerprint?{...answersFor(fingerprint),...(overrides[fingerprint]||{})}:{};
-      return Object.keys(answers).length?parseDocument(part,{...options,layoutAnswers:answers},procurement):first;
+      return Object.keys(answers).length?placeDocumentFields(part,{...options,layoutAnswers:answers}):first;
     };
     // The inbox's retained partial rows keep the worker's existing ordinal
     // contract. B3 changes the separate manual-upload path only.

@@ -229,7 +229,7 @@ async function runPriceRowParityFixture(path) {
   const industry = "restaurant";
   const text = [
     "Code,Description,Pack,Price Unit,Price",
-    "T,CHIX THIGH BNLS,4/10 LB,CASE,41.25",
+    "T,CHIX THIGH BNLS 4/10 LB,,CASE,41.25",
     "B,CHICKEN BREAST BONELESS,4/10 LB,CASE,56.30",
     "49200,CHIC BRST RAW BNLS RNDM CVP,4/10 LB,,2.06",
   ].join("\n");
@@ -285,6 +285,9 @@ async function runPriceRowParityFixture(path) {
     const catalogItem = savedCatalog.find(row => row.id === mapping.catalog_item_id);
     return {
       description: quote.description, price: quote.price, pack: quote.packSize, sellingUnit: quote.sellingUnit,
+      sourceDescription: quote.importRow.evidence.sourceDescription,
+      packInference: quote.importRow.evidence.fieldInference?.packSize ?? null,
+      packPlacement: quote.importRow.evidence.fieldValidation.fields.packSize,
       basis: quote.priceBasis, basisEvidence: quote.importRow.evidence.quoteBasisEvidence ?? null,
       priceUnavailable: quote.priceUnavailable,
       reviewRequired: quote.importRow.reviewRequired, reviewFields: quote.importRow.reviewFields,
@@ -482,6 +485,12 @@ await test("abbreviated price rows have identical stored outcomes in fresh manua
     ["CHICKEN BREAST BONELESS", "meat", "4/10 LB", "case", "breast", "review"],
     ["CHIC BRST RAW BNLS RNDM CVP", "meat", "4/10 LB", "measure", "breast", "review"],
   ]);
+  assert.equal(email[0].sourceDescription,"CHIX THIGH BNLS 4/10 LB");
+  assert.equal(email[0].packPlacement.status,"missing");
+  assert.equal(email[0].packInference.kind,"inferred");
+  assert.equal(email[0].packInference.evidence.rawValue,email[0].sourceDescription);
+  assert.equal(email[1].packInference,null);
+  assert.equal(email[1].packPlacement.status,"present");
   assert.equal(email[2].basisEvidence.references[0].documentId, "invoice");
 });
 

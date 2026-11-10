@@ -32,3 +32,14 @@ export function identifyRowFields({cells, columnMap, sourceHeaders, fieldOrigins
   };
   return {version: 1, anchor, values, bindings};
 }
+
+// Presentation markers are layout furniture. Keep the bound text itself
+// intact and use this view for row admission and the interpreted label.
+export function withoutDescriptionFormatting(value){
+  return value.trim()
+    .replace(/\s+\*{2,}[A-Z0-9]+\*{2,}/gi,"")
+    .replace(/\*+([^*]+)\*+/g,"$1")
+    .replace(/\*+/g,"")
+    .replace(/\s{2,}/g," ")
+    .trim();
+}

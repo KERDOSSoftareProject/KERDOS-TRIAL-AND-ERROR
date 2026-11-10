@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import {parseDocument} from "../ingestion.js";
+import {parseDocument,placeDocumentFields} from "../ingestion.js";
 import {identifyRowFields} from "./field-identification.js";
+import {inferDetailBrand,interpretDocumentFields} from "./document-interpretation.js";
+import {placeStructuredDocument,parseStructuredDocument} from "./document-structuring.js";
+import {configureProcurement,createProcurementContext} from "../procurement.js";
 
 const layout = {
   cells: ["$25.10", "Long Supplier Brand", "American Cheese\nWhite Sliced"],
@@ -69,3 +72,54 @@ assert.deepEqual(blocks.map(row => row.fieldIdentification.bindings.price.column
 assert.deepEqual(blocks.map(row => row.fieldIdentification.anchor.rowIndex), [1, 1]);
 
 console.log("PASS B4 field binding: raw values, evidence origins, ignored/ambiguous descriptions, and coordinates across repeated layouts.");
+
+const source = "Code,Description,Pack,Price Unit,Price,Note\nM-301,BRIGHT  PAPER 5 RLX,,CASE,20.40,Acme\nM-302,LINER 4/10 LB,2/5 LB,CASE,21.75,Acme";
+const settings = {vocabulary:[{kind:"unit",term:"rlx",canonical:"LB"}]};
+const placed = placeDocumentFields(source);
+const untouched = structuredClone(placed);
+configureProcurement(settings);
+try {
+  assert.deepEqual(placeDocumentFields(source),untouched,"the active workspace cannot change placement");
+} finally {
+  configureProcurement();
+}
+const [unfilled,stated] = placed.rows;
+assert.equal(unfilled.description,"BRIGHT  PAPER 5 RLX");
+assert.equal(unfilled.fieldIdentification.anchor.rawValue,unfilled.description);
+assert.equal(unfilled.packSize,null);
+assert.equal(unfilled.brand,null);
+assert.deepEqual(unfilled.details,["Acme"]);
+assert.equal(unfilled.fieldValidation.fields.packSize.accuracy,0);
+assert.equal(stated.packSize,"2/5 LB");
+assert.equal(stated.fieldValidation.fields.packSize.accuracy,100);
+
+const configured = createProcurementContext(settings);
+const inferredRow = interpretDocumentFields(placed,configured).rows[0];
+assert.equal(interpretDocumentFields(placed,createProcurementContext()).rows[0].packSize,null);
+assert.equal(inferredRow.packSize,"5 RLX");
+assert.equal(inferredRow.sourceDescription,unfilled.description);
+assert.equal(inferredRow.fieldInference.packSize.kind,"inferred");
+assert.equal(inferredRow.fieldInference.packSize.accuracy,90);
+assert.equal(inferredRow.fieldInference.packSize.evidence.rawValue,unfilled.description);
+assert.equal(inferredRow.fieldInference.packSize.evidence.columnIndex,1);
+assert.equal(inferredRow.fieldValidation.fields.packSize.accuracy,0,"inference never rewrites source validation");
+assert.equal(interpretDocumentFields(placed,configured).rows[1].packSize,"2/5 LB","description cannot replace a stated pack");
+const brand = inferDetailBrand(inferredRow,["Acme"],configured);
+assert.equal(brand.brand,"Acme");
+assert.equal(brand.fieldInference.brand.kind,"inferred");
+assert.equal(brand.fieldInference.brand.accuracy,70);
+assert.equal(brand.fieldInference.brand.evidence.rawValue,"Acme");
+assert.deepEqual(placed,untouched,"interpretation must leave source placements immutable");
+
+const worksheetRows=source.split("\n").map(line=>line.split(","));
+const reading={kind:"workbook",filename:"boundary.xlsx",worksheets:[{
+  name:"Prices",text:source,rows:worksheetRows,
+  cells:worksheetRows.flatMap((cells,row)=>cells.map((value,column)=>({row,column,value,address:String.fromCharCode(65+column)+(row+1)}))),
+}]};
+const structured=placeStructuredDocument(source,reading);
+assert.equal(structured.rows[0].packSize,null);
+assert.equal(structured.rows[0].sourceProvenance.worksheet,"Prices");
+const combined=parseStructuredDocument(source,reading,undefined,configured);
+assert.equal(combined.rows[0].packSize,"5 RLX");
+assert.deepEqual(combined.rows[0].sourceProvenance,structured.rows[0].sourceProvenance);
+console.log("PASS B/C handoff: neutral placement, immutable wording and coordinates, workspace-scoped inference, and distinct source and inference evidence.");

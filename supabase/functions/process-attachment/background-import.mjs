@@ -3,7 +3,8 @@
  *
  * Orchestrates automatic processing of a single inbound attachment.
  * Reuses the three-part engine (Interpret → Compare → Decide) unchanged:
- *   Interpret  — readAttachment + parseDocument (ingestion.js)
+ *   Read and place — readAttachment + neutral document placement
+ *   Interpret      — scoped document interpretation after placement
  *   Compare    — preparePriceImport / importPriceRow (core/)
  *   Decide     — kerdos_auto_apply_price_quote (via service-backend.mjs)
  *
