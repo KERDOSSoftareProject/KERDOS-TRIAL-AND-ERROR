@@ -314,6 +314,19 @@ assert.match(text(priceButton()),/Sample Vendor.*16\.75/);
 await act(async()=>tree.unmount());
 console.log('PASS C2.5 a comparison tie can be resolved through the existing Item Catalog preference.');
 
+store.delete('kerdos.basket.org');
+delete catalogItems.find(item=>item.id==='ci1').canonical_unit;
+Object.assign(expiring,{pack_size:'10000 CT',selling_unit:'CASE',price_basis:'case',price:10});
+Object.assign(third,{pack_size:'20000 CT',selling_unit:'CASE',price_basis:'case',price:19.99});
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.match(text(priceButton()),/Third Vendor.*19\.99/,'a difference below display precision still determines the winner');
+await act(async()=>honeyPlus().props.onClick());
+await act(async()=>honeyPlus().props.onClick());
+assert.match(text(aside()),/Third Vendor.*2 cases × \$19\.99.*39\.98/,'the basket retains the winning vendor’s stated case price');
+await act(async()=>tree.unmount());
+console.log('PASS C2.5 unit-cost comparison retains precision through the Order Guide and basket.');
+
+
 
 
 

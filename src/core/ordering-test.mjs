@@ -128,6 +128,36 @@ assert.deepEqual([...preferred.comparable],[byVolume],"the catalog's supported c
 const expiredVolume={...byVolume,expired:true};
 assert.deepEqual([...compareOrderOffers([expiredVolume,pricedEach[0]],{orderUnit:"each"}).comparable],[pricedEach[0]]);
 
+const closeCases=[
+  option("small-case",10,{casePrice:10,packSize:"10000 CT"}),
+  option("large-case",19.99,{casePrice:19.99,packSize:"20000 CT"}),
+];
+const caseComparison=compareOrderOffers(closeCases,{orderUnit:"case"});
+const closeCaseOffers=closeCases.map(offer=>({...offer,perUnit:caseComparison.rates.get(offer)}));
+const closeCaseRanking=rankVendorOffers(closeCaseOffers);
+assert.equal(closeCaseRanking[0].vendorId,"large-case","comparison retains differences smaller than the display precision");
+assert.equal(offerDollarDifference(closeCaseRanking[1],closeCaseRanking[0]),0.01);
+const closeCaseOrder=solveOrder([{catalogItemId:"close-case",quantity:2,orderUnit:"case",options:closeCaseOffers}],[])[0];
+assert.equal(closeCaseOrder.vendorItemId,"large-case-item");
+assert.equal(closeCaseOrder.lineTotal,39.98,"comparison precision does not change the amount charged");
+
+const smallRates=[
+  option("small-rate-pack",2.50,{casePrice:2.50,packSize:"100000 CT"}),
+  option("large-rate-pack",4,{casePrice:4,packSize:"250000 CT"}),
+];
+const smallComparison=compareOrderOffers(smallRates,{orderUnit:"case"});
+assert.equal(smallComparison.comparable.size,2,"positive rates that display as zero can still be compared");
+assert.equal(rankVendorOffers(smallRates.map(offer=>({...offer,perUnit:smallComparison.rates.get(offer)})))[0].vendorId,"large-rate-pack");
+
+const closeEach=[
+  option("higher-each",10.00101,{casePrice:30.003,eachPrice:10.00101,eachSize:"1000 CT",packSize:"3/1000 CT"}),
+  option("lower-each",10.001,{casePrice:30.003,eachPrice:10.001,eachSize:"1000 CT",packSize:"3/1000 CT"}),
+];
+const eachComparison=compareOrderOffers(closeEach,{orderUnit:"each"});
+assert.equal(rankVendorOffers(closeEach.map(offer=>({...offer,perUnit:eachComparison.rates.get(offer)})),null,"each")[0].vendorId,
+  "lower-each","rank a stated Each price using its own amount and contents");
+
+
 
 
 // [4a] Dollar-minimum fill — path A success.

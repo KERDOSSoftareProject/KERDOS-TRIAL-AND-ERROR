@@ -392,14 +392,11 @@ function eachPrice(casePrice, pack) {
 // price is given per the pack's own unit instead - never silently
 // converted across dimensions. Unknown units stay comparable only to
 // the same unknown unit, same rule as parsePackSize.
-function pricePerUnit(price, pack, targetUnit) {
+function pricePerUnit(price, pack, targetUnit, {roundPrice=true}={}) {
   const p=parsePackSize(pack), n=Number(price);
   if (!p?.parsed || !Number.isFinite(n) || !p.total) return null;
   const target=targetUnit ? normalizeUnit(targetUnit) : p.unit;
   const def=UNIT_DEFINITIONS[target];
-  if (def && def.dimension===p.dimension && p.baseTotal) {
-    return {price:round(n/(p.baseTotal/def.factor),4),unit:target,dimension:p.dimension};
-  }
   // Unknown-dimension packs: allow arithmetic only for explicitly registered units
   // (taught via kind:"unit" → present in UNIT_LOOKUP) that are not packaging words.
   // Untaught codes (e.g. "CN") and packaging aliases stay unresolved — dividing by
@@ -411,7 +408,9 @@ function pricePerUnit(price, pack, targetUnit) {
     // no basis for conversion — unknown units have no cross-unit factors.
     if(targetUnit&&target!==p.unit) return null;
   }
-  return {price:round(n/p.total,4),unit:p.unit,dimension:p.dimension};
+  const converted=def&&def.dimension===p.dimension&&p.baseTotal;
+  const rate=n/(converted?p.baseTotal/def.factor:p.total);
+  return {price:roundPrice?round(rate,4):rate,unit:converted?target:p.unit,dimension:p.dimension};
 }
 
 // ---- Learning from confirmations -------------------------------------

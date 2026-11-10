@@ -43,7 +43,7 @@ export function compareOrderOffers(options,{orderUnit,preferredUnit,industry}={}
     const rates=new Map();
     for(const option of ready){
       const rate=option.costOverride?{price:Number(option.costOverride.price),unit:option.costOverride.unit}:
-        pricePerUnit(option.casePrice,option.packSize,unit);
+        pricePerUnit(priceForOffer(option,null,orderUnit),purchasingPack(option,orderUnit),unit,{roundPrice:false});
       if(rate?.unit===unit&&Number.isFinite(rate.price)&&rate.price>0)rates.set(option,rate);
     }
     if(rates.size)groups.push({unit,rates,vendors:new Set([...rates.keys()].map(option=>option.vendorId)).size});
