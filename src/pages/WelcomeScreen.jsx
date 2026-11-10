@@ -47,7 +47,7 @@ export default function WelcomeScreen({clientName,userName,role,onNavigate,atten
       @media (max-width:380px) { .welcome-grid { grid-template-columns:1fr; } .welcome-tile { min-height:116px; } }
     `}</style>
     <div className="welcome-inner">
-      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome{clientName?` ${clientName}`:""}</p>
+      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome{clientName?` ${clientName}`:""}!</p>
       <h1 className="welcome-greeting">{welcomeGreeting(now)}{userName?`, ${userName}`:""}!</h1>
       <div className="welcome-grid">
         {navigationPages(role).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
