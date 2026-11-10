@@ -20,18 +20,19 @@
  *   - Script is self-contained and reproducible
  */
 
-import {preparePriceImport} from './price-import-review.js';
-import {orderGuideAssessment} from './catalog-fields.js';
-import {parsePackSize, configureProcurement} from '../procurement.js';
-import {configureCategoryProfile} from '../knowledge/category-profiles.js';
+import {preparePriceImport} from '../../src/core/price-import-review.js';
+import {orderGuideAssessment} from '../../src/core/catalog-fields.js';
+import {parsePackSize, configureProcurement} from '../../src/procurement.js';
+import {configureCategoryProfile} from '../../src/knowledge/category-profiles.js';
 import fs from 'fs';
 
 configureProcurement({industry: 'restaurant'});
 configureCategoryProfile('restaurant');
 
 // ── Parse horn.txt ────────────────────────────────────────────────────────────
-const HORN = '/mnt/user-data/uploads/horn.txt';
-const raw = fs.readFileSync(HORN, 'utf8');
+const fixturePath = process.argv[2];
+if (!fixturePath) throw new Error('Pass the path to a private diagnostic fixture.');
+const raw = fs.readFileSync(fixturePath, 'utf8');
 const lines = raw.trim().split('\n').map(l => l.replace(/\r$/, ''));
 const hornRows = lines.slice(1).map(line => {
   const cols = line.split('\t');
@@ -191,7 +192,7 @@ function _countBy(results, fn) {
 console.log('═══════════════════════════════════════════════════════════════════');
 console.log('HORN.TXT FULL READINESS AUDIT — REAL ENGINE, ISOLATED TEST BACKEND');
 console.log('═══════════════════════════════════════════════════════════════════');
-console.log(`Source: ${HORN}`);
+console.log(`Source: ${fixturePath}`);
 console.log(`Rows:   ${hornRows.length}`);
 console.log(`Date:   ${new Date().toISOString().slice(0,10)}`);
 

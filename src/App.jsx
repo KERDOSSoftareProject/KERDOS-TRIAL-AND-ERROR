@@ -4,7 +4,7 @@ import {MobileDetailWindow} from './ui/MobileDetailWindow.jsx';
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
 import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
 import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
-import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
+import {automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
@@ -82,7 +82,6 @@ function r2(n) { return Math.round(n * 100) / 100; }
 
 // ── LANDING ───────────────────────────────────────────────────────────
 export default function App() {
-  const automaticGrouping=useRef(false);
   const [session,setSession]=useState(undefined);
   const [org,setOrg]=useState(null);
   const [organizations,setOrganizations]=useState([]);
@@ -319,25 +318,6 @@ export default function App() {
     // The engine reads this org's vocabulary from here on - before any
     // matching, parsing, or per-unit pricing in this session runs.
     configureProcurement({industry:o.industry,vocabulary:snapshot.vocabulary});
-    // Automatic cross-vendor grouping writes removed per consensus (2026-10-05).
-    // alternativeGroups() still runs at display time for Item Catalog grouping UI.
-    // Only explicit client decisions via AssociateAlternatives write to the database.
-    if(false&&!usingLocal&&["owner","manager"].includes(o.role)&&backend.catalog.groupAutomaticAlternatives&&!automaticGrouping.current){
-      automaticGrouping.current=true;
-      let changed=false;
-      try{
-        const groups=alternativeGroups(snapshot).slice(0,20);
-        for(const group of groups){
-          await backend.catalog.groupAutomaticAlternatives({organizationId:id,vendorItemIds:group.rows.map(v=>v.id),targetCatalogItemId:group.targetCatalogItemId,key:group.key,dimension:group.dimension,revisions:Object.fromEntries(group.rows.map(v=>[v.id,v.row_revision||0]))});
-          changed=true;
-        }
-        if(changed){snapshot=await backend.workspace.snapshot(id);void saveSnapshot(snapshotKey,snapshot);}
-      }catch(error){
-        if(changed){try{snapshot=await backend.workspace.snapshot(id);void saveSnapshot(snapshotKey,snapshot);}catch{}}
-        setImportNotice({message:"Automatic associations need attention: "+error.message});
-      }
-      finally{automaticGrouping.current=false;}
-    }
     setVocabulary(snapshot.vocabulary);
     setVendors(snapshot.vendors);
     setCatalogItems(snapshot.catalogItems);

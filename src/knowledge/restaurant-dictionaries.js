@@ -7,6 +7,14 @@ const reference=(term,aliases,meaning)=>({term,aliases,meaning,kind:"reference"}
 const ambiguous=(term,meaning)=>({term,aliases:[],meaning,kind:"ambiguous"});
 
 export const RESTAURANT_DICTIONARY_VERSION="1.0.0";
+// Standalone cells that can supply brand evidence for restaurant documents.
+export const restaurantCellBrands=new Set([
+  'tyson','sysco','usfoods','kraft','heinz','hunts','del monte','dole',
+  'kens',"ken's","hellmann's",'hellmans',"french's",'frenchs',
+  'campbells',"campbell's",'swanson','hormel','oscar mayer','land o lakes',
+  'chobani','frito lay','nabisco','sara lee','pepperidge farm',
+]);
+
 export const restaurantDictionaries={
   restaurant:[
     reference("purchase order",["PO"],"Document requesting goods from a supplier"),

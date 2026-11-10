@@ -51,14 +51,15 @@ export function routingAddressError(address, assignedTestAddress = testInboundAd
   return null;
 }
 
-/** Read the registrations created by the server; never creates or edits a row. */
-export async function listAutomaticReceivingAddresses(backend,organizationId,documentType=null){
+/** Read active, vendor-specific registrations that can route a typed document. */
+export async function listReceivingAddresses(backend,organizationId,documentType=null){
   if(documentType!==null&&!["pricelist","invoice"].includes(documentType))throw new Error("Unknown document context");
   let query=backend.records.query("email_routing_addresses")
     .select("id, routing_address, vendor_id, document_type")
-    .eq("organization_id",organizationId).eq("is_automatic",true).eq("is_active",true);
+    .eq("organization_id",organizationId).eq("is_active",true);
   if(documentType)query=query.eq("document_type",documentType);
-  return run(query.order("routing_address"),"listAutomaticReceivingAddresses");
+  const rows=await run(query.order("routing_address"),"listReceivingAddresses");
+  return (rows||[]).filter(row=>row.vendor_id&&["pricelist","invoice"].includes(row.document_type));
 }
 
 /**

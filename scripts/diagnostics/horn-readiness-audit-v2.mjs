@@ -19,11 +19,11 @@
  *   - Unconfirmed pricing remains unconfirmed on reimport
  */
 
-import {preparePriceImport} from './price-import-review.js';
-import {orderGuideAssessment, catalogRowEvidence} from './catalog-fields.js';
-import {parsePackSize, quoteStatus, configureProcurement} from '../procurement.js';
-import {configureCategoryProfile} from '../knowledge/category-profiles.js';
-import {inferPricingBasis} from './infer-pricing-basis.js';
+import {preparePriceImport} from '../../src/core/price-import-review.js';
+import {orderGuideAssessment, catalogRowEvidence} from '../../src/core/catalog-fields.js';
+import {parsePackSize, quoteStatus, configureProcurement} from '../../src/procurement.js';
+import {configureCategoryProfile} from '../../src/knowledge/category-profiles.js';
+import {inferPricingBasis} from '../../src/core/infer-pricing-basis.js';
 import fs from 'fs';
 import crypto from 'crypto';
 
@@ -31,8 +31,9 @@ configureProcurement({industry: 'restaurant'});
 configureCategoryProfile('restaurant');
 
 // ── 1. File identity ──────────────────────────────────────────────────────────
-const HORN = '/mnt/user-data/uploads/horn.txt';
-const raw = fs.readFileSync(HORN, 'utf8');
+const fixturePath = process.argv[2];
+if (!fixturePath) throw new Error('Pass the path to a private diagnostic fixture.');
+const raw = fs.readFileSync(fixturePath, 'utf8');
 const FILE_HASH = crypto.createHash('sha256').update(raw).digest('hex');
 const lines = raw.trim().split('\n').map(l => l.replace(/\r$/, ''));
 
@@ -248,7 +249,7 @@ const N = hornRows.length;
 console.log('═══════════════════════════════════════════════════════════════════════');
 console.log('HORN.TXT READINESS AUDIT v2 — REAL ENGINE, CORRECTED');
 console.log('═══════════════════════════════════════════════════════════════════════');
-console.log(`File:    ${HORN}`);
+console.log(`File:    ${fixturePath}`);
 console.log(`SHA-256: ${FILE_HASH}`);
 console.log(`Rows:    ${N}`);
 console.log(`Config:  industry=restaurant`);

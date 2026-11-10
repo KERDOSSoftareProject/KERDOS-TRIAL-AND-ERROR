@@ -47,8 +47,8 @@ try{
   `);
   await db.exec(await readFile(new URL("../../supabase/migrations/20261110132849_first_organization_onboarding.sql",import.meta.url),"utf8"));
   const setUser=async n=>db.exec(`set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-00000000000${n}';`);
-  const create=async (name,vendors=[])=>{
-    const result=await db.query("select public.kerdos_create_first_organization($1,$2,$3::jsonb) as company",[name,"restaurant",JSON.stringify(vendors)]);
+  const create=async (name,vendors=[],industry="restaurant")=>{
+    const result=await db.query("select public.kerdos_create_first_organization($1,$2,$3::jsonb) as company",[name,industry,JSON.stringify(vendors)]);
     return result.rows[0].company;
   };
   await db.exec("set role anon");
@@ -71,10 +71,14 @@ try{
   await assert.rejects(create("Second Company"),/already belongs/);
   await setUser(2);
   assert.deepEqual((await db.query("select id from public.organizations")).rows,[]);
-  const second=await create("Example");
+  const second=await create("Example",[{name:"Supplier",delivery_minimum_units:12}],"construction");
   assert.notEqual(second.id,first.id);
   assert.notEqual(second.slug,first.slug);
-  assert.deepEqual((await db.query("select id from public.organizations")).rows,[{id:second.id}]);
+  assert.deepEqual((await db.query("select id,industry from public.organizations")).rows,[{id:second.id,industry:"construction"}]);
+  assert.deepEqual((await db.query("select name,delivery_minimum_units from public.vendors")).rows,[{name:"Supplier",delivery_minimum_units:12}]);
+  await setUser(1);
+  assert.deepEqual((await db.query("select id,industry from public.organizations")).rows,[{id:first.id,industry:"restaurant"}]);
+  assert.deepEqual((await db.query("select name,delivery_minimum_units from public.vendors")).rows,[{name:"Supplier",delivery_minimum_units:5}]);
 }finally{
   await db.close();
 }

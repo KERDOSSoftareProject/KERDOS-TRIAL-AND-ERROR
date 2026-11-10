@@ -26,6 +26,7 @@
  */
 
 import {parsePackSize, packFromDescription} from '../procurement.js';
+import {recognizesIndustryBrand} from '../knowledge/category-profiles.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,13 +46,6 @@ function parseMoney(str) {
   if (isNaN(n)) return null;
   return negative ? -Math.abs(n) : n;
 }
-
-const KNOWN_BRANDS = new Set([
-  'tyson','sysco','usfoods','kraft','heinz','hunts','del monte','dole',
-  'kens','ken\'s','hellmann\'s','hellmans','french\'s','frenchs',
-  'campbells','campbell\'s','swanson','hormel','oscar mayer','land o lakes',
-  'chobani','frito lay','nabisco','sara lee','pepperidge farm',
-]);
 
 const PREP_TERMS = new Set([
   'fresh','frozen','chilled','raw','cooked','smoked','cured','marinated',
@@ -224,10 +218,9 @@ export function analyzeCell(rawValue, context = {}) {
 
   // ── 7. BRAND ─────────────────────────────────────────────────────────────
   const brandHeader = /brand|manufacturer|make/.test(header);
-  const lowerRaw = raw.toLowerCase();
   if (brandHeader) {
     propose('brand', raw, 'explicit-brand-header', `header says "${headerHint}"`, 0.95);
-  } else if (KNOWN_BRANDS.has(lowerRaw)) {
+  } else if (recognizesIndustryBrand(raw)) {
     propose('brand', raw, 'known-brand', `"${raw}" is a recognized brand name`, 0.85);
   } else if (isText && raw.split(/\s+/).length === 1 && raw.length >= 3 && raw.length <= 20
              && raw === raw.toUpperCase() && parseMoney(raw) === null) {
