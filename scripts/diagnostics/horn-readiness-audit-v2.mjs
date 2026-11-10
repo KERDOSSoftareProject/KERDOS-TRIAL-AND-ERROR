@@ -23,7 +23,7 @@ import {preparePriceImport} from '../../src/core/price-import-review.js';
 import {orderGuideAssessment, catalogRowEvidence} from '../../src/core/catalog-fields.js';
 import {parsePackSize, quoteStatus, configureProcurement} from '../../src/procurement.js';
 import {configureCategoryProfile} from '../../src/knowledge/category-profiles.js';
-import {inferPricingBasis} from '../../src/core/infer-pricing-basis.js';
+import {inferPricingBasis} from './legacy-pricing-plausibility.mjs';
 import fs from 'fs';
 import crypto from 'crypto';
 

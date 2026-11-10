@@ -1,30 +1,8 @@
-/**
- * PRICING BASIS INFERENCE
- *
- * Determines what a vendor's quoted price covers when no explicit selling
- * unit is stated on the document.
- *
- * Three output levels:
- *   supported   — two independent signals agree, no conflicts.
- *                 Auto-populated. No client action needed.
- *   suggested   — plausible but not confirmed.
- *                 Show the proposed basis with reason. Client confirms.
- *   conflicting — signals disagree or price is implausible.
- *                 Show alternatives and request selection.
- *
- * Hard rules:
- *   - Pack structure narrows choices. It does not confirm.
- *   - Product type priors come from the active industry vocabulary, not
- *     from hardcoded lists in this module.
- *   - Price plausibility eliminates candidates. Plausibility alone does
- *     not confirm.
- *   - When two bases remain plausible, show both for review. Never pick
- *     a winner silently.
- *   - Prior confirmed basis is the strongest evidence; only reused when
- *     the item matches and reviewRequired is not set.
- */
+// Historical diagnostics only. Price plausibility is not purchasing evidence.
+// The running importer deliberately does not use these experiments to fill
+// quoted-per fields or recommend a unit to the client.
 
-import {getProcurementContext} from '../procurement.js';
+import {getProcurementContext} from '../../src/procurement.js';
 
 
 // ── Plausibility ranges by unit ───────────────────────────────────────────────

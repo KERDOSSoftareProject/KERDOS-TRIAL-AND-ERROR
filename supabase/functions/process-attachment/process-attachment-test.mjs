@@ -223,7 +223,7 @@ import { processAttachmentInBackground } from "./background-import.mjs";
 
 // Both fresh processes consume the same bytes and initial catalog. Compare
 // the stored business outcome rather than UI labels or transport metadata.
-async function runPriceRowParityFixture(path) {
+async function runPriceRowParityFixture(path, missingBasis=false) {
   const organizationId = "org-1";
   const vendorId = "vendor-1";
   const industry = "restaurant";
@@ -251,14 +251,14 @@ async function runPriceRowParityFixture(path) {
     id: "invoice", organization_id: organizationId, vendor_id: vendorId, invoice_number: "INV-A", invoice_date: "2026-11-09",
     raw_text: "Item,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\n49200,CHIC BRST RAW BNLS RNDM CVP,4/10 LB,LB,40,2.06,82.40",
   }];
-  const bytes = csvBytes(text);
+  const bytes = csvBytes(missingBasis ? text+"\nX-1,STEEL WASHERS,4/10 LB,,2.06" : text);
   const backend = createInMemoryBackend({
     bytes, organizations: [{ id: organizationId, industry }], catalogItems, categories, vendorItems, mappings, invoices,
   });
   if (path === "email") {
     const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
     const result = await processAttachmentInBackground(backend, attachment, { organizationId, vendorId, documentType: "pricelist" });
-    assert.equal(result.outcome, "auto_imported", result.reason);
+    assert.equal(result.outcome, missingBasis ? "needs_review" : "auto_imported", result.reason);
   } else {
     const procurement = createProcurementContext({ industry });
     const importService = createImportService(backend);
@@ -266,7 +266,7 @@ async function runPriceRowParityFixture(path) {
     const workingCatalogItems = [...catalogItems];
     const workingVendorItems = [...vendorItems];
     const workingMappings = [...mappings];
-    const { rows } = parseStructuredDocument(text, null, undefined, procurement);
+    const { rows } = parseStructuredDocument(missingBasis ? text+"\nX-1,STEEL WASHERS,4/10 LB,,2.06" : text, null, undefined, procurement);
     const invoiceSources = readInvoiceEvidence(await importService.invoiceSources(organizationId, vendorId), organizationId, vendorId, procurement);
     for (const [index, sourceRow] of rows.entries()) {
       const row = enrichFromInvoices(sourceRow, invoiceSources, procurement);
@@ -299,7 +299,7 @@ async function runPriceRowParityFixture(path) {
 
 const parityPath = process.argv[2];
 if (parityPath === "manual" || parityPath === "email") {
-  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath)));
+  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath,process.argv[3]==="missing-basis")));
   process.exit(0);
 }
 
@@ -474,6 +474,20 @@ await test("email import uses current cross-vendor group approval without reusin
       [expected, expected === "oil" ? "review" : "new"],
     ], `${industry} / ${incoming||"POMACE OIL 100%"}`);
   }
+});
+
+await test("missing quoted-per stays blank in fresh upload and email processes", () => {
+  const run=path=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),path,'missing-basis'],{encoding:'utf8'}));
+  const manual=run('manual'),email=run('email');
+  assert.deepEqual(email,manual);
+  const held=email.find(row=>row.description==='STEEL WASHERS');
+  assert.ok(held);
+  assert.equal(held.sellingUnit,null);
+  assert.equal(held.basis,null);
+  assert.equal(held.price,2.06);
+  assert.equal(held.priceUnavailable,true);
+  assert.equal(held.reviewRequired,true);
+  assert.ok(held.reviewFields.includes('selling_unit'));
 });
 
 await test("abbreviated price rows have identical stored outcomes in fresh manual and email processes", () => {

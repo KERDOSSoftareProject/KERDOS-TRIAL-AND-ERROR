@@ -1,5 +1,4 @@
 import {getProcurementContext} from "../procurement.js";
-import {inferPricingBasis} from "./infer-pricing-basis.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
 import {unitInPrice,unitInPriceHeader} from "./source-units.js";
@@ -94,19 +93,4 @@ export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null, procure
   return {basis:first.basis,sellingUnit:first.unit,source:'invoice billing unit',invoiceArithmetic:true,
     invoiceReference:usable.map(value=>value.reference.number||value.reference.date||'invoice').join(', '),
     invoiceReferences:usable.map(value=>({...value.reference,billingUnitEvidence:value.evidence}))};
-}
-
-export function inferQuoteBasis(row, procurement=getProcurementContext()) {
-  if (String(row.sellingUnit||'').trim()) return null; // explicit unit already present
-  const result = inferPricingBasis(row, procurement);
-  if (!result.basis) return null;
-  return {
-    basis: result.basis,
-    sellingUnit: result.sellingUnit,
-    source: 'inferred',
-    inferenceLevel: result.level,   // 'supported'|'suggested'|'conflicting'
-    inferenceReason: result.reason,
-    inferenceEvidence: result.evidence,
-    inferenceConflicts: result.conflicts,
-  };
 }

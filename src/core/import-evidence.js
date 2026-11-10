@@ -2,11 +2,10 @@
 import {suggestCategory,priceBasisFor,bestPurchasingMatch,commonPurchasingPack,productKnowledge} from "../procurement.js";
 import {catalogRowEvidence,importResolutions,orderGuideAssessment} from "./catalog-fields.js";
 import {preparePriceImport} from "./price-import-review.js";
-import {quoteContext} from "../knowledge/category-profiles.js";
 import {findUncodedVendorListing,vendorListingLabel} from "./vendor-listing.js";
 import {enrichFromInvoices,invoiceEvidence} from "./invoice-evidence.js";
 
-export function explainImportRow(source,{vendor=null,categories=[],catalogItems=[],vendorItems=[],mappings=[],documentRows=[],invoices=[]}={}){
+export function explainImportRow(source,{vendor=null,categories=[],catalogItems=[],vendorItems=[],mappings=[],invoices=[]}={}){
   const listings=vendorItems.filter(vi=>vi.vendor_id===vendor?.id);
   const enriched=enrichFromInvoices(source,invoices);
   const prior=(source.selectedVendorItemId?listings.find(vi=>vi.id===source.selectedVendorItemId):null)
@@ -39,13 +38,7 @@ export function explainImportRow(source,{vendor=null,categories=[],catalogItems=
   evidence.price.source=source.manualFields?.includes("price")||source.priceEdited?"manual correction":"document";
   evidence.sellingUnit.source=row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource||"document";
   const basis=priceBasisFor(row.sellingUnit);
-  const proposed=!basis?quoteContext(row,documentRows):null;
   evidence.priceBasis={value:basis?.basis||null,accuracy:evidence.sellingUnit.accuracy,reason:evidence.sellingUnit.reason,source:evidence.sellingUnit.source};
-  // A plausible unit is a suggestion, never a calculated or qualified quote.
-  if(proposed){
-    evidence.sellingUnit.reason+=`. Suggested ${proposed.sellingUnit}: ${proposed.reason} Needs evidence.`;
-    evidence.unitSuggestion={...proposed,accuracy:70};
-  }
   if(!basis)evidence.unitCost.reason="Selling unit unknown or absent; cannot calculate unit cost";
   if(!savedItem){
     const candidates=catalogItems.map(candidate=>{

@@ -1,7 +1,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {knownItemChanges} from "./catalog-fields.js";
 import {prepareImportRow} from "./import-row.js";
-import {resolveQuoteBasis,inferQuoteBasis,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
+import {resolveQuoteBasis,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
 
 const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===String(b||"").trim().toLowerCase().replace(/\s+/g," ");
 
@@ -69,28 +69,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
       row={...row,sellingUnit:"",sellingUnitSource:null};
     }
   }
-  if(!resolved&&!invoiceConflict&&!String(row.sellingUnit||"").trim()){
-    const inferred=inferQuoteBasis(row, procurement);
-    if(inferred){
-      if(inferred.inferenceLevel==='supported'){
-        // Strong evidence — populate automatically, no review needed for the basis alone
-        resolved=inferred;
-      } else if(inferred.inferenceLevel==='suggested'){
-        // Plausible but not confirmed — set as resolved so price math works,
-        // but mark the row for review so the client can confirm or change it.
-        // Write sellingUnitSource="inferred" so catalogRowEvidence can distinguish
-        // this from document-stated units and show it as unconfirmed.
-        resolved={...inferred,sellingUnitSource:'inferred'};
-        row={...row,sellingUnitSource:'inferred'};
-        reasons.push(`Pricing basis "${inferred.sellingUnit}" suggested but not confirmed: ${inferred.inferenceReason}`);
-      }
-      // 'conflicting' → resolved stays null, falls through to "Quoted unit is unresolved"
-      // with additional context from the conflict
-      if(inferred.inferenceLevel==='conflicting'){
-        reasons.push(`Pricing basis unclear: ${inferred.inferenceReason}`);
-      }
-    }
-  }
+  // A price amount or an industry prior cannot establish what is being sold.
+  // Without source or confirmed listing evidence, retain the quote for review
+  // and leave its basis unresolved in both preview and persistence.
   if(!row.priceUnavailable){
     if(!resolved)reasons.push("Quoted unit is unresolved.");
     else if(procurement.parsePackSize(row.packSize)?.parsed&&procurement.casePriceFromQuote(row.price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,row.packSize)==null)
