@@ -9,7 +9,7 @@ const csvRow=cells=>cells.map(s=>'"'+String(s).replace(/"/g,'""')+'"').join(',')
 const input=Array.from({length:87},(_,i)=>[i+1,'Example Group',`TEST-${1000+i}`,`Sample cooked product ${i+1}`,i===84?'PRICE PRODUCT NAME':'Example brand',i%2?'2/6 LB':'4/250 ML','',`$${(20+i/100).toFixed(2)}`,i%2?'LB':'CS','Example class','REF 33 - 40 NOT RAW']);
 const csv=[header,...input].map(csvRow).join('\n');
 const reader=createDocumentReader({loadWorkbook:async()=>XLSX});
-const reading=await reader({name:'synthetic-export.csv',text:async()=>csv});
+const reading=await reader(new File([csv],'synthetic-export.csv',{type:'text/csv'}));
 assert.equal(new Set(reading.worksheets[0].cells.map(cell=>cell.row)).size,88);
 const parsed=parseStructuredDocument(csv,reading);
 assert.equal(parsed.parts.length,1,'a product brand containing PRICE/PRODUCT must not split the table');
