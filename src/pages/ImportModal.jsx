@@ -909,7 +909,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           {!companionEvidence&&<div style={{marginBottom:14}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Or paste text directly</div>
             <textarea
-              style={{...inp,height:120,resize:"vertical",fontFamily:"monospace",fontSize:12}}
+              style={{...inp,height:120,resize:"vertical",fontSize:12}}
               value={pastedText} onChange={e=>setPastedText(e.target.value)}
               onPaste={e=>{const pasted=e.clipboardData.getData("text");if(pasted.trim().length>=10){e.preventDefault();setPastedText(pasted);void parseSources(fileGroups,pasted);}}}
               placeholder="Copy from Excel, email, PDF — paste here..." />
@@ -933,7 +933,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               </div>}
               {pending.unknownHeaders.map(h=>(
                 <div key={h.index} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
-                  <span style={{fontFamily:"monospace",background:"#EBEBEB",padding:"2px 8px",borderRadius:4,fontSize:12,minWidth:120,flexShrink:0}}>
+                  <span style={{background:"#EBEBEB",padding:"2px 8px",borderRadius:4,fontSize:12,minWidth:120,flexShrink:0}}>
                     {h.label}
                   </span>
                   <span style={{fontSize:12,color:"#666",flexShrink:0}}>is the</span>
@@ -1027,7 +1027,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             {parsedGroups.flatMap(g=>g.rows.map((row,i)=>mode==="pricelist"&&!row.issues?.length?null:(
               <div key={`${g.id}:${i}`} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #F0F0F0",fontSize:13}}>
                 <div>
-                  {row.code&&<span style={{color:"#888",marginRight:8,fontFamily:"monospace",fontSize:11}}>{row.code}</span>}
+                  {row.code&&<span style={{color:"#888",marginRight:8,fontSize:11}}>{row.code}</span>}
                   <span>{row.description}</span>
                   {mode==="invoice"&&<input aria-label="Verify or correct product description" value={row.description} onChange={e=>updateParsedRow(g.id,i,{description:e.target.value})}
                     style={{...inp,fontSize:11,padding:"4px 6px",marginTop:5}} />}
@@ -1058,7 +1058,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               <div style={{fontWeight:700,color:"#E65100",marginBottom:6}}>{allSkipped.length} line{allSkipped.length>1?"s":""} weren't interpreted as product lines — retained in the original source</div>
               <div style={{maxHeight:120,overflowY:"auto"}}>
                 {allSkipped.map((s,i)=>(
-                  <div key={i} style={{color:"#999",marginBottom:3,fontFamily:"monospace",fontSize:11}}>
+                  <div key={i} style={{color:"#999",marginBottom:3,fontSize:11}}>
                     "{String(s.line??s.text??"").slice(0,60)}" — {s.reason}{showSourceTags?` (${s._source})`:""}
                   </div>
                 ))}

@@ -34,6 +34,9 @@ export function LandingGate() {
     {icon:"🗄️",color:"#6A1B9A",bg:"#F3E5F5",name:"Invoice Retention",tag:null,
       text:"Every invoice kept and organized, never lost in a shoebox or a shared drive.",
       value:"Built for audit-ready record keeping."},
+    {icon:"🔌",color:"#00695C",bg:"#E0F2F1",name:"Vendor Integration",tag:null,
+      text:"Connect supported vendor portals, such as US Foods MOXē, and import price sheets into KERDOS.",
+      value:"Refresh prices from connected vendors."},
     {icon:"🔗",color:"#888",bg:"#F0F0F0",name:"QuickBooks Integration",tag:"Coming Soon",
       text:"Send recorded invoices straight to QuickBooks — no re-entry.",
       value:"Easier accounting, one click away."},
@@ -43,15 +46,9 @@ export function LandingGate() {
   ];
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#003584 0%,#00204F 100%)",padding:"48px 20px 60px"}}>
+    <div className="landing-gate" style={{minHeight:"100vh",background:"linear-gradient(160deg,#003584 0%,#00204F 100%)",padding:"48px 20px 60px"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <BrandLogo />
-        <div style={{fontWeight:900,fontSize:22,color:"white",marginBottom:10,maxWidth:480,marginLeft:"auto",marginRight:"auto",lineHeight:1.3}}>
-          Stop overpaying because you didn’t check KERDOS.
-        </div>
-        <div style={{color:"rgba(255,255,255,0.7)",fontSize:15,maxWidth:480,margin:"0 auto"}}>
-          Procurement software that compares vendor prices for you, keeps your ordering and records in one place.
-        </div>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(min(260px,100%), 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>

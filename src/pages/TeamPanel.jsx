@@ -376,7 +376,7 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
         <div key={c.id} style={{background:"white",borderRadius:8,padding:"10px 14px",marginBottom:6,
           display:"flex",justifyContent:"space-between",alignItems:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <div>
-            <div style={{fontFamily:"monospace",fontWeight:700,fontSize:14}}>{c.code}</div>
+            <div style={{fontWeight:700,fontSize:14}}>{c.code}</div>
             <div style={{fontSize:11,color:"#888"}}>{c.used_by?"Used":"Not yet used"}</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -406,7 +406,7 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
             </>):(<>
               <h3 style={{margin:"0 0 6px",fontSize:16}}>Share this code</h3>
               <p style={{color:"#888",fontSize:12,margin:"0 0 16px"}}>They'll enter this after signing up to join as {inviteRole}.</p>
-              <div style={{background:"#F0F2F5",borderRadius:8,padding:"16px",textAlign:"center",fontFamily:"monospace",fontWeight:900,fontSize:24,letterSpacing:"0.1em",marginBottom:16}}>{newCode}</div>
+              <div style={{background:"#F0F2F5",borderRadius:8,padding:"16px",textAlign:"center",fontWeight:900,fontSize:24,letterSpacing:"0.1em",marginBottom:16}}>{newCode}</div>
               <button onClick={()=>setShowInvite(false)} style={{...btn("#003584"),width:"100%"}}>Done</button>
             </>)}
           </div>

@@ -887,7 +887,7 @@ export default function App() {
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
   return (
-    <div className="workspace-shell" style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+    <div className="workspace-shell" style={{minHeight:"100vh",background:"#003584"}}>
       <style>{`
         .workspace-shell { --workspace-header-height:60px; --workspace-tabs-height:54px; --browse-top:calc(var(--workspace-header-height) + var(--workspace-tabs-height)); }
         .workspace-sticky-tabs { position:sticky; top:var(--workspace-header-height); z-index:120; height:var(--workspace-tabs-height); max-width:1400px; margin:12px auto 18px; padding:0 18px; background:#003584; }
@@ -926,7 +926,7 @@ export default function App() {
       <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:"var(--workspace-header-height)",
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
-        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",fontFamily:tab==="home"?'"Times New Roman",Times,serif':"inherit",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><BrandCoin size={28} />KERDOS</button>
+        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><BrandCoin size={28} />KERDOS</button>
         <div style={{position:"relative"}}>
           <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
           {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,maxWidth:"calc(100vw - 76px)",overflowWrap:"anywhere",background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>

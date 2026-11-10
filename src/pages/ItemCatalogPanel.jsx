@@ -539,7 +539,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                       }).slice(0,8).map(ci=>(
                         <button key={ci.id} disabled={busyMappingId===m.mappingId} onClick={()=>handleRemapExisting(m.mappingId,ci.id)}
                           style={{display:"block",width:"100%",textAlign:"left",background:"white",border:"1px solid #EEE",borderRadius:5,padding:"6px 8px",marginBottom:4,fontSize:12,cursor:"pointer"}}>
-                          <span style={{fontFamily:"monospace",color:"#003584",fontWeight:800}}>#{ci.master_item_number}</span> · {ci.name}
+                          <span style={{color:"#003584",fontWeight:800}}>#{ci.master_item_number}</span> · {ci.name}
                           <span style={{display:"block",paddingLeft:3,fontSize:10,color:candidateSummary(ci.id,m.packSize).warning?"#B26A00":"#39764F"}}>Brand: {candidateSummary(ci.id,m.packSize).brands.join(", ")} · Pack: {candidateSummary(ci.id,m.packSize).packs.join(", ")||"Unknown"} · {candidateSummary(ci.id,m.packSize).vendorsCount} vendor(s){candidateSummary(ci.id,m.packSize).warning?` · ${candidateSummary(ci.id,m.packSize).warning}`:""}</span>
                         </button>
                       ))}
