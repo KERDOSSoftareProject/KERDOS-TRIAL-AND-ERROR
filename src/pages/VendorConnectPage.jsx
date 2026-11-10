@@ -9,13 +9,15 @@ const control={padding:'10px 12px',border:'1px solid #B7C8DE',borderRadius:8,fon
 const button={...control,background:'#00204F',color:'white',cursor:'pointer'};
 export default function VendorConnectPage({backend,organizationId,vendors=[],role,onCompanionImport,importInProgress=false,importResult,onTransferStart,visible=true}){
   const refreshClient=useMemo(()=>createCompanionRefreshClient(typeof window==='undefined'?null:window),[]);
-  const [refreshAvailable,setRefreshAvailable]=useState(()=>refreshClient.available());
-  useEffect(()=>refreshClient.watch(setRefreshAvailable),[refreshClient]);
+  const [browserAccess,setBrowserAccess]=useState(()=>({ready:refreshClient.available(),installed:refreshClient.installed()}));
+  const [setupBusy,setSetupBusy]=useState(false);
+  useEffect(()=>refreshClient.watch((ready,installed)=>setBrowserAccess({ready,installed})),[refreshClient]);
   useEffect(()=>()=>refreshClient.dispose(),[refreshClient]);
   const service=useMemo(()=>backend?createVendorConnectService(backend):null,[backend]);
   const allowed=['owner','manager'].includes(role);
   const [data,setData]=useState(null),[message,setMessage]=useState(''),[unavailable,setUnavailable]=useState(false);
   const [vendorId,setVendorId]=useState(''),[adapterKey,setAdapterKey]=useState(''),[busy,setBusy]=useState(false);
+  const refreshAvailable=browserAccess.ready&&refreshClient.available(adapterKey);
   const generation=useRef(0),transferGeneration=useRef(0),prepareAttempt=useRef(0),handoff=useRef(null),receive=useRef(onCompanionImport);
   const scheduler=useRef({}),scheduleUnavailable=useRef(false);
   receive.current=onCompanionImport;
@@ -77,7 +79,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       if(refresh){
         setMessage('Refreshing the selected vendor pricing…');
         contactStarted=true;
-        const result=await refreshClient.refresh(handoff.current.nonce);
+        const result=await refreshClient.refresh(handoff.current.nonce,source.adapter_key);
         if(token!==transferGeneration.current||current!==generation.current)return;
         if(result.outcome!=='received_for_review'){
           stopTransfer();
@@ -95,13 +97,13 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     }
     finally{if(current===generation.current&&attempt===prepareAttempt.current)setBusy(false);}
   }
-  scheduler.current={service,organizationId,scopedData,refreshAvailable,importInProgress,busy,allowed,prepareTransfer,vendors};
+  scheduler.current={service,organizationId,scopedData,browserReady:browserAccess.ready,importInProgress,busy,allowed,prepareTransfer,vendors};
   useEffect(()=>{
     if(!service||!organizationId||!allowed)return;
     const poller=createScheduledRefreshPoller({
-      canRun:()=>{const s=scheduler.current;return !!(!scheduleUnavailable.current&&s.scopedData&&s.refreshAvailable&&!s.importInProgress&&!s.busy&&(!handoff.current||['rejected','expired','received'].includes(handoff.current.state))&&s.allowed);},
+      canRun:()=>{const s=scheduler.current;return !!(!scheduleUnavailable.current&&s.scopedData&&s.browserReady&&!s.importInProgress&&!s.busy&&(!handoff.current||['rejected','expired','received'].includes(handoff.current.state))&&s.allowed);},
       load:async()=>{const s=scheduler.current;const fresh=await s.service.list(s.organizationId);
-        return fresh.requests.filter(r=>r.state==='setup_requested'&&r.portal_account_label&&r.portal_list_label&&
+        return fresh.requests.filter(r=>r.state==='setup_requested'&&r.portal_account_label&&r.portal_list_label&&refreshClient.available(r.adapter_key)&&
           fresh.adapters.some(a=>a.adapter_key===r.adapter_key&&a.execution_model==='local_browser'&&a.portal_origin)&&
           s.vendors.some(v=>v.id===r.vendor_id&&v.is_active!==false));},
       claim:id=>scheduler.current.service.claimSchedule(id),
@@ -109,7 +111,7 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
       onError:error=>{if(error instanceof VendorConnectUnavailable)scheduleUnavailable.current=true;},
     });
     poller.start();return()=>poller.stop();
-  },[service,organizationId,allowed]);
+  },[service,organizationId,allowed,refreshClient]);
   useEffect(()=>{
     const current=++generation.current;let active=true;
     setData(null);setSelectionDraft(null);setMessage('');setUnavailable(false);setVendorId('');setAdapterKey('');setBusy(false);
@@ -132,13 +134,20 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
     }catch(error){if(generation.current===current)setMessage(error.message);}
     finally{if(generation.current===current)setBusy(false);}
   }
+  async function setupBrowser(){
+    if(setupBusy)return;
+    stopTransfer();setMessage('');
+    setSetupBusy(true);
+    try{const result=await refreshClient.setup(adapterKey);if(result.outcome!=='setup_opened')setMessage(result.message);}
+    finally{setSetupBusy(false);}
+  }
   if(!allowed)return <section aria-label="Vendor Connect" style={box}><p>Owner or manager access is required.</p></section>;
   return <section aria-label="Vendor Connect" style={{...box,...(!visible?{display:'none'}:{})}}>
     <h2 style={{margin:'0 0 12px',fontSize:22}}>Your vendor accounts, connected to KERDOS</h2>
     <p style={{lineHeight:1.6}}>Prepare a connection for one of your vendors. Automatic account access becomes available after that connection has been verified.</p>
     <div role="status" style={{background:'#E3F2FD',borderRadius:10,padding:18,lineHeight:1.6}}>
-      <strong>{refreshAvailable?'Refresh pricing through your connected browser session.':'Automatic vendor account access is not active.'}</strong>
-      <p style={{margin:'8px 0 0'}}>{refreshAvailable?'Use Refresh prices after enabling companion access once. Sign in or verify directly with your vendor when required. Unattended account access is not active.':'Preparing a connection saves your vendor and provider selection. It does not sign in or retrieve pricing yet. The browser transfer pilot below requires a separate action. Price Sheets and email delivery remain available.'}</p>
+      <strong>{refreshAvailable?'This browser is ready to refresh prices.':'Connect this browser for automatic refresh.'}</strong>
+      <p style={{margin:'8px 0 0'}}>{refreshAvailable?'KERDOS handles pairing and retrieval. Keep KERDOS open and your vendor session signed in for scheduled refreshes.':browserAccess.installed?'Approve site access once in Chrome. KERDOS will connect this browser automatically.':'Install the KERDOS Companion in the browser you use for this vendor. Price Sheets and email delivery are also available.'}</p>
     </div>
     {message&&!(message==='Pricing received for automatic ingestion. The transfer receipt alone does not confirm saved prices.'&&importResult?.organizationId===organizationId&&importResult.vendorId===vendorId)&&<p role="alert">{message}</p>}
     {importResult?.organizationId===organizationId&&importResult.vendorId===vendorId&&<p role={importResult.status==='needs_attention'?'alert':'status'} style={{background:importResult.status==='needs_attention'?'#FFF3E0':'#E8F5E9',border:`1px solid ${importResult.status==='needs_attention'?'#FFCC80':'#A5D6A7'}`,borderRadius:8,padding:12}}><strong>Latest pricing result:</strong> {importResult.message}</p>}
@@ -156,7 +165,8 @@ export default function VendorConnectPage({backend,organizationId,vendors=[],rol
         <label style={{display:'grid',gap:6,marginBottom:12}}>Account name shown by your vendor<input aria-label="Portal account name" maxLength={200} style={control} value={account} onChange={e=>editSelection('account',e.target.value)}/></label>
         <label style={{display:'grid',gap:6,marginBottom:12}}>Pricing list name<input aria-label="Portal list name" maxLength={200} style={control} value={list} onChange={e=>editSelection('list',e.target.value)}/></label>
         {refreshAvailable&&<button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(true)}>Refresh prices</button>}
-        {refreshAvailable?<details style={{marginTop:12}}><summary>Manual browser transfer</summary><button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button></details>:<button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button>}
+        {!refreshAvailable&&browserAccess.installed&&<button style={button} disabled={setupBusy} onClick={setupBrowser}>Connect this browser</button>}
+        <details style={{marginTop:12}}><summary>Manual browser transfer</summary><button style={button} disabled={!account.trim()||!list.trim()||busy||importInProgress} onClick={()=>prepareTransfer(false)}>Prepare browser transfer</button></details>
         {armed&&<button style={{...control,marginLeft:8}} onClick={()=>{stopTransfer();setMessage('Browser transfer cancelled. Prepare a new transfer to retry.');}}>Cancel browser transfer</button>}
         {selectedRequest.portal_account_label&&selectedRequest.portal_list_label&&<VendorSchedulePanel service={service} request={selectedRequest} runnerReady={refreshAvailable} resultKey={importResult?.completedAt}/>}
       </div>}

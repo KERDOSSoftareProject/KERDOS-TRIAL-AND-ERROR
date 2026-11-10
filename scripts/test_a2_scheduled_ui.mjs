@@ -13,8 +13,8 @@ try{
  import {createRecords} from './src/backend/records.js';
  const adapter={adapter_key:'us-foods-moxe',display_name:'MOXe',setup_available:true,execution_model:'local_browser',portal_origin:'https://order.usfoods.com'};
  const request={id:'request',organization_id:'org',vendor_id:'vendor',adapter_key:adapter.adapter_key,state:'setup_requested',transfer_revision:5,portal_account_label:'Sample account',portal_list_label:'Main Items'};
- const claims=[],verified=[],imports=[],replies=[],listeners=new Set();let scheduledTick,claimAvailable=true;
- const appWindow={location:{origin:'https://kerdos.example'},document:{documentElement:{getAttribute:k=>k==='data-kerdos-refresh'?'1':null}},
+ const claims=[],verified=[],imports=[],replies=[],listeners=new Set();let scheduledTick,claimAvailable=true,readyProvider='different-provider';
+ const appWindow={location:{origin:'https://kerdos.example'},document:{documentElement:{getAttribute:k=>k==='data-kerdos-refresh'?'1':k==='data-kerdos-ready-providers'?JSON.stringify([readyProvider]):null}},
   addEventListener:(_,fn)=>listeners.add(fn),removeEventListener:(_,fn)=>listeners.delete(fn),postMessage:msg=>{
    if(msg.channel==='kerdos-refresh-v1'&&msg.type==='refresh')queueMicrotask(async()=>{
     await send({channel:'kerdos-companion-v1',type:'pair'});const ticket=replies.at(-1).ticket;
@@ -38,7 +38,11 @@ try{
  try{
   await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,{backend,organizationId:'org',vendors:[{id:'vendor',name:'Vendor'}],role:'owner',visible:false,onCompanionImport:p=>imports.push(p)}));});
   assert.ok(scheduledTick,'the signed-in hidden page keeps a bounded due check');
-  // The first tick loads the connection; the next asks the server to claim.
+  // Browser access for another provider must not claim this vendor's slot.
+  await act(async()=>{await scheduledTick();});
+  assert.deepEqual(claims,[]);assert.equal(imports.length,0);
+  readyProvider=adapter.adapter_key;
+  await act(async()=>{await send({channel:'kerdos-refresh-v1',type:'available',version:1});});
   await act(async()=>{await scheduledTick();});
   assert.deepEqual(claims,['request']);assert.equal(imports.length,1);
   assert.equal(imports[0].evidence.attempt_token,'scheduled-token');

@@ -57,7 +57,7 @@ export default function VendorSchedulePanel({service,request,runnerReady=false,r
     <label style={{display:'grid',gap:5}}>Grace (minutes)<input style={{...input,width:90}} type="number" min="1" max="60" aria-label="Schedule grace minutes" value={draft.graceMinutes} disabled={loading} onChange={e=>setDraft(v=>({...v,graceMinutes:Number(e.target.value)}))}/></label>
    </div>
    <label style={{display:'block',margin:'14px 0'}}><input type="checkbox" aria-label="Enable schedule" checked={draft.enabled} disabled={loading||(!runnerReady&&!history.schedule?.enabled)} onChange={e=>setDraft(v=>({...v,enabled:e.target.checked}))}/> Enable this schedule</label>
-   {!runnerReady&&<p role="status">Scheduling is being prepared. You can save settings with the schedule off; automatic runs cannot be enabled yet.</p>}
+   {!runnerReady&&<p role="status">{history.schedule?.enabled?'Your schedule is saved. Connect this browser to run it here.':'Connect this browser before enabling scheduled refreshes.'}</p>}
    <button style={{...input,background:'#00204F',color:'white',cursor:'pointer'}} disabled={loading||!draft.weekdays.length||(!runnerReady&&draft.enabled&&!history.schedule?.enabled)} onClick={save}>Save schedule settings</button>
    {history.schedule&&<p role="status">Version {history.schedule.version} · {history.schedule.enabled?'Enabled':'Off'}{blockedByUnknown?' · scheduled runs blocked':''}</p>}
    {pausedForSignIn&&<p role="alert">A scheduled refresh stopped for vendor sign-in verification, so the schedule was turned off. Sign in directly with your vendor, open the selected pricing list, and click Refresh prices. Once that works, enable the schedule and save its settings.</p>}

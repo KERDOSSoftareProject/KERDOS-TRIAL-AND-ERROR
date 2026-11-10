@@ -1,4 +1,17 @@
-# Companion 0.2.17 · Refresh prices
+# Companion 0.2.18 · Browser setup from KERDOS
+
+With the Companion installed, **Connect this browser** in Vendor Connect
+opens the Chrome site-access step directly. After access is approved, the
+setup tab closes and KERDOS reconnects. Use **Refresh prices** or keep the
+signed-in KERDOS and vendor sessions open for the saved schedule. KERDOS
+handles pairing, retrieval and ingestion. A vendor sign-in or verification
+prompt still belongs to the vendor.
+
+The Companion reports readiness only when its declared KERDOS and vendor
+site permissions are granted. Removing access clears browser readiness and
+prevents new scheduled claims from that tab.
+
+## CSV encoding · 0.2.17
 
 CSV capture supports UTF-8 and Windows-1252 text. KERDOS checks for unsupported
 encodings and control characters before import, and verifies the original bytes
