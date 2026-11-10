@@ -45,7 +45,7 @@ try{
     grant usage on schema public, auth to authenticated, anon;
     grant select, insert on public.organizations, public.organization_members, public.vendors to authenticated;
   `);
-  await db.exec(await readFile(new URL("../../supabase/migrations/20261110131417_first_organization_onboarding.sql",import.meta.url),"utf8"));
+  await db.exec(await readFile(new URL("../../supabase/migrations/20261110132849_first_organization_onboarding.sql",import.meta.url),"utf8"));
   const setUser=async n=>db.exec(`set role authenticated; set request.jwt.claim.sub='00000000-0000-4000-8000-00000000000${n}';`);
   const create=async (name,vendors=[])=>{
     const result=await db.query("select public.kerdos_create_first_organization($1,$2,$3::jsonb) as company",[name,"restaurant",JSON.stringify(vendors)]);
