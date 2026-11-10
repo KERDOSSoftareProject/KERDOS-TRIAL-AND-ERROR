@@ -286,6 +286,34 @@ await test("auto-import: clean CSV price list → auto_imported with rows saved"
 
 // ── Test 2: unsupported MIME type → needs_review ──────────────────────────────
 
+await test("email CSV uses the same decoding as manual import and blocks invalid bytes before writes", async () => {
+  const text = "Code,Description,Pack,Price Unit,Price\r\nSKU-001,Café Dark Roast,4/1 LB,CASE,12.50\r\n";
+  const bytes = Uint8Array.from(text, character => character.charCodeAt(0));
+  const original = bytes.slice();
+  const options = { organizationId: "org-1", vendorId: "vendor-1", documentType: "pricelist" };
+  const backend = createInMemoryBackend({
+    bytes,
+    vendorItems: [{ id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
+      description: "Café Dark Roast", pack_size: "4/1 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" }],
+    mappings: [{ id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 }],
+  });
+  const attachment = { ...ATTACHMENT_BASE, content_type: "application/vnd.ms-excel", file_size_bytes: bytes.length };
+  const result = await processAttachmentInBackground(backend, attachment, options);
+  assert.equal(result.outcome, "auto_imported", result.reason);
+  assert.deepEqual(backend._appliedQuotes.map(quote => [quote.description, quote.price]), [["Café Dark Roast", 12.5]]);
+  assert.equal(backend._createdDocs[0].file_path, attachment.storage_path);
+  assert.deepEqual(bytes, original);
+
+  for (const invalid of [Uint8Array.of(0xff, 0xfe, 0x41, 0), csvBytes(text.replace('Café', 'Ca\0fé')), csvBytes('%PDF-1.7\n'+text)]) {
+    const invalidBackend = createInMemoryBackend({ bytes: invalid });
+    const rejected = await processAttachmentInBackground(invalidBackend, { ...attachment, file_size_bytes: invalid.length }, options);
+    assert.equal(rejected.outcome, "needs_review");
+    assert.match(rejected.reason, /CSV decode failed/);
+    assert.equal(invalidBackend._appliedQuotes.length, 0);
+    assert.equal(invalidBackend._createdDocs.length, 0);
+  }
+});
+
 await test("unnumbered products use their own listing, never the first null code", async () => {
   const csv="Product,Pack,Price\nCIDER APPLE,4/1 GAL,26.15\nCHEESE AMERICAN,5 LB,16.75";
   const items=[

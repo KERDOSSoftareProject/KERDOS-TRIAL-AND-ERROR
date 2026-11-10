@@ -27,7 +27,7 @@ function fixture(){
  f.downloads=[];f.backend.documents={upload:async(path,file)=>{f.uploads.push({path,name:file.name,bytes:await file.text()});},download:async(path)=>{f.downloads.push(path);const stored=f.uploads.find(u=>u.path===path);if(!stored)throw Error('stored original unavailable');return new TextEncoder().encode(stored.bytes);},remove:async()=>{}};
  globalThis.__b1Backend=f.backend;return f;
 }
-function file(name='B1_Prices.csv',content=csv){return {name,size:Buffer.byteLength(content),text:async()=>content};}
+function file(name='B1_Prices.csv',content=csv){return {name,size:Buffer.byteLength(content),text:async()=>content,arrayBuffer:async()=>new TextEncoder().encode(content).buffer};}
 function writes(f){return f.invoices.length+f.uploads.length+f.calls.applyQuote.length+f.calls.insertImportDoc.length+f.calls.createMapping.length;}
 async function open(initialVendorId=vendor,initialMode='pricelist',overrides={}){
  let tree;const finished=[],issues=[];
@@ -325,6 +325,22 @@ await check('automatic companion intake saves original/evidence and prices with 
  const before=writes(f),again=await autoOpen();await automaticResult(again);assert.equal(writes(f),before);assert.equal(again.finished.length,1);assert.match(again.finished[0].message,/already up to date/);again.tree.unmount();
  const changed=await autoOpen(csv.replace('41.25','43.25'));await automaticResult(changed);assert.equal(changed.finished.length,1,text(changed.tree.toJSON()));assert.equal(f.calls.applyQuote.length,2);assert.deepEqual(f.calls.applyQuote.map(q=>q.price),[41.25,43.25]);assert.equal(Object.values(f.importDocs).length,2);assert.equal(f.uploads[0].bytes,csv);changed.tree.unmount();
 });
+await check('Windows-1252 companion source imports its stated quote and verifies the retained original bytes',async()=>{
+ const bytes=Buffer.from('Code,Description,Pack,Price Unit,Price\nB1-125,Crème brûlée® \x96 jalapeño,2/10 LB,CASE,12.50\n','latin1');
+ const input=new File([bytes],'vendor-prices.csv',{type:'text/csv'});
+ input.reading=await createDocumentReader({loadWorkbook:async()=>XLSX})(input);
+ const proof={...autoProof,sha256:Buffer.from(await crypto.subtle.digest('SHA-256',bytes)).toString('hex'),byte_length:bytes.length};
+ const f=fixture();
+ f.backend.documents.upload=async(path,file)=>{f.uploads.push({path,bytes:Buffer.from(await file.arrayBuffer())});};
+ f.backend.documents.download=async path=>{f.downloads.push(path);return f.uploads.find(upload=>upload.path===path).bytes;};
+ const p=await autoOpen(csv,{initialFiles:[input],companionEvidence:proof});await automaticResult(p);
+ assert.equal(p.finished.length,1,text(p.tree.toJSON()));
+ assert.match(p.finished[0].message,/Stored original verified/);
+ assert.deepEqual(f.uploads[0].bytes,bytes);
+ assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.applyQuote[0].price,12.5);
+ const saved=Object.values(f.importDocs)[0];assert.match(saved.original_text,/Crème brûlée® – jalapeño/);
+ assert.equal(saved.retrieval_evidence.sha256,proof.sha256);p.tree.unmount();
+});
 await check('automatic matches require the same source account, list, adapter, origin and original bytes',async()=>{
  const f=fixture(),first=await autoOpen();await automaticResult(first);assert.equal(first.finished.length,1);first.tree.unmount();
  const saved=Object.values(f.importDocs)[0],before=writes(f),reads=f.downloads.length;
@@ -415,7 +431,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/43 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/44 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
@@ -424,7 +440,7 @@ try{
   b.onResolve({filter:/import-evidence\.js$/},args=>args.namespace==='evidence-spy'?({path:args.path,namespace:'file'}):({path:'spy',namespace:'evidence-spy'}));
   b.onLoad({filter:/spy/,namespace:'evidence-spy'},()=>({contents:`import {explainImportRow as real} from ${JSON.stringify(process.cwd()+'/src/core/import-evidence.js')};export function explainImportRow(...args){globalThis.__evidenceCalls=(globalThis.__evidenceCalls||0)+1;return real(...args);}`}));
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
-  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.readingError)throw new Error(file.readingError);if(file.reading)onRead?.(file.reading);return file.text();}'}));
+  b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.readingError)throw new Error(file.readingError);if(file.reading)onRead?.(file.reading);return file.reading?.text??file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
   b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),download:(...args)=>globalThis.__b1Backend.documents.download(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});

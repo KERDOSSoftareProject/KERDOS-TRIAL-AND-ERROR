@@ -1,3 +1,5 @@
+import {decodeCsvBytes} from '../core/csv-encoding.js';
+
 // One-use browser handoff. A companion assertion is not supplier authentication.
 export const COMPANION_CHANNEL='kerdos-companion-v1';
 export const MAX_EXPORT_BYTES=5*1024*1024;
@@ -49,8 +51,8 @@ export function createCompanionHandoff({target=window,selection,onReceive,onVali
       if(artifact?.origin!==ticket.portalOrigin||typeof artifact.base64!=='string'||!artifact.base64.length||artifact.base64.length>Math.ceil(MAX_EXPORT_BYTES/3)*4||!/^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(artifact.base64))throw new Error('invalid_artifact');
       const bytes=Uint8Array.from(atob(artifact.base64),c=>c.charCodeAt(0));
       if(!bytes.length||bytes.length>MAX_EXPORT_BYTES)throw new Error('invalid_artifact');
-      const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
-      if(/^\s*(?:<!doctype|<html|<body|<script)/i.test(text)||!text.includes(',')||!text.includes('\n'))throw new Error('invalid_csv');
+      const text=decodeCsvBytes(bytes);
+      if(!text.includes(',')||!text.includes('\n'))throw new Error('invalid_csv');
       const sha256=Array.from(new Uint8Array(await cryptoApi.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
       if(onValidate)await validate('receive');
       if(active&&now()>=ticket.expiresAt)expire();

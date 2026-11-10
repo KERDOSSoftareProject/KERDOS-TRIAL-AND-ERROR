@@ -29,10 +29,11 @@ try{
 
  const unexpected=[];
  const source=await readFile('src/services/companion-handoff.js','utf8');
+ const csvDecoder=await readFile('src/core/csv-encoding.js','utf8');
  const refreshSource=await readFile('src/services/companion-refresh.js','utf8');let vendorRequiresVerification=false,vendorNeedsForegroundAccount=false;
  const app=`<!doctype html><meta charset="utf-8"><title>Synthetic KERDOS receiver</title><script type="module">
- import {createCompanionHandoff} from '/handoff.mjs';import {createCompanionRefreshClient} from '/refresh.mjs';
- window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:await p.file.text(),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();window.refreshClient=createCompanionRefreshClient(window);window.startRefresh=async()=>{window.prepare();window.refreshResult=null;window.refreshResult=await window.refreshClient.refresh(window.handoff.nonce);};
+ import {createCompanionHandoff} from '/handoff.mjs';import {createCompanionRefreshClient} from '/refresh.mjs';import {decodeCsvBytes} from '/core/csv-encoding.js';
+ window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:decodeCsvBytes(new Uint8Array(await p.file.arrayBuffer())),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();window.refreshClient=createCompanionRefreshClient(window);window.startRefresh=async()=>{window.prepare();window.refreshResult=null;window.refreshResult=await window.refreshClient.refresh(window.handoff.nonce);};
  </script><button id="refresh-prices" onclick="window.startRefresh()">Refresh prices</button>`;
  const vendor=`<!doctype html><meta charset="utf-8"><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
  <button id="open" onclick="window.openDialog()">Download</button>
@@ -41,7 +42,10 @@ try{
  await context.route('**/*',async route=>{
   const url=new URL(route.request().url());
   if(url.protocol==='chrome-extension:')return route.continue();
-  if(url.origin===appOrigin)return route.fulfill({contentType:['/handoff.mjs','/refresh.mjs'].includes(url.pathname)?'text/javascript':'text/html',body:url.pathname==='/handoff.mjs'?source:url.pathname==='/refresh.mjs'?refreshSource:app});
+  if(url.origin===appOrigin){
+   const scripts={'/handoff.mjs':source,'/refresh.mjs':refreshSource,'/core/csv-encoding.js':csvDecoder};
+   return route.fulfill(scripts[url.pathname]?{contentType:'text/javascript',body:scripts[url.pathname]}:{contentType:'text/html',body:app});
+  }
   if(url.origin===vendorOrigin){
    let body=vendorRequiresVerification?'<input type="password"><p>Sign in directly</p>':vendor;
    // Model a newly reopened page whose account header renders only after its
@@ -233,6 +237,24 @@ try{
  await appPage.locator('#refresh-prices').click();await vendorPage.waitForFunction(()=>typeof window.finishExport==='function').catch(async error=>{throw Error('Restored-access check: '+JSON.stringify({result:await appPage.evaluate(()=>window.refreshResult),status:await worker.evaluate(()=>globalThis.chrome.storage.session.get('transferStatus')),permissions:await worker.evaluate(()=>globalThis.chrome.permissions.getAll()),source:await vendorPage.evaluate(()=>({state:document.readyState,exports:window.exportCount,ready:typeof window.finishExport}))})+' '+error.message);});await vendorPage.evaluate(()=>window.finishExport());
  await appPage.waitForFunction(()=>window.refreshResult?.outcome==='received_for_review');assert.equal(await appPage.evaluate(()=>window.received.length),5);assert.equal(await vendorPage.evaluate(()=>window.exportCount),2);assert.equal((await appPage.evaluate(()=>window.received[4])).text,changedCsv);
  assert.deepEqual(await appPage.evaluate(()=>window.received.slice(0,4)),beforeRevocation,'new explicit retrieval preserves all prior received artifacts');
+ const legacy=Buffer.from(csv.replace('–','\x96'),'latin1');
+ const utf16=Buffer.concat([Buffer.of(0xff,0xfe),Buffer.from(csv,'utf16le')]);
+ for(const [bytes,accepted] of [[legacy,true],[utf16,false]]){
+  await vendorPage.evaluate(value=>{window.csv=Uint8Array.from(value);window.finishExport=undefined;},Array.from(bytes));
+  await appPage.locator('#refresh-prices').click();
+  await vendorPage.waitForFunction(()=>typeof window.finishExport==='function');
+  await vendorPage.evaluate(()=>window.finishExport());
+  await appPage.waitForFunction(()=>!!window.refreshResult);
+  const result=await appPage.evaluate(()=>window.refreshResult);
+  const received=await appPage.evaluate(()=>window.received);
+  assert.equal(received.length,6);
+  if(accepted){
+   assert.equal(result.outcome,'received_for_review');
+   assert.equal(received[5].text,csv);
+   assert.equal(received[5].evidence.sha256,createHash('sha256').update(bytes).digest('hex'));
+  }else assert.match(result.message,/unsupported text encoding/);
+ }
+ console.log('PASS native CSV transfer: Windows-1252 text and original hash agree; UTF-16 never reaches the receiver.');
  console.log('PASS native lifecycle recovery: verification and permission stops preserve prior artifacts; restored synthetic sign-in or declared host access never auto-resumes; a fresh explicit app refresh captures once and preserves changed source bytes. No real supplier session or database acceptance is implied.');
  console.log('PASS native Refresh prices: scoped optional-access denial/grant/revocation, actual app channel -> worker -> automatic pairing/claim/export/delivery, no popup clicks, duplicate-tab refusal, saved-route reopening and sign-in pause. Synthetic profile and vendor pages only.');
  assert.deepEqual(unexpected,[],'no fixture request reached an outside origin');

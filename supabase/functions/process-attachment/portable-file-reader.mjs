@@ -28,6 +28,8 @@
  * in Deno (Edge Functions) and Node ≥ 18 (tests).
  */
 
+import { decodeCsvBytes } from '../../../src/core/csv-encoding.js';
+
 // PNG/JPEG and PDF use optional same-project service readers. Their adapters
 // enforce source bounds and retain evidence; network/runtime failures remain
 // retryable instead of being misclassified as permanent source errors.
@@ -43,13 +45,11 @@ export class FileReadError extends Error {
 
 // ── MIME helpers ──────────────────────────────────────────────────────────────
 
+const CSV_MIMES = new Set(["text/csv", "application/csv", "application/x-csv"]);
 const TEXT_MIMES = new Set([
-  "text/csv",
   "text/plain",
   "text/tab-separated-values",
   "text/tsv",
-  "application/csv",
-  "application/x-csv",
   // Postmark sometimes labels CSVs with an Excel MIME — normalise here.
   "application/vnd.ms-excel",
 ]);
@@ -76,9 +76,9 @@ function normaliseMime(mimeType, filename) {
 
 // ── Text / CSV reading ────────────────────────────────────────────────────────
 
-function readTextBytes(bytes) {
+function readTextBytes(bytes, isCsv) {
   try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const text = isCsv ? decodeCsvBytes(bytes) : new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     // Normalise line endings; filter trailing blank lines but keep content lines.
     const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     // Trim a single trailing empty line (common in saved CSV files) but
@@ -88,7 +88,7 @@ function readTextBytes(bytes) {
     }
     return { kind: "lines", lines };
   } catch (e) {
-    throw new FileReadError(`UTF-8 decode failed: ${e.message}`);
+    throw new FileReadError(`${isCsv ? "CSV" : "UTF-8"} decode failed: ${e.message}`);
   }
 }
 
@@ -444,8 +444,8 @@ function xmlUnescape(s) {
 export async function readAttachment(bytes, mimeType, filename, {imageTextReader,pdfTextReader}={}) {
   const mime = normaliseMime(mimeType, filename);
 
-  if (TEXT_MIMES.has(mime)) {
-    return readTextBytes(bytes);
+  if (CSV_MIMES.has(mime) || TEXT_MIMES.has(mime)) {
+    return readTextBytes(bytes, CSV_MIMES.has(mime) || /\.csv$/i.test(filename || ""));
   }
 
   if (XLSX_MIMES.has(mime)) {

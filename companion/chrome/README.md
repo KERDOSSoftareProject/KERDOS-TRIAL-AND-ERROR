@@ -1,4 +1,8 @@
-# Companion 0.2.16 · Refresh prices
+# Companion 0.2.17 · Refresh prices
+
+CSV capture supports UTF-8 and Windows-1252 text. KERDOS checks for unsupported
+encodings and control characters before import, and verifies the original bytes
+using the same receipt hash. Install the complete 0.2.17 folder for this change.
 
 A fresh app command reopens a previously verified, client/vendor/account/list-scoped saved route in the foreground before checking its visible account header. Bringing a tab forward is navigation only: account/list proof and the one-use export claim remain mandatory. Wrong accounts, wrong lists and verification pages still stop without exporting or replacing the saved route. The controlled regression models account rendering dependent on native tab selection; it does not establish the cause of any particular supplier sign-in behavior.
 

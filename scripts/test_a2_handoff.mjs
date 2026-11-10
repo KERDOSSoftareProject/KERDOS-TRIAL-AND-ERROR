@@ -18,6 +18,24 @@ assert.ok(messages.some(m=>m.outcome==='received_for_review'));handoff.cancel();
 for(const invalid of [{...artifact,origin:'https://wrong.example'},{...artifact,base64:btoa('<html>login,again\n')},{...artifact,base64:'invalid!'},{...artifact,base64:'A'.repeat(6990509)}]){
  handoff=begin();await dispatch({type:'pair'});ticket=messages.at(-1).ticket;await dispatch({type:'deliver',nonce:ticket.nonce,artifact:invalid});assert.equal(received.length,1);assert.equal(messages.at(-1).ok,false);handoff.cancel();
 }
+const legacyBytes=Buffer.from('Code,Description,Price\nA,Caf\xe9 \x96 jalape\xf1o,12.50\n','latin1');
+let legacyReceipt;
+handoff=begin({onReceive:payload=>{legacyReceipt=payload;}});
+await dispatch({type:'pair'});ticket=messages.at(-1).ticket;
+await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,base64:legacyBytes.toString('base64')}});
+assert.deepEqual(Buffer.from(await legacyReceipt.file.arrayBuffer()),legacyBytes);
+assert.equal(legacyReceipt.evidence.sha256,Buffer.from(await crypto.subtle.digest('SHA-256',legacyBytes)).toString('hex'));
+handoff.cancel();
+for(const bytes of [
+ Buffer.concat([Buffer.of(0xff,0xfe),Buffer.from('Code,Name\n1,Test\n','utf16le')]),
+ Buffer.from('Code,Name\n1,Te\0st\n'),
+ Buffer.from('Code,Name\n1,Te\x81st\n','latin1'),
+ Buffer.from('%PDF-1.7\nCode,Name\n1,Test\n'),
+]){
+ handoff=begin();await dispatch({type:'pair'});ticket=messages.at(-1).ticket;
+ await dispatch({type:'deliver',nonce:ticket.nonce,artifact:{...artifact,base64:bytes.toString('base64')}});
+ assert.equal(received.length,1);assert.equal(messages.at(-1).outcome,'handoff_rejected');handoff.cancel();
+}
 handoff=begin();await dispatch({type:'pair'});ticket=messages.at(-1).ticket;time=ticket.expiresAt;await dispatch({type:'deliver',nonce:ticket.nonce,artifact});assert.equal(received.length,1);handoff.cancel();
 time=1000;let release;const digestGate=new Promise(r=>{release=r;});
 handoff=begin({cryptoApi:{randomUUID:()=>crypto.randomUUID(),subtle:{digest:async(...args)=>{await digestGate;return crypto.subtle.digest(...args);}}}});await dispatch({type:'pair'});ticket=messages.at(-1).ticket;

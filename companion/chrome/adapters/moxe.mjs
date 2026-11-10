@@ -122,8 +122,17 @@ export async function exportSelectedMoxeList(selection){
     if(location.pathname!==originalPath)throw new Error('list_changed');
     if(!blob)return {outcome:'capture_unavailable'};
     const bytes=new Uint8Array(await blob.arrayBuffer());
-    let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{return {outcome:'unsupported_encoding'};}
-    if(/^\s*(?:<!doctype|<html|<body|<script)/i.test(text)||!text.includes(',')||!text.includes('\n'))return {outcome:'invalid_csv'};
+    // Chrome injects this function by value. Apply the same text checks as the
+    // app reader here without importing a module into the supplier page.
+    if((bytes[0]===0xff&&bytes[1]===0xfe)||(bytes[0]===0xfe&&bytes[1]===0xff))return {outcome:'unsupported_encoding'};
+    let text;
+    try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}
+    catch{text=new TextDecoder('windows-1252',{fatal:true}).decode(bytes);}
+    for(const character of text){
+     const code=character.charCodeAt(0);
+     if((code<32&&code!==9&&code!==10&&code!==13)||(code>=127&&code<=159)||code===0xfffd)return {outcome:'unsupported_encoding'};
+    }
+    if(/^\s*(?:<!doctype|<html|<body|<script|<\?xml|%PDF-)/i.test(text)||!text.includes(',')||!text.includes('\n'))return {outcome:'invalid_csv'};
     let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
     return {outcome:'export_captured',artifact:{base64:btoa(binary),origin:location.origin}};
    }finally{

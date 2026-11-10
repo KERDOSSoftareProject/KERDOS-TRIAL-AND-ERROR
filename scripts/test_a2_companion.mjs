@@ -142,10 +142,25 @@ final.click=()=>{
 };
 const captured=await exportSelectedMoxeList({...selection,capture:true});
 assert.equal(captured.outcome,'export_captured');assert.deepEqual(Buffer.from(captured.artifact.base64,'base64'),Buffer.from(csv,'utf8'));assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
-// Unsupported legacy bytes are rejected explicitly without replacement decoding.
-const utf8Csv=csv;csv=Uint8Array.of(67,111,100,101,44,78,97,109,101,10,49,44,67,97,102,233,10);
+const utf8Csv=csv;
+csv=Buffer.from('Code,Name\n1,Caf\xe9 \x96 jalape\xf1o\n','latin1');
 shown=false;options=false;checked=false;
-const unsupported=await exportSelectedMoxeList({...selection,capture:true});assert.equal(unsupported.outcome,'unsupported_encoding');assert.equal(unsupported.artifact,undefined);assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);csv=utf8Csv;
+const legacy=await exportSelectedMoxeList({...selection,capture:true});
+assert.equal(legacy.outcome,'export_captured');
+assert.deepEqual(Buffer.from(legacy.artifact.base64,'base64'),csv);
+for(const [bytes,outcome] of [
+ [Buffer.concat([Buffer.of(0xff,0xfe),Buffer.from('Code,Name\n1,Test\n','utf16le')]),'unsupported_encoding'],
+ [Buffer.from('Code,Name\n1,Te\0st\n'),'unsupported_encoding'],
+ [Buffer.from('Code,Name\n1,Te\x81st\n','latin1'),'unsupported_encoding'],
+ [Buffer.from('%PDF-1.7\nCode,Name\n1,Test\n'),'invalid_csv'],
+]){
+ csv=bytes;shown=false;options=false;checked=false;
+ const rejected=await exportSelectedMoxeList({...selection,capture:true});
+ assert.equal(rejected.outcome,outcome);assert.equal(rejected.artifact,undefined);
+ assert.equal(URL.createObjectURL,originalCreate);assert.equal(globalThis.__kerdosExportCapture,undefined);
+ assert.equal(Anchor.prototype.click,originalAnchorClick);assert.equal(Anchor.prototype.dispatchEvent,originalAnchorDispatch);
+}
+csv=utf8Csv;
 // An existing capture owns its sentinel and hooks; a competing attempt must
 // stop before the final download without releasing that owner's reservation.
 shown=false;options=false;checked=false;clicks=[];
