@@ -8,7 +8,7 @@ import {nonemptyWorkbookSheets,parseStructuredDocument} from "../core/document-s
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
 import {findUncodedVendorListing,vendorListingLabel} from "../core/vendor-listing.js";
 import {lookupQuoteComparison} from "../core/quote-provenance.js";
-import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY,parsePackSize,priceBasisFor,brandsMatch} from "../procurement.js";
+import {createProcurementContext,MATCH_POLICY} from "../procurement.js";
 import {createCatalogService} from "../services/catalog.js";
 import {createCategoryService} from "../services/categories.js";
 import {createDocumentService} from "../services/documents.js";
@@ -23,12 +23,12 @@ import {verifyResumeRows,createSourceRowSnapshot,hasWorksheetSnapshot,LEGACY_WOR
 import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
-import {enrichFromInvoices,invoiceEvidence} from "../core/invoice-evidence.js";
+import {enrichFromInvoices,invoiceEvidence,readInvoiceEvidence} from "../core/invoice-evidence.js";
 import {billingUnitEvidence} from "../core/billing-unit-evidence.js";
 import {btn,inp} from "../ui/styles.js";
 import {Drachma} from "../ui/Drachma.jsx";
 
-const catalogService=createCatalogService(backend);
+const EMPTY_VOCABULARY=[];
 const categoryService=createCategoryService(backend);
 const documents=createDocumentService(backend);
 const importService=createImportService(backend);
@@ -40,7 +40,10 @@ const r2=value=>Math.round(value*100)/100;
 // document by ID + ownership instead of re-fingerprinting — ensuring the user's
 // PasteModal session resumes the SAME partial document the worker created rather
 // than creating a duplicate under the content fingerprint.
-export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=[],vendorItems=[],mappings=[],onClose,onDone,onFinished,onIssue,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,automaticCompanion=false,inboxImportDocumentId=null}) {
+export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,categories,vocabulary=EMPTY_VOCABULARY,vendorItems=[],mappings=[],onClose,onDone,onFinished,onIssue,onBeforeSave,initialVendorId,initialMode,initialFiles,companionEvidence=null,automaticCompanion=false,inboxImportDocumentId=null}) {
+  const procurement=useMemo(()=>createProcurementContext({industry,vocabulary}),[industry,vocabulary]);
+  const catalogService=useMemo(()=>createCatalogService(backend,procurement),[procurement]);
+  const {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,parsePackSize,priceBasisFor,brandsMatch}=procurement;
   const inboxReview=typeof onBeforeSave==="function";
   const automaticImport=!!(automaticCompanion&&companionEvidence&&!inboxReview&&initialMode==='pricelist'&&initialFiles?.length===1);
   const importActive=useRef(true);
@@ -127,16 +130,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     setInvoiceLoad("loading");setInvoiceSources([]);setAcceptedInvoiceConflicts(new Set());
     importService.invoiceSources(orgId,vendorId).then(invoices=>{
       if(!active)return;
-      setInvoiceSources(invoices.flatMap(invoice=>parseDocument(invoice.raw_text||"").rows.map(row=>({
-        row,id:invoice.id,number:invoice.invoice_number,date:invoice.invoice_date,
-        organizationId:orgId,vendorId,
-      }))));
+      setInvoiceSources(readInvoiceEvidence(invoices,orgId,vendorId,procurement));
       setInvoiceLoad("ready");
     }).catch(error=>{if(active)setInvoiceLoad(error.message||"Invoice lookup failed");});
     return ()=>{active=false;};
-  },[mode,orgId,vendorId]);
+  },[mode,orgId,vendorId,procurement]);
   const invoiceClues=useMemo(()=>new Map(parsedGroups.flatMap(group=>group.rows.map((row,index)=>
-    [`${group.id}:${index}`,invoiceEvidence(row,invoiceSources)]))),[parsedGroups,invoiceSources]);
+    [`${group.id}:${index}`,invoiceEvidence(row,invoiceSources,procurement)]))),[parsedGroups,invoiceSources,procurement]);
   const invoiceConflicts=parsedGroups.flatMap(group=>group.rows.map((row,index)=>`${group.id}:${index}`))
     .filter(key=>invoiceClues.get(key)?.conflicts.length&&!acceptedInvoiceConflicts.has(key));
 
@@ -216,16 +216,16 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     const multiSheet=nonemptyWorkbookSheets(reading).length>1;
     // A linked workbook must reproduce the worker's original layout before
     // a reviewer can edit individual rows or skip completed positions.
-    if(inboxImportDocumentId&&multiSheet)return parseStructuredDocument(text,reading);
+    if(inboxImportDocumentId&&multiSheet)return parseStructuredDocument(text,reading,undefined,procurement);
     const parse=(part,options={})=>{
-      const first=parseDocument(part,options);
+      const first=parseDocument(part,options,procurement);
       const fingerprint=first.layout?.fingerprint||"";
       const answers=fingerprint?{...answersFor(fingerprint),...(overrides[fingerprint]||{})}:{};
-      return Object.keys(answers).length?parseDocument(part,{...options,layoutAnswers:answers}):first;
+      return Object.keys(answers).length?parseDocument(part,{...options,layoutAnswers:answers},procurement):first;
     };
     // The inbox's retained partial rows keep the worker's existing ordinal
     // contract. B3 changes the separate manual-upload path only.
-    return parseStructuredDocument(text,inboxReview&&!multiSheet?null:reading,parse);
+    return parseStructuredDocument(text,inboxReview&&!multiSheet?null:reading,parse,procurement);
   }
   const layoutsFor=group=>group.parts?.length?group.parts:[group];
   // Unknown column headers: collect any that the engine couldn't map by
@@ -594,7 +594,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         assertActive();
         const completedKey=`row:${rowIndex}`;
         if(completedKeys.has(completedKey))continue;
-        let row=enrichFromInvoices(sourceRow,invoiceSources);
+        let row=enrichFromInvoices(sourceRow,invoiceSources,procurement);
         // A price sheet never waits on a person. A row with parser issues or
         // an invoice disagreement is saved with those notes attached, so
         // Item Catalog shows exactly what to finish; nothing is held back.
@@ -618,14 +618,14 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           const selected=await importService.vendorItemById(orgId,vendorId,row.selectedVendorItemId);
           if(!selected||selected.vendor_item_code&&selected.vendor_item_code!==row.code)
             throw new Error("The selected NVIN belongs to a different vendor item code. Choose its actual listing.");
-          const checked=findUncodedVendorListing(row,[selected]);
+          const checked=findUncodedVendorListing(row,[selected],undefined,procurement);
           if(checked.item!==selected)throw new Error("The selected NVIN does not agree on product, pack and brand. Correct the row before linking it.");
           if(ex&&ex.id!==selected.id)throw new Error("The vendor's printed code already belongs to another listing. Review both listings.");
           ex=selected;
         }
         if(!ex){
           const candidates=currentVendorItems;
-          const found=findUncodedVendorListing(row,candidates,{allowDistinctPack:!inboxReview});
+          const found=findUncodedVendorListing(row,candidates,{allowDistinctPack:!inboxReview},procurement);
           if(found.conflict)throw new Error(found.conflict);
           ex=found.item;
           if(ex&&row.code){
@@ -642,7 +642,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           orgId,vendorId,sourceDocumentId,completedKey,importBatchTime,group,sourceFilePath,
           workingCatalogItems,workingCategories,workingVendorItems,workingMappings,
           applySelectedCategory,assertActive,
-        });
+        },procurement);
         if(ex&&!needsBasis) updated++; else if(!ex) created++;
         if(needsBasis)basisReview++;
         if(match&&savedMapping){
@@ -810,7 +810,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             // Preserve the existing interactive refresh preference. Automatic imports
             // retain their existing eligibility policy until that requirement is resolved.
             clientSettings:orgSettings,
-          });
+          },procurement);
           if(lookupError)saveError=(saveError?saveError+" ":"")+`${row.description}: ${lookupError}`;
           if(comparisonNote==='unknown_billed_unit')
             saveError=(saveError?saveError+" ":"")+`${row.description}: invoice selling unit "${row.sellingUnit}" is unknown; no variance calculated.`;

@@ -18,44 +18,34 @@ const profiles=new Map([["restaurant",{
   cellBrands:restaurantCellBrands,
 }]]);
 let activeProfile=null;
+const literalAssociations={version:'literal-1',concepts:[],facets:[],fragments:[]};
 
-export function configureCategoryProfile(industry){
-  activeProfile=profiles.get(String(industry||"").trim().toLowerCase())||null;
+export function getIndustryProfile(industry){
+  return profiles.get(String(industry||"").trim().toLowerCase())||null;
 }
 
-export function categoryContext(words,categories){
-  return activeProfile?.category?.(words,categories)||null;
+export function configureCategoryProfile(industry){
+  activeProfile=getIndustryProfile(industry);
+}
+
+export function getActiveCategoryProfile(){
+  return activeProfile;
 }
 
 export function quoteContext(row,rows){
   return activeProfile?.quote?.(row,rows)||null;
 }
 
-export function industryProductContext(text){
-  return activeProfile?.product?.(text)||{text:String(text||""),attributes:{},evidence:[],unresolved:[]};
+export function associationRules(profile){
+  return profile?.associations||literalAssociations;
 }
 
-export function industryVocabulary(){return activeProfile?.vocabulary||[];}
-export function recognizesIndustryBrand(value){return activeProfile?.cellBrands?.has(value.toLowerCase())??false;}
-export function industryAssociationProfile(industry){
-  const profile=industry===undefined?activeProfile:profiles.get(String(industry||'').trim().toLowerCase());
-  return profile?.associations||{version:'literal-1',concepts:[],facets:[],fragments:[]};
-}
 export function industryClientNames(industry){return profiles.get(String(industry||'').toLowerCase())?.clientNames||{};}
 
 // Explicit industry lookup also makes the bundled knowledge inspectable in Admin.
 export function industryDictionary(industry){
   const profile=profiles.get(String(industry||"").trim().toLowerCase());
   return {version:profile?.version||null,groups:profile?.dictionaries||{}};
-}
-
-export function packContext(text){return activeProfile?.pack?.(text)||{working:text,qualifiers:[]};}
-
-// Returns product type priors for pricing basis inference.
-// Each industry profile can declare which product types are typically
-// weight-priced or count-priced. Returns empty signals when no profile is loaded.
-export function productTypePriors(description){
-  return activeProfile?.pricingPriors?.(description)||{weightPriced:false,countPriced:false};
 }
 
 export function industryUnitCostDefaults(industry){return profiles.get(String(industry||" ").trim().toLowerCase())?.unitCostUnits||{};}

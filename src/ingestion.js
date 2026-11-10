@@ -4,7 +4,7 @@ import {applySourceUnits,documentQuoteUnit,unitInPriceHeader} from "./core/sourc
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
-import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
+import {getProcurementContext} from "./procurement.js";
 import {readHeaderLayout,applyLayoutAnswers} from "./core/sheet-layout.js";
 import {identifyRowFields} from "./core/field-identification.js";
 import {parseAssignedMoney,parseMoney,parseMoneyLenient} from "./core/assigned-numbers.js";
@@ -248,7 +248,7 @@ const PRICE_PRIORITY = ["your price","net price","sell price","selling price",
   "quote price","quoted price","unit price","price/case","price per case",
   "price","pr","prc","cost","unit cost","rate","sell","list price"];
 
-function mapColumnsFromHeader(headerCells) {
+function mapColumnsFromHeader(headerCells, procurement=getProcurementContext()) {
   const map = {};
   const billedIndex=headerCells.findIndex(billedQuantityHeader);
   if(billedIndex>=0)map.qty=billedIndex;
@@ -297,10 +297,10 @@ function mapColumnsFromHeader(headerCells) {
   // primary price role. Totals and other assigned fields stay separate.
   const pairedPrices=priceCandidates.filter(({idx})=>
     (idx===map.price||!Object.values(map).includes(idx))&&
-    ["CASE","EACH"].includes(unitInPriceHeader(headerCells[idx])));
+    ["CASE","EACH"].includes(unitInPriceHeader(headerCells[idx], procurement)));
   if(pairedPrices.length===2&&pairedPrices.some(({idx})=>idx===map.price)){
     const alternate=pairedPrices.find(({idx})=>idx!==map.price).idx;
-    if(unitInPriceHeader(headerCells[alternate])!==unitInPriceHeader(headerCells[map.price]))map.parallelPrice=alternate;
+    if(unitInPriceHeader(headerCells[alternate], procurement)!==unitInPriceHeader(headerCells[map.price], procurement))map.parallelPrice=alternate;
   }
   return map;
 }
@@ -308,8 +308,8 @@ function mapColumnsFromHeader(headerCells) {
 // Header words inside product data are not a new table. The two required
 // roles must occupy separate cells, and an established price cell containing
 // a real amount (including zero or a price/unit value) keeps the row as data.
-function isTableHeader(cells, previousColumns={}) {
-  const map=mapColumnsFromHeader(cells);
+function isTableHeader(cells, previousColumns={}, procurement=getProcurementContext()) {
+  const map=mapColumnsFromHeader(cells, procurement);
   return map.description!==undefined&&map.price!==undefined&&map.description!==map.price&&
     parseMoneyLenient(cells[map.price])===null&&parseMoneyLenient(cells[previousColumns.price])===null;
 }
@@ -317,7 +317,7 @@ function isTableHeader(cells, previousColumns={}) {
 // Some delimited lists print the same product/price table twice across one
 // physical row. Native worksheets can also repeat the same layout using
 // explicit description and price aliases, with row evidence of separate lanes.
-function repeatedColumnGroups(headers, nativeRows=null) {
+function repeatedColumnGroups(headers, nativeRows=null, procurement=getProcurementContext()) {
   const normalized=headers.map(cell=>cell.toLowerCase().trim().replace(/\s+/g,' '));
   const labels=nativeRows?normalized.map(label=>{
     if(/^(?:product|description|(?:item|product) description)$/.test(label))return 'description';
@@ -330,7 +330,7 @@ function repeatedColumnGroups(headers, nativeRows=null) {
     if(!labels.every((label,index)=>label===labels[index%width]))continue;
     const groups=Array.from({length:count},(_,n)=>{
       const start=n*width,sourceHeaders=headers.slice(start,start+width);
-      const columnMap=mapColumnsFromHeader(sourceHeaders);
+      const columnMap=mapColumnsFromHeader(sourceHeaders, procurement);
       const confirmedColumns=new Set(Object.values(columnMap));
       const fieldOrigins=Object.fromEntries(Object.keys(columnMap).map(field=>[field,"stated"]));
       return {start,sourceHeaders,columnMap,confirmedColumns,fieldOrigins};
@@ -465,16 +465,16 @@ export function unmangleExcelDatePack(value){
 // "1 CASE". A bare whole number ("1000", "2500") in a pack column is a
 // count of units: it becomes "1000 CT". Anything else is left as written.
 const PACKAGING_ONLY=/^(case|cs|cse|box|bx|bag|bg|tub|pail|bucket|bkt|crate|crt|carton|ctn|flat|sack|drum|pallet|tray|sleeve|bundle|bdl|roll|rl|jug|can|jar|bottle|btl|piece|pc|pce|each|ea)\.?$/i;
-export function normalizeColumnPack(value){
+export function normalizeColumnPack(value, procurement=getProcurementContext()){
   const text=String(value||"").trim();
   if(!text) return text;
   if(PACKAGING_ONLY.test(text)) return `1 ${text.replace(/\.$/,"").toUpperCase()}`;
   if(/^\d{2,}$/.test(text)) return `${Number(text)} CT`;
   // Normalize mixed fractions: 1-1/9 BU → 1.111111 BU
-  return normalizeMixedFraction(text);
+  return procurement.normalizeMixedFraction(text);
 }
 
-function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns=new Set()) {
+function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns=new Set(), procurement=getProcurementContext()) {
   const {values, ...fieldIdentification} = fields;
   const get = role => values[role];
 
@@ -507,14 +507,14 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   const code = (get("code") || "").trim() || null;
   const brand = (get("brand") || "").trim() || null;
   const sellingUnit = (get("sellingUnit") || "").trim() || null;
-  const gtin = normalizeGtin(get("gtin"));
-  const manufacturerCode = normalizeManufacturerCode(get("mfrCode"));
+  const gtin = procurement.normalizeGtin(get("gtin"));
+  const manufacturerCode = procurement.normalizeManufacturerCode(get("mfrCode"));
   // The pack column wins; when it is empty, a pack written at the end of
   // the description is used and its origin recorded for review.
-  const columnPack = normalizeColumnPack(unmangleExcelDatePack((get("packSize") || "").trim())) || null;
+  const columnPack = normalizeColumnPack(unmangleExcelDatePack((get("packSize") || "").trim()), procurement) || null;
   // When no pack column exists, pull the pack from the description tail.
   // description is let so we can strip the pack text from it.
-  const descriptionPackRaw = columnPack ? null : packFromDescription(description);
+  const descriptionPackRaw = columnPack ? null : procurement.packFromDescription(description);
   let descriptionPack = null;
   if(descriptionPackRaw && !columnPack){
     descriptionPack = descriptionPackRaw;
@@ -545,7 +545,7 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
     const candidate=details.find(({value,index})=>index<columnMap.description&&
         !/^(?:(?:item|product)\s+)?(?:notes?|details?|comments?|remarks?)$/i.test(sourceHeaders[index]?.trim()||"")&&
         /^[A-Z0-9][A-Z0-9\-\/\.]{2,15}$/i.test(value)&&/\d/.test(value)&&
-        !/^\d+(?:\.\d+)?[/-]\d+(?:\.\d+)?$/.test(value)&&!parsePackSize(value)?.parsed);
+        !/^\d+(?:\.\d+)?[/-]\d+(?:\.\d+)?$/.test(value)&&!procurement.parsePackSize(value)?.parsed);
     if(candidate){
       rowCode=candidate.value;codeSource="details";
       inferredCodeColumn=fields.anchor.columnIndex-columnMap.description+candidate.index;
@@ -554,7 +554,7 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   }
   details=details.map(cell=>cell.value);
   const fullDescription=missingDescription?"":[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const boundQuality=assessBoundFields(fields,{inferredCodeColumn});
+  const boundQuality=assessBoundFields(fields,{inferredCodeColumn}, procurement);
   const issues = [...validation.issues,
     ...["qty", "amount"].filter(role => boundQuality.cellIssues[role]).map(role => ({
       kind: "invalid-assigned-field", field: role, message: boundQuality.cellIssues[role],
@@ -566,7 +566,7 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   const roleByCol = Object.fromEntries(Object.entries(columnMap).map(([role,idx])=>[idx,role]));
   const headerHints = cells.map((_,i) => roleByCol[i] || '');
   const analysisCells=cells.map((cell,index)=>metadataIndices.has(index)||index===columnMap.parallelPrice?"":cell);
-  const cellEvidence = analyzeRow(analysisCells, headerHints, priceHeader, confirmedColIndices);
+  const cellEvidence = analyzeRow(analysisCells, headerHints, priceHeader, confirmedColIndices, procurement);
   const priceProposal = cellEvidence.resolved.price;
   const packProposal  = cellEvidence.resolved.pack;
   const finalPriceUnavailable = price === 0 || priceUnavailable || priceUnreadable || priceProposal?.priceUnavailable || false;
@@ -607,7 +607,7 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
     cellConflicts,
     sourceLine:cells.join("\t"),
     issues,
-  },{priceCell:priceRaw,priceHeader});
+  },{priceCell:priceRaw,priceHeader}, procurement);
 }
 
 
@@ -626,7 +626,7 @@ function isDocumentMetadata(line){
   const t=line.trim();
   return METADATA_LINE.test(t)||NON_PRODUCT_LINE.test(t)||/^(?:https?:\/\/|www\.|@)/i.test(t);
 }
-function contextualFreeformRow(line){
+function contextualFreeformRow(line, procurement=getProcurementContext()){
   if(isDocumentMetadata(line)) return null;
   const labeled=extractLabeledFields(line);
   if(labeled){
@@ -671,9 +671,9 @@ function contextualFreeformRow(line){
   // Use full pack parser on the description tail. sourceLine is the unmodified original.
   let cfDescription=description;
   let cfPack=null;
-  const cfPackStr=packFromDescription(description);
+  const cfPackStr=procurement.packFromDescription(description);
   let cfPackOriginal=null;
-  if(cfPackStr){const cfIdx=normalizeMixedFraction(description)
+  if(cfPackStr){const cfIdx=procurement.normalizeMixedFraction(description)
     .lastIndexOf(cfPackStr);if(cfIdx>4){cfPack=cfPackStr;cfPackOriginal=description.slice(cfIdx).replace(/[.,\s]+$/,"").trim();cfDescription=description.slice(0,cfIdx).replace(/[,\s]+$/,"").trim();}}
   const issues=[];
   if(prior&&qty!=null&&Math.abs(qty*price-amount)>0.02)issues.push("Quantity x unit price does not equal the stated line total");
@@ -767,7 +767,7 @@ function parseServiceInvoice(lines,text){
 // Some invoices state an ordered/delivered count and a separate measured
 // quantity for billing. Recognize the column roles, then use the selling
 // unit's dimension; this applies equally to any trade and supplier.
-function parseGoodsInvoice(lines,text){
+function parseGoodsInvoice(lines,text, procurement=getProcurementContext()){
   const heading=lines.findIndex(line=>/\bItem(?:\s*\/\s*Xref|\s*(?:No\.?|#))?\b.*\b(?:ORD|ORDERED)\b.*\b(?:DLV|DELIVERED)\b.*\b(?:UOM|UNIT)\b.*\bDescription\b.*\bPack\s*Size\b.*\b(?:Weight|Billed\s+Quantity)\b.*\bUnit\s*Price\b.*\b(?:Extended|Line\s+Total)\b/i.test(line));
   if(heading<0)return null;
   const rows=[],skipped=[];
@@ -778,7 +778,7 @@ function parseGoodsInvoice(lines,text){
     const match=line.match(rowPattern);
     if(!match){if(line.trim())skipped.push({line,reason:"Non-item or wrapped invoice detail"});continue;}
     const [,code,ordered,delivered,uom,body,rawPrice,rawAmount]=match;
-    const measure=measurement(1,uom),measuredUnit=measure?.dimension==="mass"||measure?.dimension==="volume"||measure?.dimension==="length";
+    const measure=procurement.measurement(1,uom),measuredUnit=measure?.dimension==="mass"||measure?.dimension==="volume"||measure?.dimension==="length";
     const weightMatch=measuredUnit?body.match(/\s+(\d+\.\d{2})\s*$/):null;
     const weightPart=weightMatch?Number(weightMatch[1]):null;
     const withoutWeight=weightMatch?body.slice(0,weightMatch.index).trim():body.trim();
@@ -1185,12 +1185,12 @@ function extractLabeledFields(line) {
 //   skipped: [ { line, reason }, ... ]   // for transparency in the review UI
 // }
 
-function parseDocumentRows(text, options={}) {
+function parseDocumentRows(text, options={}, procurement=getProcurementContext()) {
   const rawLines = text.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0);
 
   const serviceInvoice=parseServiceInvoice(rawLines,text);
   if(serviceInvoice)return serviceInvoice;
-  const goodsInvoice=parseGoodsInvoice(rawLines,text);
+  const goodsInvoice=parseGoodsInvoice(rawLines,text, procurement);
   if(goodsInvoice)return goodsInvoice;
 
   const delimiter = options.delimiter==="tab"?"tab":sniffDelimiter(rawLines);
@@ -1202,7 +1202,7 @@ function parseDocumentRows(text, options={}) {
     // interpreted independently and every uncertain line stays visible.
     const rows=[],skipped=[];
     for(const line of rawLines){
-      const row=contextualFreeformRow(line);
+      const row=contextualFreeformRow(line, procurement);
       if(row) rows.push(row);
       else skipped.push({line,reason:isDocumentMetadata(line)?"document metadata, not a product":"no unambiguous product and monetary price"});
     }
@@ -1290,7 +1290,7 @@ function parseDocumentRows(text, options={}) {
   // client's remembered answers for this vendor's layout on top of it,
   // and only then the data-shape guesses for whatever is still unnamed.
   const headerCells=headerFound?grid[headerIndex].cells:[];
-  const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
+  const engineMap=headerFound?mapColumnsFromHeader(headerCells, procurement):{};
   const layoutAnswers=options.layoutAnswers||{};
   const allowAliasGroups=options.nativeWorksheet&&!Object.keys(layoutAnswers).length;
   const answered=applyLayoutAnswers(engineMap,layoutAnswers);
@@ -1305,7 +1305,7 @@ function parseDocumentRows(text, options={}) {
   ]));
   let priceHeader=headerFound?grid[headerIndex].cells[columnMap.price]:"";
   let sourceHeaders=headerFound?grid[headerIndex].cells:[];
-  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders,allowAliasGroups?grid.slice(dataStart):null):null;
+  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders,allowAliasGroups?grid.slice(dataStart):null, procurement):null;
   const repeatedRoles=allowAliasGroups&&repeatedGroups?.flatMap(({start,columnMap})=>
     Object.entries(columnMap).map(([role,index])=>[start+index,role]));
   const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:layoutAnswers,repeatedRoles}):{headers:[],unknown:[],fingerprint:""};
@@ -1322,19 +1322,19 @@ function parseDocumentRows(text, options={}) {
 
     // Repeated table headers can change the quoted unit. Do not leak a
     // preceding worksheet's price header into the next table.
-    const header=mapColumnsFromHeader(cells);
-    if(isTableHeader(cells,columnMap)){
+    const header=mapColumnsFromHeader(cells, procurement);
+    if(isTableHeader(cells,columnMap, procurement)){
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;
       confirmedColIndices=new Set(Object.values(header));
       fieldOrigins=Object.fromEntries(Object.keys(header).map(field=>[field,"stated"]));
-      repeatedGroups=repeatedColumnGroups(cells,allowAliasGroups?grid.slice(i+1):null);continue;
+      repeatedGroups=repeatedColumnGroups(cells,allowAliasGroups?grid.slice(i+1):null, procurement);continue;
     }
     if(repeatedGroups){
       for(const {start,sourceHeaders:groupHeaders,columnMap:groupMap,confirmedColumns,fieldOrigins} of repeatedGroups){
         const part=cells.slice(start,start+groupHeaders.length);
         if(!part.some(Boolean))continue;
         const fields=identifyRowFields({cells:part,columnMap:groupMap,sourceHeaders:groupHeaders,fieldOrigins,rowIndex:i,columnStart:start});
-        const row=extractRow(part,groupMap,groupHeaders[groupMap.price],confirmedColumns,groupHeaders,fields);
+        const row=extractRow(part,groupMap,groupHeaders[groupMap.price],confirmedColumns,groupHeaders,fields, undefined, procurement);
         if(!row){skipped.push({line:part.join('\t'),reason:"couldn't find a valid price or description",
           ...(options.includeSourceIndex?{sourceIndex:i,sourceColumnStart:start,sourceColumnCount:groupHeaders.length}:{})});continue;}
         if(options.includeSourceIndex)row.sourceIndex=i;
@@ -1345,7 +1345,7 @@ function parseDocumentRows(text, options={}) {
       continue;
     }
     const fields=identifyRowFields({cells,columnMap,sourceHeaders,fieldOrigins,rowIndex:i});
-    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns);
+    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns, procurement);
     if (!row) {
       skipped.push({ line, reason: "couldn't find a valid price or description", ...(options.includeSourceIndex?{sourceIndex:i}:{}) });
       continue;
@@ -1360,10 +1360,10 @@ function parseDocumentRows(text, options={}) {
 }
 
 
-function parseDocument(text, options={}){
-  const result=parseDocumentRows(text, options);
-  const documentUnit=documentQuoteUnit(text);
-  return {...result,rows:result.rows.map(row=>withRowValidation(applySourceUnits(row,{documentUnit})))};
+function parseDocument(text, options={}, procurement=getProcurementContext()){
+  const result=parseDocumentRows(text, options, procurement);
+  const documentUnit=documentQuoteUnit(text, procurement);
+  return {...result,rows:result.rows.map(row=>withRowValidation(applySourceUnits(row,{documentUnit}, procurement)))};
 }
 
 // Exported for use elsewhere in the app.

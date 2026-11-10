@@ -55,6 +55,7 @@ try{
     CREATE TABLE public.invoices(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),organization_id uuid,vendor_id uuid,invoice_number text,invoice_date date,total_amount numeric,raw_text text,status text,file_path text,file_name text,created_at timestamptz DEFAULT now());
     CREATE TABLE public.invoice_lines(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),invoice_id uuid REFERENCES public.invoices(id),vendor_item_id uuid,vendor_item_code text,description text,quantity numeric,unit_price numeric,line_total numeric,price_variance numeric,match_confidence numeric,match_method text);
   `);
+  await db.exec(read('knowledge/migration_036_stale_recovery_source.sql'));
   await db.exec(read('knowledge/migration_038_receipt_vendor_snapshot_draft.sql'));
   await db.exec(read('knowledge/migration_039_routing_document_type.sql'));
   await db.exec(read('supabase/migrations/20261027205000_a1_atomic_background_invoice.sql'));
@@ -91,7 +92,7 @@ try{
     await db.query("UPDATE inbound_attachments SET processing_status='processing' WHERE id=$1",[att]);
   });
   await check('actual importer commits invoice header, lines, document and attachment together',async()=>{
-    const records=createRecords(async spec=>({data:spec.table==='vendor_items'?[listing]:[],error:null}));
+    const records=createRecords(async spec=>({data:spec.table==='organizations'?{industry:'Generic'}:spec.table==='vendor_items'?[listing]:[],error:null}));
     const backend={records,attachments:{download:async()=>new TextEncoder().encode(text),setStatus:async()=>{throw Error('Unexpected review status');}},
       invoices:{recordAutomatic:async payload=>{await db.exec('SET ROLE service_role');try{return await rpc(payload.header,payload.lines);}finally{await db.exec('RESET ROLE');}}}};
     const result=await processAttachmentInBackground(backend,{id:att,filename:'invoice.csv',content_type:'text/csv',storage_path:'org/inbound/file',file_size_bytes:128},{organizationId:org,vendorId:vendor,documentType:'invoice'});
@@ -129,6 +130,39 @@ try{
     const id=(await rpc(h,billed.lines,token,att,'billed:128')).rows[0].id;
     const saved=(await db.query('select quantity_source,billed_quantity_evidence from invoice_lines where invoice_id=$1',[id])).rows[0];assert.deepEqual(saved.quantity_source,billed.lines[0].quantity_source);assert.deepEqual(saved.billed_quantity_evidence,billed.lines[0].billed_quantity_evidence);
     await db.query("UPDATE inbound_attachments SET processing_status='processing' WHERE id=$1",[att]);assert.equal((await rpc(h,billed.lines,token,att,'billed:128')).rows[0].id,id);
+  });
+  await check('context lookup failure releases the real database claim and the retained attachment imports on retry',async()=>{
+    const retryAttachment='00000000-0000-0000-0000-000000000009';
+    const retryText=text.replace('INV-101','INV-CONTEXT');
+    const storagePath='org/inbound/context-retry';
+    await db.query("INSERT INTO inbound_attachments(id,organization_id,message_id,filename,storage_path,processing_status) VALUES($1,$2,$3,'invoice.csv',$4,'pending')",[retryAttachment,org,message,storagePath]);
+    const claim=async()=>(await db.query('SELECT public.claim_attachment($1) AS token',[retryAttachment])).rows[0].token;
+    let activeToken=await claim();
+    const firstToken=activeToken;
+    let vocabularyAvailable=false;
+    const records=createRecords(async spec=>{
+      if(spec.table==='org_vocabulary'&&!vocabularyAvailable)return {data:null,error:{message:'Temporary vocabulary outage'}};
+      return {data:spec.table==='organizations'?{industry:'Generic'}:spec.table==='vendor_items'?[listing]:[],error:null};
+    });
+    const setStatus=async(id,status,reason,docId=null)=>{
+      const result=await db.query('SELECT public.set_attachment_status_fenced($1,$2,$3,$4,$5) AS applied',[id,status,reason,docId,activeToken]);
+      assert.equal(result.rows[0].applied,true);
+    };
+    const backend={records,attachments:{download:async()=>new TextEncoder().encode(retryText),setStatus},
+      invoices:{recordAutomatic:payload=>rpc(payload.header,payload.lines,activeToken,retryAttachment,payload.fingerprint)}};
+    const run=()=>processAttachmentInBackground(backend,{id:retryAttachment,filename:'invoice.csv',content_type:'text/csv',storage_path:storagePath,file_size_bytes:retryText.length},{organizationId:org,vendorId:vendor,documentType:'invoice'});
+    const before=await counts();
+    const deferred=await run();
+    assert.equal(deferred.outcome,'skipped');
+    const retained=(await db.query('SELECT processing_status,processing_error,storage_path,import_document_id FROM inbound_attachments WHERE id=$1',[retryAttachment])).rows[0];
+    assert.deepEqual(retained,{processing_status:'pending',processing_error:deferred.reason,storage_path:storagePath,import_document_id:null});
+    assert.deepEqual(await counts(),before);
+
+    vocabularyAvailable=true;
+    activeToken=await claim();
+    assert.ok(activeToken&&activeToken!==firstToken);
+    assert.equal((await run()).outcome,'auto_imported');
+    assert.deepEqual(await counts(),{invoices:before.invoices+1,lines:before.lines+1,docs:before.docs+1});
   });
 }finally{await db.close();}
 console.log(`${passed}/${passed} automatic invoice checks passed (local parser/importer + PostgreSQL).`);

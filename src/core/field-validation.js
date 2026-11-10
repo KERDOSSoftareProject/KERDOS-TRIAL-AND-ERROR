@@ -1,10 +1,11 @@
 // B5 admission checks consume assigned fields. They never select source
 // cells, substitute another field, decide a product group or write records.
+import {getProcurementContext} from "../procurement.js";
 import {checkCell} from './sheet-layout.js';
 
 const UNCHECKED_ROLES=new Set(['description','brand','mfrCode']);
 
-export function assessBoundFields(identification,{inferredCodeColumn}={}){
+export function assessBoundFields(identification,{inferredCodeColumn}={}, procurement=getProcurementContext()){
  const bindings=identification?.bindings||{};
  const owners=new Map();
  for(const [role,binding] of Object.entries(bindings)){
@@ -17,7 +18,7 @@ export function assessBoundFields(identification,{inferredCodeColumn}={}){
   const raw=binding.rawValue;
   const empty=raw==null||!String(raw).trim();
   const checked=!UNCHECKED_ROLES.has(role);
-  const result=checked?checkCell(role,raw):{ok:true};
+  const result=checked?checkCell(role,raw, procurement):{ok:true};
   const competing=owners.get(binding.columnIndex)?.filter(other=>other!==role)||[];
   const status=competing.length?'conflict':empty?'missing':!result.ok?'invalid':binding.evidence==='inferred'?'inferred':'present';
   // Confidence describes the field assignment and readable value, not product identity.

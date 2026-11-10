@@ -24,8 +24,15 @@
  */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import { createRecords } from "../../../src/backend/records.js";
+import { importPriceRow } from "../../../src/core/import-price-row.js";
+import { enrichFromInvoices, readInvoiceEvidence } from "../../../src/core/invoice-evidence.js";
+import { createProcurementContext } from "../../../src/procurement.js";
+import { createCatalogService } from "../../../src/services/catalog.js";
+import { createImportService } from "../../../src/services/imports.js";
 import { readWorkbook } from "../../../src/core/document-reading.js";
 import { parseStructuredDocument } from "../../../src/core/document-structuring.js";
 import { createSourceRowSnapshot } from "../../../src/core/import-resume.js";
@@ -45,7 +52,10 @@ function createInMemoryBackend({
   categories = [],
   mappings = [],
   priceHistory = [],
-  organizations = [],
+  invoices = [],
+  organizations = [{ id: "org-1", industry: "Generic" }],
+  vocabulary = [],
+  unavailableTable = null,
   applyQuoteShouldThrow = false,
 } = {}) {
   const statusLog = [];
@@ -53,6 +63,8 @@ function createInMemoryBackend({
   const createdDocs = [];
   const finalizedDocs = [];
   const createdMappings = [];
+  const createdCatalogItems = [];
+  const writes = [];
   let downloadCount = 0;
   let applyQuoteAttempts = 0;
 
@@ -72,13 +84,15 @@ function createInMemoryBackend({
     const { table, action, filters, cardinality } = spec;
 
     if (action === "select") {
+      if (table === unavailableTable) throw new Error("Simulated context read failure");
       let rows;
       if (table === "vendor_items")        rows = vendorItems;
       else if (table === "catalog_items")  rows = catalogItems;
       else if (table === "catalog_categories") rows = categories;
       else if (table === "item_mappings")  rows = [...mappings, ...createdMappings];
       else if (table === "organizations")  rows = organizations;
-      else if (table === "invoices")       rows = [];
+      else if (table === "org_vocabulary") rows = vocabulary;
+      else if (table === "invoices")       rows = invoices;
       else if (table === "price_history")  rows = priceHistory;
       else if (table === "import_documents") {
         rows = existingDoc ? [existingDoc] : [];
@@ -96,6 +110,7 @@ function createInMemoryBackend({
       return rows;
     }
 
+    writes.push({ table, action });
     if (action === "insert") {
       const row = Array.isArray(spec.value) ? spec.value[0] : spec.value;
       if (table === "import_documents") {
@@ -105,7 +120,11 @@ function createInMemoryBackend({
         if (cardinality === "single") return newDoc;
         return [newDoc];
       }
-      if (table === "catalog_items") return { ...row, id: "new-catalog-item" };
+      if (table === "catalog_items") {
+        const item = { ...row, id: createdCatalogItems.length ? `new-catalog-item-${createdCatalogItems.length + 1}` : "new-catalog-item" };
+        createdCatalogItems.push(item);
+        return item;
+      }
       if (table === "item_mappings") {
         const mapping = { ...row, id: `new-mapping-${createdMappings.length + 1}` };
         createdMappings.push(mapping);
@@ -175,6 +194,8 @@ function createInMemoryBackend({
     _createdDocs:   createdDocs,
     _finalizedDocs: finalizedDocs,
     _createdMappings: createdMappings,
+    _createdCatalogItems: createdCatalogItems,
+    _writes: writes,
     _downloadCount:       { get value() { return downloadCount; } },
     _applyQuoteAttempts:  { get value() { return applyQuoteAttempts; } },
   };
@@ -199,6 +220,85 @@ const ATTACHMENT_BASE = {
 // ── Import processAttachmentInBackground ──────────────────────────────────────
 
 import { processAttachmentInBackground } from "./background-import.mjs";
+
+// Both fresh processes consume the same bytes and initial catalog. Compare
+// the stored business outcome rather than UI labels or transport metadata.
+async function runPriceRowParityFixture(path) {
+  const organizationId = "org-1";
+  const vendorId = "vendor-1";
+  const industry = "restaurant";
+  const text = [
+    "Code,Description,Pack,Price Unit,Price",
+    "T,CHIX THIGH BNLS,4/10 LB,CASE,41.25",
+    "B,CHICKEN BREAST BONELESS,4/10 LB,CASE,56.30",
+    "49200,CHIC BRST RAW BNLS RNDM CVP,4/10 LB,,2.06",
+  ].join("\n");
+  const description = "CHIX BRST BNLS SKNLS 4OZ";
+  const catalogItems = [{ id: "breast", organization_id: organizationId, name: "Chicken Breast", category_id: "meat" }];
+  const categories = [
+    { id: "meat", organization_id: organizationId, name: "Meat", range_start: 200000 },
+    { id: "holding", organization_id: organizationId, name: "Uncategorized", is_holding_pen: true, range_start: 900000 },
+  ];
+  const vendorItems = [{
+    id: "prior-breast", organization_id: organizationId, vendor_id: "vendor-2", description, pack_size: "4 OZ",
+    field_resolutions: { product_group: { catalogItemId: "breast", description, brand: null, confirmed: true } },
+  }];
+  const mappings = [{
+    id: "prior-mapping", organization_id: organizationId, vendor_item_id: "prior-breast", catalog_item_id: "breast",
+    comparison_track: "exact", confidence_score: 100, match_method: "manual",
+  }];
+  const invoices = [{
+    id: "invoice", organization_id: organizationId, vendor_id: vendorId, invoice_number: "INV-A", invoice_date: "2026-11-09",
+    raw_text: "Item,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\n49200,CHIC BRST RAW BNLS RNDM CVP,4/10 LB,LB,40,2.06,82.40",
+  }];
+  const bytes = csvBytes(text);
+  const backend = createInMemoryBackend({
+    bytes, organizations: [{ id: organizationId, industry }], catalogItems, categories, vendorItems, mappings, invoices,
+  });
+  if (path === "email") {
+    const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
+    const result = await processAttachmentInBackground(backend, attachment, { organizationId, vendorId, documentType: "pricelist" });
+    assert.equal(result.outcome, "auto_imported", result.reason);
+  } else {
+    const procurement = createProcurementContext({ industry });
+    const importService = createImportService(backend);
+    const catalogService = createCatalogService(backend, procurement);
+    const workingCatalogItems = [...catalogItems];
+    const workingVendorItems = [...vendorItems];
+    const workingMappings = [...mappings];
+    const { rows } = parseStructuredDocument(text, null, undefined, procurement);
+    const invoiceSources = readInvoiceEvidence(await importService.invoiceSources(organizationId, vendorId), organizationId, vendorId, procurement);
+    for (const [index, sourceRow] of rows.entries()) {
+      const row = enrichFromInvoices(sourceRow, invoiceSources, procurement);
+      await importPriceRow({
+        backend, importService, catalogService, sourceRow, row, ex: null, priorMapping: null,
+        rowIssues: [], rowNeedsReview: false, invoiceSources, orgId: organizationId, vendorId,
+        sourceDocumentId: "manual-doc", completedKey: `row:${index}`, importBatchTime: "2026-11-10T12:00:00Z",
+        group: { name: ATTACHMENT_BASE.filename }, sourceFilePath: ATTACHMENT_BASE.storage_path,
+        workingCatalogItems, workingCategories: categories, workingVendorItems, workingMappings, applySelectedCategory: null,
+      }, procurement);
+    }
+  }
+  const savedCatalog = [...catalogItems, ...backend._createdCatalogItems];
+  return backend._appliedQuotes.map((quote, index) => {
+    const mapping = backend._createdMappings.find(row => row.vendor_item_id === `item-${index + 1}`);
+    const catalogItem = savedCatalog.find(row => row.id === mapping.catalog_item_id);
+    return {
+      description: quote.description, price: quote.price, pack: quote.packSize, sellingUnit: quote.sellingUnit,
+      basis: quote.priceBasis, basisEvidence: quote.importRow.evidence.quoteBasisEvidence ?? null,
+      priceUnavailable: quote.priceUnavailable,
+      reviewRequired: quote.importRow.reviewRequired, reviewFields: quote.importRow.reviewFields,
+      conflicts: quote.importRow.conflicts, category: catalogItem.category_id, categoryReview: catalogItem.category_review ?? false,
+      group: catalogItem.id, track: mapping.comparison_track, confidence: mapping.confidence_score,
+    };
+  });
+}
+
+const parityPath = process.argv[2];
+if (parityPath === "manual" || parityPath === "email") {
+  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath)));
+  process.exit(0);
+}
 
 // ── Test runner ───────────────────────────────────────────────────────────────
 
@@ -331,25 +431,33 @@ await test("email CSV uses the same decoding as manual import and blocks invalid
 });
 
 await test("email import uses current cross-vendor group approval without reusing the other vendor's listing", async () => {
-  const bytes = csvBytes("Code,Description,Pack,Price Unit,Price\nSHARED, POMACE OIL 100%,4/3 L,CASE,62.95");
-  const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
   const options = { organizationId: "org-1", vendorId: "vendor-1", documentType: "pricelist" };
-  for (const { industry, confirmed, expected } of [
+  const localSynonym={kind:"synonym",term:"sample blend",canonical:"extra virgin olive oil"};
+  for (const { industry, confirmed, expected, incoming, prior, vocabulary=[] } of [
     { industry: "restaurant", confirmed: true, expected: "oil" },
     { industry: "restaurant", confirmed: false, expected: "new-catalog-item" },
     { industry: "construction", confirmed: true, expected: "new-catalog-item" },
+    { industry: "restaurant", confirmed: true, expected: "oil", incoming:"E.V.O.O.", prior:"Extra Virgin Olive Oil" },
+    { industry: "restaurant", confirmed: true, expected: "oil", incoming:"Sample Blend", prior:"Extra Virgin Olive Oil",
+      vocabulary:[{...localSynonym,organization_id:"org-1"}] },
+    { industry: "restaurant", confirmed: true, expected: "new-catalog-item", incoming:"Sample Blend", prior:"Extra Virgin Olive Oil",
+      vocabulary:[{...localSynonym,organization_id:"other-org"}] },
   ]) {
+    const bytes = csvBytes(`Code,Description,Pack,Price Unit,Price\nSHARED,${incoming||"POMACE OIL 100%"},4/3 L,CASE,62.95`);
+    const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
+    const description=prior||"OIL POMACE 100%";
     const backend = createInMemoryBackend({
       bytes,
       organizations: [{ id: "org-1", industry }],
+      vocabulary,
       vendorItems: [...Array.from({ length: 500 }, (_, index) => ({
         id: `a-filler-${index}`, organization_id: "org-1", vendor_id: "vendor-2",
       })), {
         id: "existing-oil", organization_id: "org-1", vendor_id: "vendor-2",
-        vendor_item_code: "SHARED", description: "OIL POMACE 100%", pack_size: "4/1 GAL",
-        field_resolutions: { product_group: { catalogItemId: "oil", description: "OIL POMACE 100%", brand: null, confirmed } },
+        vendor_item_code: "SHARED", description, pack_size: "4/1 GAL",
+        field_resolutions: { product_group: { catalogItemId: "oil", description, brand: null, confirmed } },
       }],
-      catalogItems: [{ id: "oil", organization_id: "org-1", name: "Pomace Oil", comparison_mode: "alternatives" }],
+      catalogItems: [{ id: "oil", organization_id: "org-1", name: prior||"Pomace Oil", comparison_mode: "alternatives" }],
       categories: [{ id: "holding", organization_id: "org-1", name: "Uncategorized", is_holding_pen: true, range_start: 30000 }],
       mappings: [{
         id: "oil-map", organization_id: "org-1", vendor_item_id: "existing-oil", catalog_item_id: "oil",
@@ -361,7 +469,74 @@ await test("email import uses current cross-vendor group approval without reusin
     assert.deepEqual(backend._appliedQuotes.map(q => [q.vendorId, q.vendorItemId, q.price]), [["vendor-1", null, 62.95]]);
     assert.deepEqual(backend._createdMappings.map(m => [m.catalog_item_id, m.comparison_track]), [
       [expected, expected === "oil" ? "review" : "new"],
-    ]);
+    ], `${industry} / ${incoming||"POMACE OIL 100%"}`);
+  }
+});
+
+await test("abbreviated price rows have identical stored outcomes in fresh manual and email processes", () => {
+  const run = path => JSON.parse(execFileSync(process.execPath, [fileURLToPath(import.meta.url), path], { encoding: "utf8" }));
+  const email = run("email");
+  assert.deepEqual(email, run("manual"));
+  assert.deepEqual(email.map(row => [row.description, row.category, row.pack, row.basis, row.group, row.track]), [
+    ["CHIX THIGH BNLS", "meat", "4/10 LB", "case", "new-catalog-item", "new"],
+    ["CHICKEN BREAST BONELESS", "meat", "4/10 LB", "case", "breast", "review"],
+    ["CHIC BRST RAW BNLS RNDM CVP", "meat", "4/10 LB", "measure", "breast", "review"],
+  ]);
+  assert.equal(email[2].basisEvidence.references[0].documentId, "invoice");
+});
+
+await test("back-to-back attachments in one worker use only their own workspace's taught vocabulary", async () => {
+  const organizationIds = ["org-1", "org-2"];
+  const description = "Extra Virgin Olive Oil";
+  const bytes = csvBytes("Code,Description,Pack,Price Unit,Price\nBLEND,Sample Blend,4/3 L,CASE,62.95");
+  const backend = createInMemoryBackend({
+    bytes,
+    organizations: organizationIds.map(id => ({ id, industry: "restaurant" })),
+    vocabulary: [{ organization_id: "org-1", kind: "synonym", term: "sample blend", canonical: "extra virgin olive oil" }],
+    categories: organizationIds.map(id => ({
+      id: `${id}-holding`, organization_id: id, name: "Uncategorized", is_holding_pen: true, range_start: 900000,
+    })),
+    vendorItems: organizationIds.map(id => ({
+      id: `${id}-listing`, organization_id: id, vendor_id: `${id}-prior-vendor`, description, pack_size: "4/1 GAL",
+      field_resolutions: { product_group: { catalogItemId: `${id}-oil`, description, brand: null, confirmed: true } },
+    })),
+    catalogItems: organizationIds.map(id => ({ id: `${id}-oil`, organization_id: id, name: description })),
+    mappings: organizationIds.map(id => ({
+      id: `${id}-mapping`, organization_id: id, vendor_item_id: `${id}-listing`, catalog_item_id: `${id}-oil`,
+      comparison_track: "exact", confidence_score: 100, match_method: "manual",
+    })),
+  });
+  for (const organizationId of organizationIds) {
+    const attachment = {
+      ...ATTACHMENT_BASE, id: `${organizationId}-attachment`, storage_path: `${organizationId}/inbound/msg/0`, file_size_bytes: bytes.length,
+    };
+    const result = await processAttachmentInBackground(backend, attachment, {
+      organizationId, vendorId: `${organizationId}-vendor`, documentType: "pricelist",
+    });
+    assert.equal(result.outcome, "auto_imported", result.reason);
+  }
+  assert.deepEqual(backend._createdMappings.map(row => [row.organization_id, row.catalog_item_id, row.comparison_track]), [
+    ["org-1", "org-1-oil", "review"],
+    ["org-2", "new-catalog-item", "new"],
+  ]);
+});
+
+await test("unavailable industry or vocabulary retains the original for retry before any import writes", async () => {
+  const bytes = csvBytes("Code,Description,Pack,Price Unit,Price\nT,CHIX THIGH BNLS,4/10 LB,CASE,41.25");
+  const original = bytes.slice();
+  const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
+  for (const failure of [{ organizations: [] }, { unavailableTable: "organizations" }, { unavailableTable: "org_vocabulary" }]) {
+    const backend = createInMemoryBackend({ bytes, ...failure });
+    const result = await processAttachmentInBackground(backend, attachment, {
+      organizationId: "org-1", vendorId: "vendor-1", documentType: "pricelist",
+    });
+    assert.equal(result.outcome, "skipped");
+    assert.deepEqual(backend._statusLog, [{ id: attachment.id, status: "pending", error: result.reason, docId: null }]);
+    assert.match(result.reason, /original was retained for automatic retry/);
+    assert.equal(backend._downloadCount.value, 1);
+    assert.equal(backend._applyQuoteAttempts.value, 0);
+    assert.deepEqual(backend._writes, []);
+    assert.deepEqual(bytes, original);
   }
 });
 

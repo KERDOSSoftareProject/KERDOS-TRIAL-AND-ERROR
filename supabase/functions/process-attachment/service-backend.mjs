@@ -219,8 +219,8 @@ export function createServiceBackend({
      * is linked to the import document in the same DB transaction.
      *
      * @param {string}      attachmentId
-     * @param {string}      status        — 'auto_imported' | 'needs_review' | 'failed' | 'processing'
-     * @param {string|null} [reason]      — human-readable reason for needs_review/failed
+     * @param {string}      status        — 'auto_imported' | 'needs_review' | 'failed' | 'pending' | 'processing'
+     * @param {string|null} [reason]      — human-readable reason for review, failure, or retry
      * @param {string|null} [docId]       — import_document id to link
      */
     async setStatus(attachmentId, status, reason = null, docId = null) {

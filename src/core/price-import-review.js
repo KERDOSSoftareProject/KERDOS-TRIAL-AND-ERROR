@@ -1,4 +1,4 @@
-import {brandsMatch,casePriceFromQuote,compareProductIdentity,comparePurchasingPack,parsePackSize} from "../procurement.js";
+import {getProcurementContext} from "../procurement.js";
 import {knownItemChanges} from "./catalog-fields.js";
 import {prepareImportRow} from "./import-row.js";
 import {resolveQuoteBasis,inferQuoteBasis,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
@@ -9,7 +9,7 @@ const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===S
 // incomplete row is reviewable data, not a failed database write. The caller
 // retains its listing and catalog association, and stages the incoming quote
 // without overwriting the accepted quote when requiresReview is true.
-export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null){
+export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext()){
   let row=source;
   const reasons=[...issues];
   let changes=[];
@@ -17,8 +17,8 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
     throw new Error("The incoming vendor item code does not belong to this saved listing.");
   const scopedInvoices=scope?invoices.filter(entry=>
     entry.organizationId===scope.organizationId&&entry.vendorId===scope.vendorId):invoices;
-  try{row=prepareImportRow(source,{prior,mapping,invoices:scopedInvoices});}
-  catch(error){reasons.push(error.message);changes=prior?knownItemChanges(source,prior):[];}
+  try{row=prepareImportRow(source,{prior,mapping,invoices:scopedInvoices}, procurement);}
+  catch(error){reasons.push(error.message);changes=prior?knownItemChanges(source,prior, procurement):[];}
   changes=row.changes||changes;
   reasons.push(...(row.conflicts||[]));
   if(prior&&!row.knownVendorItem){
@@ -27,13 +27,13 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
       if(!changes.some(c=>c.field===field))changes.push({field,before,after,reason});
     };
     if(row.description&&prior.description&&!sameText(row.description,prior.description)){
-      const identity=compareProductIdentity(row.description,prior.description);
+      const identity=procurement.compareProductIdentity(row.description,prior.description);
       if(identity.status!=="same")change("description",prior.description,row.description,`Product needs review: ${identity.reason}.`);
     }
-    if(row.brand&&prior.brand&&!brandsMatch(row.brand,prior.brand))
+    if(row.brand&&prior.brand&&!procurement.brandsMatch(row.brand,prior.brand))
       change("brand",prior.brand,row.brand,`Brand changed from “${prior.brand}” to “${row.brand}”.`);
     if(row.packSize&&prior.pack_size&&!sameText(row.packSize,prior.pack_size)){
-      const comparison=comparePurchasingPack(row.packSize,prior.pack_size);
+      const comparison=procurement.comparePurchasingPack(row.packSize,prior.pack_size);
       if(comparison.status!=="same")change("packSize",prior.pack_size,row.packSize,
         comparison.status==="different"?`Pack changed from “${prior.pack_size}” to “${row.packSize}”.`:
           "The incoming and saved packs cannot yet be compared; verify the quantity and unit.");
@@ -44,15 +44,15 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
     }
     row={...row,description:row.description||prior.description,brand:row.brand||prior.brand||"",packSize:row.packSize||prior.pack_size};
   }
-  if(!parsePackSize(row.packSize)?.parsed)reasons.push(row.packSize?
+  if(!procurement.parsePackSize(row.packSize)?.parsed)reasons.push(row.packSize?
     "Pack quantity or unit is unreadable; correct the pack field.":"Pack quantity and unit are missing.");
-  let resolved=resolveQuoteBasis(row,prior);
+  let resolved=resolveQuoteBasis(row,prior, procurement);
   let invoiceConflict=false;
   if((!String(row.sellingUnit||"").trim()||resolved?.source==="confirmed vendor item")&&scopedInvoices.length){
     // Compare invoice evidence against the incoming product and pack wherever
     // stated, even when the saved catalog display uses the remembered fields.
     const arithmetic=resolveFromInvoiceArithmetic({...row,sellingUnit:"",
-      description:source.description||row.description,packSize:source.packSize||row.packSize},scopedInvoices);
+      description:source.description||row.description,packSize:source.packSize||row.packSize},scopedInvoices, undefined, procurement);
     if(arithmetic?.conflict){
       reasons.push(`Quoted unit needs review because invoice evidence conflicts. ${arithmetic.reason}.`);
       invoiceConflict=true;
@@ -70,7 +70,7 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
     }
   }
   if(!resolved&&!invoiceConflict&&!String(row.sellingUnit||"").trim()){
-    const inferred=inferQuoteBasis(row);
+    const inferred=inferQuoteBasis(row, procurement);
     if(inferred){
       if(inferred.inferenceLevel==='supported'){
         // Strong evidence — populate automatically, no review needed for the basis alone
@@ -93,14 +93,14 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   }
   if(!row.priceUnavailable){
     if(!resolved)reasons.push("Quoted unit is unresolved.");
-    else if(parsePackSize(row.packSize)?.parsed&&casePriceFromQuote(row.price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,row.packSize)==null)
-      reasons.push(parsePackSize(row.packSize)?.catchWeight?
+    else if(procurement.parsePackSize(row.packSize)?.parsed&&procurement.casePriceFromQuote(row.price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,row.packSize)==null)
+      reasons.push(procurement.parsePackSize(row.packSize)?.catchWeight?
         "Average or ranged pack weight does not establish an exact case charge; the quoted rate is retained for review.":
         "The quoted amount, unit and pack cannot produce a valid case price.");
   }
   if(row.priceNeedsReview&&!reasons.length)reasons.push("The incoming price basis needs review.");
   const quoteBasisEvidence=resolved?.invoiceArithmetic?{source:resolved.source,unit:resolved.sellingUnit,references:resolved.invoiceReferences}:null;
-  const statedPriceQuotes=interpretStatedQuotePair(source.fieldIdentification?.bindings);
+  const statedPriceQuotes=interpretStatedQuotePair(source.fieldIdentification?.bindings, procurement);
   return {row:{...row,changes,...(quoteBasisEvidence?{quoteBasisEvidence}:{}),
     ...(statedPriceQuotes.length?{statedPriceQuotes}:{})},resolved,requiresReview:reasons.length>0,reasons:[...new Set(reasons)],reviewFields:priceReviewFields({reasons,changes,row,prior})};
 }

@@ -1,3 +1,4 @@
+import {getProcurementContext} from "../procurement.js";
 import {parseDocument,mapColumnsFromHeader,isTableHeader,detectDocumentKind,findQuoteValidity,findInvoiceNumber} from '../ingestion.js';
 import {applySourceUnits,documentQuoteUnit} from './source-units.js';
 
@@ -6,8 +7,8 @@ const median=values=>{const sorted=[...values].sort((a,b)=>a-b);return sorted[Ma
 const furniture=text=>/^(?:page\s+\d+|(?:grand\s+)?total\b|subtotal\b|signature\b|terms:|note:|invoice\s+(?:number|date)|bill\s+to\b|ship\s+to\b|tax:|service charge:|\*+\s*(?:notice|thank you)|a finance charge\b|referred for collection\b|\d+\s*(?:cs|pc)(?:\s+\d+(?:\.\d{2})?)?$|cases & pieces:)/i.test(text.trim());
 const sectionTitle=text=>/^\*+\s*(?:[a-z]\s*)+\*+$/i.test(text.trim());
 const nonProductSection=text=>/(?:following items were out of stock|these are your outstanding invoices)/i.test(text);
-const roles=cells=>mapColumnsFromHeader(cells.map(cell=>clean(cell.text??cell)));
-const isHeader=(cells,previousColumns={})=>isTableHeader(cells.map(cell=>clean(cell.text??cell)),previousColumns);
+const roles=(cells,procurement)=>mapColumnsFromHeader(cells.map(cell=>clean(cell.text??cell)),procurement);
+const isHeader=(cells,procurement,previousColumns={})=>isTableHeader(cells.map(cell=>clean(cell.text??cell)),previousColumns,procurement);
 const lineText=row=>row.cells.map(cell=>clean(cell.text)).join('\t');
 const compactLine=value=>String(value??'').replace(/\s+/g,' ').trim();
 const parsedCellText=cell=>{
@@ -42,21 +43,21 @@ function groupLines(words){
   }
   return lines.sort((a,b)=>b.y-a.y).map((line,index)=>({...line,index,words:line.words.sort((a,b)=>a.x-b.x)}));
 }
-function chunks(words){
+function chunks(words,procurement){
   const result=[];
   for(const word of words){
     const prior=result.at(-1),gap=prior?word.x-(prior.x+prior.width):Infinity;
-    const distinctUnitPack=prior&&/^u\/?m$/i.test(prior.text)&&roles([word]).packSize===0;
+    const distinctUnitPack=prior&&/^u\/?m$/i.test(prior.text)&&roles([word],procurement).packSize===0;
     if(prior&&!distinctUnitPack&&gap<=Math.max(5,word.height*.9)){
       prior.text+=' '+word.text;prior.width=Math.max(prior.x+prior.width,word.x+word.width)-prior.x;prior.words.push(word);
     }else result.push({...word,words:[word]});
   }
   return result;
 }
-function headerLanes(cells){
-  if(!isHeader(cells))return null;
-  const firstRole=Object.keys(roles([cells[0]]))[0];
-  const starts=firstRole?cells.map((cell,index)=>roles([cell])[firstRole]===0?index:-1).filter(index=>index>=0):[0];
+function headerLanes(cells,procurement){
+  if(!isHeader(cells,procurement))return null;
+  const firstRole=Object.keys(roles([cells[0]],procurement))[0];
+  const starts=firstRole?cells.map((cell,index)=>roles([cell],procurement)[firstRole]===0?index:-1).filter(index=>index>=0):[0];
   const cuts=starts.length>1?starts:[0];
   const lanes=cuts.map((start,index)=>cells.slice(start,cuts[index+1]??cells.length));
   return lanes.every(isHeader)?lanes:[cells];
@@ -77,8 +78,8 @@ function assignCells(words,anchors){
   }
   return cells;
 }
-function alignDescriptionPrices(table){
-  const map=roles(table.anchors);
+function alignDescriptionPrices(table,procurement){
+  const map=roles(table.anchors,procurement);
   if(table.anchors.length!==2||map.description===undefined||map.price===undefined)return table;
   const body=table.rows.slice(1),prices=body.filter(row=>/^\$?\d+(?:,\d{3})*(?:\.\d{1,2})?$/.test(row.cells[map.price].text.trim()));
   if(prices.length<2)return table;
@@ -104,16 +105,16 @@ function alignDescriptionPrices(table){
   const rows=buckets.map(bucket=>{for(const cell of bucket.cells){cell.words.sort((a,b)=>b.y-a.y||a.x-b.x);cell.text=cell.words.map(word=>word.text).join(' ');}return {cells:bucket.cells,lines:[...new Set(bucket.cells.flatMap(cell=>cell.words.map(word=>word.line)))].sort((a,b)=>a-b),y:bucket.center};});
   return {...table,rows:[table.rows[0],...rows,...unmatched.values()].sort((a,b)=>b.y-a.y)};
 }
-function pdfSegments(reading){
+function pdfSegments(reading,procurement){
   const segments=[],skipped=[];
   const sourceLine=line=>({cells:[{text:line.words.map(word=>word.text).join(' '),words:line.words}],lines:[line.index]});
   for(const page of reading.pages){
     const words=pageWords(page),lines=groupLines(words);let active=[],afterItems=false;
-    const finish=()=>{for(const table of active)if(table.rows.length>1)segments.push(alignDescriptionPrices(table));active=[];};
+    const finish=()=>{for(const table of active)if(table.rows.length>1)segments.push(alignDescriptionPrices(table,procurement));active=[];};
     if(!words.length){segments.push({kind:'freeform',page:page.number,text:page.text,rows:[],reason:'No reliable horizontal positioned words'});continue;}
     const height=median(words.map(word=>word.height));
     for(const line of lines){
-      const parts=chunks(line.words),lanes=headerLanes(parts),text=line.words.map(word=>word.text).join(' ');
+      const parts=chunks(line.words,procurement),lanes=headerLanes(parts,procurement),text=line.words.map(word=>word.text).join(' ');
       if(nonProductSection(text)){finish();afterItems=true;skipped.push({page:page.number,text,lineNumber:line.index,reason:'non-product invoice section'});continue;}
       if(lanes){
         finish();afterItems=false;
@@ -125,9 +126,9 @@ function pdfSegments(reading){
       if(active.length){
         for(const table of active){
           const laneWords=line.words.filter(word=>word.x>=table.left&&word.x<table.right).map(word=>({...word,line:line.index}));if(!laneWords.length)continue;
-          const cells=assignCells(laneWords,table.anchors),prior=table.rows.at(-1),description=roles(table.anchors).description;
+          const cells=assignCells(laneWords,table.anchors),prior=table.rows.at(-1),description=roles(table.anchors,procurement).description;
           const populated=cells.map((cell,index)=>cell.text?index:-1).filter(index=>index>=0);
-          const price=roles(table.anchors).price;
+          const price=roles(table.anchors,procurement).price;
           if(table.rows.length>1&&prior.cells[description]?.text&&!prior.cells[price]?.text&&prior.y-line.y<=height*.9&&populated.every(index=>index===description||index===price)){
             cells.forEach((cell,index)=>{if(cell.text){prior.cells[index].text+=(prior.cells[index].text?' ':'')+cell.text;prior.cells[index].words.push(...cell.words);}});prior.lines.push(line.index);prior.y=line.y;
           }else if(table.rows.length>1&&populated.length===1&&populated[0]===description&&prior.y-line.y<=height*1.4){
@@ -156,7 +157,7 @@ function pdfSegments(reading){
   }
   return {segments,skipped};
 }
-function worksheetSegments(reading){
+function worksheetSegments(reading,procurement){
   const segments=[];
   for(const sheet of reading.worksheets){
     if(!sheet.cells.length)continue;
@@ -170,9 +171,9 @@ function worksheetSegments(reading){
     const finish=()=>{if(active.length)segments.push({kind:'native',worksheet:sheet.name,rows:active});active=[];headerColumns=null;};
     for(const row of [...rows.values()].sort((a,b)=>a.lines[0]-b.lines[0])){
       if(!row.cells.some(cell=>cell.text))continue;
-      if(isHeader(row.cells,headerColumns||{})){
+      if(isHeader(row.cells,procurement,headerColumns||{})){
         if(headerColumns)finish();
-        headerColumns=roles(row.cells);
+        headerColumns=roles(row.cells,procurement);
       }
       active.push(row);
     }
@@ -181,9 +182,9 @@ function worksheetSegments(reading){
   return {segments,skipped:[]};
 }
 
-export function structureDocument(reading){
-  if(reading?.pages?.length)return pdfSegments(reading);
-  if(reading?.worksheets?.length)return worksheetSegments(reading);
+export function structureDocument(reading,procurement=getProcurementContext()){
+  if(reading?.pages?.length)return pdfSegments(reading,procurement);
+  if(reading?.worksheets?.length)return worksheetSegments(reading,procurement);
   return {segments:[],skipped:[]};
 }
 
@@ -228,20 +229,21 @@ function matchSourceRow(row,sources,claimed,tabular){
 
 // All parts stay inside ONE original file group/document. Row ordinals remain
 // deterministic for duplicate/resume keys, while layouts are tracked per table.
-export function parseStructuredDocument(text,reading,parse=(input,options)=>parseDocument(input,options)){
-  const structure=structureDocument(reading);
-  if(!structure.segments.length)return {...parse(text),parts:[],structure};
+export function parseStructuredDocument(text,reading,parse,procurement=getProcurementContext()){
+  const parsePart=parse??((input,options)=>parseDocument(input,options,procurement));
+  const structure=structureDocument(reading,procurement);
+  if(!structure.segments.length)return {...parsePart(text),parts:[],structure};
   const workbookSheets=nonemptyWorkbookSheets(reading);
   const workbookEvidence=workbookSheets.length>1?new Map(workbookSheets.map(sheet=>[sheet.name,{
-    unit:documentQuoteUnit(sheet.text),expiry:findQuoteValidity(sheet.text),kind:detectDocumentKind(sheet.text),
+    unit:documentQuoteUnit(sheet.text, procurement),expiry:findQuoteValidity(sheet.text),kind:detectDocumentKind(sheet.text),
   }])):null;
-  const documentUnit=workbookEvidence?null:documentQuoteUnit(text);
+  const documentUnit=workbookEvidence?null:documentQuoteUnit(text, procurement);
   const parts=structure.segments.map((segment,index)=>{
     const inferredColumns=unlabelledRoles(segment);
     const fallback=segment.kind==='freeform'||(segment.kind==='positioned-unlabelled'&&!inferredColumns);
     const sourceRows=segment.rows.filter(row=>!row.unresolvedContinuation);
     const input=fallback?(segment.text??sourceRows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):sourceRows.map(lineText).join('\n');
-    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{}),...(segment.kind==='native'?{nativeWorksheet:true}:{})});
+    const parsed=parsePart(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{}),...(segment.kind==='native'?{nativeWorksheet:true}:{})});
     const claimed=new Map();
     const rows=parsed.rows.map(row=>{
       // A parser index is only a hint. Side-by-side products can share a
@@ -254,7 +256,7 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
       const lowOcr=confidence.some(value=>value<90);
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
       const worksheet=workbookEvidence?.get(segment.worksheet);
-      return {...applySourceUnits(row,{documentUnit:worksheet?.unit??documentUnit}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback,...(worksheet?{quoteValidUntil:worksheet.expiry}:{})}};
+      return {...applySourceUnits(row,{documentUnit:worksheet?.unit??documentUnit}, procurement),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback,...(worksheet?{quoteValidUntil:worksheet.expiry}:{})}};
     });
     const sourceLocation={page:segment.page??null,worksheet:segment.worksheet??null,table:index};
     const skipped=parsed.skipped.map(entry=>{

@@ -24,8 +24,8 @@
  *     the item matches and reviewRequired is not set.
  */
 
-import {parsePackSize} from '../procurement.js';
-import {productTypePriors} from '../knowledge/category-profiles.js';
+import {getProcurementContext} from '../procurement.js';
+
 
 // ── Plausibility ranges by unit ───────────────────────────────────────────────
 // These define the plausible per-unit range for a given dimension unit.
@@ -52,10 +52,10 @@ function inRange(unit, value) {
 
 // ── Main inference function ───────────────────────────────────────────────────
 
-export function inferPricingBasis(row) {
+export function inferPricingBasis(row, procurement=getProcurementContext()) {
   const price = Number(row.price);
   const desc  = String(row.description || '').toLowerCase();
-  const pack  = parsePackSize(row.packSize);
+  const pack  = procurement.parsePackSize(row.packSize);
 
   const evidence  = [];
 
@@ -85,7 +85,7 @@ export function inferPricingBasis(row) {
   const unit    = pack.unit;        // base unit (e.g. 'LB', 'GAL', 'DOZ')
 
   // ── 2. Product type priors from industry vocabulary ───────────────────────
-  const {weightPriced, countPriced} = productTypePriors(desc);
+  const {weightPriced, countPriced} = procurement.productTypePriors(desc);
   if (weightPriced) evidence.push('Product type is typically priced by weight (from industry vocabulary)');
   if (countPriced)  evidence.push('Product type is typically priced per each (from industry vocabulary)');
 

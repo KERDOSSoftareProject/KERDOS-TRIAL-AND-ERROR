@@ -1,12 +1,12 @@
-import {compareProductIdentity,comparePurchasingPack,brandsMatch,productIdentity} from "../procurement.js";
+import {getProcurementContext} from "../procurement.js";
 
 // NVIN (No Vendor Item Number) is a persistent database identity; it is never inferred from sheet row
 // position. For a sheet with no vendor code, reuse an identity only when the
 // product, brand and physical pack agree with exactly one saved listing.
-export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}={}){
+export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}={}, procurement=getProcurementContext()){
   const sameProduct=listings.filter(item=>!item.vendor_item_code&&
     [item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue]
-      .filter(Boolean).some(name=>compareProductIdentity(row.description,name).status==="same"));
+      .filter(Boolean).some(name=>procurement.compareProductIdentity(row.description,name).status==="same"));
   // A detail retained from an unlabeled source cell may distinguish two
   // otherwise identical products. Do not silently update one with the other.
   const sameDetails=item=>{
@@ -21,8 +21,8 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
     if(item.field_resolutions?.brand&&Object.hasOwn(item.field_resolutions.brand,"sourceValue"))
       brands.push(item.field_resolutions.brand.sourceValue);
     return sameDetails(item)&&row.packSize&&[item.pack_size,item.import_row?.row?.packSize,item.field_resolutions?.pack_size?.sourceValue]
-      .filter(Boolean).some(pack=>comparePurchasingPack(row.packSize,pack).status==="same")&&
-      brands.some(brand=>!row.brand&&!brand||row.brand&&brand&&brandsMatch(row.brand,brand))&&
+      .filter(Boolean).some(pack=>procurement.comparePurchasingPack(row.packSize,pack).status==="same")&&
+      brands.some(brand=>!row.brand&&!brand||row.brand&&brand&&procurement.brandsMatch(row.brand,brand))&&
       (!row.gtin||!item.gtin||row.gtin===item.gtin)&&
       (!row.manufacturerCode||!item.manufacturer_code||row.manufacturerCode===item.manufacturer_code);
   });
@@ -34,26 +34,26 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
   // an update to the first listing. Missing/uncertain packs still fail closed.
   // Opt in only for the manual source-retention flow; worker policy is unchanged.
   if(allowDistinctPack&&sameProduct.length&&row.packSize&&sameProduct.every(item=>
-    comparePurchasingPack(row.packSize,item.pack_size).status==="different"&&
+    procurement.comparePurchasingPack(row.packSize,item.pack_size).status==="different"&&
     !(row.gtin&&item.gtin&&row.gtin===item.gtin)&&
-    (!row.brand&&!item.brand||row.brand&&item.brand&&brandsMatch(row.brand,item.brand))))
+    (!row.brand&&!item.brand||row.brand&&item.brand&&procurement.brandsMatch(row.brand,item.brand))))
     return {item:null,conflict:null};
   if(sameProduct.length)return {item:null,conflict:"A similar unnumbered vendor item exists, but brand or pack is missing or differs. Review the saved listing before assigning a new NVIN."};
   // A review-grade description overlap is not proof of a new product. Hold
   // an uncoded quote when its brand and physical pack could still be the
   // saved listing; a clearly different pack or brand stays independent.
-  const sourceTerms=productIdentity(row.description).core;
+  const sourceTerms=procurement.productIdentity(row.description).core;
   const reviewOverlap=!row.code&&listings.some(item=>{
     if(item.vendor_item_code)return false;
     const names=[item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue].filter(Boolean);
     if(!names.some(name=>{
-      const candidateTerms=productIdentity(name).core;
-      return [...sourceTerms].some(term=>candidateTerms.has(term))&&compareProductIdentity(row.description,name).status==="review";
+      const candidateTerms=procurement.productIdentity(name).core;
+      return [...sourceTerms].some(term=>candidateTerms.has(term))&&procurement.compareProductIdentity(row.description,name).status==="review";
     }))return false;
     const packs=[item.pack_size,item.import_row?.row?.packSize].filter(Boolean);
     const brands=[item.brand,item.import_row?.row?.brand].filter(Boolean);
-    return (!row.packSize||!packs.length||packs.some(pack=>comparePurchasingPack(row.packSize,pack).status!=="different"))&&
-      (!row.brand||!brands.length||brands.some(brand=>brandsMatch(row.brand,brand)));
+    return (!row.packSize||!packs.length||packs.some(pack=>procurement.comparePurchasingPack(row.packSize,pack).status!=="different"))&&
+      (!row.brand||!brands.length||brands.some(brand=>procurement.brandsMatch(row.brand,brand)));
   });
   if(reviewOverlap)return {item:null,conflict:"A saved unnumbered listing may match this source product, but its description needs review. Check the saved listing before assigning another NVIN."};
   // A formerly unnumbered listing may now carry a vendor-printed code. An
@@ -62,11 +62,11 @@ export function findUncodedVendorListing(row,listings,{allowDistinctPack=false}=
   const codedOverlap=!row.code&&listings.some(item=>{
     if(!item.vendor_item_code)return false;
     const names=[item.description,item.import_row?.row?.description,item.field_resolutions?.description?.sourceValue].filter(Boolean);
-    if(!names.some(name=>compareProductIdentity(row.description,name).status==="same"))return false;
+    if(!names.some(name=>procurement.compareProductIdentity(row.description,name).status==="same"))return false;
     const packs=[item.pack_size,item.import_row?.row?.packSize].filter(Boolean);
     const brands=[item.brand,item.import_row?.row?.brand].filter(Boolean);
-    return (!row.packSize||!packs.length||packs.some(pack=>comparePurchasingPack(row.packSize,pack).status!=="different"))&&
-      (!row.brand||!brands.length||brands.some(brand=>brandsMatch(row.brand,brand)));
+    return (!row.packSize||!packs.length||packs.some(pack=>procurement.comparePurchasingPack(row.packSize,pack).status!=="different"))&&
+      (!row.brand||!brands.length||brands.some(brand=>procurement.brandsMatch(row.brand,brand)));
   });
   if(codedOverlap)return {item:null,conflict:"A saved listing with a vendor item number may be this code-free source row. Review its vendor number before applying a quote or assigning a new NVIN."};
   return {item:null,conflict:null};

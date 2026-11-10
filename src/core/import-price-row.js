@@ -20,6 +20,7 @@
 // Throws on unrecoverable errors; the caller (ImportModal) catches and
 // counts failed rows.
 
+import {getProcurementContext} from "../procurement.js";
 import {preparePriceImport} from './price-import-review.js';
 import {importResolutions} from './catalog-fields.js';
 import {engineVerifiable} from '../services/catalog.js';
@@ -57,7 +58,7 @@ export async function importPriceRow({
   orgId, vendorId, sourceDocumentId, completedKey, importBatchTime, group, sourceFilePath,
   workingCatalogItems, workingCategories, workingVendorItems, workingMappings,
   applySelectedCategory,assertActive=()=>{},
-}) {
+}, procurement=getProcurementContext()) {
   assertActive();
   if(!row.description?.trim())throw new Error(MISSING_DESCRIPTION);
   if(stagedReceipt&&(!ex||stagedReceipt.vendorItemId!==ex.id))throw new Error('The retained source-row listing differs from this retry.');
@@ -69,7 +70,7 @@ export async function importPriceRow({
   // explicit Inbox review may still resolve a current held row deliberately.
   const prepared = stagedReceipt&&replayStagedObservation
     ? {row,requiresReview:true,resolved:null,reviewFields:[],reasons:[]}
-    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId});
+    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement);
   row = prepared.row;
   const resolved = prepared.resolved;
   const needsBasis = prepared.requiresReview;
@@ -184,7 +185,7 @@ export async function importPriceRow({
           await applySelectedCategory(match.catalogItemId, row.categoryId);
         // Promote to exact when a second vendor confirms identity and pack.
         if (match.track === 'exact') {
-          const verified = engineVerifiable({mappings: workingMappings, vendorItems: workingVendorItems, catalogItems: workingCatalogItems})
+          const verified = engineVerifiable({mappings: workingMappings, vendorItems: workingVendorItems, catalogItems: workingCatalogItems}, procurement)
             .filter(entry => entry.catalogItemId === match.catalogItemId);
           if (verified.length) {
             try {

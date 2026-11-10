@@ -65,5 +65,5 @@ assert.equal(preparePriceImport(sheet,null,null,[],[entry(ordering)],scope).reso
 // Keep the actual import orchestrator connected; isolated resolver tests cannot catch this omission.
 // The call now lives in the shared import-price-row.js, not directly in ImportModal.jsx.
 const importPriceRowSrc=fs.readFileSync(new URL('./import-price-row.js',import.meta.url),'utf8');
-assert.match(importPriceRowSrc,/preparePriceImport\(row,\s*ex,\s*priorMapping,\s*rowNeedsReview\s*\?\s*rowIssues\s*:\s*\[\],\s*invoiceSources,\s*\{organizationId:\s*orgId,\s*vendorId\}\)/);
+assert.match(importPriceRowSrc,/preparePriceImport\(row,\s*ex,\s*priorMapping,\s*rowNeedsReview\s*\?\s*rowIssues\s*:\s*\[\],\s*invoiceSources,\s*\{organizationId:\s*orgId,\s*vendorId\},\s*procurement\)/);
 console.log('Invoice billing integration passed: real CSV and goods invoices, original header, source reference, ordering-unit rejection, incomplete evidence and client/vendor isolation.');
