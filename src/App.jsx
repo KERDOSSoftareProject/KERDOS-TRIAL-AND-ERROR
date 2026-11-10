@@ -1,3 +1,5 @@
+import {BrandCoinFaces} from "./ui/Brand.jsx";
+import {Drachma} from "./ui/Drachma.jsx";
 import {MobileDetailWindow} from './ui/MobileDetailWindow.jsx';
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
 import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
@@ -8,7 +10,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
 import { createDocumentService } from "./services/documents.js";
-import { autoPlaceable,orderGuideAssessment,BLOCKER_LABELS } from "./core/catalog-fields.js";
+import { autoPlaceable,orderGuideAssessment,BLOCKER_LABELS,initialsFor } from "./core/catalog-fields.js";
 import { holdingPen } from "./services/categories.js";
 import { createOrganizationService } from "./services/organization.js";
 import { createVendorService } from "./services/vendors.js";
@@ -875,7 +877,7 @@ export default function App() {
   if(session===undefined||loading) return (
     <div style={{minHeight:"100vh",background:"#003584",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:"white",textAlign:"center"}}>
-        <div style={{fontSize:48}}>🦉</div>
+        <Drachma size={56} label="Loading KERDOS" style={{gap:0}} showLabel={false} />
         <div style={{fontWeight:900,fontSize:20,letterSpacing:"0.18em",color:"#4A90D9",marginTop:8}}>KERDOS</div>
         <div style={{marginTop:12,opacity:0.6,fontSize:13}}>Loading...</div>
       </div>
@@ -884,8 +886,19 @@ export default function App() {
   if(!session) return <LandingGate />;
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
+  const account = session.user;
+  const metadata = account.user_metadata;
+  const savedInitials = metadata?.kerdos_initials;
+  const accountName = [metadata?.full_name, metadata?.name, account.full_name, account.name]
+    .find(name => typeof name === "string" && name.trim())?.trim();
+  const accountInitials = typeof savedInitials === "string" && /^\p{L}{1,3}$/u.test(savedInitials)
+    ? savedInitials.toUpperCase()
+    : accountName ? userInitials(accountName) : initialsFor({email:account.email}) || "?";
+  const welcomeName = org.settings?.welcome_name;
+  const clientName = (typeof welcomeName === "string" && welcomeName.trim()) || org.name;
+
   return (
-    <div className="workspace-shell" style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+    <div className="workspace-shell" style={{minHeight:"100vh",background:"#003584"}}>
       <style>{`
         .workspace-shell { --workspace-header-height:60px; --workspace-tabs-height:54px; --browse-top:calc(var(--workspace-header-height) + var(--workspace-tabs-height)); }
         .workspace-sticky-tabs { position:sticky; top:var(--workspace-header-height); z-index:120; height:var(--workspace-tabs-height); max-width:1400px; margin:12px auto 18px; padding:0 18px; background:#003584; }
@@ -924,11 +937,12 @@ export default function App() {
       <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:"var(--workspace-header-height)",
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
-        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",fontFamily:tab==="home"?'"Times New Roman",Times,serif':"inherit",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
+        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span className="kerdos-header-coin"><BrandCoinFaces size={28} className="kerdos-header-coin-turn" /></span>KERDOS</button>
         <div style={{position:"relative"}}>
-          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
+          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{accountInitials}</button>
           {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,maxWidth:"calc(100vw - 76px)",overflowWrap:"anywhere",background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
-            {organizations.length>1?<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>:<div style={{marginBottom:10,fontWeight:700}}>{org.name}</div>}
+            <div style={{marginBottom:10,fontWeight:700}}>{accountName||account.email||"Your account"}</div>
+            {organizations.length>1&&<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>}
             <button type="button" onClick={()=>{setAccountMenuOpen(false);try{sessionStorage.removeItem("kerdos.activeTab.v2");}catch{} backend.session.signOut().catch(err=>alert(err.message));}} style={{background:"none",border:0,color:"#1A4FA8",cursor:"pointer",padding:0}}>Sign out</button>
           </div>}
         </div>
@@ -943,7 +957,7 @@ export default function App() {
 
       <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} sticky onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
-      {tab==="home"&&<WelcomeScreen orgName={org.name} role={org.role}
+      {tab==="home"&&<WelcomeScreen clientName={clientName} userName={accountName} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 

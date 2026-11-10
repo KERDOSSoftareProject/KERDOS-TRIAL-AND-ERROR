@@ -298,7 +298,8 @@ await check('native 87-row companion CSV asks only about genuine metadata headin
  const f=fixture(),p=await open(vendor,'pricelist',{initialFiles:[input],companionEvidence:{kind:'browser_companion',account_label:'Synthetic Client',list_label:'Synthetic List'}});
  for(let i=0;i<20&&!button(p,'Continue →');i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});
  assert.match(text(p.tree.toJSON()),/Check unrecognized columns/);
- assert.deepEqual(p.tree.root.findAll(node=>node.type==='span'&&node.props.style?.fontFamily==='monospace').map(node=>text(node)),['Line Number','Group Name','Customer Product Number','Class Description','Storage Description']);
+ const columnRoles=p.tree.root.findAllByType('select').filter(node=>node.props['aria-label']?.startsWith('Role for '));
+ assert.deepEqual(columnRoles.map(node=>node.props['aria-label'].slice('Role for '.length)),['Line Number','Group Name','Customer Product Number','Class Description','Storage Description']);
  assert.equal(writes(f),0);
  await act(async()=>{await button(p,'Continue →').props.onClick();});
  assert.ok(button(p,'Save Import →'));assert.match(text(p.tree.toJSON()),/87 product rows read/);assert.equal(writes(f),0);p.tree.unmount();
