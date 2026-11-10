@@ -4,7 +4,7 @@ import {checkCell} from './sheet-layout.js';
 
 const UNCHECKED_ROLES=new Set(['description','brand','mfrCode']);
 
-export function assessBoundFields(identification){
+export function assessBoundFields(identification,{inferredCodeColumn}={}){
  const bindings=identification?.bindings||{};
  const owners=new Map();
  for(const [role,binding] of Object.entries(bindings)){
@@ -33,6 +33,9 @@ export function assessBoundFields(identification){
  }
  // An unmapped description is missing evidence, not an empty source cell.
  if(!bindings.description)fields.description={status:'missing',columnIndex:null,evidence:'missing',accuracy:0};
+ if(!bindings.code)fields.code=Number.isInteger(inferredCodeColumn)
+  ?{status:'inferred',columnIndex:inferredCodeColumn,evidence:'inferred',accuracy:70}
+  :{status:'missing',columnIndex:null,evidence:'missing',accuracy:0};
  return {fields,cellIssues};
 }
 

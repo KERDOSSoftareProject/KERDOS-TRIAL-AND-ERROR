@@ -5,6 +5,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {priceQuoteFixture} from './fixtures/price-quote-db.mjs';
 import {importPriceRow} from '../src/core/import-price-row.js';
 import {findUncodedVendorListing} from '../src/core/vendor-listing.js';
+import {parseDocument} from '../src/ingestion.js';
 
 const db=new PGlite();
 try{
@@ -24,8 +25,9 @@ try{
   const observed=new Map();
   async function importRows(doc,prices){
     for(const [index,[description,packSize,price]] of prices.entries()){
-      const sourceLine=`${description},${packSize},${price}`;
-      const row={code:null,description,packSize,sellingUnit:'CASE',price,sourceLine};
+      const {rows:[row]}=parseDocument(`Description,Pack,Price Unit,Price\n${description},${packSize},CASE,${price}`);
+      assert.equal(row.code,null);
+      assert.equal(row.fieldValidation.fields.code.status,'missing');
       const saved=(await db.query('select * from vendor_items where organization_id=$1 and vendor_id=$2',[f.org,f.vendor])).rows;
       const found=findUncodedVendorListing(row,saved);
       assert.equal(found.conflict,null);

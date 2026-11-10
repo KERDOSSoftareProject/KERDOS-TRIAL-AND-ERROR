@@ -469,7 +469,6 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
 
   const validation = validateAssignedFields(fields, {price, amount, priceUnavailable});
   if (!validation.retain) return null;
-  const boundQuality = assessBoundFields(fields);
   const priceUnreadable = validation.priceStatus === "missing-or-unreadable";
 
   const anchorStatus = fields.anchor.status;
@@ -518,19 +517,25 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   const metadataIndices=new Set([...sourceMetadata.map(cell=>cell.columnIndex),...ignoredColumns]);
   let details=cells.map((value,index)=>({value:value.trim(),index}))
     .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value));
-  // An unlabeled cell can support an item code only when it precedes the
-  // explicitly identified product column. A trailing Notes/Details value
-  // may have the same shape as a code but is still source detail.
+  // A cell without an assigned role may suggest a code before the product
+  // column. An explicitly labeled note remains detail in either position.
   let rowCode=code;
   let codeSource=code?"column":null;
-  if(!rowCode&&Number.isInteger(columnMap.description)){
+  let inferredCodeColumn;
+  if(!rowCode&&columnMap.code===undefined&&Number.isInteger(columnMap.description)){
     const candidate=details.find(({value,index})=>index<columnMap.description&&
+        !/^(?:(?:item|product)\s+)?(?:notes?|details?|comments?|remarks?)$/i.test(sourceHeaders[index]?.trim()||"")&&
         /^[A-Z0-9][A-Z0-9\-\/\.]{2,15}$/i.test(value)&&/\d/.test(value)&&
         !/^\d+(?:\.\d+)?[/-]\d+(?:\.\d+)?$/.test(value)&&!parsePackSize(value)?.parsed);
-    if(candidate){rowCode=candidate.value;codeSource="details";details=details.filter(cell=>cell.index!==candidate.index);}
+    if(candidate){
+      rowCode=candidate.value;codeSource="details";
+      inferredCodeColumn=fields.anchor.columnIndex-columnMap.description+candidate.index;
+      details=details.filter(cell=>cell.index!==candidate.index);
+    }
   }
   details=details.map(cell=>cell.value);
   const fullDescription=missingDescription?"":[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
+  const boundQuality=assessBoundFields(fields,{inferredCodeColumn});
   const issues = [...validation.issues,
     ...["qty", "amount"].filter(role => boundQuality.cellIssues[role]).map(role => ({
       kind: "invalid-assigned-field", field: role, message: boundQuality.cellIssues[role],
