@@ -894,6 +894,8 @@ export default function App() {
   const accountInitials = typeof savedInitials === "string" && /^\p{L}{1,3}$/u.test(savedInitials)
     ? savedInitials.toUpperCase()
     : accountName ? userInitials(accountName) : initialsFor({email:account.email}) || "?";
+  const welcomeName = org.settings?.welcome_name;
+  const clientName = (typeof welcomeName === "string" && welcomeName.trim()) || org.name;
 
   return (
     <div className="workspace-shell" style={{minHeight:"100vh",background:"#003584"}}>
@@ -955,7 +957,7 @@ export default function App() {
 
       <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} sticky onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
-      {tab==="home"&&<WelcomeScreen userName={accountName} role={org.role}
+      {tab==="home"&&<WelcomeScreen clientName={clientName} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
