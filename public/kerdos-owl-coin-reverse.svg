@@ -24,7 +24,7 @@
     <path d="M395.7 420.3C397.0 421.4 399.9 422.2 402.2 423.3" stroke="#dcbd6a" stroke-width="1.25"/>
   </g>
   <g fill="#0e2a57" font-family="Arial, Helvetica, sans-serif" font-weight="700" text-anchor="middle">
-    <text x="400" y="378" font-size="160">Μ</text>
+    <path aria-label="Μ" d="M331 264H365L400 324L435 264H469V378H439V315L400 369L361 315V378H331Z"/>
     <g font-size="43" dominant-baseline="central">
       <text x="343.3" y="186.5">Κ</text>
       <text x="456.7" y="186.5">Α</text>
