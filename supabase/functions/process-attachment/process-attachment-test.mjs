@@ -907,6 +907,42 @@ await test("compressed XLSX (deflate method 8) — portable-file-reader decodes 
     "Expected at least one sheet from the XLSX reader");
 });
 
+await test("compressed XLSX drains decompression output while writing the input", async () => {
+  const bytes = await buildMinimalXlsxBytes();
+  const NativeDecompressionStream = globalThis.DecompressionStream;
+  let timer;
+  try {
+    globalThis.DecompressionStream = class {
+      constructor(format) {
+        const native = new NativeDecompressionStream(format);
+        const reader = native.readable.getReader(), writer = native.writable.getWriter();
+        let start;
+        const draining = new Promise(resolve => { start = resolve; });
+        this.readable = new ReadableStream({
+          async pull(controller) {
+            start();
+            const { done, value } = await reader.read();
+            if (done) controller.close();
+            else controller.enqueue(value);
+          },
+        }, { highWaterMark: 0 });
+        this.writable = new WritableStream({
+          async write(chunk) { await draining; await writer.write(chunk); },
+          close() { return writer.close(); },
+        });
+      }
+    };
+    const result = await Promise.race([
+      readAttachment(bytes, "application/octet-stream", "backpressure.xlsx"),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Workbook decompression stalled")), 2000); }),
+    ]);
+    assert.deepEqual(result.sheets[0].rows, [["code", "price"], ["SKU-001", "10.00"]]);
+  } finally {
+    clearTimeout(timer);
+    globalThis.DecompressionStream = NativeDecompressionStream;
+  }
+});
+
 // ── Test 11: inbound-email handoff — fireProcessAttachment invoked ────────────
 
 await test("multi-worksheet email and browser share source rows, pricing, and safe resume", async () => {

@@ -191,29 +191,10 @@ async function parseXlsx(bytes) {
  *   • Modern browsers (Chrome 80+, Firefox 113+, Safari 16.4+)
  */
 async function decompressDeflateRaw(compressed) {
-  // DecompressionStream("deflate-raw") decodes raw DEFLATE (RFC 1951).
-  const ds = new DecompressionStream("deflate-raw");
-  const writer = ds.writable.getWriter();
-  const reader = ds.readable.getReader();
-
-  // Write the compressed data then close the writable side.
-  await writer.write(compressed);
-  await writer.close();
-
-  // Collect all output chunks.
-  const chunks = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-
-  // Concatenate into a single Uint8Array.
-  const totalLen = chunks.reduce((n, c) => n + c.length, 0);
-  const out = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length; }
-  return out;
+  // Drain the output while supplying compressed input. Waiting for a write
+  // before reading can stall runtimes that apply transform backpressure.
+  const output = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(output).arrayBuffer());
 }
 
 // ── ZIP parser ────────────────────────────────────────────────────────────────
