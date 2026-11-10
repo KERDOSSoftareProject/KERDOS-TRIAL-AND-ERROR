@@ -1,6 +1,25 @@
 import {compareProductIdentity,comparePurchasingPack,priceBasisFor,brandsMatch} from "../procurement.js";
 import {inferPricingBasis} from "./infer-pricing-basis.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
+import {parseAssignedMoney} from "./assigned-numbers.js";
+import {unitInPrice,unitInPriceHeader} from "./source-units.js";
+
+// Interpret only bound source prices. Each amount keeps its own header
+// and coordinates, independent of calculations or later client edits.
+export function interpretStatedQuotePair(bindings){
+  const primary=bindings?.price,parallel=bindings?.parallelPrice;
+  if(!primary||!parallel||primary.columnIndex===parallel.columnIndex||
+    primary.evidence==="inferred"||parallel.evidence==="inferred")return [];
+  const fields=[primary,parallel].map(source=>({source,sellingUnit:unitInPriceHeader(source.header)}));
+  const units=fields.map(field=>field.sellingUnit);
+  if(!units.includes("CASE")||!units.includes("EACH"))return [];
+  return fields.flatMap(({source,sellingUnit})=>{
+    const price=parseAssignedMoney(source.rawValue);
+    const cellUnit=unitInPrice(source.rawValue);
+    return price>0&&(!cellUnit||cellUnit===sellingUnit)?[{source,sellingUnit,price}]:[];
+  });
+}
+
 
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that

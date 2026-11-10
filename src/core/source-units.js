@@ -6,11 +6,14 @@ export function canonicalQuoteUnit(value){
   return basis?.basis==="case"?"CASE":basis?.basis==="each"?"EACH":basis?.unit||null;
 }
 export function unitInPrice(value){
-  const match=String(value||"").trim().match(/^\$?\d[\d,]*(?:\.\d+)?\s*(?:\/|per\s+)?\s*([a-z][a-z .]*)$/i);
+  const match=String(value||"").trim().match(/^\$?\s*\d[\d,]*(?:\.\d+)?\s*(?:\/|per\s+)?\s*([a-z][a-z .]*)$/i);
   return match?canonicalQuoteUnit(match[1]):null;
 }
 export function unitInPriceHeader(value){
-  const match=String(value||"").trim().match(/^(?:unit\s+)?(?:price|cost|rate)\s*(?:per\s+|\/|\(\s*)([a-z][a-z .]*?)\s*\)?$/i);
+  const header=String(value||"").trim();
+  const prefix=header.match(/^(case|cases|cs|cse|each|ea|piece|pieces|pc|pcs|pce)\s+(?:price|cost|rate)$/i);
+  if(prefix)return canonicalQuoteUnit(prefix[1]);
+  const match=header.match(/^(?:unit\s+)?(?:price|cost|rate)\s*(?:per\s+|\/|\(\s*)([a-z][a-z .]*?)\s*\)?$/i);
   return match?canonicalQuoteUnit(match[1]):null;
 }
 export function documentQuoteUnit(text){

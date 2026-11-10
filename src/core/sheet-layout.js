@@ -21,6 +21,7 @@ export const COLUMN_ROLE_LABELS={
   packSize:"Pack size",
   sellingUnit:"Price is per (unit)",
   price:"Price",
+  parallelPrice:"Other stated price",
   qty:"Quantity",
   amount:"Line total",
   ignore:"Not needed — ignore this column",
@@ -72,6 +73,7 @@ export function checkCell(role,value){
   if(!text)return {ok:true,empty:true};
   switch(role){
     case "price":
+    case "parallelPrice":
     case "amount":{
       return parseAssignedMoney(text)!==null?{ok:true}:{ok:false,reason:`"${text}" is not an amount`};
     }
