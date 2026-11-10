@@ -15,7 +15,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   let changes=[];
   if(prior&&(source.code?String(source.code)!==String(prior.vendor_item_code):!!prior.vendor_item_code))
     throw new Error("The incoming vendor item code does not belong to this saved listing.");
-  try{row=prepareImportRow(source,{prior,mapping,invoices});}
+  const scopedInvoices=scope?invoices.filter(entry=>
+    entry.organizationId===scope.organizationId&&entry.vendorId===scope.vendorId):invoices;
+  try{row=prepareImportRow(source,{prior,mapping,invoices:scopedInvoices});}
   catch(error){reasons.push(error.message);changes=prior?knownItemChanges(source,prior):[];}
   changes=row.changes||changes;
   reasons.push(...(row.conflicts||[]));
@@ -45,23 +47,29 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   if(!parsePackSize(row.packSize)?.parsed)reasons.push(row.packSize?
     "Pack quantity or unit is unreadable; correct the pack field.":"Pack quantity and unit are missing.");
   let resolved=resolveQuoteBasis(row,prior);
-  // When no explicit unit and no prior, try invoice billing unit evidence.
-  // The UOM column on a matching invoice row identifies the basis.
-  // Arithmetic reconciliation confirms consistency but does not identify the basis alone.
-  if(!resolved&&!String(row.sellingUnit||'').trim()&&invoices.length){
-    const arithmetic=resolveFromInvoiceArithmetic(row,invoices,scope);
-    if(arithmetic){
-      if(arithmetic.conflict){
-        // Invoices disagree — flag for review, do not resolve
-        reasons.push('Invoice billing units conflict ('+arithmetic.reason+'). Confirm the correct basis.');
-      } else {
-        // Agreed billing unit from invoice — source evidence, no review needed for basis
-        resolved=arithmetic;
-      }
+  let invoiceConflict=false;
+  if((!String(row.sellingUnit||"").trim()||resolved?.source==="confirmed vendor item")&&scopedInvoices.length){
+    // Compare invoice evidence against the incoming product and pack wherever
+    // stated, even when the saved catalog display uses the remembered fields.
+    const arithmetic=resolveFromInvoiceArithmetic({...row,sellingUnit:"",
+      description:source.description||row.description,packSize:source.packSize||row.packSize},scopedInvoices);
+    if(arithmetic?.conflict){
+      reasons.push(`Quoted unit needs review because invoice evidence conflicts. ${arithmetic.reason}.`);
+      invoiceConflict=true;
+    }else if(arithmetic&&resolved&&
+      (arithmetic.basis.basis!==resolved.basis.basis||arithmetic.basis.unit!==resolved.basis.unit)){
+      reasons.push(`Quoted unit differs between the saved listing (${resolved.sellingUnit}) and invoice evidence (${arithmetic.sellingUnit}).`);
+      invoiceConflict=true;
+    }else if(arithmetic&&!resolved){
+      resolved=arithmetic;
+      row={...row,sellingUnit:arithmetic.sellingUnit,sellingUnitSource:"invoice"};
+    }
+    if(invoiceConflict){
+      resolved=null;
+      row={...row,sellingUnit:"",sellingUnitSource:null};
     }
   }
-  // When no explicit unit, no prior, and no invoice arithmetic, try inference.
-  if(!resolved&&!String(row.sellingUnit||'').trim()){
+  if(!resolved&&!invoiceConflict&&!String(row.sellingUnit||"").trim()){
     const inferred=inferQuoteBasis(row);
     if(inferred){
       if(inferred.inferenceLevel==='supported'){
@@ -104,6 +112,7 @@ export function priceReviewFields({reasons=[],changes=[],row={},prior=null}={}){
   for(const reason of reasons){
     const text=String(reason);
     if(/barcode|manufacturer code|gtin/i.test(text))fields.add("identifiers");
+    else if(/^quoted unit/i.test(text))fields.add("selling_unit");
     else if(/pack/i.test(text))fields.add("pack_size");
     else if(/sellingUnit|quoted unit|price basis|selling unit|quoted units/i.test(text))fields.add("selling_unit");
     else if(/brand/i.test(text))fields.add("brand");

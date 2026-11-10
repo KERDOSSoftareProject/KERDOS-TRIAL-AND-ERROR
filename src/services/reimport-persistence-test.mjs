@@ -457,3 +457,24 @@ for(const held of [false,true])run(held?'held conflicting source preserves saved
  assert.deepEqual(backend._stores.catalogs.get(catItemId),beforeCatalog);
  assert.equal(backend._stores.vendors.size,1);assert.equal(backend._stores.mappings.size,1);
 });
+
+run('a changed stated unit is retained for review while the accepted quote stays intact',async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const {vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const prior={...backend._stores.vendors.get(vendorItemId),selling_unit:"CASE",price_basis:"case",price:80};
+  backend._stores.vendors.set(vendorItemId,prior);
+  backend._stores.mappings.set(mappingId,{...backend._stores.mappings.get(mappingId),comparison_track:"exact",confidence_score:100});
+  backend.pricing.applyQuote=async()=>assert.fail("the incoming change must not replace the accepted quote");
+  const result=await reimport(backend,{orgId:ORG,vendorId:VENDOR,vendorItemId,mappingId,...makeServices(backend,ORG)},{
+    rowOverrides:{sellingUnit:"LB",sellingUnitSource:"price header"},
+    sourceOverrides:{sellingUnit:"LB",sellingUnitSource:"price header"},
+  });
+  assert.equal(result.needsBasis,true);
+  const saved=backend._stores.vendors.get(vendorItemId);
+  assert.equal(saved.price,80);
+  assert.equal(saved.selling_unit,"CASE");
+  assert.equal(saved.import_row.row.sellingUnit,"LB");
+  assert.equal(saved.import_row.evidence.sellingUnit,"LB");
+  assert.equal(saved.import_row.evidence.sellingUnitSource,"price header");
+  assert.ok(saved.import_row.reviewFields.includes("selling_unit"));
+});

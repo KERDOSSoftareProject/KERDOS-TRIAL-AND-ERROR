@@ -112,8 +112,9 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   if(!empty(vi.selling_unit)){
     if(!basis){unitAcc=DOUBTFUL;unitWhy=["WEIGHT","VOLUME","MEASURE"].includes(vi.selling_unit)?"Choose the measurement for this quoted price":"Not a unit KERDOS recognises";}
     else{
-      unitAcc=byClient("selling_unit")?STATED:provenance.sellingUnitSource==="sheet"?DERIVED:provenance.sellingUnitSource==="inferred"?GUESSED:STATED;
+      unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(provenance.sellingUnitSource)?DERIVED:provenance.sellingUnitSource==="inferred"?GUESSED:STATED;
       unitWhy=provenance.sellingUnitSource==="remembered"?"Reused from this vendor’s verified product and pack":byClient("selling_unit")?"Set by you":provenance.sellingUnitSource==="sheet"?"Applied to the whole sheet at import":provenance.sellingUnitSource==="inferred"?"Suggested—not confirmed":"Stated on the sheet";
+      if(!byClient("selling_unit")&&provenance.sellingUnitSource==="invoice")unitWhy="Supported by a matched invoice’s billed unit and line total";
       if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(provenance.sellingUnitSource))unitWhy=`Stated in the ${provenance.sellingUnitSource}`;
       if(basis.basis==="measure"&&pack?.parsed&&casePrice==null){
         if(pack.catchWeight&&measuredQuoteRate(amount,basis.unit||vi.selling_unit,pack.unit))unitWhy+="; measured rate retained independently of variable case weight";
@@ -361,10 +362,9 @@ export function rememberImportRow(row,prior,mapping=null){
     // and field corrections survive changes in document row order.
     const changes=knownItemChanges(row,prior);
     const conflicts=changes.map(change=>change.reason);
-    const learnedUnit=!prior.import_row?.reviewRequired&&prior.import_row?.evidence?.sellingUnitSource!=="inferred"&&prior.price_source!=="invoice"&&prior.price_basis&&priceBasisFor(prior.selling_unit)?.basis===prior.price_basis?prior.selling_unit:null;
     return {...row,description:prior.description,brand:prior.brand||"",packSize:prior.pack_size,
-      sellingUnit:learnedUnit||row.sellingUnit||"",sellingUnitSource:learnedUnit?"remembered":row.sellingUnitSource,
-      knownVendorItem:true,priceNeedsReview:conflicts.length>0,conflicts,changes};
+      sellingUnit:row.sellingUnit||"",knownVendorItem:true,
+      priceNeedsReview:!!row.priceNeedsReview||conflicts.length>0,conflicts,changes};
   }
   const result={...row};
   const raw=prior.import_row?.row||{};
