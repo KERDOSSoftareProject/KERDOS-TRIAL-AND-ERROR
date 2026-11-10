@@ -14,6 +14,7 @@ export function blockReason(option){
   if(option.unverified&&option.qualificationReason)return option.qualificationReason;
   if(option.priceUnavailable)return "No current quoted price";
   if(option.invoiceOnly)return "Invoice charge only — quotation required";
+  if(option.basisUnconvertible&&option.quoteBasis==="each")return "Quoted per each — correct the pack in Item Catalog";
   if(option.basisUnconvertible&&parsePackSize(option.packSize)?.catchWeight)
     return `Quoted per ${option.quoteUnit||"unit"} — variable case weight; an estimate is not a confirmed case charge. Review purchasing terms in Item Catalog`;
   // A price quoted per pound, per gallon or per each can only join the
@@ -22,6 +23,11 @@ export function blockReason(option){
   if(option.unverified||option.matchTrack!=="exact"||option.matchConfidence!==100||!option.packSize)return "Product not mapped at 100% — review in Item Catalog";
   if(option.brandMismatch)return option.brand?`${option.brand} — not the locked brand`:"Brand not listed";
   return null;
+}
+
+// Full-pack comparison math does not create another purchasing choice.
+export function supportsOrderUnit(option,unit){
+  return unit===(option.quoteBasis==="each"?"each":"case");
 }
 
 // An agreed price belongs to one vendor and one purchasing unit. It

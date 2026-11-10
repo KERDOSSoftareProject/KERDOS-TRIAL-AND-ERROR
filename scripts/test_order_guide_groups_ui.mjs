@@ -61,6 +61,9 @@ const priceButton=()=>tree.root.findByProps({'aria-label':'Price choices for Hon
 assert.match(text(priceButton()),/Sample Vendor/);
 assert.equal(priceButton().props['aria-description'],'2 vendors quote this item');
 assert.equal(priceButton().props.style.border,'2px solid #008577');
+const orderUnitOption=(value)=>tree.root.findByProps({'aria-label':'Order unit for Honey Mustard'}).findAllByType('option').find(option=>option.props.value===value);
+assert.equal(orderUnitOption('each').props.disabled,true,'a quoted case does not authorize ordering an inner unit');
+
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'10.00'}}));
 const settlePrice=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,750));});
@@ -99,10 +102,13 @@ await act(async()=>tree.unmount());
 store.delete('kerdos.basket.org');catalogItems.find(c=>c.id==='ci1').name='Honey Mustard';
 for(const row of vendorItems.filter(v=>v.id==='vi1'||v.id==='honey-second'))row.field_resolutions={row_approval:true,product_group:{catalogItemId:'ci1',description:row.description,brand:row.brand??null,confirmedBy:'reviewer'}};
 Object.assign(vendorItems.find(v=>v.id==='honey-second'),{pack_size:'1/10 LB',selling_unit:'CASE',price_basis:'case'});
+const eachListing=vendorItems.find(v=>v.id==='vi1');
+Object.assign(eachListing,{selling_unit:'EACH',price_basis:'each',price:5});
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 const honeyUnit=()=>tree.root.findByProps({'aria-label':'Order unit for Honey Mustard'});
 await act(async()=>honeyUnit().props.onChange({target:{value:'each'}}));assert.equal(honeyUnit().props.value,'each');
 assert.equal(priceButton().props['aria-description'],undefined,'the case-only listing does not count toward the each-price outline');
+assert.match(text(priceButton()),/Sample Vendor.*5\.00/,'the Each price is the listing’s accepted quote');
 await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
 assert.equal(honeyUnit().props.value,'case');assert.match(text(priceButton()),/Second Vendor.*9\.00/);assert.match(text(tree.toJSON()),/1\/10 LB/);
@@ -110,6 +116,7 @@ assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='+')[1].props
 await act(async()=>tree.unmount());
 // F2.1: actual App assessment -> option flags -> controls -> basket. An
 // incomplete peer cannot hold the valid approved offer or borrow its fields.
+Object.assign(eachListing,{selling_unit:'CASE',price_basis:'case',price:20});
 store.delete('kerdos.basket.org');const incompletePeer=vendorItems.find(v=>v.id==='honey-second');
 Object.assign(incompletePeer,{pack_size:null,selling_unit:null,price_basis:null,price:null,price_unavailable:true});
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
@@ -191,6 +198,12 @@ Object.assign(expiring,{pack_size:'4/1 GAL',price:20});Object.assign(incompleteP
 const alternate={...expiring,id:'honey-same-vendor-alternate',vendor_item_code:'ALT-32',price:32};
 vendorItems.push(alternate);snapshot.mappings.push({...snapshot.mappings.find(m=>m.vendor_item_id===expiring.id),id:'honey-alt-map',vendor_item_id:alternate.id});
 for(const [unit,primary,secondary] of [['case','64.00','28.00'],['each','16.00','7.00']]){
+ if(unit==='each'){
+  for(const [listing,price] of [[expiring,5],[alternate,8],[incompletePeer,7]]){
+   Object.assign(listing,{selling_unit:'EACH',price_basis:'each',price});
+  }
+ }
+
  const key='ci1_'+unit;
  store.set('kerdos.basket.org',JSON.stringify({quantities:{[key]:3},unitSelection:{ci1:unit},vendorOverride:{[key]:alternate.id},negotiatedPrices:{},splitOrders:{[key]:{vendorId:'second-vendor',quantity:1}}}));
  await act(async()=>{tree=Renderer.create(React.createElement(App));});
@@ -198,6 +211,9 @@ for(const [unit,primary,secondary] of [['case','64.00','28.00'],['each','16.00',
  assert.ok(basket.includes(primary),'split '+unit+' basket must charge the exact selected primary listing: '+basket);
  assert.ok(basket.includes(secondary),'split '+unit+' basket must retain the second vendor allocation');
  await act(async()=>tree.unmount());
+}
+for(const [listing,price] of [[expiring,20],[alternate,32],[incompletePeer,28]]){
+ Object.assign(listing,{selling_unit:'CASE',price_basis:'case',price});
 }
 alternate.price_unavailable=true;
 store.set('kerdos.basket.org',JSON.stringify({quantities:{ci1_case:3},vendorOverride:{ci1_case:alternate.id},splitOrders:{ci1_case:{vendorId:'second-vendor',quantity:1}}}));
@@ -207,6 +223,36 @@ assert.doesNotMatch(text(tree.root.findByProps({className:'order-aside'})),/Reco
 assert.equal(JSON.parse(store.get('kerdos.basket.org')).quantities.ci1_case,3);
 await act(async()=>tree.unmount());
 console.log('PASS G split baskets preserve the selected source listing for Case and Each.');
+// Previously saved derived quantities stay visible and can be removed.
+store.set('kerdos.basket.org',JSON.stringify({quantities:{ci1_case:1,ci1_each:1},unitSelection:{ci1:'each'}}));
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(honeyUnit().props.value,'each');
+assert.equal(honeyPlus().props.disabled,true);
+const aside=()=>tree.root.findByProps({className:'order-aside'});
+const record=()=>aside().findAllByType('button').find(button=>/^Record 1 Order/.test(text(button)));
+assert.equal(record().props.disabled,true,'a saved Each quantity without a quoted each rate blocks submission');
+await act(async()=>tree.root.findByProps({'aria-label':'Remove one each of Honey Mustard'}).props.onClick());
+assert.equal(honeyUnit().props.value,'case');
+assert.equal(record().props.disabled,false,'removing the unsupported quantity restores the quoted case order');
+await act(async()=>tree.unmount());
+
+store.delete('kerdos.basket.org');
+Object.assign(expiring,{pack_size:'5 LB',selling_unit:'EACH',price_basis:'each',price:16.75});
+incompletePeer.price_unavailable=true;
+third.price_unavailable=true;
+// Remove the other listings to isolate the each-only purchasing rule.
+for(const id of [incompletePeer.id,third.id,alternate.id]){
+ snapshot.mappings.splice(snapshot.mappings.findIndex(mapping=>mapping.vendor_item_id===id),1);
+}
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(honeyUnit().props.value,'each','one five-pound package quoted each defaults to Each');
+assert.equal(orderUnitOption('case').props.disabled,true,'the comparison equivalent cannot become a case offer');
+assert.match(text(priceButton()),/Sample Vendor.*16\.75/);
+await act(async()=>honeyPlus().props.onClick());
+assert.match(text(aside()),/1 each.*16\.75/);
+await act(async()=>tree.unmount());
+console.log('PASS C1.5 only the active quoted order unit can enter a basket, including a one-package Each quote.');
+
 console.log('PASS G actual App: three-offer normalized winner, incomplete cheap peer held, whole-pack basket charge and locked supplier minimum shortfall');
 console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);
