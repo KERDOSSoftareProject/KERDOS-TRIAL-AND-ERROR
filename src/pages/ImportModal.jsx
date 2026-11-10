@@ -495,11 +495,23 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         // file that stopped part-way resumes: rows already recorded as
         // complete are skipped, the rest are saved, and every write below
         // is safe to repeat.
-        if(automaticImport&&existingDoc?.status==="complete"){
-          if(existingDoc.retrieval_evidence?.kind==='browser_companion'){
-            try{await documents.verifyCompanionOriginal({organizationId:orgId,vendorId,document:existingDoc,assertActive});verifiedOriginals++;}
-            catch(error){assertActive();failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+error.message].filter(Boolean).join(' ');continue;}
+        if(automaticImport&&existingDoc){
+          const prior=existingDoc.retrieval_evidence;
+          const sameContext=prior?.kind==='browser_companion'&&
+            ['adapter_key','origin','account_label','list_label'].every(key=>prior[key]===companionEvidence[key]);
+          const sameBytes=sameContext&&prior.sha256===companionEvidence.sha256&&prior.byte_length===companionEvidence.byte_length;
+          if(!sameBytes){
+            failedRows+=Math.max(1,group.rows.length);
+            const reason=sameContext
+              ?"The source text matches a saved import but the original file bytes differ."
+              :"This source matches a saved import without the same verified vendor account and list.";
+            saveError=[saveError,group.name+": "+reason+" The saved import is available for review."].filter(Boolean).join(" ");
+            continue;
           }
+        }
+        if(automaticImport&&existingDoc?.status==="complete"){
+          try{await documents.verifyCompanionOriginal({organizationId:orgId,vendorId,document:existingDoc,assertActive});verifiedOriginals++;}
+          catch(error){assertActive();failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+error.message].filter(Boolean).join(' ');continue;}
           unchangedDocuments++;lastSourceDocumentId=existingDoc.id;continue;
         }
         if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}

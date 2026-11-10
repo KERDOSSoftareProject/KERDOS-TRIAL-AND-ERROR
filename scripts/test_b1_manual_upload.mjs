@@ -325,6 +325,26 @@ await check('automatic companion intake saves original/evidence and prices with 
  const before=writes(f),again=await autoOpen();await automaticResult(again);assert.equal(writes(f),before);assert.equal(again.finished.length,1);assert.match(again.finished[0].message,/already up to date/);again.tree.unmount();
  const changed=await autoOpen(csv.replace('41.25','43.25'));await automaticResult(changed);assert.equal(changed.finished.length,1,text(changed.tree.toJSON()));assert.equal(f.calls.applyQuote.length,2);assert.deepEqual(f.calls.applyQuote.map(q=>q.price),[41.25,43.25]);assert.equal(Object.values(f.importDocs).length,2);assert.equal(f.uploads[0].bytes,csv);changed.tree.unmount();
 });
+await check('automatic matches require the same source account, list, adapter, origin and original bytes',async()=>{
+ const f=fixture(),first=await autoOpen();await automaticResult(first);assert.equal(first.finished.length,1);first.tree.unmount();
+ const saved=Object.values(f.importDocs)[0],before=writes(f),reads=f.downloads.length;
+ for(const [change,message] of [
+  [{account_label:'Other account'},/same verified vendor account and list/],
+  [{list_label:'Other list'},/same verified vendor account and list/],
+  [{adapter_key:'other-adapter'},/same verified vendor account and list/],
+  [{origin:'https://other.example'},/same verified vendor account and list/],
+  [{sha256:'a'.repeat(64)},/original file bytes differ/],
+ ]){
+  const next=await autoOpen(csv,{companionEvidence:{...autoProof,...change}});
+  await automaticResult(next);assert.equal(next.finished.length,0);assert.match(text(next.tree.toJSON()),message);
+  assert.equal(writes(f),before);assert.equal(f.downloads.length,reads);
+  assert.deepEqual(saved.retrieval_evidence,autoProof);next.tree.unmount();
+ }
+ saved.status='partial';
+ const partial=await autoOpen(csv,{companionEvidence:{...autoProof,list_label:'Other list'}});
+ await automaticResult(partial);assert.equal(partial.finished.length,0);assert.equal(saved.status,'partial');
+ assert.equal(writes(f),before);partial.tree.unmount();
+});
 await check('automatic native metadata export retains all 87 rows and source metadata without confirming a layout',async()=>{
  const header=['Line Number','Group Name','Product Number','Product Description','Product Brand','Product Package Size','Customer Product Number','Product Price','Product UOM','USF Class Description','Storage Description'];
  const content=[header,...Array.from({length:87},(_,i)=>[i+1,'Example Group','AUTO-'+i,'Sample cooked product '+i,i===84?'PRICE PRODUCT NAME':'Example brand','2/10 LB','','41.25','CS','Example class','Dry'])].map(row=>row.join(',')).join('\n');
@@ -387,7 +407,7 @@ await check('automatic corruption checks block new quotes and preserve completed
 });
 await check('automatic original verification never claims legacy proof and rejects malformed new transfer evidence',async()=>{
  const f=fixture(),manual=await open();await upload(manual,'picker');await save(manual);manual.tree.unmount();const before=writes(f);
- const legacy=await autoOpen();await automaticResult(legacy);assert.equal(legacy.finished.length,1);assert.doesNotMatch(legacy.finished[0].message,/Stored original verified/);assert.equal(f.downloads.length,0);assert.equal(writes(f),before);legacy.tree.unmount();
+ const legacy=await autoOpen();await automaticResult(legacy);assert.equal(legacy.finished.length,0);assert.match(text(legacy.tree.toJSON()),/same verified vendor account and list/);assert.equal(f.downloads.length,0);assert.equal(writes(f),before);legacy.tree.unmount();
  const g=fixture(),bad=await autoOpen(csv,{companionEvidence:{...autoProof,sha256:'invalid'}});await automaticResult(bad);assert.equal(bad.finished.length,0);assert.equal(g.calls.applyQuote.length,0);assert.equal(g.downloads.length,0);assert.equal(Object.values(g.importDocs)[0].status,'partial');assert.match(text(bad.tree.toJSON()),/no valid transfer-byte evidence/);assert.equal(bad.issues.length,1);assert.equal(bad.issues[0].status,'needs_attention');assert.match(bad.issues[0].message,/no valid transfer-byte evidence/);bad.tree.unmount();
 });
 await check('automatic unmount while downloading the retained original prevents quotes, progress and success',async()=>{
@@ -395,7 +415,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/42 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/43 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
