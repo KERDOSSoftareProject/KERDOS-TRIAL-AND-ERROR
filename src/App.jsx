@@ -675,10 +675,8 @@ export default function App() {
     return Array.from(map.values());
   },[assignments]);
 
-  const baselineSpend=useMemo(()=>cartItems.reduce((s,i)=>{
-    const cheapest=i.options.filter(orderable).sort((a,b)=>a.price-b.price)[0];
-    return s+(cheapest?.price||0)*i.quantity;
-  },0),[cartItems]);
+  const baselineSpend=useMemo(()=>assignments.reduce((total,line)=>
+    total+r2(line.cheapestPrice*line.quantity),0),[assignments]);
   const blockedCartItems=assignments.filter(a=>a.unorderable||!a.assignedVendorId);
   const totalSpend=baskets.reduce((s,b)=>s+b.dollar,0);
   const totalUnits=baskets.reduce((s,b)=>s+b.units,0);
@@ -1311,7 +1309,7 @@ export default function App() {
                       <span style={{fontWeight:600}}>{totalUnits}</span>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:11,opacity:0.6}}>Cheapest possible</span>
+                      <span style={{fontSize:11,opacity:0.6}}>Best unit-price total</span>
                       <span style={{fontWeight:600}}>{formatMoney(baselineSpend)}</span>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>

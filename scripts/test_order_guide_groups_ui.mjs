@@ -253,6 +253,23 @@ assert.match(text(aside()),/1 each.*16\.75/);
 await act(async()=>tree.unmount());
 console.log('PASS C1.5 only the active quoted order unit can enter a basket, including a one-package Each quote.');
 
+store.delete('kerdos.basket.org');
+Object.assign(expiring,{pack_size:'4/5 LB'});
+Object.assign(incompletePeer,{pack_size:'12/1 LB',selling_unit:'EACH',price_basis:'each',price:4,price_unavailable:false});
+snapshot.mappings.push({...snapshot.mappings.find(mapping=>mapping.vendor_item_id===expiring.id),id:'each-comparison-peer',vendor_item_id:incompletePeer.id});
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(honeyUnit().props.value,'each');
+assert.match(text(priceButton()),/Sample Vendor.*16\.75/,'$3.35/lb beats $4/lb despite the larger package price');
+await act(async()=>honeyPlus().props.onClick());
+await act(async()=>honeyPlus().props.onClick());
+assert.match(text(aside()),/Sample Vendor.*2 eachs? × \$16\.75.*33\.50/,'basket keeps the two-package quantity and quoted charge');
+assert.match(text(aside()),/Best unit-price total\$33\.50/,'basket baseline follows the same price comparison as the guide');
+await selectHoney('Second Vendor');
+assert.match(text(aside()),/Second Vendor.*2 eachs? × \$4\.00.*8\.00/,'explicit selection uses its own package and price');
+await act(async()=>tree.unmount());
+console.log('PASS C1.5 Each offers compare at a shared measurement and order at their own quoted amount.');
+
+
 console.log('PASS G actual App: three-offer normalized winner, incomplete cheap peer held, whole-pack basket charge and locked supplier minimum shortfall');
 console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');
 `);

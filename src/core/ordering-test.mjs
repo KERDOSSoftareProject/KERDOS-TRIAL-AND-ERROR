@@ -95,6 +95,25 @@ assert.equal(eachRanked[0].difference,0,"the each-price winner carries differenc
 assert.equal(eachRanked[1].difference,1,"the more expensive each-price option carries the correct premium");
 console.log("Each-unit ranking uses eachPrice passed.");
 
+const pricedEach=[
+  option("large",16.75,{quoteBasis:"each",orderUnit:"each",packSize:"4/5 LB",eachSize:"5 LB",casePrice:67,eachPrice:16.75,perUnit:{price:3.35,unit:"LB"}}),
+  option("small",4,{quoteBasis:"each",orderUnit:"each",packSize:"12/1 LB",eachSize:"1 LB",casePrice:48,eachPrice:4,perUnit:{price:4,unit:"LB"}}),
+];
+const rankedEach=rankVendorOffers(pricedEach,null,"each");
+assert.equal(rankedEach[0].vendorId,"large","Each offers with a common measure rank by cost for the same quantity");
+assert.equal(rankedEach[0].unitPrice,16.75,"the accepted charge is still per five-pound package");
+assert.equal(rankedEach[0].comparisonPrice,3.35);
+assert.equal(offerDollarDifference(rankedEach[1],rankedEach[0]),3.25,"use the contents of one purchasable Each for dollar differences");
+assert.equal(rankVendorOffers(pricedEach,{small:3},"each")[0].vendorId,"small","the agreed each price uses the same pack comparison");
+const eachOrder=solveOrder([{catalogItemId:"each",quantity:2,orderUnit:"each",options:pricedEach}],[])[0];
+assert.equal(eachOrder.vendorItemId,"large-item");
+assert.equal(eachOrder.lineTotal,33.50,"the basket charges two stated each prices");
+const sameVendorEach=pricedEach.map(o=>({...o,vendorId:"shared"}));
+const sameVendorOrder=solveOrder([{catalogItemId:"shared",quantity:2,orderUnit:"each",options:sameVendorEach}],[])[0];
+assert.equal(sameVendorOrder.vendorItemId,"large-item","same-vendor rates remain scoped to the individual listing");
+assert.equal(sameVendorOrder.lineTotal,33.50);
+
+
 // [4a] Dollar-minimum fill — path A success.
 // item-x: vendor-a $30 (wins initially), vendor-b $60.
 // item-y: vendor-b $35 (wins initially), vendor-a $40.

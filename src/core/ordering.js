@@ -47,7 +47,8 @@ export function priceForOffer(option,negotiation,unit="case"){
 export function offerDollarDifference(option,best){
   if(!option||!best||!orderable(option)||!orderable(best))return null;
   if(!best.comparisonUnit)return money(Math.max(0,option.unitPrice-best.unitPrice));
-  const pack=parsePackSize(option.packSize),reference=parsePackSize(best.packSize);
+  const pack=parsePackSize(option.orderUnit==="each"?option.eachSize||option.packSize:option.packSize);
+  const reference=parsePackSize(best.orderUnit==="each"?best.eachSize||best.packSize:best.packSize);
   const dimension=measurement(1,best.comparisonUnit)?.dimension;
   if(!option.costOverride&&!best.costOverride&&pack?.parsed&&reference?.parsed&&pack.dimension===dimension&&reference.dimension===dimension&&pack.baseTotal>0){
     return money(Math.max(0,option.unitPrice*reference.baseTotal/pack.baseTotal-best.unitPrice));
@@ -56,12 +57,19 @@ export function offerDollarDifference(option,best){
 }
 
 export function rankVendorOffers(options,negotiations,unit="case"){
+  return rankOffers(options,option=>priceForOffer(option,negotiations,unit),unit);
+}
+
+function rankOffers(options,priceForListing,unit){
   const eligible=options.filter(orderable);
-  const comparisonUnit=unit==="case"&&eligible.length&&eligible.every(o=>o.perUnit&&o.perUnit.unit===eligible[0].perUnit?.unit)?eligible[0].perUnit.unit:null;
+  const commonUnit=eligible[0]?.perUnit?.unit;
+  const comparisonUnit=commonUnit&&eligible.every(option=>option.perUnit?.unit===commonUnit)?commonUnit:null;
   const ranked=options.map(option=>{
-    const unitPrice=priceForOffer(option,negotiations,unit);
-    const comparisonPrice=comparisonUnit&&option.perUnit&&Number(option.casePrice)>0?option.perUnit.price*unitPrice/option.casePrice:unitPrice;
-    return {...option,unitPrice,comparisonPrice,comparisonUnit};
+    const unitPrice=priceForListing(option);
+    const quotedPrice=priceForOffer(option,null,unit)??option.price;
+    const comparisonPrice=comparisonUnit&&option.perUnit?.unit===comparisonUnit&&Number(quotedPrice)>0?
+      option.perUnit.price*(unitPrice/quotedPrice):unitPrice;
+    return {...option,orderUnit:unit,unitPrice,comparisonPrice,comparisonUnit};
   }).sort((a,b)=>Number(!orderable(a))-Number(!orderable(b))||a.comparisonPrice-b.comparisonPrice);
   const best=ranked.find(orderable)?.comparisonPrice??null;
   return ranked.map(option=>({...option,difference:orderable(option)&&best!=null?money(option.comparisonPrice-best):null}));
@@ -70,7 +78,8 @@ export function rankVendorOffers(options,negotiations,unit="case"){
 export function solveOrder(cartItems,vendors){
   if(!cartItems.length)return [];
   let assignments=cartItems.map(item=>{
-    const valid=item.options.filter(orderable),priced=valid.map(o=>({...o,casePrice:o.casePrice??o.price})),cheapest=rankVendorOffers(priced,Object.fromEntries(priced.map(o=>[o.vendorId,o.price])),item.orderUnit||"case")[0]||null;
+    const valid=item.options.filter(orderable);
+    const cheapest=rankOffers(valid,option=>option.price,item.orderUnit||"case")[0];
     if(!cheapest)return {...item,assignedVendorId:null,assignedVendorName:null,vendorItemId:null,price:0,packSize:null,orderUnit:item.orderUnit,lineTotal:0,cheapestPrice:0,premiumPaid:0,locked:false,unorderable:true};
     const forced=item.forcedVendorId?valid.find(option=>option.vendorId===item.forcedVendorId||option.vendorItemId===item.forcedVendorId):null;
     if(item.forcedVendorId&&!forced)return {...item,assignedVendorId:null,assignedVendorName:null,vendorItemId:null,price:null,packSize:null,lineTotal:0,cheapestPrice:cheapest.price,premiumPaid:0,locked:true,unorderable:true};
