@@ -126,19 +126,38 @@ html:has(body.mobile-detail-page-locked) { overflow:hidden; overscroll-behavior:
   perspective: 600px;
 }
 
-.kerdos-drachma-turn {
+.kerdos-coin-faces {
   display: inline-grid;
   transform-style: preserve-3d;
-  animation: kerdos-drachma-spin 2s linear infinite;
 }
 
-.kerdos-drachma-turn img {
+.kerdos-coin-faces img {
   grid-area: 1 / 1;
   backface-visibility: hidden;
 }
 
-.kerdos-drachma-back {
+.kerdos-coin-back {
   transform: rotateY(180deg);
+}
+
+.kerdos-drachma-turn {
+  animation: kerdos-drachma-spin 2s linear infinite;
+}
+
+.kerdos-header-coin {
+  display: flex;
+  perspective: 600px;
+}
+
+.kerdos-header-coin-turn {
+  animation: kerdos-header-coin-spin 27s linear infinite;
+}
+
+/* Each short flip ends at the 12- and 27-second marks. */
+@keyframes kerdos-header-coin-spin {
+  0%, 43% { transform: rotateY(0deg); }
+  44.4444%, 98.5556% { transform: rotateY(180deg); }
+  100% { transform: rotateY(360deg); }
 }
 
 @keyframes kerdos-drachma-spin {
@@ -148,5 +167,5 @@ html:has(body.mobile-detail-page-locked) { overflow:hidden; overscroll-behavior:
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kerdos-drachma-turn { animation: none; }
+  .kerdos-drachma-turn, .kerdos-header-coin-turn { animation: none; }
 }
