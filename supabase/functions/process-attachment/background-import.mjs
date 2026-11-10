@@ -46,6 +46,17 @@ async function runQuery(promise, context) {
   return data ?? [];
 }
 
+async function loadOrganizationRows(backend, table, organizationId) {
+  const rows = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await runQuery(backend.records.query(table).select("*")
+      .eq("organization_id", organizationId).order("id").range(offset, offset + pageSize - 1), table);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
 function iso(date) {
   return (date instanceof Date ? date : new Date(date)).toISOString();
 }
@@ -267,7 +278,6 @@ export async function processAttachmentInBackground(backend, attachment, { organ
 
   // ── Step 5: create/resume import document ─────────────────────────────────
   const importService = createImportService(backend);
-  const catalogService = createCatalogService(backend);
 
   const fingerprint = makeFingerprint(attachment);
   const importBatchTime = iso(new Date());
@@ -347,20 +357,23 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     ? new Set(existingDoc.completed_keys)
     : new Set();
 
-  // Load pre-import data snapshots the same way the browser ImportModal does.
+  // Catalog evidence spans vendors. Reusing a source listing stays vendor-scoped.
   const [
     workingVendorItems,
     workingCatalogItems,
     workingCategories,
     workingMappings,
     invoiceSources,
+    organization,
   ] = await Promise.all([
-    importService.vendorItems(organizationId, vendorId),
-    runQuery(backend.records.query("catalog_items").select("*").eq("organization_id", organizationId), "catalog_items"),
-    runQuery(backend.records.query("catalog_categories").select("*").eq("organization_id", organizationId), "catalog_categories"),
-    runQuery(backend.records.query("item_mappings").select("*").eq("organization_id", organizationId), "item_mappings"),
+    loadOrganizationRows(backend, "vendor_items", organizationId),
+    loadOrganizationRows(backend, "catalog_items", organizationId),
+    loadOrganizationRows(backend, "catalog_categories", organizationId),
+    loadOrganizationRows(backend, "item_mappings", organizationId),
     importService.invoiceSources(organizationId, vendorId),
+    runQuery(backend.records.query("organizations").select("industry").eq("id", organizationId).maybeSingle(), "organization industry"),
   ]);
+  const catalogService = createCatalogService(backend, { industry: organization?.industry ?? null });
 
   // ── Step 6: run the import engine row by row ───────────────────────────────
   const newCompletedKeys = [...completedRows];
@@ -403,8 +416,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // products. Reuse only one source-compatible listing; retain ambiguous
       // rows for review instead of applying their price to another product.
       const found=sourceRow.code
-        ?{item:workingVendorItems.find(v=>v.vendor_item_code===sourceRow.code)||null,conflict:null}
-        :findUncodedVendorListing(sourceRow,workingVendorItems);
+        ?{item:workingVendorItems.find(v=>v.vendor_id===vendorId&&v.vendor_item_code===sourceRow.code)||null,conflict:null}
+        :findUncodedVendorListing(sourceRow,workingVendorItems.filter(v=>v.vendor_id===vendorId));
       if(found.conflict){
         heldKeys.push(completedKey);
         heldRows.push({key:completedKey,reasons:[found.conflict]});

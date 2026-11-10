@@ -165,7 +165,7 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
   return ready;
 }
 
-export function createCatalogService(backend){
+export function createCatalogService(backend,{industry}={}){
   const table=backend.records.query;
   // Writes a confirmation to one mapping, refusing if the catalog item has
   // changed since the operator loaded the page (stale-mapping guard).
@@ -200,7 +200,7 @@ export function createCatalogService(backend){
       });
       // A current identity approval can place a new listing across packs and
       // brands. The listing still needs its own purchasing evidence.
-      const profile=industryAssociationProfile();
+      const profile=industryAssociationProfile(industry);
       const identity=productAssociationIdentity({description,pack_size:packSize,brand},profile);
       if(identity.key?.startsWith('concept:')){
         const groups=candidates.filter(ci=>!ci.brand_locked&&!ci.preferred_brand&&ci.comparison_mode!=='exact'&&ci.hasApprovedGroup&&
