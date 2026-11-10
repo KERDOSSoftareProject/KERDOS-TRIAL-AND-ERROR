@@ -18,13 +18,26 @@ try{
  let tree;await act(async()=>{tree=Renderer.create(React.createElement(ProductAssociationTrial,props));});
  const button=label=>tree.root.findAllByType('button').find(n=>text(n)===label);
  assert.ok(button('Hide product groups'));assert.equal(calls.length,0);
- assert.match(text(tree.toJSON()),/2 listings · 1 proposed groups/);assert.match(text(tree.toJSON()),/4\/3 L/);assert.equal(calls.length,0);
+ assert.match(text(tree.toJSON()),/2 listings · 1 proposed group/);assert.match(text(tree.toJSON()),/4\/3 L/);assert.equal(calls.length,0);
  await act(async()=>await button('Confirm this product identity').props.onClick());assert.match(text(tree.toJSON()),/Reply lost/);assert.ok(button('Retry same group save'));
  await act(async()=>await button('Retry same group save').props.onClick());assert.equal(calls.length,2);assert.deepEqual(calls[0],calls[1],'lost-reply retry uses exactly the same identity and source snapshot');assert.equal(refreshes,1);
  assert.equal(calls[0].members[1].revision,1);assert.equal(Object.hasOwn(calls[0],'price'),false);
  await act(async()=>await button('Restore previous associations').props.onClick());assert.equal(calls.at(-1).restore.organizationId,'org');assert.equal(refreshes,2);
  await act(async()=>tree.root.findByProps({'aria-label':'Search proposed groups'}).props.onChange({target:{value:'no matching product'}}));assert.equal(button('Confirm this product identity'),undefined);
- await act(async()=>tree.root.findByProps({'aria-label':'Search proposed groups'}).props.onChange({target:{value:''}}));await act(async()=>await button('Apply product groups to catalog').props.onClick());assert.equal(calls.at(-1).confirmed,false,'bulk grouping cannot pretend identity was client-confirmed');await act(async()=>tree.update(React.createElement(ProductAssociationTrial,{...props,canManage:false})));assert.equal(button('Apply product groups to catalog'),undefined);assert.equal(button('Confirm this product identity'),undefined);await act(async()=>tree.unmount());console.log('PASS rendered association trial: read-only opening, full group details, independent packs, exact lost-reply retry, saved history, restore and search.');
+ await act(async()=>tree.root.findByProps({'aria-label':'Search proposed groups'}).props.onChange({target:{value:''}}));await act(async()=>await button('Apply product groups to catalog').props.onClick());assert.equal(calls.at(-1).confirmed,false,'bulk grouping cannot pretend identity was client-confirmed');await act(async()=>tree.update(React.createElement(ProductAssociationTrial,{...props,canManage:false})));assert.equal(button('Apply product groups to catalog'),undefined);assert.equal(button('Confirm this product identity'),undefined);await act(async()=>tree.unmount());
+ const placedItems=vendorItems.map(row=>({...row,field_resolutions:{product_group:{catalogItemId:'c0',description:row.description,brand:row.brand,confirmed:false}}}));
+ const placedMappings=mappings.map(mapping=>({...mapping,catalog_item_id:'c0',comparison_track:'review',confidence_score:70,match_method:'rule_based'}));
+ await act(async()=>{tree=Renderer.create(React.createElement(ProductAssociationTrial,{...props,vendorItems:placedItems,mappings:placedMappings}));});
+ assert.match(text(tree.toJSON()),/0 proposed groups · 1 awaiting confirmation/);
+ assert.equal(button('Apply product groups to catalog').props.disabled,true);
+ assert.ok(button('Confirm this product identity'));
+ const savedItems=placedItems.map(row=>({...row,field_resolutions:{product_group:{...row.field_resolutions.product_group,confirmed:true}}}));
+ const savedMappings=placedMappings.map(mapping=>({...mapping,comparison_track:'exact',confidence_score:100,match_method:'manual'}));
+ await act(async()=>tree.update(React.createElement(ProductAssociationTrial,{...props,vendorItems:savedItems,mappings:savedMappings})));
+ assert.match(text(tree.toJSON()),/0 proposed groups · 1 confirmed/);
+ assert.equal(button('Confirm this product identity'),undefined);
+ await act(async()=>tree.unmount());
+ console.log('PASS rendered association trial: read-only opening, separate proposal and confirmation states, independent packs, exact lost-reply retry, saved history, restore and search.');
  `,resolveDir:process.cwd(),sourcefile:'association-ui-test.mjs',loader:'js'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-test-renderer'],logLevel:'silent'});
  process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',env:process.env}));
 }finally{rmSync(dir,{recursive:true,force:true});}

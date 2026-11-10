@@ -17,8 +17,40 @@ assert.equal(preview.groupedListings+preview.unresolved.length,source.vendorItem
 assert.equal(new Set([...preview.groups.flatMap(g=>g.rows.map(v=>v.id)),...preview.unresolved.map(x=>x.row.id)]).size,source.vendorItems.length);
 assert.deepEqual(buildProductAssociations({...source,vendorItems:[...source.vendorItems].reverse(),mappings:[...source.mappings].reverse()}).groups,preview.groups,'row order must not change groups');
 const group=preview.groups.find(g=>g.rows.length===3);assert.equal(group.canSave,true);assert.equal(group.targetCatalogItemId,'ca');
-const request=productGroupRequest(group,source.mappings,{organizationId:'org',requestId:'request'});assert.equal(request.members.length,3);assert.equal(request.confirmed,true);assert.equal(Object.hasOwn(request,'price'),false);
-assert.throws(()=>productGroupRequest(group,[],{organizationId:'org',requestId:'r'}),/current catalog/);
+assert.equal(group.disposition,'proposed');
+const placed=input([a,b]);
+for(const row of placed.vendorItems)row.field_resolutions={product_group:{catalogItemId:'ca',description:row.description,brand:row.brand,confirmed:false}};
+for(const mapping of placed.mappings)mapping.catalog_item_id='ca';
+const [awaiting]=buildProductAssociations(placed).groups;
+assert.equal(awaiting.disposition,'awaiting_confirmation');
+assert.equal(awaiting.needsApply,false);
+assert.equal(awaiting.canSave,true);
+const linked=structuredClone(placed);
+for(const row of linked.vendorItems)row.field_resolutions={};
+const [retained]=buildProductAssociations(linked).groups;
+assert.equal(retained.disposition,'retained','an existing catalog link is not evidence of client confirmation');
+
+const confirmed=structuredClone(placed);
+for(const row of confirmed.vendorItems)row.field_resolutions.product_group.confirmed=true;
+for(const mapping of confirmed.mappings)Object.assign(mapping,{comparison_track:'exact',confidence_score:100,match_method:'manual'});
+confirmed.vendorItems.push(c);
+confirmed.catalogItems.push({id:'cc',name:c.description,master_item_number:102,comparison_mode:'alternatives'});
+confirmed.mappings.push({id:'mc',vendor_item_id:'c',catalog_item_id:'cc'});
+const accepted=buildProductAssociations(confirmed).groups.find(g=>g.rows.some(r=>r.id==='a'));
+assert.equal(accepted.disposition,'confirmed');
+assert.deepEqual(accepted.rows.map(row=>row.id),['a','b'],'a new candidate cannot absorb a current confirmed group');
+assert.equal(accepted.canSave,false);
+const stale=structuredClone(confirmed);
+stale.vendorItems[0].description='CHICKEN THIGH';
+stale.vendorItems[0].field_resolutions.catalog_item_id={value:'ca',confirmedBy:'client'};
+const previous=buildProductAssociations(stale).groups.find(g=>g.rows.some(r=>r.id==='a'));
+assert.equal(previous.disposition,'retained','a stale confirmation cannot certify the updated description');
+
+const request=productGroupRequest(group,source.mappings,{organizationId:'org',requestId:'request',confirmed:true});assert.equal(request.members.length,3);assert.equal(request.confirmed,true);assert.equal(Object.hasOwn(request,'price'),false);
+assert.equal(productGroupRequest(group,source.mappings,{organizationId:'org',requestId:'apply',confirmed:false}).confirmed,false);
+assert.throws(()=>productGroupRequest(group,source.mappings,{organizationId:'org',requestId:'r'}),/confirmation choice/);
+
+assert.throws(()=>productGroupRequest(group,[],{organizationId:'org',requestId:'r',confirmed:true}),/current catalog/);
 for(const descriptions of [['CHICKEN BREAST BONELESS','CHICKEN THIGH BONELESS'],['TOMATO PASTE','TOMATO SAUCE'],['PEANUT BUTTER','BUTTER']]){
  const fixture=input(descriptions.map((d,i)=>row(String(i),d)));
  // Different products remain separate; presentation details belong to listings.
@@ -41,7 +73,10 @@ const nonfood=buildProductAssociations({...input([row('x','HEX BOLT A'),row('y',
 configureProcurement({industry:'restaurant'});
 const item={id:'target',name:'Pomace Oil',category_id:'cat',master_item_number:100,comparison_mode:'alternatives'},mapping={catalog_item_id:'target',comparison_track:'exact',confidence_score:100,match_method:'manual'};
 const approved={...a,field_resolutions:{product_group:{catalogItemId:'target',description:a.description,brand:a.brand}}};
-assert.equal(productGroupApproved(approved,item,mapping),true);assert.equal(productGroupApproved({...approved,description:'Tomato paste'},item,mapping),false);
+assert.equal(productGroupApproved(approved,item,mapping),true);
+assert.equal(productGroupApproved({...approved,field_resolutions:{product_group:{...approved.field_resolutions.product_group,confirmed:false}}},item,mapping),
+ false,'an unconfirmed placement cannot act as a client identity approval even with exact mapping metadata');
+assert.equal(productGroupApproved({...approved,description:'Tomato paste'},item,mapping),false);
 const category={id:'cat',name:'Dry Goods',is_holding_pen:false},fields={item,mapping,category,categories:[category],peers:[b]};
 const held=orderGuideAssessment({...fields,vendorItem:{...approved,pack_size:'',selling_unit:'',price:null,price_unavailable:true}});assert.equal(held.ready,false);assert.ok(held.blockers.includes('pack'));assert.ok(held.blockers.includes('quote'));assert.equal(held.blockers.includes('association'),false,'identity approval is separate from purchasing fields');
 const mismatch=orderGuideAssessment({...fields,vendorItem:{...approved,description:'Tomato paste'}});assert.ok(mismatch.blockers.includes('association'));
