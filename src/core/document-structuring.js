@@ -84,14 +84,25 @@ function alignDescriptionPrices(table){
   if(prices.length<2)return table;
   const buckets=prices.map(row=>({cells:table.anchors.map(()=>({text:'',words:[]})),center:row.cells[map.price].words[0].y}));
   const height=median(body.flatMap(row=>row.cells.flatMap(cell=>cell.words.map(word=>word.height))));
-  const unmatched=[];
+  const unmatched=new Map();
   for(const row of body)for(let column=0;column<row.cells.length;column++)for(const word of row.cells[column].words){
-    const target=[...buckets].sort((a,b)=>Math.abs(a.center-word.y)-Math.abs(b.center-word.y))[0];
-    if(Math.abs(target.center-word.y)>height*1.4){unmatched.push({cells:table.anchors.map((_,index)=>({text:index===column?word.text:'',words:index===column?[word]:[]})),lines:[word.line],y:word.y});continue;}
+    const ranked=[...buckets].sort((a,b)=>Math.abs(a.center-word.y)-Math.abs(b.center-word.y));
+    const target=ranked[0],distance=Math.abs(target.center-word.y);
+    // A continuation midway between two prices has no unique structural
+    // owner. Keep its source word/line separately instead of assigning it to
+    // the first bucket by sort order. A price at its own center is unambiguous.
+    const next=ranked[1],ambiguous=distance>0&&next&&Math.abs(Math.abs(next.center-word.y)-distance)<height*.25;
+    if(distance>height*1.4||ambiguous){
+      if(!unmatched.has(word.line))unmatched.set(word.line,{cells:table.anchors.map(()=>({text:'',words:[]})),lines:[word.line],y:row.y,unresolvedContinuation:true});
+      const cell=unmatched.get(word.line).cells[column];
+      cell.words.push(word);
+      cell.text+=(cell.text?' ':'')+word.text;
+      continue;
+    }
     target.cells[column].words.push(word);
   }
   const rows=buckets.map(bucket=>{for(const cell of bucket.cells){cell.words.sort((a,b)=>b.y-a.y||a.x-b.x);cell.text=cell.words.map(word=>word.text).join(' ');}return {cells:bucket.cells,lines:[...new Set(bucket.cells.flatMap(cell=>cell.words.map(word=>word.line)))].sort((a,b)=>a-b),y:bucket.center};});
-  return {...table,rows:[table.rows[0],...rows,...unmatched].sort((a,b)=>b.y-a.y)};
+  return {...table,rows:[table.rows[0],...rows,...unmatched.values()].sort((a,b)=>b.y-a.y)};
 }
 function pdfSegments(reading){
   const segments=[],skipped=[];
@@ -219,13 +230,14 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
   const parts=structure.segments.map((segment,index)=>{
     const inferredColumns=unlabelledRoles(segment);
     const fallback=segment.kind==='freeform'||(segment.kind==='positioned-unlabelled'&&!inferredColumns);
-    const input=fallback?(segment.text??segment.rows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):segment.rows.map(lineText).join('\n');
+    const sourceRows=segment.rows.filter(row=>!row.unresolvedContinuation);
+    const input=fallback?(segment.text??sourceRows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):sourceRows.map(lineText).join('\n');
     const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})});
     const claimed=new Map();
     const rows=parsed.rows.map(row=>{
       // A parser index is only a hint. Side-by-side products can share a
       // physical row, but their source cells must be distinct.
-      const match=matchSourceRow(row,segment.rows,claimed,parsed.mode==='tabular');
+      const match=matchSourceRow(row,sourceRows,claimed,parsed.mode==='tabular');
       const source=match?.source,sourceCells=match?.cells;
       const page=reading.pages?.find(page=>page.number===segment.page);
       const confidence=sourceCells?.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
@@ -234,7 +246,16 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
       return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback}};
     });
-    return {...parsed,rows,segment:index};
+    const sourceLocation={page:segment.page??null,worksheet:segment.worksheet??null,table:index};
+    const skipped=parsed.skipped.map(entry=>{
+      const match=matchSourceRow({...entry,sourceLine:entry.line},sourceRows,claimed,parsed.mode==='tabular');
+      return {...entry,...sourceLocation,lines:match?.source.lines??[]};
+    });
+    for(const row of segment.rows){
+      if(!row.unresolvedContinuation)continue;
+      skipped.push({line:row.cells.map(cell=>cell.text).filter(Boolean).join(' '),reason:'Could not link this line to a product using the document layout',...sourceLocation,lines:row.lines});
+    }
+    return {...parsed,rows,skipped,segment:index};
   });
   const duplicatePages=[];
   if(detectDocumentKind(text)==='invoice'){

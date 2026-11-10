@@ -1289,7 +1289,7 @@ function parseDocumentRows(text, options={}) {
     const { line, cells } = grid[i];
 
     if (isJunkRow(cells)) {
-      skipped.push({ line, reason: "looks like a total/note/address line" });
+      skipped.push({ line, reason: "looks like a total/note/address line", ...(options.includeSourceIndex?{sourceIndex:i}:{}) });
       continue;
     }
 
@@ -1308,7 +1308,8 @@ function parseDocumentRows(text, options={}) {
         if(!part.some(Boolean))continue;
         const fields=identifyRowFields({cells:part,columnMap:groupMap,sourceHeaders:groupHeaders,fieldOrigins,rowIndex:i,columnStart:start});
         const row=extractRow(part,groupMap,groupHeaders[groupMap.price],confirmedColumns,groupHeaders,fields);
-        if(!row){skipped.push({line:part.join('\t'),reason:"couldn't find a valid price or description"});continue;}
+        if(!row){skipped.push({line:part.join('\t'),reason:"couldn't find a valid price or description",
+          ...(options.includeSourceIndex?{sourceIndex:i,sourceColumnStart:start,sourceColumnCount:groupHeaders.length}:{})});continue;}
         if(options.includeSourceIndex)row.sourceIndex=i;
         row.sourceColumnStart=start;
         row.sourceColumnCount=groupHeaders.length;
@@ -1319,7 +1320,7 @@ function parseDocumentRows(text, options={}) {
     const fields=identifyRowFields({cells,columnMap,sourceHeaders,fieldOrigins,rowIndex:i});
     const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns);
     if (!row) {
-      skipped.push({ line, reason: "couldn't find a valid price or description" });
+      skipped.push({ line, reason: "couldn't find a valid price or description", ...(options.includeSourceIndex?{sourceIndex:i}:{}) });
       continue;
     }
     if(options.includeSourceIndex)row.sourceIndex=i;
