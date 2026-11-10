@@ -67,6 +67,13 @@ await check('native worksheet repeats with equivalent headings retain both price
   assert.equal(p.layout.unknown.length,0);
   assert.equal(parseDocument(csv).rows.length,2,'retained Inbox row ordinals use the existing flat parser');
 
+  const ambiguous='Product,Price,Description,Unit Price\nApple,12.50,Fresh Orchard Apple,2.50\nPears,17.25,,';
+  const ambiguousReading=await reader(file('ambiguous.csv',new TextEncoder().encode(ambiguous)));
+  const unresolved=parseStructuredDocument(ambiguousReading.text,ambiguousReading);
+  assert.equal(unresolved.rows.filter(row=>row.sourceProvenance.lines.includes(2)).length,1,'headings and an empty secondary block do not establish a second product');
+  const existing=parseStructuredDocument(ambiguousReading.text,ambiguousReading,(text,options)=>parseDocument(text,{...options,nativeWorksheet:false}));
+  assert.deepEqual(unresolved.rows,existing.rows);
+
   const tiered='Product,Price,Description,List Price\nSynthetic Apple,12.50,Fresh Orchard Apple,20.00';
   const tieredReading=await reader(file('tiered.csv',new TextEncoder().encode(tiered)));
   const tieredRows=parseStructuredDocument(tieredReading.text,tieredReading).rows;
