@@ -80,6 +80,39 @@ const reviewed=await service.matchOrCreate({organizationId:"o1",description:"Ame
 // Same product (American cheese), different pack (160 CT vs 120 CT).
 // Different purchasing packs → separate catalog entries. A human links them if needed.
 assert.equal(reviewed.track,"new","same product different pack creates a new catalog entry");
+
+// A new pack may join a confirmed product identity, but only with a
+// current approval. The imported listing still needs its own review.
+const groupedItem={id:"oil",name:"Pomace Oil",comparison_mode:"alternatives"};
+const approvedOil={
+  id:"oil-listing",vendor_id:"vendor-a",description:"POMACE OIL 100%",brand:"A",pack_size:"4/1 GAL",
+  field_resolutions:{product_group:{catalogItemId:"oil",description:"POMACE OIL 100%",brand:"A",confirmed:true}},
+};
+const approvedLink={
+  vendor_item_id:approvedOil.id,catalog_item_id:groupedItem.id,
+  match_method:"manual",comparison_track:"exact",confidence_score:100,
+};
+const matchOil=(peer=approvedOil,link=approvedLink,item=groupedItem)=>service.matchOrCreate({
+  organizationId:"o1",vendorId:"vendor-b",description:"POMACE OIL 100%",packSize:"4/3 L",brand:"B",
+  catalogItems:[item],categories:[{id:"h",name:"Uncategorized",is_holding_pen:true,range_start:30000}],
+  vendorItems:[peer],mappings:[link],
+});
+const approvedMatch=await matchOil();
+assert.equal(approvedMatch.catalogItemId,groupedItem.id);
+assert.equal(approvedMatch.method,"product_group");
+assert.equal(approvedMatch.track,"review","group approval cannot approve a new listing's purchasing fields");
+const unconfirmedOil={...approvedOil,field_resolutions:{product_group:{
+  ...approvedOil.field_resolutions.product_group,confirmed:false,
+}}};
+for(const [result,reason] of [
+  [await matchOil(unconfirmedOil),"an unconfirmed placement"],
+  [await matchOil({...approvedOil,brand:"Corrected brand"}),"a stale source approval"],
+  [await matchOil(approvedOil,{...approvedLink,match_method:"rejected"}),"a rejected mapping"],
+  [await matchOil(approvedOil,approvedLink,{...groupedItem,preferred_brand:"A"}),"an explicit brand preference"],
+]){
+  assert.notEqual(result.method,"product_group",reason+" cannot authorize the product-group shortcut");
+}
+
 const differingWords=await service.matchOrCreate({organizationId:"o1",description:"CHEESE AMER SLI 160 WHITE",packSize:"4/5 LB",catalogItems:[{id:"c2",name:"CHEESE AMERICAN 160CT WHITE",matching_behavior:"flexible"}],categories:[],vendorItems:[{id:"v2",description:"CHEESE AMERICAN 160CT WHITE",pack_size:"4/5 LB"}],mappings:[{catalog_item_id:"c2",vendor_item_id:"v2"}]});
 // Vocabulary resolves "AMER" → "american", so the abbreviation is no longer unresolved.
 // "SLI" (sliced) appears only on the incoming side → compareProductIdentity returns "review".

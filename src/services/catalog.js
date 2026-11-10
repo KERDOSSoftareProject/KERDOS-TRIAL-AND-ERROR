@@ -2,7 +2,7 @@
 // only on the provider's generic table capability; UI code never names or
 // imports a database vendor.
 import {prepareCatalogCorrection} from "./catalog-rows.js";
-import {productAssociationIdentity} from '../core/product-associations.js';
+import {productAssociationIdentity,productGroupApproved} from '../core/product-associations.js';
 import {industryAssociationProfile} from '../knowledge/category-profiles.js';
 import {bestPurchasingMatch,bestPurchasingSuggestion,suggestCategory,nextCategoryRange,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,brandsMatch,parsePackSize,abbreviationPairs} from "../procurement.js";
 
@@ -165,7 +165,7 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
   return ready;
 }
 
-export function createCatalogService(backend){
+export function createCatalogService(backend,{industry}={}){
   const table=backend.records.query;
   // Writes a confirmation to one mapping, refusing if the catalog item has
   // changed since the operator loaded the page (stale-mapping guard).
@@ -180,20 +180,30 @@ export function createCatalogService(backend){
   return {
     async matchOrCreate({organizationId,vendorId,description,packSize,brand=null,gtin=null,manufacturerCode=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
       const byId=new Map(vendorItems.map(vi=>[vi.id,vi]));
+      const linksByCatalog=new Map();
+      for(const mapping of mappings){
+        const row=byId.get(mapping.vendor_item_id);
+        if(!row)continue;
+        const links=linksByCatalog.get(mapping.catalog_item_id)||[];
+        links.push({row,mapping});
+        linksByCatalog.set(mapping.catalog_item_id,links);
+      }
       const candidates=catalogItems.filter(ci=>!ci.merged_into_id).map(ci=>{
-        const linked=mappings.map(m=>m.catalog_item_id===ci.id?byId.get(m.vendor_item_id):null).filter(Boolean);
+        const links=linksByCatalog.get(ci.id)||[];
+        const linked=links.map(({row})=>row);
         const knownPack=commonPurchasingPack(linked.map(vi=>vi.pack_size));
         const knownBrands=[...new Set(linked.map(vi=>vi.brand).filter(Boolean))];
         return {...ci,pack_size:knownPack,knownBrand:knownBrands.length===1?knownBrands[0]:null,
           linkedVendorItems:linked,
+          hasApprovedGroup:links.some(({row,mapping})=>productGroupApproved(row,ci,mapping)),
           otherVendorPresent:!!vendorId&&linked.some(vi=>vi.vendor_id&&vi.vendor_id!==vendorId)};
       });
-      // Once a product group exists, incoming listings join that product
-      // concept across packs/brands. Purchasing evidence remains independent.
-      const profile=industryAssociationProfile();
+      // A current identity approval can place a new listing across packs and
+      // brands. The listing still needs its own purchasing evidence.
+      const profile=industryAssociationProfile(industry);
       const identity=productAssociationIdentity({description,pack_size:packSize,brand},profile);
       if(identity.key?.startsWith('concept:')){
-        const groups=candidates.filter(ci=>!ci.brand_locked&&ci.comparison_mode!=='exact'&&ci.linkedVendorItems?.length&&ci.linkedVendorItems.some(v=>v.field_resolutions?.product_group)&&
+        const groups=candidates.filter(ci=>!ci.brand_locked&&!ci.preferred_brand&&ci.comparison_mode!=='exact'&&ci.hasApprovedGroup&&
           ci.linkedVendorItems.every(v=>productAssociationIdentity(v,profile).key===identity.key));
         if(groups.length===1)return {catalogItemId:groups[0].id,track:'review',score:0.7,method:'product_group',reason:'Associated by product concept; verify this listing’s own purchasing evidence'};
       }

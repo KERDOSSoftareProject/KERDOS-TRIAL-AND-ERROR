@@ -45,12 +45,14 @@ function createInMemoryBackend({
   categories = [],
   mappings = [],
   priceHistory = [],
+  organizations = [],
   applyQuoteShouldThrow = false,
 } = {}) {
   const statusLog = [];
   const appliedQuotes = [];
   const createdDocs = [];
   const finalizedDocs = [];
+  const createdMappings = [];
   let downloadCount = 0;
   let applyQuoteAttempts = 0;
 
@@ -74,7 +76,8 @@ function createInMemoryBackend({
       if (table === "vendor_items")        rows = vendorItems;
       else if (table === "catalog_items")  rows = catalogItems;
       else if (table === "catalog_categories") rows = categories;
-      else if (table === "item_mappings")  rows = mappings;
+      else if (table === "item_mappings")  rows = [...mappings, ...createdMappings];
+      else if (table === "organizations")  rows = organizations;
       else if (table === "invoices")       rows = [];
       else if (table === "price_history")  rows = priceHistory;
       else if (table === "import_documents") {
@@ -86,6 +89,7 @@ function createInMemoryBackend({
       for (const f of filters) {
         if (f.operator === "eq") rows = rows.filter(r => r[f.column] === f.value);
       }
+      if (spec.range) rows = rows.slice(spec.range.from, spec.range.to + 1);
 
       if (cardinality === "single")      return rows[0] ?? null;
       if (cardinality === "maybeSingle") return rows[0] ?? null;
@@ -100,6 +104,12 @@ function createInMemoryBackend({
         createdDocs.push(newDoc);
         if (cardinality === "single") return newDoc;
         return [newDoc];
+      }
+      if (table === "catalog_items") return { ...row, id: "new-catalog-item" };
+      if (table === "item_mappings") {
+        const mapping = { ...row, id: `new-mapping-${createdMappings.length + 1}` };
+        createdMappings.push(mapping);
+        return mapping;
       }
       return row;
     }
@@ -164,6 +174,7 @@ function createInMemoryBackend({
     _appliedQuotes: appliedQuotes,
     _createdDocs:   createdDocs,
     _finalizedDocs: finalizedDocs,
+    _createdMappings: createdMappings,
     _downloadCount:       { get value() { return downloadCount; } },
     _applyQuoteAttempts:  { get value() { return applyQuoteAttempts; } },
   };
@@ -316,6 +327,41 @@ await test("email CSV uses the same decoding as manual import and blocks invalid
     assert.match(rejected.reason, /CSV decode failed/);
     assert.equal(invalidBackend._appliedQuotes.length, 0);
     assert.equal(invalidBackend._createdDocs.length, 0);
+  }
+});
+
+await test("email import uses current cross-vendor group approval without reusing the other vendor's listing", async () => {
+  const bytes = csvBytes("Code,Description,Pack,Price Unit,Price\nSHARED, POMACE OIL 100%,4/3 L,CASE,62.95");
+  const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
+  const options = { organizationId: "org-1", vendorId: "vendor-1", documentType: "pricelist" };
+  for (const { industry, confirmed, expected } of [
+    { industry: "restaurant", confirmed: true, expected: "oil" },
+    { industry: "restaurant", confirmed: false, expected: "new-catalog-item" },
+    { industry: "construction", confirmed: true, expected: "new-catalog-item" },
+  ]) {
+    const backend = createInMemoryBackend({
+      bytes,
+      organizations: [{ id: "org-1", industry }],
+      vendorItems: [...Array.from({ length: 500 }, (_, index) => ({
+        id: `a-filler-${index}`, organization_id: "org-1", vendor_id: "vendor-2",
+      })), {
+        id: "existing-oil", organization_id: "org-1", vendor_id: "vendor-2",
+        vendor_item_code: "SHARED", description: "OIL POMACE 100%", pack_size: "4/1 GAL",
+        field_resolutions: { product_group: { catalogItemId: "oil", description: "OIL POMACE 100%", brand: null, confirmed } },
+      }],
+      catalogItems: [{ id: "oil", organization_id: "org-1", name: "Pomace Oil", comparison_mode: "alternatives" }],
+      categories: [{ id: "holding", organization_id: "org-1", name: "Uncategorized", is_holding_pen: true, range_start: 30000 }],
+      mappings: [{
+        id: "oil-map", organization_id: "org-1", vendor_item_id: "existing-oil", catalog_item_id: "oil",
+        comparison_track: "exact", confidence_score: 100, match_method: "manual",
+      }],
+    });
+    const result = await processAttachmentInBackground(backend, attachment, options);
+    assert.equal(result.outcome, "auto_imported", result.reason);
+    assert.deepEqual(backend._appliedQuotes.map(q => [q.vendorId, q.vendorItemId, q.price]), [["vendor-1", null, 62.95]]);
+    assert.deepEqual(backend._createdMappings.map(m => [m.catalog_item_id, m.comparison_track]), [
+      [expected, expected === "oil" ? "review" : "new"],
+    ]);
   }
 });
 

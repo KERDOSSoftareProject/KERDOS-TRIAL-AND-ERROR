@@ -37,7 +37,10 @@ export function industryProductContext(text){
 
 export function industryVocabulary(){return activeProfile?.vocabulary||[];}
 export function recognizesIndustryBrand(value){return activeProfile?.cellBrands?.has(value.toLowerCase())??false;}
-export function industryAssociationProfile(){return activeProfile?.associations||{version:'literal-1',concepts:[],facets:[],fragments:[]};}
+export function industryAssociationProfile(industry){
+  const profile=industry===undefined?activeProfile:profiles.get(String(industry||'').trim().toLowerCase());
+  return profile?.associations||{version:'literal-1',concepts:[],facets:[],fragments:[]};
+}
 export function industryClientNames(industry){return profiles.get(String(industry||'').toLowerCase())?.clientNames||{};}
 
 // Explicit industry lookup also makes the bundled knowledge inspectable in Admin.
