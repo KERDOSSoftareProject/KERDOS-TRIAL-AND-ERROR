@@ -3,21 +3,37 @@
 (()=>{
  const valid=url=>{try{const u=new URL(url);return u.origin==='https://kerdossoftareproject.github.io'&&(u.pathname==='/KERDOS-TRIAL-AND-ERROR'||u.pathname.startsWith('/KERDOS-TRIAL-AND-ERROR/'));}catch{return false;}};
  if(window.top!==window||!valid(location.href))return;
+ if(typeof window.__kerdosRefreshChannelInstalled==='function'){window.__kerdosRefreshChannelInstalled();return;}
  if(window.__kerdosRefreshChannelInstalled)return;
- window.__kerdosRefreshChannelInstalled=true;
  const channel='kerdos-refresh-v1';let pending=false;
+ let generation=0;
+ async function announce(){
+  const current=++generation;
+  let ready=false;
+  try{ready=(await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:'status'}))?.ready===true;}catch{}
+  if(current!==generation)return;
+  const value=ready?'1':'0';
+  if(document.documentElement.getAttribute('data-kerdos-refresh')===value)return;
+  document.documentElement.setAttribute('data-kerdos-refresh',value);
+  window.postMessage({channel,type:ready?'available':'unavailable',version:1},location.origin);
+ }
+ window.__kerdosRefreshChannelInstalled=announce;
+ document.documentElement.setAttribute('data-kerdos-companion','1');
+ chrome.runtime.onMessage?.addListener((message,sender)=>{
+  if(sender.id===chrome.runtime.id&&message?.type==='kerdos-companion-access-changed')announce();
+ });
  window.addEventListener('message',async event=>{
   const m=event.data;
-  if(!valid(location.href)||event.source!==window||event.origin!==location.origin||m?.channel!==channel||m.type!=='refresh'||typeof m.requestId!=='string'||m.requestId.length>80||!/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(m.nonce||''))return;
+  if(!valid(location.href)||event.source!==window||event.origin!==location.origin||m?.channel!==channel||!['refresh','setup'].includes(m.type)||typeof m.requestId!=='string'||m.requestId.length>80)return;
+  if(m.type==='refresh'&&!/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(m.nonce||''))return;
   const reply=value=>window.postMessage({channel,type:'reply',requestId:m.requestId,...value},location.origin);
   if(pending){reply({busy:true,outcome:'busy',message:'A pricing refresh is already running. Wait for its result.'});return;}
   pending=true;
   try{
-   const r=await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:'refresh',nonce:m.nonce});
+   const r=await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:m.type,...(m.type==='refresh'?{nonce:m.nonce}:{})});
    reply({busy:r?.busy===true,outcome:typeof r?.outcome==='string'?r.outcome:'refresh_unavailable',message:typeof r?.message==='string'?r.message:'Check KERDOS before retrying the refresh.'});
   }catch{reply({busy:false,outcome:'refresh_unavailable',message:'Companion unavailable. Refresh KERDOS after enabling the current companion.'});}
   finally{pending=false;}
  });
- document.documentElement.setAttribute('data-kerdos-refresh','1');
- window.postMessage({channel,type:'available',version:1},location.origin);
+ announce();
 })();

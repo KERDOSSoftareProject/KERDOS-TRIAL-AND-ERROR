@@ -24,7 +24,7 @@ try{
  const props={backend,organizationId:'org-a',vendors:[{id:'vendor-a',name:'Client vendor'}],role:'owner'};
  let tree;
  await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,props));});
- assert.match(text(tree.toJSON()),/does not sign in or retrieve pricing/);
+ assert.match(text(tree.toJSON()),/Install the KERDOS Companion/);
  assert.equal(tree.root.findAll(n=>n.type==='input'&&n.props.type==='password').length,0);
  await act(async()=>{tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.onChange({target:{value:'vendor-a'}});tree.root.findByProps({'aria-label':'Connection provider'}).props.onChange({target:{value:'provider'}});});
  const button=label=>tree.root.findAllByType('button').find(n=>text(n)===label);
@@ -81,11 +81,17 @@ try{
  await act(async()=>{tree.unmount();});assert.equal(events.size,0);
  // The actual page does preparation internally and supplies only its fresh nonce
  // to the companion. Transport is simulated; handoff validation is real here.
- appWindow.document={documentElement:{getAttribute:key=>key==='data-kerdos-refresh'?'1':null}};
+ let ready=false,setupCommands=0;
+ appWindow.document={documentElement:{getAttribute:key=>key==='data-kerdos-refresh'?(ready?'1':'0'):key==='data-kerdos-companion'?'1':null}};
  pilotRequest.portal_account_label='Sample Client';pilotRequest.portal_list_label='Example List';
  let refreshCommands=0,refreshReceipts=0,mode='success',lateCommand;
  appWindow.postMessage=msg=>{
   replies.push(msg);
+  if(msg.channel==='kerdos-refresh-v1'&&msg.type==='setup'){
+   setupCommands++;
+   queueMicrotask(()=>{for(const fn of [...events])fn({source:appWindow,origin:appWindow.location.origin,data:{channel:msg.channel,type:'reply',requestId:msg.requestId,outcome:'setup_opened'}});});
+   return;
+  }
   if(msg.channel!=='kerdos-refresh-v1'||msg.type!=='refresh')return;
   refreshCommands++;lateCommand=msg;
   if(mode==='late')return;
@@ -98,6 +104,11 @@ try{
   });
  };
  await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;}}));});
+ assert.ok(button('Connect this browser'));assert.equal(button('Refresh prices'),undefined);
+ await act(async()=>button('Connect this browser').props.onClick());
+ assert.equal(setupCommands,1);assert.equal(refreshCommands,0);
+ await act(async()=>{ready=true;for(const fn of [...events])fn({source:appWindow,origin:appWindow.location.origin,data:{channel:'kerdos-refresh-v1',type:'available',version:1,ready:true}});});
+ assert.equal(button('Connect this browser'),undefined);
  assert.equal(tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.value,'vendor-a','one saved active connection is selected without re-enrollment');
  assert.equal(tree.root.findByProps({'aria-label':'Portal account name'}).props.value,'Sample Client');
  assert.match(text(tree.toJSON()),/Browser refresh is available. KERDOS checks your vendor sign-in/);
