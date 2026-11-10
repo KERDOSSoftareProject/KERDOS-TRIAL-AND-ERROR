@@ -2,14 +2,25 @@
   <title>ΚΕΡΔΟΣ coin reverse</title>
   <defs>
     <path id="rim" d="M398 97 Q427 93 447 99 C545 112 608 179 620 269 C641 369 599 457 524 512 C496 534 452 545 413 544 C350 545 301 521 256 487 C211 452 177 390 177 323 C175 259 196 206 240 164 C283 124 338 103 398 97Z"/>
+    <pattern id="braided-rope" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(-36)">
+      <rect width="7" height="7" fill="#0e2a57"/>
+      <path d="M3.5 0V7" stroke="#dcbd6a" stroke-width="1.15"/>
+    </pattern>
+    <path id="rope-arc" d="M430.1 178.2A145 145 0 0 1 507.8 223"/>
   </defs>
   <use xlink:href="#rim" fill="#8e6a24"/>
   <use xlink:href="#rim" fill="#dcbd6a" transform="translate(400 320) scale(.93) translate(-400 -320)"/>
   <circle cx="400" cy="320" r="193" fill="none" stroke="#8e6a24" stroke-width="8" stroke-linecap="round" stroke-dasharray="0 17.57"/>
-  <g aria-label="Woven family knot" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M400 405C391 397 386 393 380 393C373 393 369 398 369 405C369 412 374 417 381 417C389 417 395 410 400 405C406 399 412 393 419 393C426 393 431 398 431 405C431 412 426 417 419 417C412 417 406 411 400 405Z" stroke="#0e2a57" stroke-width="3.8"/>
-    <path d="M395 410L405 400" stroke="#dcbd6a" stroke-width="7.4"/>
-    <path d="M395 410L405 400" stroke="#0e2a57" stroke-width="3.8"/>
+  <g aria-label="Rope between the letters woven into a family knot" fill="none" stroke="url(#braided-rope)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <use xlink:href="#rope-arc"/>
+    <use xlink:href="#rope-arc" transform="rotate(60 400 320)"/>
+    <use xlink:href="#rope-arc" transform="rotate(240 400 320)"/>
+    <use xlink:href="#rope-arc" transform="rotate(300 400 320)"/>
+    <path d="M508 417A145 145 0 0 1 477 443C454 452 431 434 431 405"/>
+    <path d="M292 417A145 145 0 0 0 323 443C346 452 369 434 369 405"/>
+    <path d="M400 405C391 397 386 393 380 393C373 393 369 398 369 405C369 412 374 417 381 417C389 417 395 410 400 405C406 399 412 393 419 393C426 393 431 398 431 405C431 412 426 417 419 417C412 417 406 411 400 405Z"/>
+    <path d="M395 410L405 400" stroke="#dcbd6a" stroke-width="8.4"/>
+    <path d="M395 410L405 400"/>
   </g>
   <g fill="#0e2a57" font-family="Arial, Helvetica, sans-serif" font-weight="700" text-anchor="middle">
     <text x="400" y="378" font-size="160">Μ</text>
