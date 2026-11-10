@@ -938,6 +938,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
                   </span>
                   <span style={{fontSize:12,color:"#666",flexShrink:0}}>is the</span>
                   <select
+                    aria-label={`Role for ${h.label}`}
                     value={pendingUnknowns[pi].confirmedAnswers[h.index]||"ignore"}
                     onChange={e=>{
                       const role=e.target.value;
