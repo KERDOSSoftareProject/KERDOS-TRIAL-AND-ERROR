@@ -306,15 +306,19 @@ function isTableHeader(cells, previousColumns={}) {
 }
 
 // Some delimited lists print the same product/price table twice across one
-// physical row. Split only exact, explicit header repetitions; a coincidental
-// second monetary value is not enough evidence to create another product.
-function repeatedColumnGroups(headers) {
+// physical row. Native worksheets can also repeat the same layout using
+// explicit description and price aliases, with row evidence of separate lanes.
+function repeatedColumnGroups(headers, nativeRows=null) {
   const normalized=headers.map(cell=>cell.toLowerCase().trim().replace(/\s+/g,' '));
+  const labels=nativeRows?normalized.map(label=>{
+    if(/^(?:product|description|(?:item|product) description)$/.test(label))return 'description';
+    if(/^(?:(?:unit|product) )?price$/.test(label))return 'price';
+    return label;
+  }):normalized;
   for(let width=2;width<=Math.floor(headers.length/2);width++){
     if(headers.length%width)continue;
     const count=headers.length/width;
-    if(!Array.from({length:count-1},(_,n)=>normalized.slice((n+1)*width,(n+2)*width))
-      .every(block=>block.every((cell,i)=>cell===normalized[i])))continue;
+    if(!labels.every((label,index)=>label===labels[index%width]))continue;
     const groups=Array.from({length:count},(_,n)=>{
       const start=n*width,sourceHeaders=headers.slice(start,start+width);
       const columnMap=mapColumnsFromHeader(sourceHeaders);
@@ -322,7 +326,13 @@ function repeatedColumnGroups(headers) {
       const fieldOrigins=Object.fromEntries(Object.keys(columnMap).map(field=>[field,"stated"]));
       return {start,sourceHeaders,columnMap,confirmedColumns,fieldOrigins};
     });
-    if(groups.every(({columnMap})=>columnMap.description!==undefined&&columnMap.price!==undefined&&columnMap.description!==columnMap.price))return groups;
+    if(!groups.every(({columnMap})=>columnMap.description!==undefined&&columnMap.price!==undefined&&columnMap.description!==columnMap.price))continue;
+    if(normalized.every((label,index)=>label===normalized[index%width]))return groups;
+    // A lone priced product alongside an entirely blank lane distinguishes
+    // repeated aliases from two descriptions or two prices for one product.
+    const independentLane=nativeRows?.some(({cells})=>!isJunkRow(cells)&&!cells.slice(0,width).some(Boolean)&&
+      groups.slice(1).some(({start,columnMap})=>cells[start+columnMap.description]&&parseAssignedMoney(cells[start+columnMap.price])!==null));
+    if(independentLane)return groups;
   }
   return null;
 }
@@ -1273,6 +1283,7 @@ function parseDocumentRows(text, options={}) {
   const headerCells=headerFound?grid[headerIndex].cells:[];
   const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
   const layoutAnswers=options.layoutAnswers||{};
+  const allowAliasGroups=options.nativeWorksheet&&!Object.keys(layoutAnswers).length;
   const answered=applyLayoutAnswers(engineMap,layoutAnswers);
   const ignoredColumns=new Set(Object.entries(layoutAnswers).filter(([,role])=>role==="ignore").map(([index])=>Number(index)).filter(Number.isInteger));
   let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart, ignoredColumns);
@@ -1283,10 +1294,12 @@ function parseDocumentRows(text, options={}) {
   let fieldOrigins=Object.fromEntries(Object.entries(answered).map(([field,index])=>[
     field,layoutAnswers[index]===field?"remembered":"stated",
   ]));
-  const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:layoutAnswers}):{headers:[],unknown:[],fingerprint:""};
   let priceHeader=headerFound?grid[headerIndex].cells[columnMap.price]:"";
   let sourceHeaders=headerFound?grid[headerIndex].cells:[];
-  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders):null;
+  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders,allowAliasGroups?grid.slice(dataStart):null):null;
+  const repeatedRoles=allowAliasGroups&&repeatedGroups?.flatMap(({start,columnMap})=>
+    Object.entries(columnMap).map(([role,index])=>[start+index,role]));
+  const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:layoutAnswers,repeatedRoles}):{headers:[],unknown:[],fingerprint:""};
   const rows = [];
   const skipped = [];
 
@@ -1305,7 +1318,7 @@ function parseDocumentRows(text, options={}) {
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;
       confirmedColIndices=new Set(Object.values(header));
       fieldOrigins=Object.fromEntries(Object.keys(header).map(field=>[field,"stated"]));
-      repeatedGroups=repeatedColumnGroups(cells);continue;
+      repeatedGroups=repeatedColumnGroups(cells,allowAliasGroups?grid.slice(i+1):null);continue;
     }
     if(repeatedGroups){
       for(const {start,sourceHeaders:groupHeaders,columnMap:groupMap,confirmedColumns,fieldOrigins} of repeatedGroups){

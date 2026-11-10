@@ -38,8 +38,8 @@ export function headerFingerprint(headerCells=[]){
 // What the header row tells us, column by column, and which columns are
 // still unknown after the engine's own vocabulary and the remembered
 // layout for this vendor have been applied.
-export function readHeaderLayout({headerCells=[],columnMap={},remembered={}}){
-  const byIndex=new Map(Object.entries(columnMap).map(([role,index])=>[index,role]));
+export function readHeaderLayout({headerCells=[],columnMap={},remembered={},repeatedRoles}){
+  const byIndex=new Map(repeatedRoles||Object.entries(columnMap).map(([role,index])=>[index,role]));
   const headers=headerCells.map((label,index)=>{
     const rememberedRole=remembered[String(index)]||remembered[index];
     const role=rememberedRole||byIndex.get(index)||null;
