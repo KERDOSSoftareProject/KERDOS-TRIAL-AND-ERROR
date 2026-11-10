@@ -223,7 +223,7 @@ import { processAttachmentInBackground } from "./background-import.mjs";
 
 // Both fresh processes consume the same bytes and initial catalog. Compare
 // the stored business outcome rather than UI labels or transport metadata.
-async function runPriceRowParityFixture(path, missingBasis=false) {
+async function runPriceRowParityFixture(path, missingBasis=false, crossVendor=false) {
   const organizationId = "org-1";
   const vendorId = "vendor-1";
   const industry = "restaurant";
@@ -243,6 +243,11 @@ async function runPriceRowParityFixture(path, missingBasis=false) {
     id: "prior-breast", organization_id: organizationId, vendor_id: "vendor-2", description, pack_size: "4 OZ",
     field_resolutions: { product_group: { catalogItemId: "breast", description, brand: null, confirmed: true } },
   }];
+  if(crossVendor)for(const [index,price] of [80,82].entries())vendorItems.push({
+    id:'reference-'+index,organization_id:organizationId,vendor_id:'other-'+index,description:'STEEL WASHERS',pack_size:'4/10 LB',
+    price,selling_unit:'CASE',price_basis:'case',price_source:'pricelist',
+    import_row:{sourceDocumentId:'reference-doc-'+index,reviewRequired:false,row:{sellingUnit:'CASE'},evidence:{sellingUnitSource:'price header'}},
+  });
   const mappings = [{
     id: "prior-mapping", organization_id: organizationId, vendor_item_id: "prior-breast", catalog_item_id: "breast",
     comparison_track: "exact", confidence_score: 100, match_method: "manual",
@@ -285,6 +290,8 @@ async function runPriceRowParityFixture(path, missingBasis=false) {
     const catalogItem = savedCatalog.find(row => row.id === mapping.catalog_item_id);
     return {
       description: quote.description, price: quote.price, pack: quote.packSize, sellingUnit: quote.sellingUnit,
+      unitInference:quote.importRow.evidence.fieldInference?.sellingUnit??null,
+      sourceUnit:quote.importRow.row.sellingUnit,
       sourceDescription: quote.importRow.evidence.sourceDescription,
       packInference: quote.importRow.evidence.fieldInference?.packSize ?? null,
       packPlacement: quote.importRow.evidence.fieldValidation.fields.packSize,
@@ -300,7 +307,7 @@ async function runPriceRowParityFixture(path, missingBasis=false) {
 
 const parityPath = process.argv[2];
 if (parityPath === "manual" || parityPath === "email") {
-  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath,process.argv[3]==="missing-basis")));
+  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath,["missing-basis","cross-vendor"].includes(process.argv[3]),process.argv[3]==="cross-vendor")));
   process.exit(0);
 }
 
@@ -475,6 +482,15 @@ await test("email import uses current cross-vendor group approval without reusin
       [expected, expected === "oil" ? "review" : "new"],
     ], `${industry} / ${incoming||"POMACE OIL 100%"}`);
   }
+});
+
+await test('cross-vendor inferred fields have identical held outcomes in fresh upload and email processes',()=>{
+ const run=path=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),path,'cross-vendor'],{encoding:'utf8'}));
+ const email=run('email');assert.deepEqual(email,run('manual'));
+ const held=email.find(row=>row.description==='STEEL WASHERS');
+ assert.equal(email.length,4);assert.equal(held.sellingUnit,'LB');assert.equal(held.unitInference.accuracy,70);
+ assert.equal(held.sourceUnit,null);assert.equal(held.priceUnavailable,true);assert.equal(held.reviewRequired,true);
+ assert.equal(held.unitInference.evidence.references.length,2);
 });
 
 await test("missing quoted-per stays blank in fresh upload and email processes", () => {

@@ -36,10 +36,53 @@ export function quoteBasisAlternatives(row, procurement=getProcurementContext())
   return choices;
 }
 
+// Deeper inference uses only this client's current, source-backed quotes for
+// the same product and pack. A single peer or an amount alone is insufficient.
+// The 25% window is a similarity bound for a 70%-accuracy review suggestion,
+// never a market-price rule or permission to qualify the quote automatically.
+export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procurement=getProcurementContext()){
+  if(!scope?.organizationId||!scope.vendorId||String(row.sellingUnit||'').trim()||row.priceUnavailable||!(Number(row.price)>0))return null;
+  const pack=procurement.parsePackSize(row.packSize);
+  if(!pack?.parsed||pack.catchWeight||pack.dimension==='unknown')return null;
+  const references=[];
+  for(const peer of listings){
+    if(!peer.id||peer.organization_id!==scope.organizationId||!peer.vendor_id||peer.vendor_id===scope.vendorId)continue;
+    if(procurement.quoteStatus(peer)!=='current'||peer.import_row?.reviewRequired)continue;
+    const evidence=peer.import_row?.evidence,original=peer.import_row?.row;
+    const confirmation=peer.field_resolutions?.selling_unit?.value;
+    if(evidence?.sellingUnitSource==='inferred'&&!confirmation)continue;
+    const confirmedUnit=confirmation||original?.sellingUnit;
+    if(!confirmedUnit)continue;
+    const stated=procurement.priceBasisFor(confirmedUnit),basis=procurement.priceBasisFor(peer.selling_unit);
+    if(!stated||!basis||JSON.stringify(stated)!==JSON.stringify(basis)||peer.price_basis!==basis.basis)continue;
+    if(procurement.compareProductIdentity(row.description,peer.description).status!=='same'||procurement.comparePurchasingPack(row.packSize,peer.pack_size).status!=='same')continue;
+    if(row.brand&&peer.brand&&!procurement.brandsMatch(row.brand,peer.brand))continue;
+    if(row.gtin&&peer.gtin&&row.gtin!==peer.gtin||row.manufacturerCode&&peer.manufacturer_code&&row.manufacturerCode!==peer.manufacturer_code)continue;
+    const casePrice=procurement.casePriceFromQuote(peer.price,basis.basis,basis.unit||peer.selling_unit,peer.pack_size);
+    if(!(casePrice>0))continue;
+    references.push({vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:peer.import_row.sourceDocumentId||null,
+      description:peer.description,packSize:peer.pack_size,price:Number(peer.price),sellingUnit:peer.selling_unit,casePrice,confirmationSource:confirmation?'client confirmation':'document'});
+  }
+  if(new Set(references.map(peer=>peer.vendorId)).size<2)return null;
+  references.sort((a,b)=>a.vendorItemId.localeCompare(b.vendorItemId));
+  const plausible=quoteBasisAlternatives(row,procurement).filter(option=>{
+    const basis=procurement.priceBasisFor(option.sellingUnit);
+    const charge=procurement.casePriceFromQuote(row.price,basis.basis,basis.unit||option.sellingUnit,row.packSize);
+    return charge>0&&references.every(peer=>Math.abs(charge-peer.casePrice)/peer.casePrice<=0.25);
+  });
+  // When package and case cover the same quantity, do not invent a distinction.
+  if(plausible.length!==1)return null;
+  const sellingUnit=plausible[0].sellingUnit;
+  return {value:sellingUnit,kind:'inferred',source:'cross-vendor comparison',accuracy:70,
+    reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${new Set(references.map(peer=>peer.vendorId)).size} other vendors. Only this basis puts the equivalent case charge within 25% of every reference. Confirm before using it.`,
+    evidence:{packSize:row.packSize,price:Number(row.price),relativeTolerance:0.25,references}};
+}
+
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that
 // a new document with an omitted unit also quotes cases.
 export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext()){
+  if(row.sellingUnitSource==='inferred')return null;
   const explicit=procurement.priceBasisFor(row.sellingUnit);
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
   if(String(row.sellingUnit||"").trim()||row.changes?.length)return null;

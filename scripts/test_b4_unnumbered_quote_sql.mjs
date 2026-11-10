@@ -88,6 +88,25 @@ try{
   assert.deepEqual(missing.import_row.evidence.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','LB']);
   const heldHistory=(await db.query('select selling_unit,price_basis from price_history where vendor_item_id=$1',[held.vendorItemId])).rows;
   assert.ok(heldHistory.every(row=>row.selling_unit===null&&row.price_basis===null));
+  await db.query('reset role');
+  const references=[];
+  for(const price of [80,82]){
+    const vendor=randomUUID(),id=randomUUID();await db.query('insert into vendors(id,organization_id) values($1,$2)',[vendor,f.org]);
+    const importRow={reviewRequired:false,row:{sellingUnit:'CASE'},evidence:{sellingUnitSource:'price header'}};
+    await db.query("insert into vendor_items(id,organization_id,vendor_id,description,pack_size,price,selling_unit,price_basis,price_source,import_row) values($1,$2,$3,'SYNTHETIC WASHERS','4/10 LB',$4,'CASE','case','pricelist',$5)",[id,f.org,vendor,price,JSON.stringify(importRow)]);
+    references.push((await db.query('select * from vendor_items where id=$1',[id])).rows[0]);
+  }
+  await f.actor(db,f.owner);
+  const {rows:[crossRow]}=parseDocument('Code,Description,Pack,Price\nX-2,SYNTHETIC WASHERS,4/10 LB,81');
+  const cross=await importPriceRow({backend,importService,catalogService,sourceRow:crossRow,row:crossRow,ex:null,priorMapping:null,
+    rowIssues:[],rowNeedsReview:false,invoiceSources:[],orgId:f.org,vendorId:f.vendor,sourceDocumentId:await f.document(),completedKey:'row:0',
+    importBatchTime:'2026-11-10T00:00:00Z',group:{name:'CrossVendor.csv'},sourceFilePath:null,
+    workingCatalogItems:[],workingCategories:[],workingVendorItems:references,workingMappings:[]});
+  const savedGuess=(await db.query('select * from vendor_items where id=$1',[cross.vendorItemId])).rows[0];
+  assert.equal(savedGuess.selling_unit,'CASE');assert.equal(savedGuess.price_unavailable,true);assert.equal(cross.needsBasis,true);
+  assert.equal(savedGuess.import_row.row.sellingUnit,null);assert.equal(savedGuess.import_row.evidence.fieldInference.sellingUnit.accuracy,70);
+  assert.equal(savedGuess.import_row.evidence.fieldInference.sellingUnit.evidence.references.length,2);
+  console.log('PASS C1.5 actual SQL: compared source-backed vendor quotes fill a held inferred unit, preserve the blank original, and retain both references.');
   console.log('PASS C1.5 SQL: amount retained, quoted-per and basis null, review required, no guessed history.');
   console.log('PASS B/C SQL persistence: original blank pack binding and exact description survive alongside separately inferred pack evidence.');
   console.log('PASS B4 real importer/SQL: two uncoded listings, stable separate NVIN, changed price, source replay with no duplicate history');

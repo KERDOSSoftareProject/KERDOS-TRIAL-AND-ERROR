@@ -70,7 +70,7 @@ export async function importPriceRow({
   // explicit Inbox review may still resolve a current held row deliberately.
   const prepared = stagedReceipt&&replayStagedObservation
     ? {row,requiresReview:true,resolved:null,reviewFields:[],reasons:[]}
-    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement);
+    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement, workingVendorItems);
   row = prepared.row;
   const resolved = prepared.resolved;
   const needsBasis = prepared.requiresReview;

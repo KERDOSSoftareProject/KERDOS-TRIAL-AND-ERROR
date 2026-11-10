@@ -114,7 +114,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     if(!basis){unitAcc=DOUBTFUL;unitWhy=["WEIGHT","VOLUME","MEASURE"].includes(vi.selling_unit)?"Choose the measurement for this quoted price":"Not a unit KERDOS recognises";}
     else{
       unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(provenance.sellingUnitSource)?DERIVED:provenance.sellingUnitSource==="inferred"?GUESSED:STATED;
-      unitWhy=provenance.sellingUnitSource==="remembered"?"Reused from this vendor’s verified product and pack":byClient("selling_unit")?"Set by you":provenance.sellingUnitSource==="sheet"?"Applied to the whole sheet at import":provenance.sellingUnitSource==="inferred"?"Suggested—not confirmed":"Stated on the sheet";
+      unitWhy=provenance.sellingUnitSource==="remembered"?"Reused from this vendor’s verified product and pack":byClient("selling_unit")?"Set by you":provenance.sellingUnitSource==="sheet"?"Applied to the whole sheet at import":provenance.sellingUnitSource==="inferred"?provenance.fieldInference?.sellingUnit?.reason||"Suggested—not confirmed":"Stated on the sheet";
       if(!byClient("selling_unit")&&provenance.sellingUnitSource==="invoice")unitWhy="Supported by a matched invoice’s billed unit and line total";
       if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(provenance.sellingUnitSource))unitWhy=`Stated in the ${provenance.sellingUnitSource}`;
       if(basis.basis==="measure"&&pack?.parsed&&casePrice==null){
@@ -234,6 +234,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const packField=clientField("pack_size",vi.pack_size||"",packAcc,packWhy||"No pack yet");
   const priceField=clientField("price",hasPrice?amount:null,priceAcc,priceWhy||"No price");
   const unitField=clientField("selling_unit",vi.selling_unit||"",unitAcc,unitWhy||"Choose what the quoted price is per");
+  unitField.status=unitField.value?(byClient('selling_unit')||provenance.sellingUnitSource!=='inferred'?'confirmed':'inferred'):null;
   // Unit cost is as sure as the least sure of the three it comes from.
   const directMeasuredRate=basis?.basis==="measure"&&per&&!per.estimated&&per.unit!=="EA";
   const costAccuracy=per?.manual?100:per?Math.min(per.estimated?GUESSED:100,directMeasuredRate?100:packField.accuracy??0,unitField.accuracy??0,priceField.accuracy??0):null;

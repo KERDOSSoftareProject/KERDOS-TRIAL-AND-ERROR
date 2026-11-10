@@ -1,11 +1,11 @@
 // The import preview uses exactly the field rules used after persistence.
-import {suggestCategory,priceBasisFor,bestPurchasingMatch,commonPurchasingPack,productKnowledge} from "../procurement.js";
+import {getProcurementContext,suggestCategory,priceBasisFor,bestPurchasingMatch,commonPurchasingPack,productKnowledge} from "../procurement.js";
 import {catalogRowEvidence,importResolutions,orderGuideAssessment} from "./catalog-fields.js";
 import {preparePriceImport} from "./price-import-review.js";
 import {findUncodedVendorListing,vendorListingLabel} from "./vendor-listing.js";
 import {enrichFromInvoices,invoiceEvidence} from "./invoice-evidence.js";
 
-export function explainImportRow(source,{vendor=null,categories=[],catalogItems=[],vendorItems=[],mappings=[],invoices=[]}={}){
+export function explainImportRow(source,{organizationId=null,vendor=null,categories=[],catalogItems=[],vendorItems=[],mappings=[],invoices=[]}={}){
   const listings=vendorItems.filter(vi=>vi.vendor_id===vendor?.id);
   const enriched=enrichFromInvoices(source,invoices);
   const prior=(source.selectedVendorItemId?listings.find(vi=>vi.id===source.selectedVendorItemId):null)
@@ -13,7 +13,9 @@ export function explainImportRow(source,{vendor=null,categories=[],catalogItems=
     ||findUncodedVendorListing(enriched,listings).item;
   const savedMapping=prior?mappings.find(m=>m.vendor_item_id===prior.id):null;
   const savedItem=savedMapping?catalogItems.find(c=>c.id===savedMapping.catalog_item_id):null;
-  const prepared=preparePriceImport(source,prior,savedMapping,[...(source.issues||[]),...invoiceEvidence(source,invoices).conflicts],invoices);
+  const org=organizationId||vendor?.organization_id;
+  const scope=org&&vendor?.id?{organizationId:org,vendorId:vendor.id}:null;
+  const prepared=preparePriceImport(source,prior,savedMapping,[...(source.issues||[]),...invoiceEvidence(source,invoices).conflicts],invoices,scope,getProcurementContext(),vendorItems);
   const row=prepared.row;
   const selectedCategory=source.categoryId?categories.find(c=>c.id===source.categoryId&&!c.is_holding_pen):savedItem?categories.find(c=>c.id===savedItem.category_id):null;
   const placement=selectedCategory?{category:selectedCategory,confidence:savedItem?.category_review&&!source.categoryId?"guess":"confident",reason:savedItem?.category_reason||"Category selected for this row"}:suggestCategory(row.description,categories,catalogItems);

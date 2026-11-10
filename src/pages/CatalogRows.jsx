@@ -81,7 +81,8 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const parsedPack=parsePackSize(current.pack_size);
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
-  const displayed=key=>baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
+  const hasSupportedInference=key=>key==='selling_unit'&&current.import_row?.evidence?.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
+  const displayed=key=>hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):current.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...current,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(displayed("pack_size"));
@@ -160,6 +161,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else if(key==="sellingUnit")content=<>
           <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={displayed("selling_unit")} onChange={value=>edit("selling_unit",value)}/>
+          {f.status==='inferred'&&canManage&&<button disabled={busy} onClick={()=>edit('selling_unit',current.selling_unit)}>Confirm inferred unit</button>}
           {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
         </>;
         else content=<>
@@ -173,7 +175,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </>;
         const sourceKey={product:"description",pack:"packSize",sellingUnit:"sellingUnit"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} style={{...cellStyle,background:change?"#FFF3E0":undefined}}>{content}{!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}{autoSave&&key==="product"&&saveStatus}{change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}</td>;
+        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} style={{...cellStyle,background:f.status==="inferred"?"#FFF3E0":f.status==="confirmed"?"#E7F5EC":change?"#FFF3E0":undefined}}>{content}{f.status&&<small title={f.reason} style={{display:'block',color:f.status==='inferred'?'#8D5900':'#276742'}}>{f.status==='inferred'?'Inferred':'Confirmed'}</small>}{!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}{autoSave&&key==="product"&&saveStatus}{change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}</td>;
       })}
       {!autoSave&&<td style={{...cellStyle,minWidth:115}}>
         {canManage&&<button disabled={busy||(baseFieldsOnly&&!dirty)} onClick={()=>save()} style={{...btn("#003584","white",{fontSize:11,padding:6})}}>{busy?"Applying…":"Apply"}</button>}

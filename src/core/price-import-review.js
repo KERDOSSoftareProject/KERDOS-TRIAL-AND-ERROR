@@ -1,7 +1,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {knownItemChanges} from "./catalog-fields.js";
 import {prepareImportRow} from "./import-row.js";
-import {resolveQuoteBasis,quoteBasisAlternatives,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
+import {resolveQuoteBasis,inferCrossVendorQuoteBasis,quoteBasisAlternatives,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
 
 const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===String(b||"").trim().toLowerCase().replace(/\s+/g," ");
 
@@ -9,15 +9,19 @@ const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===S
 // incomplete row is reviewable data, not a failed database write. The caller
 // retains its listing and catalog association, and stages the incoming quote
 // without overwriting the accepted quote when requiresReview is true.
-export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext()){
+export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext(),comparisonListings=[]){
   let row=source;
+  if(source.sellingUnitSource==='inferred'&&source.fieldInference?.sellingUnit?.source==='cross-vendor comparison'){
+    const {sellingUnit:_oldUnit,...otherInference}=source.fieldInference;
+    row={...source,sellingUnit:null,sellingUnitSource:null,fieldInference:otherInference};
+  }
   const reasons=[...issues];
   let changes=[];
   if(prior&&(source.code?String(source.code)!==String(prior.vendor_item_code):!!prior.vendor_item_code))
     throw new Error("The incoming vendor item code does not belong to this saved listing.");
   const scopedInvoices=scope?invoices.filter(entry=>
     entry.organizationId===scope.organizationId&&entry.vendorId===scope.vendorId):invoices;
-  try{row=prepareImportRow(source,{prior,mapping,invoices:scopedInvoices}, procurement);}
+  try{row=prepareImportRow(row,{prior,mapping,invoices:scopedInvoices}, procurement);}
   catch(error){reasons.push(error.message);changes=prior?knownItemChanges(source,prior, procurement):[];}
   changes=row.changes||changes;
   reasons.push(...(row.conflicts||[]));
@@ -69,9 +73,18 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
       row={...row,sellingUnit:"",sellingUnitSource:null};
     }
   }
+  if(!resolved&&!invoiceConflict&&!reasons.length){
+    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement);
+    if(inference){
+      row={...row,sellingUnit:inference.value,sellingUnitSource:'inferred',
+        fieldInference:{...row.fieldInference,sellingUnit:inference}};
+      resolved={basis:procurement.priceBasisFor(inference.value),sellingUnit:inference.value,source:'inferred'};
+      reasons.push(`Quoted unit is inferred, not confirmed. ${inference.reason}`);
+    }
+  }
   // A price amount or an industry prior cannot establish what is being sold.
-  // Without source or confirmed listing evidence, retain the quote for review
-  // and leave its basis unresolved in both preview and persistence.
+  // Cross-vendor inferences above stay at review accuracy; without sufficient
+  // comparison evidence, the unit remains unresolved.
   if(!row.priceUnavailable){
     if(!resolved)reasons.push("Quoted unit is unresolved.");
     else if(procurement.parsePackSize(row.packSize)?.parsed&&procurement.casePriceFromQuote(row.price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,row.packSize)==null)
@@ -81,9 +94,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   }
   if(row.priceNeedsReview&&!reasons.length)reasons.push("The incoming price basis needs review.");
   const quoteBasisEvidence=resolved?.invoiceArithmetic?{source:resolved.source,unit:resolved.sellingUnit,references:resolved.invoiceReferences}:null;
-  const quoteBasisReview=!resolved&&!row.priceUnavailable&&!invoiceConflict?{
-    status:'unresolved',
-    reason:'Confirm what the quoted price covers. Pack contents alone do not establish the quoted unit.',
+  const quoteBasisReview=(!resolved||row.sellingUnitSource==='inferred')&&!row.priceUnavailable&&!invoiceConflict?{
+    status:row.sellingUnitSource==='inferred'?'inferred':'unresolved',
+    reason:row.sellingUnitSource==='inferred'?row.fieldInference.sellingUnit.reason:'Confirm what the quoted price covers. Pack contents alone do not establish the quoted unit.',
     alternatives:quoteBasisAlternatives(row,procurement),
   }:null;
   const statedPriceQuotes=interpretStatedQuotePair(source.fieldIdentification?.bindings, procurement);
