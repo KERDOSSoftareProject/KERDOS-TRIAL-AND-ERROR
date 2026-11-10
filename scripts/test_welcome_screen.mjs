@@ -14,6 +14,7 @@ try{
     import TabHeading from './src/ui/TabHeading.jsx';
     import WelcomeScreen,{welcomeGreeting,welcomeDate,userInitials} from './src/pages/WelcomeScreen.jsx';
     import {OrgGate} from './src/pages/AccessPages.jsx';
+    import {TeamPanel} from './src/pages/TeamPanel.jsx';
     const text=node=>typeof node==='string'?node:(node.children||[]).map(text).join('');
     assert.equal(welcomeGreeting(new Date(2026,9,31,9,42)),'Good morning');
     assert.equal(welcomeGreeting(new Date(2026,9,31,14,42)),'Good afternoon');
@@ -54,21 +55,69 @@ try{
     const click=label=>act(async()=>tree.root.findAllByType('button').find(button=>text(button)===label).props.onClick());
     const enter=(input,value)=>act(async()=>input.props.onChange({target:{value}}));
     await click('Create a new organization');
-    assert.deepEqual(tree.root.findByType('datalist').findAllByType('option').map(option=>option.props.value),['Restaurant']);
+    const industrySelect=tree.root.findByProps({id:'setup-industry'});
+    assert.equal(industrySelect.type,'select');
+    assert.equal(industrySelect.props.required,true);
+    assert.deepEqual(industrySelect.findAllByType('option').map(option=>option.props.value),['','Restaurant']);
+    assert.match(text(tree.toJSON()),/vocabulary.*automatically/);
     await enter(tree.root.findByProps({placeholder:"Your organization's name"}),'Second Company');
-    await enter(tree.root.findByProps({id:'setup-industry'}),'Construction');
+    assert.equal(tree.root.findAllByType('button').find(button=>text(button)==='Next →').props.disabled,true);
+    await enter(tree.root.findByProps({id:'setup-industry'}),'Restaurant');
     await click('Next →');
     await enter(tree.root.findByProps({placeholder:'Vendor name'}),'Supply House');
     await click('Get Started →');
-    assert.deepEqual(company,{id:'second-company',name:'Second Company',industry:'Construction',vendors:[{name:'Supply House',delivery_minimum_dollar:null,delivery_minimum_units:null}]});
+    assert.deepEqual(company,{id:'second-company',name:'Second Company',industry:'Restaurant',vendors:[{name:'Supply House',delivery_minimum_dollar:null,delivery_minimum_units:null}]});
     await act(async()=>tree.unmount());
-    console.log('PASS company setup accepts an industry outside the available templates');
+    console.log('PASS company setup requires a listed industry and automatically supplies its vocabulary');
+    const savedDraft=JSON.stringify({step:2,orgName:'Older Draft',industry:'Unlisted Industry',vendors:[{name:'Saved Vendor',minDollar:'',minUnits:''}]});
+    globalThis.localStorage={getItem:()=>savedDraft,setItem(){},removeItem(){}};
+    company=undefined;
+    await act(async()=>{tree=Renderer.create(React.createElement(OrgGate,{user:{id:'older-draft'},onComplete:created=>{company=created;}}));});
+    await click('Create a new organization');
+    assert.equal(tree.root.findByProps({id:'setup-industry'}).props.value,'');
+    assert.equal(tree.root.findAllByType('button').find(button=>text(button)==='Next →').props.disabled,true);
+    assert.equal(company,undefined);
+    await enter(tree.root.findByProps({id:'setup-industry'}),'Restaurant');
+    await click('Next →');
+    assert.equal(tree.root.findByProps({placeholder:'Vendor name'}).props.value,'Saved Vendor');
+    await act(async()=>tree.unmount());
+    delete globalThis.localStorage;
+    console.log('PASS older setup drafts require a valid industry while retaining entered company and vendor details');
+    let refreshed=false;
+    await act(async()=>{tree=Renderer.create(React.createElement(TeamPanel,{orgId:'company',orgName:'Example',orgIndustry:'Older Unlisted Industry',orgSettings:{},categories:[],myRole:'owner',currentUserId:'owner',onOrgUpdated:()=>{refreshed=true;}}));});
+    await act(async()=>{tree.root.findByProps({'aria-label':'Change industry'}).props.onClick();});
+    const companyIndustry=tree.root.findByProps({id:'company-industry'});
+    assert.equal(companyIndustry.type,'select');
+    assert.equal(companyIndustry.props.value,'');
+    assert.equal(tree.root.findAllByType('button').find(button=>text(button)==='Save').props.disabled,true);
+    await enter(companyIndustry,'Restaurant');
+    const categoryCheckbox=tree.root.findAllByType('input').find(input=>input.props.type==='checkbox');
+    await act(async()=>{categoryCheckbox.props.onChange({target:{checked:false}});});
+    assert.match(text(tree.toJSON()),/vocabulary.*automatically/);
+    await click('Save');
+    assert.equal(refreshed,true);
+    assert.deepEqual(globalThis.__industryUpdates.at(-1),{industry:'Restaurant'});
+    await act(async()=>tree.unmount());
+    console.log('PASS company settings require a listed industry and keep vocabulary automatic when starter categories are optional');
+
+
   `,resolveDir:process.cwd(),sourcefile:'welcome-test.jsx',loader:'jsx'},bundle:true,platform:'node',format:'esm',jsx:'automatic',packages:'external',outfile,
     plugins:[{name:'setup-test-backend',setup(build){
       build.onResolve({filter:/backend\/index\.js$/},()=>({path:'setup-test-backend',namespace:'test'}));
       build.onLoad({filter:/.*/,namespace:'test'},()=>({contents:`
         export const backend={
-          records:{query:()=>({select:async()=>({data:[{industry:'Restaurant'}],error:null})})},
+          records:{query:table=>{
+            let update;
+            const chain={
+              select(){return chain;},eq(){return chain;},in(){return chain;},order(){return chain;},
+              update(values){update=values;return chain;},
+              then(resolve){
+                if(update)(globalThis.__industryUpdates??=[]).push(update);
+                resolve({data:['industry_templates','industry_vocabulary'].includes(table)?[{industry:'Restaurant'}]:[],error:null});
+              },
+            };
+            return chain;
+          }},
           organization:{create:async company=>({id:'second-company',...company})},
         };
       `}));

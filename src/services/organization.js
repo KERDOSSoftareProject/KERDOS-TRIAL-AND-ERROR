@@ -8,6 +8,27 @@ async function run(promise,operation){
 
 export function createOrganizationService(backend){
   const table=backend.records.query;
+  async function industryChoices(){
+    const [templates,vocabulary]=await Promise.all([
+      run(table("industry_templates").select("industry"),"Could not read industry choices"),
+      run(table("industry_vocabulary").select("industry"),"Could not read industry vocabulary"),
+    ]);
+    const prepared=new Set((vocabulary||[]).map(row=>String(row.industry||"").trim().toLowerCase()));
+    const choices=new Map();
+    for(const row of templates||[]){
+      const name=String(row.industry||"").trim();
+      if(name&&prepared.has(name.toLowerCase()))choices.set(name.toLowerCase(),name);
+    }
+    return [...choices.values()].sort((a,b)=>a.localeCompare(b));
+  }
+  async function selectedIndustry(value){
+    const name=String(value||"").trim();
+    if(!name)throw new Error("Choose an industry.");
+    const choices=await industryChoices();
+    const selected=choices.find(choice=>choice.toLowerCase()===name.toLowerCase());
+    if(!selected)throw new Error("Choose an industry from the list.");
+    return selected;
+  }
   return {
     async create({name,industry,vendors=[]}){
       if(!backend.organization?.create)throw new Error("Company setup is unavailable for this backend.");
@@ -20,10 +41,11 @@ export function createOrganizationService(backend){
         (row.delivery_minimum_dollar!==null&&(!Number.isFinite(row.delivery_minimum_dollar)||row.delivery_minimum_dollar<0))||
         (row.delivery_minimum_units!==null&&(!Number.isSafeInteger(row.delivery_minimum_units)||row.delivery_minimum_units<0))
       ))throw new Error("Enter a nonnegative minimum order and a whole number of items.");
-      return backend.organization.create({name:name.trim(),industry,vendors:rows});
+      return backend.organization.create({name:name.trim(),industry:await selectedIndustry(industry),vendors:rows});
     },
-    update(organizationId,patch){
-      return run(table("organizations").update(patch).eq("id",organizationId),"Could not update the organization");
+    async update(organizationId,patch){
+      const values=Object.hasOwn(patch,"industry")?{...patch,industry:await selectedIndustry(patch.industry)}:patch;
+      return run(table("organizations").update(values).eq("id",organizationId),"Could not update the organization");
     },
     rememberVendorLayout(organizationId,vendorId,fingerprint,answers){
       if(!backend.organization?.rememberVendorLayout)throw new Error("Column choices cannot be remembered by this backend.");
@@ -32,10 +54,7 @@ export function createOrganizationService(backend){
     syncProfile(user){
       return run(table("profiles").upsert({id:user.id,email:user.email,updated_at:new Date().toISOString()}),"Could not sync the profile");
     },
-    async templatedIndustries(){
-      const rows=await run(table("industry_templates").select("industry"),"Could not read industry templates");
-      return [...new Set((rows||[]).map(row=>row.industry).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-    },
+    templatedIndustries:industryChoices,
     async team(organizationId){
       const [members,codes,industries]=await Promise.all([
         run(table("organization_members").select("*").eq("organization_id",organizationId),"Could not read team members"),

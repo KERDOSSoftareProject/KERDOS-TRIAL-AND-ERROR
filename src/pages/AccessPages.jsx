@@ -116,11 +116,17 @@ function Setup({user,onComplete}) {
   const [orgName,setOrgName]=useState("");
   const [industry,setIndustry]=useState("");
   const [availableIndustries,setAvailableIndustries]=useState([]);
-  useEffect(()=>{
-    organizationService.templatedIndustries().then(list=>{
-      if(list?.length) setAvailableIndustries(list);
-    }).catch(()=>{});
-  },[]);
+  const [industriesLoading,setIndustriesLoading]=useState(true);
+  async function loadIndustries(){
+    setIndustriesLoading(true);setError("");
+    try{
+      const choices=await organizationService.templatedIndustries();
+      setAvailableIndustries(choices);
+      if(!choices.length)setError("Industry choices are unavailable. Please try again.");
+    }catch(err){setError(err.message||"Could not load industry choices.");}
+    finally{setIndustriesLoading(false);}
+  }
+  useEffect(()=>{void loadIndustries();},[]);
   const [vendors,setVendors]=useState([{name:"",minDollar:"",minUnits:""}]);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
@@ -146,10 +152,17 @@ function Setup({user,onComplete}) {
     }catch{/* storage full/unavailable - draft save is best-effort, never blocks typing */}
   },[step,orgName,industry,vendors]);
 
+  const selectedIndustry=availableIndustries.find(choice=>choice.toLowerCase()===industry.trim().toLowerCase())||"";
+  const currentStep=selectedIndustry&&orgName.trim()?step:1;
+  useEffect(()=>{
+    if(!industriesLoading&&!selectedIndustry&&step!==1)setStep(1);
+  },[industriesLoading,selectedIndustry,step]);
+
   async function create() {
+    if(!selectedIndustry){setStep(1);setError("Choose an industry.");return;}
     setLoading(true); setError("");
     try {
-      const org=await organizationService.create({name:orgName,industry,vendors});
+      const org=await organizationService.create({name:orgName,industry:selectedIndustry,vendors});
       try{localStorage.removeItem(draftKey);}catch{}
       onComplete(org);
     } catch(err){setError(err.message);}
@@ -171,23 +184,26 @@ function Setup({user,onComplete}) {
           </div>
         )}
 
-        {step===1&&<>
+        {error&&<div role="alert" style={{color:"#E65100",fontSize:13,marginBottom:10}}>{error}</div>}
+        {currentStep===1&&<>
           <div style={{marginBottom:12}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Organization name</div>
             <input style={inp} value={orgName} onChange={e=>setOrgName(e.target.value)} placeholder="Your organization's name" />
           </div>
           <div style={{marginBottom:20}}>
             <label htmlFor="setup-industry" style={{display:"block",fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Industry</label>
-            <input id="setup-industry" list="setup-industry-templates" style={inp} value={industry}
-              onChange={e=>setIndustry(e.target.value)} placeholder="Enter or choose your industry" />
-            <datalist id="setup-industry-templates">
-              {availableIndustries.map(ind=><option key={ind} value={ind}/>)}
-            </datalist>
+            <select id="setup-industry" style={inp} value={selectedIndustry} required disabled={industriesLoading}
+              onChange={e=>setIndustry(e.target.value)}>
+              <option value="" disabled>{industriesLoading?"Loading industries…":"Choose your industry"}</option>
+              {availableIndustries.map(ind=><option key={ind} value={ind}>{ind}</option>)}
+            </select>
+            <div style={{fontSize:12,color:"#666",marginTop:6}}>KERDOS provides the vocabulary for your industry automatically.</div>
+            {!industriesLoading&&!availableIndustries.length&&<button onClick={loadIndustries} style={{...btn("#EEE","#555"),marginTop:8}}>Retry industry choices</button>}
           </div>
-          <button onClick={()=>setStep(2)} disabled={!orgName.trim()} style={{...btn("#003584"),width:"100%"}}>Next →</button>
+          <button onClick={()=>setStep(2)} disabled={!orgName.trim()||!selectedIndustry||industriesLoading} style={{...btn("#003584"),width:"100%"}}>Next →</button>
         </>}
 
-        {step===2&&<>
+        {currentStep===2&&<>
           <p style={{fontSize:13,color:"#555",margin:"0 0 14px"}}>Add your vendors — you can add more later.</p>
           {vendors.map((v,i)=>(
             <div key={i} style={{background:"#F8F9FA",borderRadius:8,padding:12,marginBottom:10}}>
@@ -209,10 +225,9 @@ function Setup({user,onComplete}) {
           ))}
           <button onClick={()=>setVendors([...vendors,{name:"",minDollar:"",minUnits:""}])}
             style={{...btn("#F0F2F5","#555"),width:"100%",marginBottom:10}}>+ Add Vendor</button>
-          {error&&<div style={{color:"#E65100",fontSize:13,marginBottom:10}}>{error}</div>}
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>setStep(1)} style={{...btn("#EEE","#555"),flex:1}}>← Back</button>
-            <button onClick={create} disabled={loading} style={{...btn("#003584"),flex:2}}>
+            <button onClick={create} disabled={loading||!selectedIndustry} style={{...btn("#003584"),flex:2}}>
               {loading?"Creating...":"Get Started →"}
             </button>
           </div>

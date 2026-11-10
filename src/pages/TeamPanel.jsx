@@ -16,10 +16,6 @@ function generateInviteCode() {
   return `${part()}-${part()}`;
 }
 
-// Industries that have a starter category template - read from
-// industry_templates, so adding an industry is a data insert, never a
-// code change. Shown as quick-pick chips in Admin; the industry field
-// itself stays free text for anything not templated yet.
 // Common price-refresh cadences shown as quick-pick chips in Admin - a
 // shortcut for the most common choices, with a custom number field
 // always available alongside for anything else (or "Never" to turn the
@@ -82,7 +78,7 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
     setSavingIndustry(true); setError("");
     setIndustryMsg("");
     try{
-      await organizationService.update(orgId,{industry:industryInput.trim()||null});
+      await organizationService.update(orgId,{industry:industryInput});
       if(autoLoadCategories&&industryInput.trim()){
         const {added,addedVocabulary,found}=await categoryService.loadStarterPack({organizationId:orgId,industry:industryInput.trim(),categories});
         setIndustryMsg(!found?`Saved. No starter pack found for "${industryInput.trim()}" yet — add categories and vocabulary manually in Admin below.`:
@@ -218,28 +214,24 @@ export function TeamPanel({orgId,orgName,orgIndustry,orgSettings,categories,myRo
           {!editingIndustry?(
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div style={{fontWeight:700,fontSize:15,color:orgIndustry?"#111":"#BBB"}}>{orgIndustry||"Not set"}</div>
-              <button onClick={()=>{setIndustryInput(orgIndustry||"");setEditingIndustry(true);}} style={{background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,padding:0}}>✎ Edit</button>
+              <button aria-label="Change industry" onClick={()=>{setIndustryInput(templatedIndustries.find(name=>name.toLowerCase()===String(orgIndustry||"").toLowerCase())||"");setEditingIndustry(true);}} style={{background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,padding:0}}>✎ Edit</button>
             </div>
           ):(
             <div>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
-                {templatedIndustries.map(p=>(
-                  <button key={p} onClick={()=>setIndustryInput(p)}
-                    style={{fontSize:11,fontWeight:700,padding:"5px 11px",borderRadius:14,cursor:"pointer",
-                      background:industryInput===p?"#003584":"#EEF2F8",color:industryInput===p?"white":"#003584",
-                      border:industryInput===p?"2px solid #003584":"2px solid transparent"}}>
-                    {p}
-                  </button>
-                ))}
-              </div>
+              <label htmlFor="company-industry" style={{display:"block",fontSize:12,marginBottom:6}}>Choose your industry</label>
+              <select id="company-industry" style={inp} value={templatedIndustries.includes(industryInput)?industryInput:""}
+                required onChange={e=>setIndustryInput(e.target.value)}>
+                <option value="" disabled>Choose your industry</option>
+                {templatedIndustries.map(name=><option key={name} value={name}>{name}</option>)}
+              </select>
+              <div style={{fontSize:12,color:"#555",marginTop:6}}>KERDOS provides the vocabulary for your industry automatically.</div>
               <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#555",margin:"10px 0"}}>
                 <input type="checkbox" checked={autoLoadCategories} onChange={e=>setAutoLoadCategories(e.target.checked)} />
-                Also load this industry's starter pack (categories and vocabulary) when I save
+                Also load starter categories when I save
               </label>
               <div style={{display:"flex",gap:8}}>
-                <input style={{...inp,flex:1}} value={industryInput} onChange={e=>setIndustryInput(e.target.value)} placeholder="Or type your own..." />
                 <button onClick={()=>setEditingIndustry(false)} style={{...btn("#EEE","#555",{padding:"10px 14px"})}}>Cancel</button>
-                <button onClick={saveIndustry} disabled={savingIndustry} style={{...btn("#003584",undefined,{padding:"10px 14px"})}}>{savingIndustry?"...":"Save"}</button>
+                <button onClick={saveIndustry} disabled={savingIndustry||!templatedIndustries.includes(industryInput)} style={{...btn("#003584",undefined,{padding:"10px 14px"})}}>{savingIndustry?"...":"Save"}</button>
               </div>
               <div style={{fontSize:11,color:"#999",marginTop:6}}>
                 {autoLoadCategories?"Saving will pull in a starter category set for whatever you pick above - fully editable after (rename, add, delete, edit keywords) in Catalog Categories below.":
