@@ -250,7 +250,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     pack:packField,
     price:priceField,
     sellingUnit:unitField,
-    unitCost:{...field(per?.price??null,costAccuracy,per?.manual?`Client-approved unit cost per ${per.unit}`:per?`${per.estimated?"Estimated":"Calculated"} per ${per.unit}${pack?.catchWeight?"; final case charge depends on delivered weight":""}`:"Needs a readable pack and a compatible quoted unit"),unit:per?.unit||null,estimated:!!per?.estimated},
+    unitCost:{status:per&&unitField.status==='inferred'?'inferred':null,...field(per?.price??null,costAccuracy,per?.manual?`Client-approved unit cost per ${per.unit}`:per?`${unitField.status==='inferred'?"Provisional — quoted unit inferred; ":""}${per.estimated?"Estimated":"Calculated"} per ${per.unit}${pack?.catchWeight?"; final case charge depends on delivered weight":""}`:"Needs a readable pack and a compatible quoted unit"),unit:per?.unit||null,estimated:!!per?.estimated},
   };
 }
 

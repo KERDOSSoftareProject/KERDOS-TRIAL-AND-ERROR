@@ -21,7 +21,7 @@ for(const industry of ['restaurant','construction']){
  assert.equal(changed.row.sellingUnit,null,'pack changes invalidate unsupported old suggestions');
  const preview=explainImportRow(row,{organizationId:'org',vendor:{id:'incoming'},vendorItems:peers});
  assert.equal(preview.sellingUnit.value,'CASE');assert.equal(preview.sellingUnit.status,'inferred');assert.equal(preview.sellingUnit.accuracy,70);
- assert.equal(preview.unitCost.accuracy,70);
+ assert.equal(preview.unitCost.accuracy,70);assert.equal(preview.unitCost.status,'inferred');assert.match(preview.unitCost.reason,/Provisional/);
  const confirmed=explainImportRow({...row,sellingUnit:'CASE',sellingUnitSource:'manual'},{organizationId:'org',vendor:{id:'incoming'},vendorItems:peers});
  assert.equal(confirmed.sellingUnit.status,'confirmed');
  assert.deepEqual(row,source,'original source stays blank');
