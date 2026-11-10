@@ -25,9 +25,6 @@ export function LandingGate() {
   }
 
   const SERVICES=[
-    {icon:"💰",color:"#2E7D32",bg:"#E8F5E9",name:"Price Comparison",tag:null,
-      text:"See every vendor's price for the same product side-by-side, ranked cheapest first.",
-      value:"Save money on every order."},
     {icon:"✅",color:"#1565C0",bg:"#E3F2FD",name:"Price Verification",tag:null,
       text:"Every invoice is checked against what was quoted, automatically — mismatches are flagged.",
       value:"Ensures the price you're quoted is the price you pay."},
@@ -47,10 +44,7 @@ export function LandingGate() {
       <div style={{textAlign:"center",marginBottom:40}}>
         <BrandLogo />
         <div style={{fontWeight:900,fontSize:22,color:"white",marginBottom:10,maxWidth:480,marginLeft:"auto",marginRight:"auto",lineHeight:1.3}}>
-          Stop overpaying because you didn’t check KERDOS.
-        </div>
-        <div style={{color:"rgba(255,255,255,0.7)",fontSize:15,maxWidth:480,margin:"0 auto"}}>
-          Procurement software that compares vendor prices for you, keeps your ordering and records in one place.
+          KERDOS a procurement software
         </div>
       </div>
 
