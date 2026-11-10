@@ -82,8 +82,9 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   if(!empty(vi.pack_size)){
     if(!pack?.parsed){packAcc=DOUBTFUL;packWhy="Not a complete pack KERDOS can read";}
     else{
-      packAcc=byClient("pack_size")?STATED:provenance.packSource==="description"?DERIVED:provenance.packSource==="column"||!provenance.packSource?STATED:DERIVED;
-      packWhy=byClient("pack_size")?"Set by you":provenance.packSource==="description"?"Read from the end of the description":provenance.packSource==="invoice"?"Filled from the vendor's invoice":"Read from the sheet";
+      const inferredPack=provenance.fieldInference?.packSize;
+      packAcc=byClient("pack_size")?STATED:provenance.packSource==="description"?inferredPack?.accuracy??DERIVED:provenance.packSource==="column"||!provenance.packSource?STATED:DERIVED;
+      packWhy=byClient("pack_size")?"Set by you":provenance.packSource==="description"?"Inferred from the vendor description":provenance.packSource==="invoice"?"Filled from the vendor's invoice":"Read from the sheet";
       if(pack.dimension==="unknown"){
         // Named can sizes (#10 CAN) are a known container identity: the count
         // is certain, only the inner volume is unspecified. These are priceable
@@ -175,7 +176,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   // Brand: printed in a labeled column, pulled from an unlabeled cell, or typed.
   let brandAcc=null,brandWhy="";
   if(!empty(vi.brand)){
-    brandAcc=byClient("brand")?STATED:provenance.brandSource==="details"?GUESSED:STATED;
+    brandAcc=byClient("brand")?STATED:provenance.brandSource==="details"?provenance.fieldInference?.brand?.accuracy??GUESSED:STATED;
     brandWhy=byClient("brand")?"Set by you":provenance.brandSource==="details"?"Taken from an unlabeled cell; it matched a brand you already carry":"Printed on the sheet";
     const clash=otherVendors.find(p=>p.brand&&p.brand.trim().toLowerCase()!==vi.brand.trim().toLowerCase());
     if(clash){brandAcc=Math.min(brandAcc,GUESSED);brandWhy+=`; another vendor lists ${clash.brand}`;}

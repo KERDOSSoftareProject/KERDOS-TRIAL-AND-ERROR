@@ -57,5 +57,14 @@ try{
   assert.equal(history.length,4);
   assert.deepEqual(history.filter(r=>r.source_row_key==='row:1').map(r=>Number(r.price)).sort(),[16.75,18.75]);
   assert.equal(mappings.size,2);
+  await importRows(await f.document(),[['SYNTHETIC WASHERS 4/5 LB','',32.40]]);
+  const inferred=(await db.query("select import_row from vendor_items where description='SYNTHETIC WASHERS'")).rows[0].import_row;
+  assert.equal(inferred.evidence.sourceDescription,'SYNTHETIC WASHERS 4/5 LB');
+  assert.equal(inferred.row.fieldIdentification.bindings.packSize.rawValue,'');
+  assert.equal(inferred.evidence.fieldValidation.fields.packSize.status,'missing');
+  assert.equal(inferred.evidence.fieldInference.packSize.value,'4/5 LB');
+  assert.equal(inferred.evidence.fieldInference.packSize.kind,'inferred');
+  assert.equal(inferred.evidence.fieldInference.packSize.accuracy,90);
+  console.log('PASS B/C SQL persistence: original blank pack binding and exact description survive alongside separately inferred pack evidence.');
   console.log('PASS B4 real importer/SQL: two uncoded listings, stable separate NVIN, changed price, source replay with no duplicate history');
 }finally{await db.close();}

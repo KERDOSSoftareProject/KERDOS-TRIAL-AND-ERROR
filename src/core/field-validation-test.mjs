@@ -137,7 +137,10 @@ assert.equal(blankAssignedCode.code,null,'an explicitly blank code remains blank
 assert.equal(blankAssignedCode.fieldValidation.fields.code.columnIndex,1);
 const inferredCode=parseDocument('Material,Description,Price\nX2700,TERRY TOWEL WHITE,12.90').rows[0];
 assert.equal(inferredCode.code,'X2700');
-assert.deepEqual(inferredCode.fieldValidation.fields.code,{status:'inferred',columnIndex:0,evidence:'inferred',accuracy:70});
+assert.deepEqual(inferredCode.fieldValidation.fields.code,{status:'missing',columnIndex:null,evidence:'missing',accuracy:0});
+assert.equal(inferredCode.fieldInference.code.kind,'inferred');
+assert.equal(inferredCode.fieldInference.code.accuracy,70);
+assert.equal(inferredCode.fieldInference.code.evidence.columnIndex,0);
 const statedCode=parseDocument('Vendor Code,Description,Price\nCIDER,APPLE,26.15').rows[0];
 assert.equal(statedCode.code,'CIDER','explicit alphabetic vendor codes remain valid');
 assert.equal(statedCode.fieldValidation.fields.code.accuracy,100);

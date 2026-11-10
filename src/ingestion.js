@@ -1,21 +1,22 @@
 // ════════════════════════════════════════════════════════════════════
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
-import {applySourceUnits,documentQuoteUnit,unitInPriceHeader} from "./core/source-units.js";
+import {unitInPriceHeader} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
-import {analyzeRow} from "./core/cell-analysis.js";
-import {getProcurementContext} from "./procurement.js";
+import {createProcurementContext,getProcurementContext} from "./procurement.js";
+import {interpretDocumentFields} from "./core/document-interpretation.js";
+export {normalizeColumnPack,unmangleExcelDatePack} from "./core/pack-column.js";
 import {readHeaderLayout,applyLayoutAnswers} from "./core/sheet-layout.js";
-import {identifyRowFields} from "./core/field-identification.js";
+import {identifyRowFields,withoutDescriptionFormatting} from "./core/field-identification.js";
 import {parseAssignedMoney,parseMoney,parseMoneyLenient} from "./core/assigned-numbers.js";
-import {assessBoundFields,validateAssignedFields,withRowValidation} from "./core/field-validation.js";
+import {assessBoundFields,validateAssignedFields} from "./core/field-validation.js";
 // KERDOS INGESTION MODULE
 // ════════════════════════════════════════════════════════════════════
 //
 // PURPOSE
-// Turns any pasted or dropped document (price list or invoice, in any
-// vendor's format) into clean structured rows: description, code,
-// quantity, unit price, line total.
+// placeDocumentFields captures document structure and stated source fields.
+// parseDocument then delegates to Module C for scoped interpretation.
+// The neutral placement remains independently callable and testable.
 //
 // DESIGN
 // Unlike the old line-by-line guessing, this works in four stages:
@@ -32,7 +33,8 @@ import {assessBoundFields,validateAssignedFields,withRowValidation} from "./core
 //                          disclaimers) rather than misreading it.
 //
 // Nothing here calls any AI or external service. It is plain,
-// deterministic JavaScript — same input always produces same output.
+// deterministic JavaScript — the source and explicit interpretation context
+// determine the result.
 //
 // This module does NOT touch the database or the UI. It only turns
 // text into structured data. The caller decides what to do with the
@@ -248,7 +250,7 @@ const PRICE_PRIORITY = ["your price","net price","sell price","selling price",
   "quote price","quoted price","unit price","price/case","price per case",
   "price","pr","prc","cost","unit cost","rate","sell","list price"];
 
-function mapColumnsFromHeader(headerCells, procurement=getProcurementContext()) {
+function mapColumnsFromHeader(headerCells) {
   const map = {};
   const billedIndex=headerCells.findIndex(billedQuantityHeader);
   if(billedIndex>=0)map.qty=billedIndex;
@@ -297,10 +299,10 @@ function mapColumnsFromHeader(headerCells, procurement=getProcurementContext()) 
   // primary price role. Totals and other assigned fields stay separate.
   const pairedPrices=priceCandidates.filter(({idx})=>
     (idx===map.price||!Object.values(map).includes(idx))&&
-    ["CASE","EACH"].includes(unitInPriceHeader(headerCells[idx], procurement)));
+    ["CASE","EACH"].includes(unitInPriceHeader(headerCells[idx], formatContext())));
   if(pairedPrices.length===2&&pairedPrices.some(({idx})=>idx===map.price)){
     const alternate=pairedPrices.find(({idx})=>idx!==map.price).idx;
-    if(unitInPriceHeader(headerCells[alternate], procurement)!==unitInPriceHeader(headerCells[map.price], procurement))map.parallelPrice=alternate;
+    if(unitInPriceHeader(headerCells[alternate], formatContext())!==unitInPriceHeader(headerCells[map.price], formatContext()))map.parallelPrice=alternate;
   }
   return map;
 }
@@ -308,8 +310,8 @@ function mapColumnsFromHeader(headerCells, procurement=getProcurementContext()) 
 // Header words inside product data are not a new table. The two required
 // roles must occupy separate cells, and an established price cell containing
 // a real amount (including zero or a price/unit value) keeps the row as data.
-function isTableHeader(cells, previousColumns={}, procurement=getProcurementContext()) {
-  const map=mapColumnsFromHeader(cells, procurement);
+function isTableHeader(cells, previousColumns={}) {
+  const map=mapColumnsFromHeader(cells);
   return map.description!==undefined&&map.price!==undefined&&map.description!==map.price&&
     parseMoneyLenient(cells[map.price])===null&&parseMoneyLenient(cells[previousColumns.price])===null;
 }
@@ -317,7 +319,7 @@ function isTableHeader(cells, previousColumns={}, procurement=getProcurementCont
 // Some delimited lists print the same product/price table twice across one
 // physical row. Native worksheets can also repeat the same layout using
 // explicit description and price aliases, with row evidence of separate lanes.
-function repeatedColumnGroups(headers, nativeRows=null, procurement=getProcurementContext()) {
+function repeatedColumnGroups(headers, nativeRows=null) {
   const normalized=headers.map(cell=>cell.toLowerCase().trim().replace(/\s+/g,' '));
   const labels=nativeRows?normalized.map(label=>{
     if(/^(?:product|description|(?:item|product) description)$/.test(label))return 'description';
@@ -330,7 +332,7 @@ function repeatedColumnGroups(headers, nativeRows=null, procurement=getProcureme
     if(!labels.every((label,index)=>label===labels[index%width]))continue;
     const groups=Array.from({length:count},(_,n)=>{
       const start=n*width,sourceHeaders=headers.slice(start,start+width);
-      const columnMap=mapColumnsFromHeader(sourceHeaders, procurement);
+      const columnMap=mapColumnsFromHeader(sourceHeaders);
       const confirmedColumns=new Set(Object.values(columnMap));
       const fieldOrigins=Object.fromEntries(Object.keys(columnMap).map(field=>[field,"stated"]));
       return {start,sourceHeaders,columnMap,confirmedColumns,fieldOrigins};
@@ -437,44 +439,7 @@ function isNoPricePlaceholder(str) {
   return NO_PRICE_MARKERS.has(s);
 }
 
-// Spreadsheets turn a pack like "12/10" or "6/10" into a date before the
-// file ever reaches KERDOS ("2025-12-10", "12/10/2025", "10-Dec"). When the
-// pack column holds a date, the vendor almost certainly wrote outer/inner
-// counts. The month and day are read back as that pack; the year is the
-// spreadsheet's invention and is dropped. Anything that is not a date is
-// returned untouched.
-export function unmangleExcelDatePack(value){
-  const text=String(value||"").trim();
-  if(!text) return text;
-  let m=text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/);           // 2025-12-10 00:00:00
-  if(m) return `${Number(m[2])}/${Number(m[3])}`;
-  m=text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);                                        // 12/10/2025
-  if(m) return `${Number(m[1])}/${Number(m[2])}`;
-  const months={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
-  m=text.match(/^(\d{1,2})-([A-Za-z]{3})(?:-\d{2,4})?$/);                                        // 10-Dec, 10-Dec-25
-  if(m&&months[m[2].toLowerCase()]) return `${months[m[2].toLowerCase()]}/${Number(m[1])}`;
-  m=text.match(/^([A-Za-z]{3})-(\d{1,2})(?:-\d{2,4})?$/);                                        // Dec-10
-  if(m&&months[m[1].toLowerCase()]) return `${months[m[1].toLowerCase()]}/${Number(m[2])}`;
-  return text;
-}
-
-// Two things a pack column often holds that are packs in the vendor's
-// mind but not in KERDOS's grammar. A packaging word alone ("CASE",
-// "BOX", "BAG") means one of that packaging with the contents unstated,
-// which is exactly how produce and bulk goods are sold: it becomes
-// "1 CASE". A bare whole number ("1000", "2500") in a pack column is a
-// count of units: it becomes "1000 CT". Anything else is left as written.
-const PACKAGING_ONLY=/^(case|cs|cse|box|bx|bag|bg|tub|pail|bucket|bkt|crate|crt|carton|ctn|flat|sack|drum|pallet|tray|sleeve|bundle|bdl|roll|rl|jug|can|jar|bottle|btl|piece|pc|pce|each|ea)\.?$/i;
-export function normalizeColumnPack(value, procurement=getProcurementContext()){
-  const text=String(value||"").trim();
-  if(!text) return text;
-  if(PACKAGING_ONLY.test(text)) return `1 ${text.replace(/\.$/,"").toUpperCase()}`;
-  if(/^\d{2,}$/.test(text)) return `${Number(text)} CT`;
-  // Normalize mixed fractions: 1-1/9 BU → 1.111111 BU
-  return procurement.normalizeMixedFraction(text);
-}
-
-function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns=new Set(), procurement=getProcurementContext()) {
+function placeRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns=new Set()) {
   const {values, ...fieldIdentification} = fields;
   const get = role => values[role];
 
@@ -492,37 +457,18 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
 
   const anchorStatus = fields.anchor.status;
   const ambiguousDescription = anchorStatus === "ambiguous";
-  let description = (ambiguousDescription ? "" : get("description") || "").trim()
-    .replace(/\s+\*{2,}[A-Z0-9]+\*{2,}/gi, '') // **NEW** **SPECIAL** flags — must run FIRST
-    .replace(/\*+([^*]+)\*+/g, '$1')  // *ITEM* → ITEM (keep content)
-    .replace(/\*+/g, '')               // remaining lone asterisks
-    .replace(/\s{2,}/g, ' ')           // double spaces → single
-    .trim();
-  const missingDescription = anchorStatus !== "inferred" && !description;
-  if (description.length < 2 && !missingDescription) return null;
+  const description = ambiguousDescription ? "" : get("description") || "";
+  const readableDescription=withoutDescriptionFormatting(description);
+  const missingDescription = anchorStatus !== "inferred" && !readableDescription;
+  if (readableDescription.length < 2 && !missingDescription) return null;
   // A row whose description is itself a non-product line (fuel surcharge,
   // delivery fee etc) should be skipped even when it came from a CSV column.
-  if (NON_PRODUCT_LINE.test(description.trim())) return null;
+  if (NON_PRODUCT_LINE.test(readableDescription)) return null;
 
   const code = (get("code") || "").trim() || null;
   const brand = (get("brand") || "").trim() || null;
   const sellingUnit = (get("sellingUnit") || "").trim() || null;
-  const gtin = procurement.normalizeGtin(get("gtin"));
-  const manufacturerCode = procurement.normalizeManufacturerCode(get("mfrCode"));
-  // The pack column wins; when it is empty, a pack written at the end of
-  // the description is used and its origin recorded for review.
-  const columnPack = normalizeColumnPack(unmangleExcelDatePack((get("packSize") || "").trim()), procurement) || null;
-  // When no pack column exists, pull the pack from the description tail.
-  // description is let so we can strip the pack text from it.
-  const descriptionPackRaw = columnPack ? null : procurement.packFromDescription(description);
-  let descriptionPack = null;
-  if(descriptionPackRaw && !columnPack){
-    descriptionPack = descriptionPackRaw;
-    const packPos = description.lastIndexOf(descriptionPackRaw);
-    if(packPos > 4) description = description.slice(0, packPos).replace(/[,\s]+$/, "").trim();
-  }
-  const packSize = columnPack || descriptionPack;
-  const packSource = columnPack ? "column" : descriptionPack ? "description" : null;
+  const packSize = (get("packSize") || "").trim() || null;
   const qty = parseMoneyLenient(get("qty"));
   // Cells in columns the sheet never labeled (a brand, a grade, a type)
   // are kept with the row as details and shown in the item name as the
@@ -534,80 +480,46 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   const sourceMetadata=cells.map((value,index)=>({header:sourceHeaders[index]||"",value:value.trim(),columnIndex:index}))
     .filter(cell=>cell.value&&isSourceMetadataHeader(cell.header));
   const metadataIndices=new Set([...sourceMetadata.map(cell=>cell.columnIndex),...ignoredColumns]);
-  let details=cells.map((value,index)=>({value:value.trim(),index}))
+  const details=cells.map((value,index)=>({value:value.trim(),index}))
     .filter(cell=>cell.value&&!metadataIndices.has(cell.index)&&!Object.values(columnMap).includes(cell.index)&&parseMoney(cell.value)===null&&!isNoPricePlaceholder(cell.value));
-  // A cell without an assigned role may suggest a code before the product
-  // column. An explicitly labeled note remains detail in either position.
-  let rowCode=code;
-  let codeSource=code?"column":null;
-  let inferredCodeColumn;
-  if(!rowCode&&columnMap.code===undefined&&Number.isInteger(columnMap.description)){
-    const candidate=details.find(({value,index})=>index<columnMap.description&&
-        !/^(?:(?:item|product)\s+)?(?:notes?|details?|comments?|remarks?)$/i.test(sourceHeaders[index]?.trim()||"")&&
-        /^[A-Z0-9][A-Z0-9\-\/\.]{2,15}$/i.test(value)&&/\d/.test(value)&&
-        !/^\d+(?:\.\d+)?[/-]\d+(?:\.\d+)?$/.test(value)&&!procurement.parsePackSize(value)?.parsed);
-    if(candidate){
-      rowCode=candidate.value;codeSource="details";
-      inferredCodeColumn=fields.anchor.columnIndex-columnMap.description+candidate.index;
-      details=details.filter(cell=>cell.index!==candidate.index);
-    }
-  }
-  details=details.map(cell=>cell.value);
-  const fullDescription=missingDescription?"":[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const boundQuality=assessBoundFields(fields,{inferredCodeColumn}, procurement);
-  const issues = [...validation.issues,
-    ...["qty", "amount"].filter(role => boundQuality.cellIssues[role]).map(role => ({
-      kind: "invalid-assigned-field", field: role, message: boundQuality.cellIssues[role],
-    }))];
+  const boundQuality=assessBoundFields(fields,formatContext());
+  const roleByCol = Object.fromEntries(Object.entries(columnMap).map(([role,index])=>[index,role]));
+  const placement = {
+    kind:"tabular", details, missingDescription,
+    analysisCells:cells.map((cell,index)=>metadataIndices.has(index)||index===columnMap.parallelPrice?"":cell),
+    headerHints:cells.map((_,index)=>roleByCol[index]||""),
+    confirmedColumns:[...confirmedColIndices], sourceHeaders, priceRaw, descriptionColumn:columnMap.description,
+  };
 
-  // Run cell analysis to pick up flags and metadata the column-map path doesn't surface:
-  // priceUnavailable (zero price), requiresReview (negative price), originalRaw on pack.
-  // Build a header-hint array from the column map: each cell gets its role name as the hint.
-  const roleByCol = Object.fromEntries(Object.entries(columnMap).map(([role,idx])=>[idx,role]));
-  const headerHints = cells.map((_,i) => roleByCol[i] || '');
-  const analysisCells=cells.map((cell,index)=>metadataIndices.has(index)||index===columnMap.parallelPrice?"":cell);
-  const cellEvidence = analyzeRow(analysisCells, headerHints, priceHeader, confirmedColIndices, procurement);
-  const priceProposal = cellEvidence.resolved.price;
-  const packProposal  = cellEvidence.resolved.pack;
-  const finalPriceUnavailable = price === 0 || priceUnavailable || priceUnreadable || priceProposal?.priceUnavailable || false;
-  const finalRequiresReview   = priceProposal?.requiresReview || false;
-  const finalOriginalRaw      = packProposal?.originalRaw || null;
-  // Preserve unresolved-field explanations and conflict details on the row so they
-  // survive into importRow.evidence and are visible in Item Catalog.
-  const cellUnresolved = cellEvidence.unresolved?.length ? cellEvidence.unresolved : null;
-  const cellConflicts  = cellEvidence.conflicts?.length  ? cellEvidence.conflicts  : null;
-
-  return applySourceUnits({
+  return {
     fieldIdentification,
     fieldValidation: {version:validation.version, anchorStatus, priceStatus:validation.priceStatus, fields:boundQuality.fields},
     ...(Object.keys(boundQuality.cellIssues).length ? {cellIssues:boundQuality.cellIssues} : {}),
-    code: rowCode,
-    codeSource,
+    placement,
+    code,
+    codeSource:code?"column":null,
     brand,
-    gtin,
-    manufacturerCode,
+    gtin:get("gtin")?.trim()||null,
+    manufacturerCode:get("mfrCode")?.trim()||null,
     sellingUnit,
     sellingUnitHeader:sourceHeaders[columnMap.sellingUnit]||null,
     sellingUnitSource:sourceHeaders[columnMap.sellingUnit]?`header: ${sourceHeaders[columnMap.sellingUnit]}`:null,
     billingUnitEvidence:sellingUnit&&pricingUnitHeader(sourceHeaders[columnMap.sellingUnit])?{kind:'pricing-unit-header',header:sourceHeaders[columnMap.sellingUnit],unit:sellingUnit}:null,
     priceHeader,
-    description: fullDescription.slice(0, 120),
-    details,
+    description,
+    details:details.map(cell=>cell.value),
     sourceMetadata,
     packSize,
-    packSource,
-    originalPackRaw: finalOriginalRaw,
+    packSource:packSize?"column":null,
     qty: qty !== null ? qty : null,
     quantitySource:Number.isInteger(columnMap.qty)&&sourceHeaders[columnMap.qty]?{kind:'quantity-column',header:sourceHeaders[columnMap.qty],rawValue:get('qty')??'',columnIndex:columnMap.qty,headerLine:sourceHeaders.join('\t')}:null,
     price: price !== null ? price : amount,
     amount: amount !== null ? amount : price,
-    priceUnavailable: finalPriceUnavailable,
-    requiresReview: validation.requiresReview || finalRequiresReview,
-    cellUnresolved,
-    cellConflicts,
+    priceUnavailable:price===0||priceUnavailable||priceUnreadable,
+    requiresReview:validation.requiresReview,
     sourceLine:cells.join("\t"),
-    issues,
-  },{priceCell:priceRaw,priceHeader}, procurement);
+    issues:validation.issues,
+  };
 }
 
 
@@ -626,7 +538,7 @@ function isDocumentMetadata(line){
   const t=line.trim();
   return METADATA_LINE.test(t)||NON_PRODUCT_LINE.test(t)||/^(?:https?:\/\/|www\.|@)/i.test(t);
 }
-function contextualFreeformRow(line, procurement=getProcurementContext()){
+function contextualFreeformRow(line){
   if(isDocumentMetadata(line)) return null;
   const labeled=extractLabeledFields(line);
   if(labeled){
@@ -668,13 +580,6 @@ function contextualFreeformRow(line, procurement=getProcurementContext()){
   const price=Number((prior||chosen).raw.replace(/[$,\s]/g,''));
   const amount=Number(chosen.raw.replace(/[$,\s]/g,''));
   if(!Number.isFinite(price)||price<=0||price>1000000||!Number.isFinite(amount))return null;
-  // Use full pack parser on the description tail. sourceLine is the unmodified original.
-  let cfDescription=description;
-  let cfPack=null;
-  const cfPackStr=procurement.packFromDescription(description);
-  let cfPackOriginal=null;
-  if(cfPackStr){const cfIdx=procurement.normalizeMixedFraction(description)
-    .lastIndexOf(cfPackStr);if(cfIdx>4){cfPack=cfPackStr;cfPackOriginal=description.slice(cfIdx).replace(/[.,\s]+$/,"").trim();cfDescription=description.slice(0,cfIdx).replace(/[,\s]+$/,"").trim();}}
   const issues=[];
   if(prior&&qty!=null&&Math.abs(qty*price-amount)>0.02)issues.push("Quantity x unit price does not equal the stated line total");
   if(!prior&&qty!=null&&qty>1)issues.push("Only one price is listed; unit price versus extended total is ambiguous");
@@ -682,7 +587,7 @@ function contextualFreeformRow(line, procurement=getProcurementContext()){
   const requiresReview=!!(priceToken.isParenNeg||chosen.isParenNeg)||undefined;
   const finalPrice=priceToken.isParenNeg?-Math.abs(Number(priceToken.raw.replace(/[$,\s]/g,''))):price;
   const finalAmount=chosen.isParenNeg?-Math.abs(Number(chosen.raw.replace(/[$,\s]/g,''))):amount;
-  return {code:null,description:cfDescription.slice(0,120),packSize:cfPack,packSource:cfPack?"description":null,originalPackSize:cfPackOriginal||null,
+  return {code:null,description,packSize:null,placement:{kind:"contextual"},
     qty,price:finalPrice,amount:prior?finalAmount:null,priceUnavailable:false,requiresReview,sourceLine:line,issues};
 }
 
@@ -704,41 +609,6 @@ function findQuoteValidity(text){
     if(date)return date;
   }
   return null;
-}
-
-function reviewUncertainRows(rows,documentKind){
-  return rows.map(row=>{
-    const issues=[...(row.issues||[])];
-    const bindings=row.fieldIdentification?.bindings;
-    const amountField=bindings?.amount;
-    const priceField=bindings?.price;
-    const amountIsPriceCell=amountField?.columnIndex===priceField?.columnIndex;
-    const explicitTotal=/^(?:total\b|ext(?:ended)?\b|line\s+(?:total|amount)\b)/i.test(amountField?.header?.trim()||"");
-    const amountWithoutUnitPrice=amountField&&row.amount!=null&&
-      (amountIsPriceCell||parseAssignedMoney(priceField?.rawValue)===null);
-    const isInvoice=documentKind==="invoice";
-    if(amountWithoutUnitPrice&&(isInvoice||explicitTotal||bindings.qty||priceField)){
-      issues.push(isInvoice?"Invoice unit price is missing; the extended amount cannot be used as a unit price":
-        "The row's extended amount is not a stated unit price; verify the quoted price");
-      const validation=row.fieldValidation;
-      row={...row,price:null,priceUnavailable:isInvoice?row.priceUnavailable:true,requiresReview:true,fieldValidation:{
-        ...validation,priceStatus:'missing-unit-price',fields:{...validation.fields,
-          price:validation.fields.price??{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
-      }};
-    }
-    if(isInvoice){
-      // An invoice line must be fully understood before it can touch a
-      // quote; unlabeled cells on it still need a person.
-      if(row.details?.length)issues.push(`Unlabeled invoice details need identification: ${row.details.join(" | ").slice(0,100)}`);
-      if(row.qty==null)issues.push("Invoice quantity or selling unit could not be verified from the source line");
-      if(!row.code&&/^\d+[\s\-]/.test(row.description||""))issues.push("Vendor item code may have been included in the product description");
-      if(row.qty!=null&&row.amount!=null&&row.price!=null&&Math.abs(row.qty*row.price-row.amount)>0.02)
-        issues.push("Invoice quantity, unit price and extended total do not reconcile");
-    }else if(documentKind==="pricelist"&&row.amount!=null&&row.price!=null&&row.amount!==row.price){
-      issues.push("Two different prices were read from one line; verify that adjacent columns were not combined");
-    }
-    return {...row,issues};
-  });
 }
 
 // Service invoices often quote fractional rates (for example $0.099 per
@@ -767,7 +637,7 @@ function parseServiceInvoice(lines,text){
 // Some invoices state an ordered/delivered count and a separate measured
 // quantity for billing. Recognize the column roles, then use the selling
 // unit's dimension; this applies equally to any trade and supplier.
-function parseGoodsInvoice(lines,text, procurement=getProcurementContext()){
+function placeGoodsInvoice(lines,text){
   const heading=lines.findIndex(line=>/\bItem(?:\s*\/\s*Xref|\s*(?:No\.?|#))?\b.*\b(?:ORD|ORDERED)\b.*\b(?:DLV|DELIVERED)\b.*\b(?:UOM|UNIT)\b.*\bDescription\b.*\bPack\s*Size\b.*\b(?:Weight|Billed\s+Quantity)\b.*\bUnit\s*Price\b.*\b(?:Extended|Line\s+Total)\b/i.test(line));
   if(heading<0)return null;
   const rows=[],skipped=[];
@@ -778,27 +648,20 @@ function parseGoodsInvoice(lines,text, procurement=getProcurementContext()){
     const match=line.match(rowPattern);
     if(!match){if(line.trim())skipped.push({line,reason:"Non-item or wrapped invoice detail"});continue;}
     const [,code,ordered,delivered,uom,body,rawPrice,rawAmount]=match;
-    const measure=procurement.measurement(1,uom),measuredUnit=measure?.dimension==="mass"||measure?.dimension==="volume"||measure?.dimension==="length";
-    const weightMatch=measuredUnit?body.match(/\s+(\d+\.\d{2})\s*$/):null;
-    const weightPart=weightMatch?Number(weightMatch[1]):null;
-    const withoutWeight=weightMatch?body.slice(0,weightMatch.index).trim():body.trim();
-    const packMatch=withoutWeight.match(packPattern);
-    const packSize=packMatch?.[1]?.replace(/\.$/,'')||null;
-    const description=packMatch?withoutWeight.slice(0,packMatch.index).trim():withoutWeight;
-    const qty=measuredUnit?weightPart:Number(delivered);
+    const weightMatch=body.match(/\s+(\d+\.\d{2})\s*$/);
+    const readProductCells=text=>{
+      const packMatch=text.match(packPattern);
+      return {description:packMatch?text.slice(0,packMatch.index).trim():text,
+        packSize:packMatch?.[1]?.replace(/\.$/,'')||null};
+    };
+    const product=readProductCells(body.trim());
     const price=Number(rawPrice.replaceAll(',','')),amount=Number(rawAmount.replaceAll(',',''));
-    const issues=[];
-    if(!description)issues.push('Product description could not be identified');
-    if(!packSize)issues.push('Pack size needs review');
-    if(measure?.dimension==="unknown"&&!/^(?:CS|CASE|BX|BOX|PK|PACK|CT|CARTON|PALLET)$/i.test(uom))issues.push('Selling unit is not recognized; verify the billed quantity basis');
-    if(qty===null||!Number.isFinite(qty))issues.push('Measured billed quantity is missing for this selling unit');
-    else if(Math.abs(qty*price-amount)>0.025)issues.push('Billed quantity and unit price do not reconcile with extended total');
-    rows.push({code,description:description.slice(0,120),packSize,qty,orderedQty:Number(ordered),deliveredQty:Number(delivered),weight:weightPart,
+    rows.push({code,...product,qty:null,orderedQty:Number(ordered),deliveredQty:Number(delivered),
       sellingUnit:uom.toUpperCase(),sellingUnitSource:'goods invoice billed UOM',
       billingUnitEvidence:{kind:'goods-invoice-billed-unit',header:'UOM',unit:uom.toUpperCase()},
-      quantitySource:weightMatch?{kind:'goods-invoice-weight',header:lines[heading].match(/\b(Weight|Billed\s+Quantity)\b/i)[1],rawValue:weightMatch[1],headerLine:lines[heading]}:null,
-      price,amount,priceBasis:measuredUnit?'measure':'selling-unit',
-      priceUnavailable:false,sourceLine:line,issues});
+      price,amount,priceUnavailable:false,sourceLine:line,issues:[],
+      placement:{kind:"goods-invoice",uom,weight:weightMatch?.[1]??null,measuredProduct:weightMatch?readProductCells(body.slice(0,weightMatch.index).trim()):null,
+        headerLine:lines[heading]}});
   }
   return {mode:'goods-invoice',headerFound:true,columnMap:{},rows,skipped,documentKind:'invoice',quoteValidUntil:findQuoteValidity(text)};
 }
@@ -958,7 +821,8 @@ function extractRowFreeform(line, {descriptionPriceOnly=false,explicitCodeRole=f
   const priceRequiresReview = !!(priceTok.requiresReview || amountTok.requiresReview);
   return {
     code,
-    description: description.slice(0, 120),
+    description,
+    placement:{kind:"freeform-label"},
     packSize: null,
     qty,
     price: priceTok.value,
@@ -1167,7 +1031,8 @@ function extractLabeledFields(line) {
 
   return {
     code: matches.code ? matches.code.value : null,
-    description: description.slice(0, 120),
+    description,
+    placement:{kind:"freeform-label"},
     packSize: null,
     qty: matches.qty ? parseFloat(matches.qty.value) : null,
     price: price !== null ? price : amount,
@@ -1185,12 +1050,12 @@ function extractLabeledFields(line) {
 //   skipped: [ { line, reason }, ... ]   // for transparency in the review UI
 // }
 
-function parseDocumentRows(text, options={}, procurement=getProcurementContext()) {
+function placeDocumentRows(text, options={}) {
   const rawLines = text.split("\n").map(l => l.trimEnd()).filter(l => l.trim().length > 0);
 
   const serviceInvoice=parseServiceInvoice(rawLines,text);
   if(serviceInvoice)return serviceInvoice;
-  const goodsInvoice=parseGoodsInvoice(rawLines,text, procurement);
+  const goodsInvoice=placeGoodsInvoice(rawLines,text);
   if(goodsInvoice)return goodsInvoice;
 
   const delimiter = options.delimiter==="tab"?"tab":sniffDelimiter(rawLines);
@@ -1202,12 +1067,12 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
     // interpreted independently and every uncertain line stays visible.
     const rows=[],skipped=[];
     for(const line of rawLines){
-      const row=contextualFreeformRow(line, procurement);
+      const row=contextualFreeformRow(line);
       if(row) rows.push(row);
       else skipped.push({line,reason:isDocumentMetadata(line)?"document metadata, not a product":"no unambiguous product and monetary price"});
     }
     const documentKind=detectDocumentKind(text);
-    return {mode:"contextual",headerFound:false,columnMap:{},rows:reviewUncertainRows(rows,documentKind),skipped,documentKind,quoteValidUntil:findQuoteValidity(text)};
+    return {mode:"contextual",headerFound:false,columnMap:{},rows,skipped,documentKind,quoteValidUntil:findQuoteValidity(text)};
   }
 
   // ── FREEFORM MODE ──
@@ -1267,7 +1132,7 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
       skipped.push({ line: `(${afterCount} footer/note lines after the item table)`, reason: "outside the item table" });
     }
     const documentKind=detectDocumentKind(text);
-    return { mode: "freeform", headerFound: headerIdx !== -1, columnMap: {}, rows:reviewUncertainRows(rows,documentKind), skipped, documentKind,quoteValidUntil:findQuoteValidity(text) };
+    return { mode: "freeform", headerFound: headerIdx !== -1, columnMap: {}, rows, skipped, documentKind,quoteValidUntil:findQuoteValidity(text) };
   }
 
   // ── TABULAR MODE ──
@@ -1290,7 +1155,7 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
   // client's remembered answers for this vendor's layout on top of it,
   // and only then the data-shape guesses for whatever is still unnamed.
   const headerCells=headerFound?grid[headerIndex].cells:[];
-  const engineMap=headerFound?mapColumnsFromHeader(headerCells, procurement):{};
+  const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
   const layoutAnswers=options.layoutAnswers||{};
   const allowAliasGroups=options.nativeWorksheet&&!Object.keys(layoutAnswers).length;
   const answered=applyLayoutAnswers(engineMap,layoutAnswers);
@@ -1305,7 +1170,7 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
   ]));
   let priceHeader=headerFound?grid[headerIndex].cells[columnMap.price]:"";
   let sourceHeaders=headerFound?grid[headerIndex].cells:[];
-  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders,allowAliasGroups?grid.slice(dataStart):null, procurement):null;
+  let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders,allowAliasGroups?grid.slice(dataStart):null):null;
   const repeatedRoles=allowAliasGroups&&repeatedGroups?.flatMap(({start,columnMap})=>
     Object.entries(columnMap).map(([role,index])=>[start+index,role]));
   const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:layoutAnswers,repeatedRoles}):{headers:[],unknown:[],fingerprint:""};
@@ -1322,19 +1187,19 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
 
     // Repeated table headers can change the quoted unit. Do not leak a
     // preceding worksheet's price header into the next table.
-    const header=mapColumnsFromHeader(cells, procurement);
-    if(isTableHeader(cells,columnMap, procurement)){
+    const header=mapColumnsFromHeader(cells);
+    if(isTableHeader(cells,columnMap)){
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;
       confirmedColIndices=new Set(Object.values(header));
       fieldOrigins=Object.fromEntries(Object.keys(header).map(field=>[field,"stated"]));
-      repeatedGroups=repeatedColumnGroups(cells,allowAliasGroups?grid.slice(i+1):null, procurement);continue;
+      repeatedGroups=repeatedColumnGroups(cells,allowAliasGroups?grid.slice(i+1):null);continue;
     }
     if(repeatedGroups){
       for(const {start,sourceHeaders:groupHeaders,columnMap:groupMap,confirmedColumns,fieldOrigins} of repeatedGroups){
         const part=cells.slice(start,start+groupHeaders.length);
         if(!part.some(Boolean))continue;
         const fields=identifyRowFields({cells:part,columnMap:groupMap,sourceHeaders:groupHeaders,fieldOrigins,rowIndex:i,columnStart:start});
-        const row=extractRow(part,groupMap,groupHeaders[groupMap.price],confirmedColumns,groupHeaders,fields, undefined, procurement);
+        const row=placeRow(part,groupMap,groupHeaders[groupMap.price],confirmedColumns,groupHeaders,fields);
         if(!row){skipped.push({line:part.join('\t'),reason:"couldn't find a valid price or description",
           ...(options.includeSourceIndex?{sourceIndex:i,sourceColumnStart:start,sourceColumnCount:groupHeaders.length}:{})});continue;}
         if(options.includeSourceIndex)row.sourceIndex=i;
@@ -1345,7 +1210,7 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
       continue;
     }
     const fields=identifyRowFields({cells,columnMap,sourceHeaders,fieldOrigins,rowIndex:i});
-    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns, procurement);
+    const row = placeRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns);
     if (!row) {
       skipped.push({ line, reason: "couldn't find a valid price or description", ...(options.includeSourceIndex?{sourceIndex:i}:{}) });
       continue;
@@ -1356,14 +1221,22 @@ function parseDocumentRows(text, options={}, procurement=getProcurementContext()
   }
 
   const documentKind=detectDocumentKind(text);
-  return { mode: "tabular", headerFound, columnMap, layout, rows:reviewUncertainRows(rows,documentKind), skipped, documentKind,quoteValidUntil:findQuoteValidity(text) };
+  return { mode: "tabular", headerFound, columnMap, layout, rows, skipped, documentKind,quoteValidUntil:findQuoteValidity(text) };
 }
 
 
+// Structural validation uses only generic formats, never workspace vocabulary.
+let neutralFormats;
+function formatContext(){
+  return neutralFormats??=createProcurementContext();
+}
+
+export function placeDocumentFields(text, options={}){
+  return {...placeDocumentRows(text, options), placementText:text};
+}
+
 function parseDocument(text, options={}, procurement=getProcurementContext()){
-  const result=parseDocumentRows(text, options, procurement);
-  const documentUnit=documentQuoteUnit(text, procurement);
-  return {...result,rows:result.rows.map(row=>withRowValidation(applySourceUnits(row,{documentUnit}, procurement)))};
+  return interpretDocumentFields(placeDocumentFields(text, options),procurement);
 }
 
 // Exported for use elsewhere in the app.

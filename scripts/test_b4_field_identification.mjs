@@ -110,6 +110,27 @@ await check('failed settings persistence stays visible and a later confirmation 
  assert.ok(!text(tree.toJSON()).includes('could not be remembered'));assert.equal(f.calls.applyQuote.length,0);
  }finally{tree.unmount();}
 });
+await check('manual upload saves inferred pack evidence alongside the vendor’s exact description',async()=>{
+ const f=fixture(),tree=await open(f.settings);try{
+  f.backend.documents={upload:async()=>{}};
+  const content='Code,Description,Price Unit,Price\nB4-301,Paper  Towels 6/5 LB,CASE,41.25\n';
+  await act(async()=>{tree.root.find(n=>n.type==='input'&&n.props.type==='file').props.onChange({target:{files:[{name:'boundary.csv',size:content.length,text:async()=>content}],value:'selected'}});await new Promise(r=>setTimeout(r,950));});
+  assert.equal(f.calls.applyQuote.length,0);
+  const save=button(tree,'Save Import →');
+  assert.ok(save);
+  await act(async()=>{await save.props.onClick();});
+  for(let attempt=0;attempt<100&&!f.calls.applyQuote.length;attempt++){
+   await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+  }
+  assert.equal(f.calls.applyQuote.length,1,text(tree.toJSON()));
+  const quote=f.calls.applyQuote[0];
+  assert.equal(quote.packSize,'6/5 LB');
+  assert.equal(quote.importRow.evidence.sourceDescription,'Paper  Towels 6/5 LB');
+  assert.equal(quote.importRow.evidence.fieldValidation.fields.packSize.status,'missing');
+  assert.equal(quote.importRow.evidence.fieldInference.packSize.kind,'inferred');
+  assert.equal(quote.importRow.evidence.fieldInference.packSize.accuracy,90);
+ }finally{tree.unmount();}
+});
 console.log(passed+'/'+(passed+failed)+' B4 parser/rendered checks passed (mocked settings/database; not live browser evidence).');
 process.exit(failed?1:0);
 `;
