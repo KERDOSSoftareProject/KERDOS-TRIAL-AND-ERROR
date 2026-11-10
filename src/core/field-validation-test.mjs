@@ -98,6 +98,10 @@ const priceCases=[
  ['case qualifier','45.00/cs',45,'present'],
  ['weight qualifier','3.99/LB',3.99,'present'],
  ['worded qualifier','50.00 per case',50,'present'],
+ ['qualified group separators','"$1,234.50 per case"',1234.5,'present'],
+ ['unrecognized suffix','40.00XX',null,'invalid'],
+ ['multiple decimal points','40.00.12',null,'invalid'],
+ ['malformed comma separators','"12,3456/LB"',null,'invalid'],
  ['empty price','',null,'missing'],
  ['unreadable price','bad',null,'invalid'],
 ];
@@ -107,6 +111,9 @@ for(const [name,cell,value,status] of priceCases){
  assert.equal(parsed.rows[0].price,value,`${name}: extract assigned value`);
  assert.equal(parsed.rows[0].fieldValidation.fields.price.status,status,`${name}: validate the same cell`);
 }
+const garbledQuote=parseDocument('Description,Pack,Price,Price Unit\nFixture Oil,4/1 GAL,40.00XX,CASE').rows[0];
+assert.equal(preparePriceImport(garbledQuote,null,null,garbledQuote.issues).requiresReview,true);
+assert.equal(garbledQuote.fieldIdentification.bindings.price.rawValue,'40.00XX');
 const row=parseDocument('Description,Brand,Price\nMilk,Brand A,20.00\n,Brand B,');
 assert.equal(row.rows[0].fieldValidation.priceStatus,'parsed');
 assert.equal(row.rows[1].fieldValidation.priceStatus,'missing-or-unreadable');

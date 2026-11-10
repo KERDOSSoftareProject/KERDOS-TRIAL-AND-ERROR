@@ -7,7 +7,7 @@ import {analyzeRow} from "./core/cell-analysis.js";
 import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
 import {readHeaderLayout,applyLayoutAnswers} from "./core/sheet-layout.js";
 import {identifyRowFields} from "./core/field-identification.js";
-import {parseMoney,parseMoneyLenient} from "./core/assigned-numbers.js";
+import {parseAssignedMoney,parseMoney,parseMoneyLenient} from "./core/assigned-numbers.js";
 import {assessBoundFields,validateAssignedFields,withRowValidation} from "./core/field-validation.js";
 // KERDOS INGESTION MODULE
 // ════════════════════════════════════════════════════════════════════
@@ -461,8 +461,8 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
 
   const priceRaw = get("price");
   const amountRaw = get("amount");
-  const price = parseMoneyLenient(priceRaw);
-  const amount = parseMoneyLenient(amountRaw);
+  const price = parseAssignedMoney(priceRaw);
+  const amount = parseAssignedMoney(amountRaw);
 
   const priceUnavailable = price === null && amount === null &&
     (isNoPricePlaceholder(priceRaw) || isNoPricePlaceholder(amountRaw));
@@ -696,7 +696,7 @@ function reviewUncertainRows(rows,documentKind){
     const amountIsPriceCell=amountField?.columnIndex===priceField?.columnIndex;
     const explicitTotal=/^(?:total\b|ext(?:ended)?\b|line\s+(?:total|amount)\b)/i.test(amountField?.header?.trim()||"");
     const amountWithoutUnitPrice=amountField&&row.amount!=null&&
-      (amountIsPriceCell||parseMoneyLenient(priceField?.rawValue)===null);
+      (amountIsPriceCell||parseAssignedMoney(priceField?.rawValue)===null);
     const isInvoice=documentKind==="invoice";
     if(amountWithoutUnitPrice&&(isInvoice||explicitTotal||bindings.qty||priceField)){
       issues.push(isInvoice?"Invoice unit price is missing; the extended amount cannot be used as a unit price":
