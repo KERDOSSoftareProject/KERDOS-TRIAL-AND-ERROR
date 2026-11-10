@@ -326,6 +326,16 @@ assert.match(text(aside()),/Third Vendor.*2 cases × \$19\.99.*39\.98/,'the bask
 await act(async()=>tree.unmount());
 console.log('PASS C2.5 unit-cost comparison retains precision through the Order Guide and basket.');
 
+snapshot.vendors.find(vendor=>vendor.id===third.vendor_id).delivery_minimum_dollar=50;
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.match(text(aside()),/Third Vendor.*2 cases × \$19\.99.*39\.98/,'automatic minimum handling retains both 20,000-piece cases');
+assert.match(text(aside()),/10\.02 to go/,'the remaining minimum is visible when only a smaller pack could be substituted');
+await selectHoney('Sample Vendor');
+assert.match(text(aside()),/Sample Vendor.*2 cases × \$10\.00.*20\.00/,'an explicit supplier selection may still change the pack');
+await act(async()=>tree.unmount());
+console.log('PASS G minimum handling retains the ordered pack unless the client changes the supplier.');
+
+
 
 
 

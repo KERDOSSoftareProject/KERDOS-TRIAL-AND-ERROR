@@ -205,6 +205,41 @@ assert.equal(lockedShort[0].assignedVendorId,'a');assert.equal(lockedShort[0].pr
 assert.ok(lockedShort[0].lineTotal<60,'a purchasing-eligible locked line is not proof that the basket meets minimum');
 const coupled=solveOrder([line('x',30,60),line('y',40,35)],[...minVendors,{id:'b',name:'B',delivery_minimum_dollar:70}]);
 assert.deepEqual(coupled.map(a=>a.assignedVendorId),['a','a'],'consolidation resolves competing short baskets without leaving a short active vendor');
+
+const differentPacks=solveOrder([
+  {catalogItemId:"short",quantity:1,orderUnit:"case",options:[
+    option("a",30,{packSize:"2/5 LB"}),option("b",60,{packSize:"10 LB"}),
+  ]},
+  {catalogItemId:"fill",quantity:1,orderUnit:"case",options:[
+    option("b",35,{packSize:"10 LB"}),option("a",40,{packSize:"5 LB"}),
+  ]},
+],minVendors);
+assert.deepEqual(differentPacks.map(a=>[a.assignedVendorId,a.packSize,a.lineTotal]),[
+  ["a","2/5 LB",30],["b","10 LB",35],
+],"minimum consolidation preserves both package configuration and the amount ordered");
+
+const equivalentFallback=solveOrder([{
+  catalogItemId:"fallback",quantity:2,orderUnit:"case",options:[
+    option("a",10,{packSize:"10 LB"}),option("b",11,{packSize:"5 LB"}),option("c",12,{packSize:"160 OZ"}),
+  ],
+}],minVendors)[0];
+assert.equal(equivalentFallback.assignedVendorId,"c","a short basket can move to a different supplier with an equivalent pack");
+assert.equal(equivalentFallback.lineTotal,24);
+
+const eachMinimum=solveOrder([
+  {catalogItemId:"each-short",quantity:1,orderUnit:"each",options:[
+    option("a",30,{orderUnit:"each",eachPrice:30,eachSize:"1 LB",packSize:"4/1 LB"}),
+    option("b",60,{orderUnit:"each",eachPrice:60,eachSize:"16 OZ",packSize:"8/16 OZ"}),
+  ]},
+  {catalogItemId:"each-fill",quantity:1,orderUnit:"each",options:[
+    option("b",35,{orderUnit:"each",eachPrice:35,eachSize:"5 LB",packSize:"4/5 LB"}),
+    option("a",40,{orderUnit:"each",eachPrice:40,eachSize:"80 OZ",packSize:"12/80 OZ"}),
+  ]},
+],minVendors);
+assert.deepEqual(eachMinimum.map(a=>[a.assignedVendorId,a.packSize,a.lineTotal]),[
+  ["a","1 LB",30],["a","80 OZ",40],
+],"Each reassignment compares one purchasable package even when the case counts differ");
+
 // This deliberately infeasible fixture reached the current iteration cap in
 // diagnostic tracing: B/C cannot meet their minimum even with every offer.
 // Assert the public contract: termination, honest charges, no lost/held lines,
