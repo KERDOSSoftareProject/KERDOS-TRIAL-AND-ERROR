@@ -20,7 +20,7 @@
     "test:b3": "node scripts/test_b3_document_structuring.mjs && node scripts/test_b3_invoice_layouts.mjs",
     "test:b4": "node src/core/field-identification-test.mjs && node src/core/sheet-layout-test.mjs && node scripts/test_b4_field_identification.mjs && node scripts/test_b4_unnumbered_quote_sql.mjs && node scripts/test_b4_layout_sql.mjs && node src/backend/organization-layout-test.mjs",
     "test:b2-ocr": "node scripts/verify_b2_mixed_ocr.mjs",
-    "test:b5": "node scripts/test_b5_retained_rows.mjs && node scripts/test_b5_retained_rows_ui.mjs",
+    "test:b5": "node src/core/field-validation-test.mjs && node scripts/test_b5_retained_rows.mjs && node scripts/test_b5_retained_rows_ui.mjs",
     "test:welcome": "node scripts/test_welcome_screen.mjs",
     "test:task2-concurrency": "node scripts/test_task2_concurrency.mjs && node scripts/test_price_quote_concurrency.mjs && node scripts/test_invoice_quote_concurrency.mjs && node scripts/test_a2_schedule_clock.mjs && node scripts/test_a2_schedule_claim_concurrency.mjs && node scripts/test_a2_schedule_receipts.mjs && node scripts/test_a2_schedule_verification_pause.mjs",
     "test:associations": "node scripts/test_product_associations.mjs && node scripts/test_product_associations_sql.mjs && node scripts/test_product_associations_ui.mjs",

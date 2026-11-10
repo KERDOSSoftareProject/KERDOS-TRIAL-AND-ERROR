@@ -22,7 +22,7 @@ export async function prepareAutomaticInvoice({text,rows,organizationId,vendorId
     const fail=reason=>review(`Invoice line ${index+1}: ${reason}`);
     if(!row.description?.trim())return fail('Product description is missing.');
     if(row.requiresReview||row.issues?.length||row.details?.length)
-      return fail(row.issues?.join('; ')||'Source fields require review.');
+      return fail(row.issues?.map(issue=>typeof issue==='string'?issue:issue?.message||issue?.kind||'Source field requires review.').join('; ')||'Source fields require review.');
     if(!numeric(row.qty)||Number(row.qty)<=0||!numeric(row.price)||Number(row.price)<0||!numeric(row.amount))
       return fail('Billed quantity, unit price and extended amount must be stated.');
     if(Math.abs(money(Number(row.qty)*Number(row.price))-Number(row.amount))>0.025)

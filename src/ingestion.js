@@ -5,8 +5,10 @@ import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
 import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
-import {readHeaderLayout,applyLayoutAnswers,checkRowCells} from "./core/sheet-layout.js";
+import {readHeaderLayout,applyLayoutAnswers} from "./core/sheet-layout.js";
 import {identifyRowFields} from "./core/field-identification.js";
+import {parseMoney,parseMoneyLenient} from "./core/assigned-numbers.js";
+import {assessBoundFields,validateAssignedFields,withRowValidation} from "./core/field-validation.js";
 // KERDOS INGESTION MODULE
 // ════════════════════════════════════════════════════════════════════
 //
@@ -99,47 +101,6 @@ function isTableEndMarker(cells) {
 
 
 // ── Small utilities ─────────────────────────────────────────────────
-
-function parseMoney(str) {
-  if (str == null) return null;
-  let cleaned = String(str).replace(/[$]/g, "").trim();
-  // European decimal comma: "12,50" means 12.50 (not 12 thousands 50)
-  // Detect: digits, single comma, 1-2 digits, end — no dot present
-  if (/^-?\d+,\d{1,2}$/.test(cleaned)) cleaned = cleaned.replace(",", ".");
-  else cleaned = cleaned.replace(/,/g, ""); // strip thousands separators
-  // Accounting-style negatives — "(24.00)" meaning -24.00 — are common in
-  // bookkeeper-produced spreadsheets (QuickBooks-style exports, manual
-  // credit memos) even when nobody on staff would type an actual minus sign.
-  let negative = false;
-  if (/^\(.*\)$/.test(cleaned)) {
-    negative = true;
-    cleaned = cleaned.slice(1, -1).trim();
-  }
-  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
-  let n = parseFloat(cleaned);
-  if (isNaN(n)) return null;
-  if (negative) n = -Math.abs(n);
-  return n;
-}
-
-// A non-technical worker very often types a price and its unit into the
-// SAME cell instead of using separate columns — "$12.50 ea", "45.00/cs",
-// "3.99/LB", "50.00 per case". The real number is always the leading
-// token; everything after it is a qualifier, never part of the value.
-// Deliberately kept separate from parseMoney (used for exact/strict
-// checks like header scoring and column-role profiling, where a stray
-// numeric-looking description shouldn't be mistaken for a price column) —
-// this lenient version is only used once a column's role is already known
-// to be price/amount/qty, at final row extraction.
-function parseMoneyLenient(str) {
-  if (str == null) return null;
-  const exact = parseMoney(str);
-  if (exact !== null) return exact;
-  const s = String(str).trim();
-  const m = s.match(/^\(?-?\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\)?/);
-  if (!m || !m[0].trim()) return null;
-  return parseMoney(m[0]);
-}
 
 function isJunkRow(cells) {
   const joined = cells.join(" ").trim();
@@ -506,33 +467,10 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   const priceUnavailable = price === null && amount === null &&
     (isNoPricePlaceholder(priceRaw) || isNoPricePlaceholder(amountRaw));
 
-  // A row with a blank or unreadable price cell (but not a recognised "no
-  // price" placeholder) is still a real product row — the value is just
-  // missing or malformed.  Keep it and attach a "missing-price" issue so it
-  // surfaces for review rather than disappearing silently into result.skipped.
-  //
-  // The key guard is priceRaw !== undefined: when the price column is mapped
-  // and a cell value was actually read (even if that value is blank or ""), the
-  // vendor's row genuinely has a price slot — it just wasn't filled or is
-  // unreadable.  That row is worth keeping.  When priceRaw is undefined the
-  // price column was inferred beyond the row's actual width (e.g. a bare
-  // category heading "FRUIT" in space-delimited text whose price column was
-  // detected from neighbouring rows) — in that case the row has no price slot
-  // at all and is discarded as before.
-  //
-  // Additional guard: priceRaw must either be empty (blank cell — genuine missing
-  // price) or start with a digit or currency symbol (a numeric-like value that
-  // failed to parse).  A purely alphabetic-leading string such as "Col1", "Col4",
-  // or "Price" is a column label that leaked through an undetected header row,
-  // not a product price — those rows must fall through to the discard path below.
-  const _priceRawStr = priceRaw != null ? String(priceRaw).trim() : null;
-  const _priceRawLooksNumeric = _priceRawStr === "" || (_priceRawStr != null && /^[$€£¥\d]/.test(_priceRawStr));
-  const priceUnreadable = price === null && amount === null && !priceUnavailable
-    && priceRaw !== undefined && priceRaw !== null && _priceRawLooksNumeric;
-
-  // Discard rows with no price that are not a recognised placeholder and have
-  // no actual price cell (priceRaw undefined/null = no mapped price slot).
-  if (price === null && amount === null && !priceUnavailable && !priceUnreadable) return null;
+  const validation = validateAssignedFields(fields, {price, amount, priceUnavailable});
+  if (!validation.retain) return null;
+  const boundQuality = assessBoundFields(fields);
+  const priceUnreadable = validation.priceStatus === "missing-or-unreadable";
 
   const anchorStatus = fields.anchor.status;
   const ambiguousDescription = anchorStatus === "ambiguous";
@@ -593,18 +531,10 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   }
   details=details.map(cell=>cell.value);
   const fullDescription=missingDescription?"":[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const issues=missingDescription?[{
-    kind:ambiguousDescription?"ambiguous-description":"missing-description",
-    message:ambiguousDescription?"Product description column also has another assigned role.":"Product description is missing.",
-  }]:[];
-
-  // A row whose price cell was blank or unreadable gets flagged for review.
-  // priceUnavailable is also set so ImportModal doesn't throw "No confirmed
-  // positive unit price" and instead saves the row with the issue attached.
-  if (priceUnreadable) {
-    const rawHint = priceRaw != null && String(priceRaw).trim() ? ` ("${String(priceRaw).trim()}")` : "";
-    issues.push({ kind: "missing-price", message: `Price missing or could not be read${rawHint}` });
-  }
+  const issues = [...validation.issues,
+    ...["qty", "amount"].filter(role => boundQuality.cellIssues[role]).map(role => ({
+      kind: "invalid-assigned-field", field: role, message: boundQuality.cellIssues[role],
+    }))];
 
   // Run cell analysis to pick up flags and metadata the column-map path doesn't surface:
   // priceUnavailable (zero price), requiresReview (negative price), originalRaw on pack.
@@ -625,6 +555,8 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
 
   return applySourceUnits({
     fieldIdentification,
+    fieldValidation: {version:validation.version, anchorStatus, priceStatus:validation.priceStatus, fields:boundQuality.fields},
+    ...(Object.keys(boundQuality.cellIssues).length ? {cellIssues:boundQuality.cellIssues} : {}),
     code: rowCode,
     codeSource,
     brand,
@@ -646,7 +578,7 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
     price: price !== null ? price : amount,
     amount: amount !== null ? amount : price,
     priceUnavailable: finalPriceUnavailable,
-    requiresReview: missingDescription || finalRequiresReview,
+    requiresReview: validation.requiresReview || finalRequiresReview,
     cellUnresolved,
     cellConflicts,
     sourceLine:cells.join("\t"),
@@ -753,7 +685,24 @@ function findQuoteValidity(text){
 function reviewUncertainRows(rows,documentKind){
   return rows.map(row=>{
     const issues=[...(row.issues||[])];
-    if(documentKind==="invoice"){
+    const bindings=row.fieldIdentification?.bindings;
+    const amountField=bindings?.amount;
+    const priceField=bindings?.price;
+    const amountIsPriceCell=amountField?.columnIndex===priceField?.columnIndex;
+    const explicitTotal=/^(?:total\b|ext(?:ended)?\b|line\s+(?:total|amount)\b)/i.test(amountField?.header?.trim()||"");
+    const amountWithoutUnitPrice=amountField&&row.amount!=null&&
+      (amountIsPriceCell||parseMoneyLenient(priceField?.rawValue)===null);
+    const isInvoice=documentKind==="invoice";
+    if(amountWithoutUnitPrice&&(isInvoice||explicitTotal||bindings.qty||priceField)){
+      issues.push(isInvoice?"Invoice unit price is missing; the extended amount cannot be used as a unit price":
+        "The row's extended amount is not a stated unit price; verify the quoted price");
+      const validation=row.fieldValidation;
+      row={...row,price:null,priceUnavailable:isInvoice?row.priceUnavailable:true,requiresReview:true,fieldValidation:{
+        ...validation,priceStatus:'missing-unit-price',fields:{...validation.fields,
+          price:validation.fields.price??{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
+      }};
+    }
+    if(isInvoice){
       // An invoice line must be fully understood before it can touch a
       // quote; unlabeled cells on it still need a person.
       if(row.details?.length)issues.push(`Unlabeled invoice details need identification: ${row.details.join(" | ").slice(0,100)}`);
@@ -1363,8 +1312,6 @@ function parseDocumentRows(text, options={}) {
         if(options.includeSourceIndex)row.sourceIndex=i;
         row.sourceColumnStart=start;
         row.sourceColumnCount=groupHeaders.length;
-        const cellIssues=checkRowCells(part,groupMap);
-        if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
         rows.push(row);
       }
       continue;
@@ -1375,11 +1322,7 @@ function parseDocumentRows(text, options={}) {
       skipped.push({ line, reason: "couldn't find a valid price or description" });
       continue;
     }
-    // Every cell against its column's meaning. A failing cell is flagged
-    // on the row with the reason; the row is kept.
     if(options.includeSourceIndex)row.sourceIndex=i;
-    const cellIssues=checkRowCells(cells,columnMap);
-    if(Object.keys(cellIssues).length)row.cellIssues=cellIssues;
 
     rows.push(row);
   }
@@ -1392,7 +1335,7 @@ function parseDocumentRows(text, options={}) {
 function parseDocument(text, options={}){
   const result=parseDocumentRows(text, options);
   const documentUnit=documentQuoteUnit(text);
-  return {...result,rows:result.rows.map(row=>applySourceUnits(row,{documentUnit}))};
+  return {...result,rows:result.rows.map(row=>withRowValidation(applySourceUnits(row,{documentUnit})))};
 }
 
 // Exported for use elsewhere in the app.
