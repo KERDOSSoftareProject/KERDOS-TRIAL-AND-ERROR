@@ -6,6 +6,7 @@ import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
 import {measurement,normalizeGtin,normalizeManufacturerCode,packFromDescription,parsePackSize,normalizeMixedFraction} from "./procurement.js";
 import {readHeaderLayout,applyLayoutAnswers,checkRowCells} from "./core/sheet-layout.js";
+import {identifyRowFields} from "./core/field-identification.js";
 // KERDOS INGESTION MODULE
 // ════════════════════════════════════════════════════════════════════
 //
@@ -355,7 +356,10 @@ function repeatedColumnGroups(headers) {
       .every(block=>block.every((cell,i)=>cell===normalized[i])))continue;
     const groups=Array.from({length:count},(_,n)=>{
       const start=n*width,sourceHeaders=headers.slice(start,start+width);
-      return {start,sourceHeaders,columnMap:mapColumnsFromHeader(sourceHeaders)};
+      const columnMap=mapColumnsFromHeader(sourceHeaders);
+      const confirmedColumns=new Set(Object.values(columnMap));
+      const fieldOrigins=Object.fromEntries(Object.keys(columnMap).map(field=>[field,"stated"]));
+      return {start,sourceHeaders,columnMap,confirmedColumns,fieldOrigins};
     });
     if(groups.every(({columnMap})=>columnMap.description!==undefined&&columnMap.price!==undefined&&columnMap.description!==columnMap.price))return groups;
   }
@@ -490,8 +494,9 @@ export function normalizeColumnPack(value){
   return normalizeMixedFraction(text);
 }
 
-function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, sourceHeaders=[], ignoredColumns=new Set()) {
-  const get = role => (columnMap[role] !== undefined ? cells[columnMap[role]] : undefined);
+function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns=new Set()) {
+  const {values, ...fieldIdentification} = fields;
+  const get = role => values[role];
 
   const priceRaw = get("price");
   const amountRaw = get("amount");
@@ -529,21 +534,15 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   // no actual price cell (priceRaw undefined/null = no mapped price slot).
   if (price === null && amount === null && !priceUnavailable && !priceUnreadable) return null;
 
-  let description = (get("description") || "").trim();
-  const descriptionConfirmed = confirmedColIndices?.has(columnMap.description);
-  // A blank in a known description column is source evidence.
-  if (!description && !descriptionConfirmed) {
-    description = cells
-      .filter(c => parseMoney(c) === null && !isNoPricePlaceholder(c))
-      .sort((a, b) => b.length - a.length)[0] || "";
-  }
-  description = description.trim()
+  const anchorStatus = fields.anchor.status;
+  const ambiguousDescription = anchorStatus === "ambiguous";
+  let description = (ambiguousDescription ? "" : get("description") || "").trim()
     .replace(/\s+\*{2,}[A-Z0-9]+\*{2,}/gi, '') // **NEW** **SPECIAL** flags — must run FIRST
     .replace(/\*+([^*]+)\*+/g, '$1')  // *ITEM* → ITEM (keep content)
     .replace(/\*+/g, '')               // remaining lone asterisks
     .replace(/\s{2,}/g, ' ')           // double spaces → single
     .trim();
-  const missingDescription = descriptionConfirmed && !description;
+  const missingDescription = anchorStatus !== "inferred" && !description;
   if (description.length < 2 && !missingDescription) return null;
   // A row whose description is itself a non-product line (fuel surcharge,
   // delivery fee etc) should be skipped even when it came from a CSV column.
@@ -594,7 +593,10 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   }
   details=details.map(cell=>cell.value);
   const fullDescription=missingDescription?"":[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const issues=missingDescription?[{kind:"missing-description",message:"Product description is missing."}]:[];
+  const issues=missingDescription?[{
+    kind:ambiguousDescription?"ambiguous-description":"missing-description",
+    message:ambiguousDescription?"Product description column also has another assigned role.":"Product description is missing.",
+  }]:[];
 
   // A row whose price cell was blank or unreadable gets flagged for review.
   // priceUnavailable is also set so ImportModal doesn't throw "No confirmed
@@ -622,6 +624,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   const cellConflicts  = cellEvidence.conflicts?.length  ? cellEvidence.conflicts  : null;
 
   return applySourceUnits({
+    fieldIdentification,
     code: rowCode,
     codeSource,
     brand,
@@ -1315,14 +1318,18 @@ function parseDocumentRows(text, options={}) {
   // and only then the data-shape guesses for whatever is still unnamed.
   const headerCells=headerFound?grid[headerIndex].cells:[];
   const engineMap=headerFound?mapColumnsFromHeader(headerCells):{};
-  const answered=applyLayoutAnswers(engineMap,options.layoutAnswers||{});
-  const ignoredColumns=new Set(Object.entries(options.layoutAnswers||{}).filter(([,role])=>role==="ignore").map(([index])=>Number(index)).filter(Number.isInteger));
+  const layoutAnswers=options.layoutAnswers||{};
+  const answered=applyLayoutAnswers(engineMap,layoutAnswers);
+  const ignoredColumns=new Set(Object.entries(layoutAnswers).filter(([,role])=>role==="ignore").map(([index])=>Number(index)).filter(Number.isInteger));
   let columnMap = fillMissingRolesFromData({...options.inferredColumns,...answered}, grid, dataStart, ignoredColumns);
   // confirmedRoles: columns whose role is supported by explicit header text or client decision.
   // Inferred roles (data-shape guesses from fillMissingRolesFromData) are NOT confirmed.
   // Cell analysis only constrains confirmed columns; inferred roles remain challengeable.
   let confirmedColIndices = new Set(Object.values(answered));
-  const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:options.layoutAnswers||{}}):{headers:[],unknown:[],fingerprint:""};
+  let fieldOrigins=Object.fromEntries(Object.entries(answered).map(([field,index])=>[
+    field,layoutAnswers[index]===field?"remembered":"stated",
+  ]));
+  const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:layoutAnswers}):{headers:[],unknown:[],fingerprint:""};
   let priceHeader=headerFound?grid[headerIndex].cells[columnMap.price]:"";
   let sourceHeaders=headerFound?grid[headerIndex].cells:[];
   let repeatedGroups=headerFound?repeatedColumnGroups(sourceHeaders):null;
@@ -1343,13 +1350,15 @@ function parseDocumentRows(text, options={}) {
     if(isTableHeader(cells,columnMap)){
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;
       confirmedColIndices=new Set(Object.values(header));
+      fieldOrigins=Object.fromEntries(Object.keys(header).map(field=>[field,"stated"]));
       repeatedGroups=repeatedColumnGroups(cells);continue;
     }
     if(repeatedGroups){
-      for(const {start,sourceHeaders:groupHeaders,columnMap:groupMap} of repeatedGroups){
+      for(const {start,sourceHeaders:groupHeaders,columnMap:groupMap,confirmedColumns,fieldOrigins} of repeatedGroups){
         const part=cells.slice(start,start+groupHeaders.length);
         if(!part.some(Boolean))continue;
-        const row=extractRow(part,groupMap,groupHeaders[groupMap.price],new Set(Object.values(groupMap)),groupHeaders);
+        const fields=identifyRowFields({cells:part,columnMap:groupMap,sourceHeaders:groupHeaders,fieldOrigins,rowIndex:i,columnStart:start});
+        const row=extractRow(part,groupMap,groupHeaders[groupMap.price],confirmedColumns,groupHeaders,fields);
         if(!row){skipped.push({line:part.join('\t'),reason:"couldn't find a valid price or description"});continue;}
         if(options.includeSourceIndex)row.sourceIndex=i;
         row.sourceColumnStart=start;
@@ -1360,7 +1369,8 @@ function parseDocumentRows(text, options={}) {
       }
       continue;
     }
-    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, ignoredColumns);
+    const fields=identifyRowFields({cells,columnMap,sourceHeaders,fieldOrigins,rowIndex:i});
+    const row = extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHeaders, fields, ignoredColumns);
     if (!row) {
       skipped.push({ line, reason: "couldn't find a valid price or description" });
       continue;
