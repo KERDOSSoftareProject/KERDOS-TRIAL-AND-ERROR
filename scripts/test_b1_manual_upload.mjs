@@ -101,6 +101,21 @@ await check('drop Save retains original and writes exact vendor/organization/doc
  assert.equal(f.uploads.length,1);assert.equal(f.calls.insertImportDoc.length,1);
  assert.equal(f.calls.applyQuote.length,1);assert.equal(f.calls.createMapping.length,1);replay.tree.unmount();
 });
+await check('a blank description retains the source row and saves only the described product',async()=>{
+ const f=fixture(),p=await open();
+ const content='Code,Description,Brand,Pack,Price Unit,Price\nB4-BLANK,,Brand Only Text,20 LB,CASE,42.50\nB4-VALID,Chicken Breast Boneless Skinless,Other Brand,20 LB,CASE,53.20\n';
+ await upload(p,'picker',file('B4_Blank_Description.csv',content));await save(p);
+ const doc=Object.values(f.importDocs)[0],held=doc.source_rows.rows[0];
+ assert.equal(doc.status,'partial');
+ assert.deepEqual(doc.completed_keys,['row:1']);
+ assert.deepEqual(held.values.slice(0,3),['B4-BLANK','','Brand Only Text']);
+ assert.equal(held.values[5],42.5);
+ assert.equal(held.sourceLine,'B4-BLANK\t\tBrand Only Text\t20 LB\tCASE\t42.50');
+ assert.deepEqual(f.calls.applyQuote.map(row=>row.vendorItemCode),['B4-VALID']);
+ assert.equal(f.calls.createMapping.length,1);
+ assert.match(text(p.tree.toJSON()),/Product description is missing/);
+ p.tree.unmount();
+});
 await check('file picker follows the same preview and retained-original save path',async()=>{
  const f=fixture(),p=await open();await upload(p,'picker',file('B1_Picker.csv'));
  assert.equal(writes(f),0);assert.ok(text(p.tree.toJSON()).includes('B1_Picker.csv'));
@@ -368,7 +383,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/40 B1/B2/B3/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/41 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

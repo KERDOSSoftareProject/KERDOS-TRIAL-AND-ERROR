@@ -530,9 +530,9 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
   if (price === null && amount === null && !priceUnavailable && !priceUnreadable) return null;
 
   let description = (get("description") || "").trim();
-  // If we don't know which column is the description, fall back to
-  // the longest non-numeric, non-placeholder cell in the row.
-  if (!description) {
+  const descriptionConfirmed = confirmedColIndices?.has(columnMap.description);
+  // A blank in a known description column is source evidence.
+  if (!description && !descriptionConfirmed) {
     description = cells
       .filter(c => parseMoney(c) === null && !isNoPricePlaceholder(c))
       .sort((a, b) => b.length - a.length)[0] || "";
@@ -543,7 +543,8 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     .replace(/\*+/g, '')               // remaining lone asterisks
     .replace(/\s{2,}/g, ' ')           // double spaces → single
     .trim();
-  if (description.length < 2) return null;
+  const missingDescription = descriptionConfirmed && !description;
+  if (description.length < 2 && !missingDescription) return null;
   // A row whose description is itself a non-product line (fuel surcharge,
   // delivery fee etc) should be skipped even when it came from a CSV column.
   if (NON_PRODUCT_LINE.test(description.trim())) return null;
@@ -592,8 +593,8 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     if(candidate){rowCode=candidate.value;codeSource="details";details=details.filter(cell=>cell.index!==candidate.index);}
   }
   details=details.map(cell=>cell.value);
-  const fullDescription=[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
-  const issues=[];
+  const fullDescription=missingDescription?"":[description,...details.filter(detail=>!description.toLowerCase().includes(detail.toLowerCase()))].join(" ").trim();
+  const issues=missingDescription?[{kind:"missing-description",message:"Product description is missing."}]:[];
 
   // A row whose price cell was blank or unreadable gets flagged for review.
   // priceUnavailable is also set so ImportModal doesn't throw "No confirmed
@@ -642,7 +643,7 @@ function extractRow(cells, columnMap, priceHeader="", confirmedColIndices=null, 
     price: price !== null ? price : amount,
     amount: amount !== null ? amount : price,
     priceUnavailable: finalPriceUnavailable,
-    requiresReview: finalRequiresReview,
+    requiresReview: missingDescription || finalRequiresReview,
     cellUnresolved,
     cellConflicts,
     sourceLine:cells.join("\t"),
@@ -1320,7 +1321,7 @@ function parseDocumentRows(text, options={}) {
   // confirmedRoles: columns whose role is supported by explicit header text or client decision.
   // Inferred roles (data-shape guesses from fillMissingRolesFromData) are NOT confirmed.
   // Cell analysis only constrains confirmed columns; inferred roles remain challengeable.
-  const confirmedColIndices = new Set(Object.values(answered));
+  let confirmedColIndices = new Set(Object.values(answered));
   const layout=headerFound?readHeaderLayout({headerCells,columnMap:answered,remembered:options.layoutAnswers||{}}):{headers:[],unknown:[],fingerprint:""};
   let priceHeader=headerFound?grid[headerIndex].cells[columnMap.price]:"";
   let sourceHeaders=headerFound?grid[headerIndex].cells:[];
@@ -1341,6 +1342,7 @@ function parseDocumentRows(text, options={}) {
     const header=mapColumnsFromHeader(cells);
     if(isTableHeader(cells,columnMap)){
       columnMap=header;priceHeader=cells[header.price];sourceHeaders=cells;
+      confirmedColIndices=new Set(Object.values(header));
       repeatedGroups=repeatedColumnGroups(cells);continue;
     }
     if(repeatedGroups){
