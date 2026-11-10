@@ -954,7 +954,7 @@ export default function App() {
 
       <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} sticky onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
-      {tab==="home"&&<WelcomeScreen orgName={org.name} role={org.role}
+      {tab==="home"&&<WelcomeScreen userName={accountName?.trim()} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 

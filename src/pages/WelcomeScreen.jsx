@@ -18,7 +18,7 @@ export function userInitials(name){
   return (name||"").trim().split(/\s+/).slice(0,2).map(part=>part[0]?.toUpperCase()||"").join("")||"K";
 }
 
-export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,invoiceReviewCount=0,inboxCount=0}){
+export default function WelcomeScreen({userName,role,onNavigate,attentionCount=0,invoiceReviewCount=0,inboxCount=0}){
   const [now,setNow]=useState(()=>new Date());
   useEffect(()=>{
     const timer=setInterval(()=>setNow(new Date()),30000);
@@ -47,8 +47,8 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
       @media (max-width:380px) { .welcome-grid { grid-template-columns:1fr; } .welcome-tile { min-height:116px; } }
     `}</style>
     <div className="welcome-inner">
-      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome</p>
-      <h1 className="welcome-greeting">{welcomeGreeting(now)}{orgName?` ${orgName}`:""}!</h1>
+      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome back</p>
+      <h1 className="welcome-greeting">{welcomeGreeting(now)}{userName?`, ${userName}`:""}!</h1>
       <div className="welcome-grid">
         {navigationPages(role).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
           <span className="welcome-icon" aria-hidden="true">{item.icon}</span>
