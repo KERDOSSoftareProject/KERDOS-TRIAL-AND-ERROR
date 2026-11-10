@@ -3,9 +3,7 @@
  *
  * Module A · Pre-Ingestion · Task 1 · Email Routing
  *
- * Two panels exported:
- *   RoutingAddressPanel — read-only automatic receiving addresses
- *   EmailInboxPanel     — automatic receipt status and retained-source audit
+ * Automatic receipt status, retained-source audit and receiving addresses.
  *
  * Legacy messages without a receipt snapshot retain their manual audit flow:
  *   1. getAttachmentFile()  → File object from Storage
@@ -34,6 +32,7 @@ import {btn,inp} from "../ui/styles.js";
 import {browseInbox,inboxVendorId} from "../core/inbox-browse.js";
 import {formatDateTime} from "../localization.js";
 import {attachmentRenderOutcome,attachmentActionBlocked} from "../utils/attachment-state.js";
+import {ReceivingAddressesPanel} from "./ReceivingAddresses.jsx";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -58,9 +57,6 @@ function Badge({n,color="#003584"}){
     </span>
   );
 }
-
-// Read-only overview; all registration writes happen automatically on the server.
-export {ReceivingAddressesPanel as RoutingAddressPanel} from './ReceivingAddresses.jsx';
 
 // ── AttachmentRow ──────────────────────────────────────────────────────────
 // One row inside a message's attachment list. Handles the fetch → PasteModal
@@ -381,9 +377,11 @@ export function EmailInboxPanel({
   const [search,setSearch]=useState("");
   const [vendorFilter,setVendorFilter]=useState("");
   const [sort,setSort]=useState("newest");
+  const [addressOrgId,setAddressOrgId]=useState(null);
   const [limit,setLimit]=useState(50);
   const request=useRef(0),busy=useRef(false);
   const messages=archive.orgId===orgId?archive.messages:[];
+  const showAddresses=Boolean(orgId)&&addressOrgId===orgId;
   const pendingTotal=messages.reduce((sum,message)=>sum+(message.pending_count||0),0);
   const visible=useMemo(()=>browseInbox(messages,{vendors,vendorId:vendorFilter,search,sort}),[messages,vendors,vendorFilter,search,sort]);
   const archiveVendors=useMemo(()=>{
@@ -427,7 +425,9 @@ export function EmailInboxPanel({
       </div>
       <input type="search" aria-label="Search emails" value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search emails by vendor, sender, subject, or date..." style={inp}/>
     </div>
-    <Section title={<>Email Inbox{pendingTotal>0&&<Badge n={pendingTotal} color="#E65100"/>}</>}>
+    <Section title={<>Email Inbox{pendingTotal>0&&<Badge n={pendingTotal} color="#E65100"/>}</>}
+      action={<button type="button" aria-expanded={showAddresses} onClick={()=>setAddressOrgId(showAddresses?null:orgId)} style={btn("#003584")}>Receiving addresses</button>}>
+      {showAddresses&&<ReceivingAddressesPanel key={orgId} orgId={orgId} vendors={vendors}/>}
       {error&&<p role="alert" style={{color:"#c62828",fontSize:13,margin:"0 0 10px"}}>{error}</p>}
       {loading&&!messages.length?<p style={{fontSize:13,color:"#888",margin:0}}>Loading…</p>:
         !messages.length?<p style={{fontSize:13,color:"#888",margin:0}}>No emails received yet.</p>:

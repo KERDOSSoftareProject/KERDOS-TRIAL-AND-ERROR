@@ -13,6 +13,7 @@ try{
     import assert from 'node:assert/strict';
     import TabHeading from './src/ui/TabHeading.jsx';
     import WelcomeScreen,{welcomeGreeting,welcomeDate,userInitials} from './src/pages/WelcomeScreen.jsx';
+    import {OrgGate} from './src/pages/AccessPages.jsx';
     const text=node=>typeof node==='string'?node:(node.children||[]).map(text).join('');
     assert.equal(welcomeGreeting(new Date(2026,9,31,9,42)),'Good morning');
     assert.equal(welcomeGreeting(new Date(2026,9,31,14,42)),'Good afternoon');
@@ -48,6 +49,29 @@ try{
     }
     console.log('PASS tab navigation destinations, Home callback, active page and role restrictions');
     console.log('PASS welcome greeting, local clock, six routes, real counts and access boundary');
-  `,resolveDir:process.cwd(),sourcefile:'welcome-test.jsx',loader:'jsx'},bundle:true,platform:'node',format:'esm',jsx:'automatic',packages:'external',outfile});
+    let company;
+    await act(async()=>{tree=Renderer.create(React.createElement(OrgGate,{user:{id:'owner-2'},onComplete:created=>{company=created;}}));});
+    const click=label=>act(async()=>tree.root.findAllByType('button').find(button=>text(button)===label).props.onClick());
+    const enter=(input,value)=>act(async()=>input.props.onChange({target:{value}}));
+    await click('Create a new organization');
+    assert.deepEqual(tree.root.findByType('datalist').findAllByType('option').map(option=>option.props.value),['Restaurant']);
+    await enter(tree.root.findByProps({placeholder:"Your organization's name"}),'Second Company');
+    await enter(tree.root.findByProps({id:'setup-industry'}),'Construction');
+    await click('Next →');
+    await enter(tree.root.findByProps({placeholder:'Vendor name'}),'Supply House');
+    await click('Get Started →');
+    assert.deepEqual(company,{id:'second-company',name:'Second Company',industry:'Construction',vendors:[{name:'Supply House',delivery_minimum_dollar:null,delivery_minimum_units:null}]});
+    await act(async()=>tree.unmount());
+    console.log('PASS company setup accepts an industry outside the available templates');
+  `,resolveDir:process.cwd(),sourcefile:'welcome-test.jsx',loader:'jsx'},bundle:true,platform:'node',format:'esm',jsx:'automatic',packages:'external',outfile,
+    plugins:[{name:'setup-test-backend',setup(build){
+      build.onResolve({filter:/backend\/index\.js$/},()=>({path:'setup-test-backend',namespace:'test'}));
+      build.onLoad({filter:/.*/,namespace:'test'},()=>({contents:`
+        export const backend={
+          records:{query:()=>({select:async()=>({data:[{industry:'Restaurant'}],error:null})})},
+          organization:{create:async company=>({id:'second-company',...company})},
+        };
+      `}));
+    }}]});
   execFileSync(process.execPath,[outfile],{stdio:'inherit'});
 }finally{rmSync(dir,{recursive:true,force:true});}

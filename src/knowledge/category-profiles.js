@@ -4,7 +4,7 @@ import {restaurantPackContext} from "./restaurant-pack-context.js";
 import {restaurantPricingPriors} from "./restaurant-pricing-priors.js";
 import {restaurantQuoteContext} from "./restaurant-quote-context.js";
 import {restaurantProductContext} from "./restaurant-product-context.js";
-import {restaurantDictionaries,restaurantUnitVocabulary,RESTAURANT_DICTIONARY_VERSION} from "./restaurant-dictionaries.js";
+import {restaurantCellBrands,restaurantDictionaries,restaurantUnitVocabulary,RESTAURANT_DICTIONARY_VERSION} from "./restaurant-dictionaries.js";
 import {restaurantAssociations} from './restaurant-associations.js';
 import {restaurantClientNames} from './restaurant-client-names.js';
 
@@ -15,6 +15,7 @@ const profiles=new Map([["restaurant",{
   dictionaries:restaurantDictionaries,vocabulary:restaurantUnitVocabulary,version:RESTAURANT_DICTIONARY_VERSION,
   associations:restaurantAssociations,
   clientNames:restaurantClientNames,
+  cellBrands:restaurantCellBrands,
 }]]);
 let activeProfile=null;
 
@@ -35,6 +36,7 @@ export function industryProductContext(text){
 }
 
 export function industryVocabulary(){return activeProfile?.vocabulary||[];}
+export function recognizesIndustryBrand(value){return activeProfile?.cellBrands?.has(value.toLowerCase())??false;}
 export function industryAssociationProfile(){return activeProfile?.associations||{version:'literal-1',concepts:[],facets:[],fragments:[]};}
 export function industryClientNames(industry){return profiles.get(String(industry||'').toLowerCase())?.clientNames||{};}
 

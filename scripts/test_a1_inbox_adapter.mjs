@@ -13,7 +13,7 @@ import Renderer,{act} from "react-test-renderer";
 import assert from "node:assert/strict";
 import {createSupabaseBackend} from "./src/backend/supabase.js";
 import {assertBackendContract} from "./src/backend/contract.js";
-import {RoutingAddressPanel,EmailInboxPanel} from "./src/pages/EmailInboxPanel.jsx";
+import {EmailInboxPanel} from "./src/pages/EmailInboxPanel.jsx";
 import {configureLocale,formatDateTime} from "./src/localization.js";
 import {createRoutingAddress,setRoutingAddressVendor,deactivateRoutingAddress,listMessages,getMessage,listPendingAttachments,getAttachmentFile,beginManualAttachmentReview,markAttachmentIngested} from "./src/services/email-routing.js";
 const calls=[];
@@ -42,15 +42,34 @@ const backend=assertBackendContract(createSupabaseBackend({url:"https://example.
 assert.equal(backend.from,undefined);assert.equal(backend.rpc,undefined);assert.equal(backend.storage,undefined);
 globalThis.__inboxAdapter=backend;
 let tree;
-await act(async()=>{tree=Renderer.create(React.createElement(React.Fragment,null,React.createElement(RoutingAddressPanel,{orgId:"org-1"}),React.createElement(EmailInboxPanel,{orgId:"org-1"})))});
-const rendered=JSON.stringify(tree.toJSON());
-assert.ok(rendered.includes("No client setup is required"));
-assert.ok(rendered.includes("No emails received yet"));
-assert.ok(!rendered.includes("is not a function"));
+data.email_routing_addresses=[
+ {id:"active",organization_id:"org-1",routing_address:"prices@first.example",vendor_id:"first-vendor",document_type:"pricelist",is_active:true,is_automatic:false},
+ {id:"inactive",organization_id:"org-1",routing_address:"inactive@first.example",vendor_id:"first-vendor",document_type:"pricelist",is_active:false},
+ {id:"unassigned",organization_id:"org-1",routing_address:"unassigned@first.example",vendor_id:null,document_type:null,is_active:true},
+ {id:"second",organization_id:"org-2",routing_address:"invoices@second.example",vendor_id:"second-vendor",document_type:"invoice",is_active:true,is_automatic:true},
+];
+let copied;
+Object.defineProperty(globalThis,"navigator",{configurable:true,value:{clipboard:{writeText:async value=>{copied=value;}}}});
+await act(async()=>{tree=Renderer.create(React.createElement(EmailInboxPanel,{orgId:"org-1"}));});
+const disclosure=()=>tree.root.findByProps({"aria-expanded":false});
+assert.ok(JSON.stringify(tree.toJSON()).includes("No emails received yet"));
+assert.ok(!calls.some(call=>call.table==="email_routing_addresses"));
+await act(async()=>disclosure().props.onClick());
+const firstView=JSON.stringify(tree.toJSON());
+assert.ok(firstView.includes("prices@first.example"));
+for(const address of ["inactive@first.example","unassigned@first.example","invoices@second.example"])assert.ok(!firstView.includes(address));
+await act(async()=>tree.root.findByProps({"aria-label":"Copy prices@first.example"}).props.onClick());
+assert.equal(copied,"prices@first.example");
+assert.ok(JSON.stringify(tree.toJSON()).includes("Address copied"));
+await act(async()=>tree.update(React.createElement(EmailInboxPanel,{orgId:"org-2"})));
+assert.ok(!JSON.stringify(tree.toJSON()).includes("prices@first.example"));
+await act(async()=>disclosure().props.onClick());
+await act(async()=>tree.root.findByProps({"aria-label":"Copy invoices@second.example"}).props.onClick());
+assert.equal(copied,"invoices@second.example");
 assert.ok(calls.every(call=>call.action===undefined||call.action==="select"),"mounting Inbox must never configure routing");
 for(const table of ["email_routing_addresses","inbound_messages"]){assert.ok(calls.some(c=>c.table===table&&c.filters.some(f=>f[1]==="organization_id"&&f[2]==="org-1")));}
 await act(async()=>tree.unmount());
-console.log("PASS both mounted Inbox sections load through the production KERDOS adapter");
+console.log("PASS mounted Inbox copies exact active vendor addresses with no writes or cross-company exposure");
 // A receipt snapshot identifies automatic intake independently of worker status.
 // Open the actual mounted message: all states must remain status-only, without
 // a manual reservation, retained-file fetch, or import modal.

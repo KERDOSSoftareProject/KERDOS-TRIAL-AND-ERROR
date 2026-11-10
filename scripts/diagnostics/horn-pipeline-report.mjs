@@ -15,15 +15,15 @@
  *   7. Assumptions       — explicitly labeled, not conclusions
  */
 
-import {preparePriceImport} from './price-import-review.js';
-import {orderGuideAssessment} from './catalog-fields.js';
-import {parsePackSize, configureProcurement} from '../procurement.js';
-import {configureCategoryProfile} from '../knowledge/category-profiles.js';
-import {inferPricingBasis} from './infer-pricing-basis.js';
-import {createRecords} from '../backend/records.js';
-import {assertBackendContract} from '../backend/contract.js';
-import {createImportService} from '../services/imports.js';
-import {createCatalogService} from '../services/catalog.js';
+import {preparePriceImport} from '../../src/core/price-import-review.js';
+import {orderGuideAssessment} from '../../src/core/catalog-fields.js';
+import {parsePackSize, configureProcurement} from '../../src/procurement.js';
+import {configureCategoryProfile} from '../../src/knowledge/category-profiles.js';
+import {inferPricingBasis} from '../../src/core/infer-pricing-basis.js';
+import {createRecords} from '../../src/backend/records.js';
+import {assertBackendContract} from '../../src/backend/contract.js';
+import {createImportService} from '../../src/services/imports.js';
+import {createCatalogService} from '../../src/services/catalog.js';
 
 import fs from 'fs';
 import crypto from 'crypto';
@@ -122,8 +122,9 @@ function createInMemoryBackend() {
 }
 
 // ── Load horn.txt ─────────────────────────────────────────────────────────────
-const HORN = '/mnt/user-data/uploads/horn.txt';
-const raw = fs.readFileSync(HORN, 'utf8');
+const fixturePath = process.argv[2];
+if (!fixturePath) throw new Error('Pass the path to a private diagnostic fixture.');
+const raw = fs.readFileSync(fixturePath, 'utf8');
 const FILE_HASH = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
 const lines = raw.trim().split('\n').map(l => l.replace(/\r$/, ''));
 

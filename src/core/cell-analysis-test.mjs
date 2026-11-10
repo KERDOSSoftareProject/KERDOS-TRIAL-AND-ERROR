@@ -12,6 +12,9 @@
  */
 
 import {analyzeCell, analyzeRow} from './cell-analysis.js';
+import {configureProcurement} from '../procurement.js';
+
+configureProcurement({industry:'restaurant'});
 
 let passed = 0, failed = 0;
 function t(label, got, expected) {
@@ -213,6 +216,11 @@ tAbove('brand score', b1.find(i=>i.field==='brand')?.score, 0.90);
 
 const b2 = analyzeCell('KRAFT', {headerHint: ''});
 tWinner('known brand without header', b2, 'brand');
+configureProcurement({industry:'construction'});
+tNoField('restaurant brand evidence does not follow another industry', analyzeCell('Kraft'), 'brand');
+tField('a different industry can use an explicit brand column', analyzeCell('Kraft',{headerHint:'Brand'}), 'brand',0.95);
+configureProcurement({industry:'restaurant'});
+tField('restaurant brand evidence returns after switching back', analyzeCell('Kraft'), 'brand',0.85);
 
 // Size/grade words must NOT become brand
 const b3 = analyzeCell('XL', {headerHint: ''});

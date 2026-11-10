@@ -13,20 +13,20 @@
  *   - mappingVerification result
  *   - complete orderGuideAssessment blockers
  *
- * Run: node src/core/diagnose-blocker-rows.mjs
+ * Run: node scripts/diagnostics/diagnose-blocker-rows.mjs /path/to/private-fixture
  */
 
-import {importPriceRow}          from './import-price-row.js';
-import {orderGuideAssessment}    from './catalog-fields.js';
-import {configureProcurement}    from '../procurement.js';
-import {configureCategoryProfile} from '../knowledge/category-profiles.js';
-import {compareProductIdentity,productIdentity} from '../procurement.js';
-import {mappingVerification}     from '../services/catalog.js';
-import {createRecords}           from '../backend/records.js';
-import {assertBackendContract}   from '../backend/contract.js';
-import {createImportService}     from '../services/imports.js';
-import {createCatalogService}    from '../services/catalog.js';
-import {parseDocument}           from '../ingestion.js';
+import {importPriceRow}          from '../../src/core/import-price-row.js';
+import {orderGuideAssessment}    from '../../src/core/catalog-fields.js';
+import {configureProcurement}    from '../../src/procurement.js';
+import {configureCategoryProfile} from '../../src/knowledge/category-profiles.js';
+import {compareProductIdentity,productIdentity} from '../../src/procurement.js';
+import {mappingVerification}     from '../../src/services/catalog.js';
+import {createRecords}           from '../../src/backend/records.js';
+import {assertBackendContract}   from '../../src/backend/contract.js';
+import {createImportService}     from '../../src/services/imports.js';
+import {createCatalogService}    from '../../src/services/catalog.js';
+import {parseDocument}           from '../../src/ingestion.js';
 import fs   from 'fs';
 
 // Restaurant profile active — same as horn-full-audit.mjs
@@ -123,8 +123,9 @@ function createInMemoryBackend() {
 }
 
 // ── Parse horn.txt ────────────────────────────────────────────────────────────
-const HORN = '/mnt/user-data/uploads/horn.txt';
-const raw = fs.readFileSync(HORN, 'utf8');
+const fixturePath = process.argv[2];
+if (!fixturePath) throw new Error('Pass the path to a private diagnostic fixture.');
+const raw = fs.readFileSync(fixturePath, 'utf8');
 const parsed = parseDocument(raw);
 const hornRows = parsed.rows.filter(r => r.code && Number.isFinite(r.price) && r.price > 0);
 

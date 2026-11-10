@@ -1,9 +1,8 @@
 import {useEffect,useState} from 'react';
 import {backend} from '../backend/index.js';
-import {listAutomaticReceivingAddresses} from '../services/email-routing.js';
+import {listReceivingAddresses} from '../services/email-routing.js';
 
-// Read-only view. Registrations are created by database lifecycle triggers,
-// never by opening this panel or choosing a client, vendor or document type.
+// Opening the read-only view never changes a receiving registration.
 export function ReceivingAddressList({addresses=[],vendors=[],documentType=null,error='',loading=false}){
   const [copyStatus,setCopyStatus]=useState('');
   const shown=addresses.filter(address=>!documentType||address.document_type===documentType);
@@ -31,7 +30,7 @@ export function ReceivingAddressesPanel({orgId,vendors=[],documentType=null}){
     setAddresses([]);setError('');
     if(!orgId)return ()=>{current=false;};
     setLoading(true);
-    listAutomaticReceivingAddresses(backend,orgId,documentType).then(rows=>{if(current)setAddresses(rows);})
+    listReceivingAddresses(backend,orgId,documentType).then(rows=>{if(current)setAddresses(rows);})
       .catch(problem=>{if(current)setError(problem.message);}).finally(()=>{if(current)setLoading(false);});
     return ()=>{current=false;};
   },[orgId,documentType]);
