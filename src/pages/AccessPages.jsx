@@ -18,7 +18,10 @@ export function LandingGate() {
     e.preventDefault(); setLoading(true); setError(""); setNotice("");
     try{
       if(mode==="login") await backend.session.signIn({email,password});
-      else await backend.session.signUp({email,password});
+      else {
+        const emailRedirectTo=new URL(import.meta.env?.BASE_URL||"/",window.location.origin).href;
+        await backend.session.signUp({email,password,options:{emailRedirectTo}});
+      }
       if(mode==="signup") setNotice("Check your email to confirm, then sign in.");
     }catch(err){setError(err.message||String(err));}
     setLoading(false);
@@ -146,7 +149,7 @@ function Setup({user,onComplete}) {
   async function create() {
     setLoading(true); setError("");
     try {
-      const org=await organizationService.create({name:orgName,industry,userId:user.id,vendors});
+      const org=await organizationService.create({name:orgName,industry,vendors});
       try{localStorage.removeItem(draftKey);}catch{}
       onComplete(org);
     } catch(err){setError(err.message);}
