@@ -131,6 +131,9 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
   function execute(spec) {
     const { table, action, filters, value, cardinality } = spec;
 
+    if (action === "select" && table === "organizations") return {data:{industry:"Generic"},error:null};
+    if (action === "select" && table === "org_vocabulary") return {data:[],error:null};
+
     // ── vendor_items ──────────────────────────────────────────────────────────
     if (table === 'vendor_items') {
       if (action === 'select') {

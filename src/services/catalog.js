@@ -3,19 +3,18 @@
 // imports a database vendor.
 import {prepareCatalogCorrection} from "./catalog-rows.js";
 import {productAssociationIdentity,productGroupApproved} from '../core/product-associations.js';
-import {industryAssociationProfile} from '../knowledge/category-profiles.js';
-import {bestPurchasingMatch,bestPurchasingSuggestion,suggestCategory,nextCategoryRange,compareProductIdentity,comparePurchasingPack,commonPurchasingPack,brandsMatch,parsePackSize,abbreviationPairs} from "../procurement.js";
+import {nextCategoryRange,parsePackSize,abbreviationPairs,getProcurementContext} from "../procurement.js";
 
 // An association is a customer's assertion about identity. Ordering eligibility
 // additionally requires agreement with the existing vendor product's pack and
 // description. Never turn an unverified manual association into an exact quote.
-export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[]){
+export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[], procurement=getProcurementContext()){
   if(!vendorItem||!catalogItem)throw new Error("Choose a vendor product and a catalog item.");
   const peers=linkedVendorItems.filter(peer=>peer.id!==vendorItem.id);
   const descriptions=peers.length?peers.map(peer=>peer.description):[catalogItem.name];
-  const identity=descriptions.map(description=>compareProductIdentity(vendorItem.description,description));
-  const packs=peers.map(peer=>comparePurchasingPack(vendorItem.pack_size,peer.pack_size));
-  const _brandsAgree=peers.every(peer=>!vendorItem.brand&&!peer.brand||brandsMatch(vendorItem.brand,peer.brand));
+  const identity=descriptions.map(description=>procurement.compareProductIdentity(vendorItem.description,description));
+  const packs=peers.map(peer=>procurement.comparePurchasingPack(vendorItem.pack_size,peer.pack_size));
+  const _brandsAgree=peers.every(peer=>!vendorItem.brand&&!peer.brand||procurement.brandsMatch(vendorItem.brand,peer.brand));
   const identifiersAgree=peers.every(peer=>(!vendorItem.gtin||!peer.gtin||vendorItem.gtin===peer.gtin)&&
     (!vendorItem.manufacturer_code||!peer.manufacturer_code||vendorItem.manufacturer_code===peer.manufacturer_code));
   // When every peer shares a GTIN (or mfr code + brand), the identifier resolves
@@ -31,7 +30,7 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[])
   const allPeersHaveIdentifier=peers.length>0&&peers.every(peer=>
     (vendorItem.gtin&&peer.gtin&&vendorItem.gtin===peer.gtin)||
     (vendorItem.manufacturer_code&&peer.manufacturer_code&&vendorItem.manufacturer_code===peer.manufacturer_code&&
-      vendorItem.brand&&peer.brand&&brandsMatch(vendorItem.brand,peer.brand)));
+      vendorItem.brand&&peer.brand&&procurement.brandsMatch(vendorItem.brand,peer.brand)));
   // Two signals for an explicit conflict. mappingGap catches zero-overlap descriptions
   // even when unresolved abbreviations prevent compareProductIdentity from reaching
   // "different". compareProductIdentity "different" catches confirmed conflicts
@@ -39,7 +38,7 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[])
   // Either signal means the GTIN data is suspect; don't grant exact.
   const noProductConflict=allPeersHaveIdentifier&&!peers.some((peer,i)=>{
     if(identity[i]?.status==="different")return true;
-    const g=mappingGap(vendorItem,catalogItem,[peer]);
+    const g=mappingGap(vendorItem,catalogItem,[peer], procurement);
     return g.code==="wording"&&g.detail==="No shared defining product terms";
   });
   const identityOk=(allPeersHaveIdentifier&&noProductConflict)||identity.every(result=>result.status==="same");
@@ -48,8 +47,8 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[])
   // different brand is already blocked separately by orderGuideAssessment's brand blocker
   // and must not prevent verification for a vendor item whose brand IS correct).
   // When not brand-locked, brand is not a gating criterion for exact verification.
-  const brandOk=!catalogItem.brand_locked||brandsMatch(vendorItem.brand,catalogItem.locked_brand);
-  const exact=!!parsePackSize(vendorItem.pack_size)?.parsed&&brandOk&&identifiersAgree&&identityOk&&packs.every(result=>result.status==="same");
+  const brandOk=!catalogItem.brand_locked||procurement.brandsMatch(vendorItem.brand,catalogItem.locked_brand);
+  const exact=!!procurement.parsePackSize(vendorItem.pack_size)?.parsed&&brandOk&&identifiersAgree&&identityOk&&packs.every(result=>result.status==="same");
   return {comparison_track:exact?"exact":"review",confidence_score:exact?100:null,match_method:"manual"};
 }
 async function run(promise,operation){
@@ -70,24 +69,24 @@ export const GAP_LABELS={
   "pack-conflict":"Pack differs from linked vendor",
   "wording":"Wording differs from linked vendor",
 };
-export function mappingGap(vendorItem,catalogItem,peers=[]){
+export function mappingGap(vendorItem,catalogItem,peers=[], procurement=getProcurementContext()){
   if(!vendorItem||!catalogItem)return {code:"wording",label:GAP_LABELS.wording,detail:"Vendor product or catalog item is missing"};
   if(!vendorItem.pack_size)return {code:"pack-missing",label:GAP_LABELS["pack-missing"],detail:"No pack on the vendor listing"};
-  if(!parsePackSize(vendorItem.pack_size)?.parsed)return {code:"pack-unreadable",label:GAP_LABELS["pack-unreadable"],detail:`"${vendorItem.pack_size}" is not a complete pack KERDOS can read`};
+  if(!procurement.parsePackSize(vendorItem.pack_size)?.parsed)return {code:"pack-unreadable",label:GAP_LABELS["pack-unreadable"],detail:`"${vendorItem.pack_size}" is not a complete pack KERDOS can read`};
   const others=peers.filter(peer=>peer.id!==vendorItem.id);
   if(!others.length){
-    const identity=compareProductIdentity(vendorItem.description,catalogItem.name);
+    const identity=procurement.compareProductIdentity(vendorItem.description,catalogItem.name);
     return identity.status==="same"
       ?{code:"single-vendor-ready",label:GAP_LABELS["single-vendor-ready"],detail:"Only one vendor lists this product; confirm to make it orderable"}
       :{code:"single-vendor-detail",label:GAP_LABELS["single-vendor-detail"],detail:identity.reason};
   }
   // Brand difference only blocks when the client has set "Require this brand" (brand_locked).
   // When brand sensitivity is off, different brands are acceptable alternatives.
-  const brandClash=catalogItem.brand_locked&&others.find(peer=>vendorItem.brand&&peer.brand&&!brandsMatch(vendorItem.brand,peer.brand));
+  const brandClash=catalogItem.brand_locked&&others.find(peer=>vendorItem.brand&&peer.brand&&!procurement.brandsMatch(vendorItem.brand,peer.brand));
   if(brandClash)return {code:"brand-conflict",label:GAP_LABELS["brand-conflict"],detail:`${vendorItem.brand} vs ${brandClash.brand} (brand required)`};
-  const packClash=others.map(peer=>({peer,result:comparePurchasingPack(vendorItem.pack_size,peer.pack_size)})).find(entry=>entry.result.status!=="same");
+  const packClash=others.map(peer=>({peer,result:procurement.comparePurchasingPack(vendorItem.pack_size,peer.pack_size)})).find(entry=>entry.result.status!=="same");
   if(packClash)return {code:"pack-conflict",label:GAP_LABELS["pack-conflict"],detail:`${vendorItem.pack_size} vs ${packClash.peer.pack_size||"none"}`};
-  const wordClash=others.map(peer=>compareProductIdentity(vendorItem.description,peer.description)).find(result=>result.status!=="same");
+  const wordClash=others.map(peer=>procurement.compareProductIdentity(vendorItem.description,peer.description)).find(result=>result.status!=="same");
   return {code:"wording",label:GAP_LABELS.wording,detail:wordClash?.reason||"Defining details need confirmation"};
 }
 
@@ -97,20 +96,20 @@ export function mappingGap(vendorItem,catalogItem,peers=[]){
 // same part. Identity still says nothing about the pack, so the pack is
 // checked separately: same pack → exact; different or unreadable pack →
 // review, with the reason spelled out.
-export function identifierMatch({gtin=null,manufacturerCode=null,brand=null,packSize=null,vendorId=null},candidates=[]){
+export function identifierMatch({gtin=null,manufacturerCode=null,brand=null,packSize=null,vendorId=null},candidates=[], procurement=getProcurementContext()){
   for(const candidate of candidates){
     const peers=(candidate.linkedVendorItems||[]).filter(vi=>!vendorId||vi.vendor_id!==vendorId);
     const byGtin=gtin?peers.find(vi=>vi.gtin&&vi.gtin===gtin):null;
-    const byMfr=!byGtin&&manufacturerCode?peers.find(vi=>vi.manufacturer_code&&vi.manufacturer_code===manufacturerCode&&vi.brand&&brand&&brandsMatch(vi.brand,brand)):null;
+    const byMfr=!byGtin&&manufacturerCode?peers.find(vi=>vi.manufacturer_code&&vi.manufacturer_code===manufacturerCode&&vi.brand&&brand&&procurement.brandsMatch(vi.brand,brand)):null;
     const witness=byGtin||byMfr;
     if(!witness)continue;
     const via=byGtin?"barcode":"manufacturer code";
-    const pack=comparePurchasingPack(packSize,witness.pack_size);
-    const allAgree=candidate.linkedVendorItems.every(peer=>comparePurchasingPack(packSize,peer.pack_size).status==="same"&&
-      (!brand||!peer.brand||brandsMatch(brand,peer.brand))&&
+    const pack=procurement.comparePurchasingPack(packSize,witness.pack_size);
+    const allAgree=candidate.linkedVendorItems.every(peer=>procurement.comparePurchasingPack(packSize,peer.pack_size).status==="same"&&
+      (!brand||!peer.brand||procurement.brandsMatch(brand,peer.brand))&&
       (!gtin||!peer.gtin||peer.gtin===gtin)&&
       (!manufacturerCode||!peer.manufacturer_code||!brand||!peer.brand||
-        !brandsMatch(brand,peer.brand)||peer.manufacturer_code===manufacturerCode));
+        !procurement.brandsMatch(brand,peer.brand)||peer.manufacturer_code===manufacturerCode));
     if(pack.status==="same"&&allAgree)return {catalogItem:candidate,track:"exact",score:1,method:"identifier",reason:`Same ${via} as an existing vendor listing in the same pack`};
     return {catalogItem:candidate,track:"similar",score:0.9,method:"identifier",reason:`Same ${via} as an existing vendor listing, but the pack differs or is unreadable (${packSize||"none"} vs ${witness.pack_size||"none"})`};
   }
@@ -119,23 +118,23 @@ export function identifierMatch({gtin=null,manufacturerCode=null,brand=null,pack
 
 // Record the evidence used for an automatic association. A match to the
 // catalog label alone cannot override a conflicting linked vendor listing.
-export function associationEvidence({description,packSize,brand,gtin,manufacturerCode},candidate){
+export function associationEvidence({description,packSize,brand,gtin,manufacturerCode},candidate, procurement=getProcurementContext()){
   const peers=candidate.linkedVendorItems||[];
   const brandLocked=candidate.brand_locked??false;
   const checks=peers.map(peer=>({
-    identity:compareProductIdentity(description,peer.description).status,
-    pack:comparePurchasingPack(packSize,peer.pack_size).status,
+    identity:procurement.compareProductIdentity(description,peer.description).status,
+    pack:procurement.comparePurchasingPack(packSize,peer.pack_size).status,
     // When brand_locked=false, different brands are acceptable alternatives —
     // the same product sold under different brand names should share one KERDOS entry.
     // When brand_locked=true, brands must agree.
-    brand:!brandLocked||!brand||!peer.brand||brandsMatch(brand,peer.brand),
+    brand:!brandLocked||!brand||!peer.brand||procurement.brandsMatch(brand,peer.brand),
     identifier:(!gtin||!peer.gtin||gtin===peer.gtin)&&
       (!manufacturerCode||!peer.manufacturer_code||!brand||!peer.brand||
-        !brandsMatch(brand,peer.brand)||manufacturerCode===peer.manufacturer_code),
+        !procurement.brandsMatch(brand,peer.brand)||manufacturerCode===peer.manufacturer_code),
   }));
   return {peers:checks.length,checks,exact:checks.length>0&&checks.every((c,i)=>
     (c.identity==="same"||!!gtin&&peers[i].gtin===gtin||
-      !!manufacturerCode&&!!brand&&brandsMatch(brand,peers[i].brand)&&peers[i].manufacturer_code===manufacturerCode)&&
+      !!manufacturerCode&&!!brand&&procurement.brandsMatch(brand,peers[i].brand)&&peers[i].manufacturer_code===manufacturerCode)&&
     c.pack==="same"&&c.brand&&c.identifier)};
 }
 
@@ -144,7 +143,7 @@ export function associationEvidence({description,packSize,brand,gtin,manufacture
 // same pack, brands agree, and the pack is readable. These typically
 // appear after the vocabulary learns a spelling or a pack is corrected,
 // when an earlier "review" decision would now come out "exact".
-export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
+export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}, procurement=getProcurementContext()){
   const viById=new Map(vendorItems.map(vi=>[vi.id,vi]));
   const ciById=new Map(catalogItems.map(ci=>[ci.id,ci]));
   const byCatalog=new Map();
@@ -157,7 +156,7 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
     const peers=(byCatalog.get(m.catalog_item_id)||[]).filter(other=>other.id!==m.id).map(other=>viById.get(other.vendor_item_id)).filter(Boolean);
     const witnesses=peers.filter(peer=>peer.vendor_id&&peer.vendor_id!==vendorItem.vendor_id&&peer.pack_size);
     if(!witnesses.length)continue;
-    const verification=mappingVerification(vendorItem,catalogItem,peers);
+    const verification=mappingVerification(vendorItem,catalogItem,peers, procurement);
     if(verification.comparison_track!=="exact")continue;
     ready.push({mappingId:m.id,vendorItemId:vendorItem.id,catalogItemId:catalogItem.id,description:vendorItem.description,packSize:vendorItem.pack_size,
       verification:{...verification,match_method:"rule_based"}});
@@ -165,7 +164,7 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}){
   return ready;
 }
 
-export function createCatalogService(backend,{industry}={}){
+export function createCatalogService(backend,importProcurement){
   const table=backend.records.query;
   // Writes a confirmation to one mapping, refusing if the catalog item has
   // changed since the operator loaded the page (stale-mapping guard).
@@ -179,6 +178,7 @@ export function createCatalogService(backend,{industry}={}){
   }
   return {
     async matchOrCreate({organizationId,vendorId,description,packSize,brand=null,gtin=null,manufacturerCode=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
+      const procurement=importProcurement??getProcurementContext();
       const byId=new Map(vendorItems.map(vi=>[vi.id,vi]));
       const linksByCatalog=new Map();
       for(const mapping of mappings){
@@ -191,7 +191,7 @@ export function createCatalogService(backend,{industry}={}){
       const candidates=catalogItems.filter(ci=>!ci.merged_into_id).map(ci=>{
         const links=linksByCatalog.get(ci.id)||[];
         const linked=links.map(({row})=>row);
-        const knownPack=commonPurchasingPack(linked.map(vi=>vi.pack_size));
+        const knownPack=procurement.commonPurchasingPack(linked.map(vi=>vi.pack_size));
         const knownBrands=[...new Set(linked.map(vi=>vi.brand).filter(Boolean))];
         return {...ci,pack_size:knownPack,knownBrand:knownBrands.length===1?knownBrands[0]:null,
           linkedVendorItems:linked,
@@ -200,22 +200,22 @@ export function createCatalogService(backend,{industry}={}){
       });
       // A current identity approval can place a new listing across packs and
       // brands. The listing still needs its own purchasing evidence.
-      const profile=industryAssociationProfile(industry);
-      const identity=productAssociationIdentity({description,pack_size:packSize,brand},profile);
+      const profile=procurement.associationProfile;
+      const identity=productAssociationIdentity({description,pack_size:packSize,brand},profile,procurement);
       if(identity.key?.startsWith('concept:')){
         const groups=candidates.filter(ci=>!ci.brand_locked&&!ci.preferred_brand&&ci.comparison_mode!=='exact'&&ci.hasApprovedGroup&&
-          ci.linkedVendorItems.every(v=>productAssociationIdentity(v,profile).key===identity.key));
+          ci.linkedVendorItems.every(v=>productAssociationIdentity(v,profile,procurement).key===identity.key));
         if(groups.length===1)return {catalogItemId:groups[0].id,track:'review',score:0.7,method:'product_group',reason:'Associated by product concept; verify this listing’s own purchasing evidence'};
       }
       // Identifiers come first among the remaining ungrouped candidates.
       // Same GTIN or manufacturer code + same pack = same item, same KERDOS number.
       // Multiple vendors on the same entry is the goal.
-      const proven=identifierMatch({gtin,manufacturerCode,brand,packSize,vendorId},candidates);
+      const proven=identifierMatch({gtin,manufacturerCode,brand,packSize,vendorId},candidates,procurement);
       if(proven?.track==="exact"){
-        const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},proven.catalogItem);
+        const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},proven.catalogItem,procurement);
         if(evidence.exact)return {catalogItemId:proven.catalogItem.id,track:"exact",score:1,method:"identifier",reason:proven.reason};
       }
-      const match=proven||bestPurchasingMatch(description,packSize,candidates);
+      const match=proven||procurement.bestPurchasingMatch(description,packSize,candidates);
       // Same description + same pack = same item = same KERDOS number.
       // Link the incoming vendor item to the existing entry directly.
       // Multiple vendors under one KERDOS number is exactly the goal.
@@ -223,9 +223,9 @@ export function createCatalogService(backend,{industry}={}){
       // brand_locked=false (default): different brands are acceptable — unlocked items
       // are generic; multiple competing brands share the same entry.
       const brandLocked=match?.catalogItem?.brand_locked??false;
-      const brandVerified=match&&(!brandLocked||!brand||!match.catalogItem.knownBrand||brandsMatch(brand,match.catalogItem.knownBrand));
+      const brandVerified=match&&(!brandLocked||!brand||!match.catalogItem.knownBrand||procurement.brandsMatch(brand,match.catalogItem.knownBrand));
       if(match?.track==="exact"&&brandVerified){
-        const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},match.catalogItem);
+        const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},match.catalogItem,procurement);
         if(evidence.exact)return {catalogItemId:match.catalogItem.id,track:"exact",score:1,method:"description_pack",reason:"Same description and pack as an existing item"};
       }
       // Different purchasing packs are separate catalog items even when the product
@@ -246,14 +246,14 @@ export function createCatalogService(backend,{industry}={}){
       // "CANDY SKITTLES" must never be linked to "CANDY M&M" even as a review suggestion —
       // unresolved terms on either side may mean genuinely different products.
       // Only allow suggestions when identity is "same"; "review" now falls through to new entry.
-      const rawSuggestion=bestPurchasingSuggestion(description,packSize,candidates);
-      const suggestionIdentity=rawSuggestion?compareProductIdentity(description,rawSuggestion.catalogItem.name):null;
+      const rawSuggestion=procurement.bestPurchasingSuggestion(description,packSize,candidates);
+      const suggestionIdentity=rawSuggestion?procurement.compareProductIdentity(description,rawSuggestion.catalogItem.name):null;
       // When the candidate is brand-locked and the incoming brand disagrees with the known brand,
       // don't suggest linking — a brand-locked item must not absorb a different brand at review.
       const suggestionBrandOk=!rawSuggestion||(()=>{
         const ci=rawSuggestion.catalogItem;
         if(!ci.brand_locked)return true;
-        return !brand||!ci.knownBrand||brandsMatch(brand,ci.knownBrand);
+        return !brand||!ci.knownBrand||procurement.brandsMatch(brand,ci.knownBrand);
       })();
       // Allow a suggestion when identity is "same" (all defining terms confirmed) or "review"
       // (incoming description is a subset — it omits qualifiers but conflicts with nothing).
@@ -287,7 +287,7 @@ export function createCatalogService(backend,{industry}={}){
         if(!selected)throw new Error("Choose an available category for this organization.");
         return {category:selected,review:false,reason:null};
       }
-      const suggested=suggestCategory(description,categories,catalogItems);
+      const suggested=(importProcurement??getProcurementContext()).suggestCategory(description,categories,catalogItems);
       if(suggested)return {category:suggested.category,review:suggested.confidence!=="confident",reason:suggested.confidence==="confident"?null:suggested.reason};
       return {category:await this.ensureHoldingCategory(organizationId,categories),review:true,reason:"Category unknown; select a category to move this entire item and its vendor listings"};
     },

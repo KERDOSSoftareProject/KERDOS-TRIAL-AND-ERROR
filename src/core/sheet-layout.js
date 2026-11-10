@@ -9,7 +9,7 @@
 // what its column means: a price must be money, a pack must be a pack,
 // a unit must be a unit. A failing cell is flagged with its reason; the
 // row still saves. Description is the only column that is interpreted.
-import {parsePackSize,priceBasisFor,normalizeGtin} from "../procurement.js";
+import {getProcurementContext} from "../procurement.js";
 import {parseAssignedMoney} from './assigned-numbers.js';
 
 export const COLUMN_ROLE_LABELS={
@@ -68,7 +68,7 @@ export function applyLayoutAnswers(columnMap={},answers={}){
 
 // Each column's meaning implies a test its cells must pass. A cell that
 // fails is reported with the reason; nothing about the row is discarded.
-export function checkCell(role,value){
+export function checkCell(role,value, procurement=getProcurementContext()){
   const text=String(value??"").trim();
   if(!text)return {ok:true,empty:true};
   switch(role){
@@ -82,11 +82,11 @@ export function checkCell(role,value){
       return Number.isFinite(n)?{ok:true}:{ok:false,reason:`"${text}" is not a quantity`};
     }
     case "packSize":
-      return parsePackSize(text)?.parsed?{ok:true}:{ok:false,reason:`"${text}" is not a complete pack (needs a size and a unit)`};
+      return procurement.parsePackSize(text)?.parsed?{ok:true}:{ok:false,reason:`"${text}" is not a complete pack (needs a size and a unit)`};
     case "sellingUnit":
-      return priceBasisFor(text)?{ok:true}:{ok:false,reason:`"${text}" is not a unit KERDOS recognises`};
+      return procurement.priceBasisFor(text)?{ok:true}:{ok:false,reason:`"${text}" is not a unit KERDOS recognises`};
     case "gtin":
-      return normalizeGtin(text)?{ok:true}:{ok:false,reason:`"${text}" is not a valid barcode`};
+      return procurement.normalizeGtin(text)?{ok:true}:{ok:false,reason:`"${text}" is not a valid barcode`};
     case "code":
       return /[A-Za-z0-9]/.test(text)?{ok:true}:{ok:false,reason:`"${text}" does not look like an item number`};
     default:
@@ -98,11 +98,11 @@ export function checkCell(role,value){
 // Quantity and line totals are invoice arithmetic, checked by the invoice
 // reader against each other; they are not cell tests here.
 const UNCHECKED_ROLES=new Set(["qty","amount","description","brand","mfrCode"]);
-export function checkRowCells(cells=[],columnMap={}){
+export function checkRowCells(cells=[],columnMap={}, procurement=getProcurementContext()){
   const issues={};
   for(const [role,index] of Object.entries(columnMap)){
     if(UNCHECKED_ROLES.has(role))continue;
-    const result=checkCell(role,cells[index]);
+    const result=checkCell(role,cells[index], procurement);
     if(!result.ok)issues[role]=result.reason;
   }
   return issues;

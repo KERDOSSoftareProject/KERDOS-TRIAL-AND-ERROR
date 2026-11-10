@@ -3,14 +3,14 @@ import {invoiceBilledQuantityEvidence} from './invoice-quantity-evidence.js';
 // matching threshold and billed-unit evidence as the interactive import flow.
 // No writes happen here. Uncertain lines keep the whole invoice in review.
 import {findDate,findInvoiceNumber} from '../ingestion.js';
-import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY} from '../procurement.js';
+import {MATCH_POLICY,getProcurementContext} from '../procurement.js';
 import {lookupQuoteComparison} from './quote-provenance.js';
 import {billingUnitEvidence} from './billing-unit-evidence.js';
 
 const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
 const numeric = value => value != null && value !== '' && Number.isFinite(Number(value));
 
-export async function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendorItems=[],importService}) {
+export async function prepareAutomaticInvoice({text,rows,organizationId,vendorId,vendorItems=[],importService}, procurement=getProcurementContext()) {
   const review = reason => ({reason,header:null,lines:[]});
   const date=findDate(text);
   if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(new Date(`${date}T12:00:00Z`).getTime()) || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)!==date)
@@ -32,18 +32,18 @@ export async function prepareAutomaticInvoice({text,rows,organizationId,vendorId
     if(row.code){
       candidates=listings.filter(item=>item.vendor_item_code===row.code);
       if(candidates.length>1)return fail('Vendor item code matches multiple products.');
-      if(candidates.length&&compareProductIdentity(row.description,candidates[0].description).status!=='same')
+      if(candidates.length&&procurement.compareProductIdentity(row.description,candidates[0].description).status!=='same')
         return fail('Vendor item code conflicts with the product description.');
-      if(candidates.length&&comparePurchasingPack(row.packSize,candidates[0].pack_size).status!=='same')
+      if(candidates.length&&procurement.comparePurchasingPack(row.packSize,candidates[0].pack_size).status!=='same')
         return fail('Vendor item code has an unverified or conflicting purchasing pack.');
     }
     if(!candidates.length){
       method='exact_description';
-      candidates=listings.filter(item=>item.description===row.description&&comparePurchasingPack(row.packSize,item.pack_size).status==='same');
+      candidates=listings.filter(item=>item.description===row.description&&procurement.comparePurchasingPack(row.packSize,item.pack_size).status==='same');
       if(candidates.length>1)return fail('Description matches multiple vendor products.');
     }
     if(!candidates.length){
-      const match=bestInvoiceMatch(row.description,listings.filter(item=>comparePurchasingPack(row.packSize,item.pack_size).status==='same'),Math.max(0.9,MATCH_POLICY.invoiceMatchFloor));
+      const match=procurement.bestInvoiceMatch(row.description,listings.filter(item=>procurement.comparePurchasingPack(row.packSize,item.pack_size).status==='same'),Math.max(0.9,MATCH_POLICY.invoiceMatchFloor));
       if(match){candidates=[match.vendorItem];confidence=Math.round(match.score*100);method='fuzzy';}
     }
     if(!candidates.length)return fail('No sufficiently verified vendor product match; review the product before importing.');
@@ -53,7 +53,7 @@ export async function prepareAutomaticInvoice({text,rows,organizationId,vendorId
       importService,organizationId,vendorItemId:candidates[0].id,invoiceDate:date,
       billedUnit:row.sellingUnit,packSize:row.packSize||candidates[0].pack_size||null,
       unitPrice:Number(row.price),
-    });
+    }, procurement);
     lines.push({vendor_item_id:candidates[0].id,vendor_item_code:row.code||null,description:row.description,
       quantity:Number(row.qty),unit_price:Number(row.price),line_total:Number(row.amount),
       selling_unit:row.sellingUnit,pack_size:row.packSize,source_line:row.sourceLine,

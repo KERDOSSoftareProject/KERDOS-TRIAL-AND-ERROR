@@ -25,8 +25,8 @@
  * Confidence reflects the strength and independence of evidence, not strategy count.
  */
 
-import {parsePackSize, packFromDescription} from '../procurement.js';
-import {recognizesIndustryBrand} from '../knowledge/category-profiles.js';
+import {getProcurementContext} from '../procurement.js';
+
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,7 +75,7 @@ const MFR_CODE_PATTERN = /^[A-Z]{1,5}-\d{2,8}$/i;
  * @param {object} context   — {headerHint, position, rowCells, colIndex}
  * @returns {Array<Interpretation>}
  */
-export function analyzeCell(rawValue, context = {}) {
+export function analyzeCell(rawValue, context = {}, procurement=getProcurementContext()) {
   const raw = String(rawValue ?? '').trim();
   if (!raw) return [];
 
@@ -145,7 +145,7 @@ export function analyzeCell(rawValue, context = {}) {
   }
 
   // ── 2. PACK SIZE ──────────────────────────────────────────────────────────
-  const packResult = parsePackSize(raw);
+  const packResult = procurement.parsePackSize(raw);
   if (packResult?.parsed) {
     const packHeader = /pack|size|uom|unit|pkg/.test(header);
     const score = packHeader ? 0.95 : 0.80;
@@ -157,7 +157,7 @@ export function analyzeCell(rawValue, context = {}) {
   }
 
   // ── 3. DESCRIPTION / PRODUCT IDENTITY ────────────────────────────────────
-  const isText = parseMoney(raw) === null && !parsePackSize(raw)?.parsed;
+  const isText = parseMoney(raw) === null && !procurement.parsePackSize(raw)?.parsed;
   if (isText && raw.length >= 3) {
     const descHeader = /desc|name|product|item\s*name/.test(header);
     const hasMultipleWords = raw.split(/\s+/).length >= 2;
@@ -181,7 +181,7 @@ export function analyzeCell(rawValue, context = {}) {
     }
 
     // Pack buried in description
-    const embeddedPack = packFromDescription(raw);
+    const embeddedPack = procurement.packFromDescription(raw);
     if (embeddedPack) {
       propose('pack', embeddedPack, 'pack-from-description', `pack found inside description`, 0.75);
       const descWithoutPack = raw.slice(0, raw.lastIndexOf(embeddedPack)).trim();
@@ -220,7 +220,7 @@ export function analyzeCell(rawValue, context = {}) {
   const brandHeader = /brand|manufacturer|make/.test(header);
   if (brandHeader) {
     propose('brand', raw, 'explicit-brand-header', `header says "${headerHint}"`, 0.95);
-  } else if (recognizesIndustryBrand(raw)) {
+  } else if (procurement.recognizesIndustryBrand(raw)) {
     propose('brand', raw, 'known-brand', `"${raw}" is a recognized brand name`, 0.85);
   } else if (isText && raw.split(/\s+/).length === 1 && raw.length >= 3 && raw.length <= 20
              && raw === raw.toUpperCase() && parseMoney(raw) === null) {
@@ -391,7 +391,7 @@ const ROLE_TO_HEADER_HINT = {
   size_only: 'Size',
 };
 
-export function analyzeRow(cells, headerCells = [], priceHeader = '', confirmedColIndices = null) {
+export function analyzeRow(cells, headerCells = [], priceHeader = '', confirmedColIndices = null, procurement=getProcurementContext()) {
   const cellAnalysis = cells.map((rawValue, colIndex) => {
     const rawHint = headerCells[colIndex] || '';
     // Translate role names to recognizable header keywords ONLY for confirmed columns.
@@ -404,7 +404,7 @@ export function analyzeRow(cells, headerCells = [], priceHeader = '', confirmedC
       position: `col${colIndex}`,
       rowCells: cells,
       colIndex,
-    });
+    }, procurement);
     return {rawValue, colIndex, headerHint, interpretations};
   });
 

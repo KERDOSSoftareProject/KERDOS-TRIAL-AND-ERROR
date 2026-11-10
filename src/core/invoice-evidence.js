@@ -1,9 +1,16 @@
-import {compareProductIdentity,comparePurchasingPack,priceBasisFor,casePriceFromQuote} from "../procurement.js";
+import {getProcurementContext} from "../procurement.js";
+import {parseDocument} from "../ingestion.js";
+
+export function readInvoiceEvidence(invoices,organizationId,vendorId,procurement){
+  return invoices.flatMap(invoice=>parseDocument(invoice.raw_text||"",undefined,procurement).rows.map(row=>({
+    row,id:invoice.id,number:invoice.invoice_number,date:invoice.invoice_date,organizationId,vendorId,
+  })));
+}
 
 // Invoices are evidence about a vendor listing, never a replacement quote.
 // A code ties two documents to the same vendor listing, but conflicting
 // descriptions or packs still require a person to resolve the difference.
-export function invoiceEvidence(row,invoices=[]){
+export function invoiceEvidence(row,invoices=[], procurement=getProcurementContext()){
   const code=String(row.code||"").trim();
   const name=String(row.description||"").trim().toLowerCase();
   const wrapped=invoices.map(entry=>entry&&typeof entry==='object'&&'row' in entry?entry:{row:entry});
@@ -14,7 +21,7 @@ export function invoiceEvidence(row,invoices=[]){
   const conflicts=[];
   const valid=matches.filter(entry=>{
     const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-    if(normalize(row.description)&&normalize(row.description)===normalize(entry.row.description)||compareProductIdentity(row.description,entry.row.description).status==="same")return true;
+    if(normalize(row.description)&&normalize(row.description)===normalize(entry.row.description)||procurement.compareProductIdentity(row.description,entry.row.description).status==="same")return true;
     conflicts.push(`Invoice ${entry.number||entry.date||"record"} uses this vendor item number for a different product: ${entry.row.description}.`);
     return false;
   });
@@ -24,7 +31,7 @@ export function invoiceEvidence(row,invoices=[]){
     if(!stated.length)continue;
     const first=stated[0];
     const different=stated.some(entry=>field==="packSize"
-      ?comparePurchasingPack(first.row.packSize,entry.row.packSize).status!=="same"
+      ?procurement.comparePurchasingPack(first.row.packSize,entry.row.packSize).status!=="same"
       :String(first.row[field]).trim().toLowerCase()!==String(entry.row[field]).trim().toLowerCase());
     if(different){
       if(field!=="sellingUnit")conflicts.push(`Invoices disagree on ${field}; check the originals.`);
@@ -34,18 +41,18 @@ export function invoiceEvidence(row,invoices=[]){
     if(sheetValue){
       if(field==="sellingUnit"){
         const pack=row.packSize||first.row.packSize;
-        const quoted=priceBasisFor(sheetValue),billed=priceBasisFor(first.row.sellingUnit);
-        if(quoted&&billed&&casePriceFromQuote(1,quoted.basis,quoted.unit||sheetValue,pack)!=null&&casePriceFromQuote(1,billed.basis,billed.unit||first.row.sellingUnit,pack)!=null)continue;
+        const quoted=procurement.priceBasisFor(sheetValue),billed=procurement.priceBasisFor(first.row.sellingUnit);
+        if(quoted&&billed&&procurement.casePriceFromQuote(1,quoted.basis,quoted.unit||sheetValue,pack)!=null&&procurement.casePriceFromQuote(1,billed.basis,billed.unit||first.row.sellingUnit,pack)!=null)continue;
       }
-      if(field==="packSize"?comparePurchasingPack(sheetValue,first.row.packSize).status!=="same":sheetValue.toLowerCase()!==String(first.row[field]).trim().toLowerCase())
+      if(field==="packSize"?procurement.comparePurchasingPack(sheetValue,first.row.packSize).status!=="same":sheetValue.toLowerCase()!==String(first.row[field]).trim().toLowerCase())
         conflicts.push(`Price sheet ${field} (${sheetValue}) differs from invoice ${first.row[field]} (${first.number||first.date||"record"}).`);
     }else suggestions[field]={value:first.row[field],source:first.number||first.date||"invoice"};
   }
   return {matches:valid,suggestions,conflicts};
 }
 
-export function enrichFromInvoices(row,invoices=[]){
-  const evidence=invoiceEvidence(row,invoices);
+export function enrichFromInvoices(row,invoices=[], procurement=getProcurementContext()){
+  const evidence=invoiceEvidence(row,invoices, procurement);
   if(evidence.conflicts.length)return row;
   const next={...row},sources={...row.fieldEvidence};
   // Invoice charges never become current quotes. A billed unit by itself

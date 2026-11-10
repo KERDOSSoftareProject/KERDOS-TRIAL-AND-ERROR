@@ -1,18 +1,20 @@
-import {normalizeForMatch} from '../procurement.js';
-import {restaurantAssociations} from '../knowledge/restaurant-associations.js';
+import {getProcurementContext} from '../procurement.js';
+import {associationRules,getIndustryProfile} from '../knowledge/category-profiles.js';
 
 export const ASSOCIATION_VERSION='product-associations-1';
-const tokens=value=>normalizeForMatch(value).filter(w=>!/^\d+(?:\.\d+)?$/.test(w));
 const contains=(text,phrase)=>phrase.length>0&&phrase.every(w=>text.includes(w));
 const keyOf=words=>[...new Set(words)].sort().join(' ');
 const compiledProfiles=new WeakMap();
-function compiled(profile){
- if(!compiledProfiles.has(profile))compiledProfiles.set(profile,{concepts:profile.concepts.map(c=>({...c,phrases:c.terms.map(tokens)})),facets:(profile.facets||[]).map(aliases=>({label:aliases[0],phrases:aliases.map(tokens)}))});
- return compiledProfiles.get(profile);
+function compiled(profile,procurement,tokens){
+ let profiles=compiledProfiles.get(procurement);
+ if(!profiles){profiles=new WeakMap();compiledProfiles.set(procurement,profiles);}
+ if(!profiles.has(profile))profiles.set(profile,{concepts:profile.concepts.map(c=>({...c,phrases:c.terms.map(tokens)})),facets:(profile.facets||[]).map(aliases=>({label:aliases[0],phrases:aliases.map(tokens)}))});
+ return profiles.get(profile);
 }
-export function associationProfile(industry){return String(industry||'').toLowerCase()==='restaurant'?restaurantAssociations:{version:'literal-1',concepts:[],facets:[],fragments:[]};}
+export function associationProfile(industry){return associationRules(getIndustryProfile(industry));}
 
-export function productAssociationIdentity(row,profile=associationProfile('')){
+export function productAssociationIdentity(row,profile=associationProfile(''),procurement=getProcurementContext()){
+ const tokens=value=>procurement.normalizeForMatch(value).filter(w=>!/^\d+(?:\.\d+)?$/.test(w));
  const brand=new Set(tokens(row.brand)),pack=new Set(tokens(row.pack_size));
  let description=' '+tokens(row.description).join(' ')+' ';
  for(const value of profile.brandTerms||[]){const phrase=tokens(value).join(' ');if(phrase)description=description.split(' '+phrase+' ').join(' ');}
@@ -20,7 +22,7 @@ export function productAssociationIdentity(row,profile=associationProfile('')){
  const usable=words.filter(w=>!profile.fragments?.includes(w));
  const percentages=[...String(row.description||'').matchAll(/\b(\d+(?:\.\d+)?)\s*%/g)].map(m=>m[1]+'%').sort();
  if(!usable.length||!/[a-z]{3}/i.test(usable.join(' ')))return {key:null,label:row.description||'Missing description',reason:'No identifiable product description'};
- const rules=compiled(profile);
+ const rules=compiled(profile,procurement,tokens);
  const matches=rules.concepts.map(c=>({...c,matched:c.phrases.filter(t=>contains(words,t)).sort((a,b)=>b.length-a.length)[0]})).filter(c=>c.matched);
  // Prefer a complete specific phrase over its contained generic nouns.
  const distinct=matches.filter(c=>!matches.some(other=>other!==c&&(

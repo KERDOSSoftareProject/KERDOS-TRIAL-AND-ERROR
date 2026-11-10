@@ -31,6 +31,9 @@ export function createPriceImportFixture({text:CSV_TEXT}) {
       filters.reduce((acc, f) =>
         f.operator === 'eq' ? acc.filter(r => String(r[f.column]) === String(f.value)) : acc, rows);
 
+    if (action === "select" && table === "organizations") return {data:{industry:"Generic"},error:null};
+    if (action === "select" && table === "org_vocabulary") return {data:[],error:null};
+
     // ── vendor_items ─────────────────────────────────────────────────────────
     if (table === 'vendor_items') {
       // Initial load — empty (no pre-seeded items for NEW_CODE)

@@ -24,6 +24,8 @@ import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
 import { createImportService } from "../../../src/services/imports.js";
 import { createCatalogService } from "../../../src/services/catalog.js";
 import { importPriceRow, MISSING_DESCRIPTION } from "../../../src/core/import-price-row.js";
+import { readInvoiceEvidence } from "../../../src/core/invoice-evidence.js";
+import { createProcurementContext } from "../../../src/procurement.js";
 import { createSourceRowSnapshot, hasWorksheetSnapshot, LEGACY_WORKBOOK_REVIEW, verifyResumeRows } from "../../../src/core/import-resume.js";
 import { findUncodedVendorListing } from "../../../src/core/vendor-listing.js";
 import { nonemptyWorkbookSheets, parseStructuredDocument } from "../../../src/core/document-structuring.js";
@@ -43,7 +45,7 @@ import { parseDocument } from "../../../src/ingestion.js";
 async function runQuery(promise, context) {
   const { data, error } = await promise;
   if (error) throw new Error(`background-import ${context}: ${error.message}`);
-  return data ?? [];
+  return data;
 }
 
 async function loadOrganizationRows(backend, table, organizationId) {
@@ -52,6 +54,7 @@ async function loadOrganizationRows(backend, table, organizationId) {
   for (let offset = 0; ; offset += pageSize) {
     const page = await runQuery(backend.records.query(table).select("*")
       .eq("organization_id", organizationId).order("id").range(offset, offset + pageSize - 1), table);
+    if (!Array.isArray(page)) throw new Error(`background-import ${table}: missing rows`);
     rows.push(...page);
     if (page.length < pageSize) return rows;
   }
@@ -177,6 +180,20 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return { outcome: "needs_review", reason: `Unsupported type: ${readResult.mimeType}` };
   }
 
+  let procurement;
+  try {
+    const [organization,vocabulary]=await Promise.all([
+      runQuery(backend.records.query("organizations").select("industry").eq("id",organizationId).maybeSingle(), "organization industry"),
+      loadOrganizationRows(backend,"org_vocabulary",organizationId),
+    ]);
+    if(typeof organization?.industry!=="string"||!organization.industry.trim())throw new Error("Missing organization industry");
+    procurement=createProcurementContext({industry:organization.industry,vocabulary});
+  } catch {
+    const reason="Could not load the workspace's interpretation settings. The original was retained for automatic retry.";
+    await backend.attachments.setStatus(attachmentId,"pending",reason);
+    return {outcome:"skipped",reason};
+  }
+
   // ── Step 3: parse document into structured rows ────────────────────────────
   // parseDocument(text, options) from src/ingestion.js takes a plain string.
   // Returns { mode, rows, skipped, documentKind, quoteValidUntil, headerFound, columnMap }.
@@ -192,7 +209,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   try {
     if (readResult.kind === "lines") {
       rawText = readResult.lines.join("\n");
-      parsed = parseDocument(rawText);
+      parsed = parseDocument(rawText,undefined,procurement);
     } else {
       const worksheets=readResult.sheets.map(sheet=>({...sheet,text:workbookSheetText(sheet.rows)}));
       const reading={kind:"workbook",filename,worksheets};
@@ -205,7 +222,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       }
       structuredWorkbook=activeSheets.length>1;
       rawText=activeSheets.map(sheet=>sheet.text).join("\n");
-      parsed=structuredWorkbook?parseStructuredDocument(rawText,reading):parseDocument(rawText);
+      parsed=structuredWorkbook?parseStructuredDocument(rawText,reading,undefined,procurement):parseDocument(rawText,undefined,procurement);
     }
   } catch (err) {
     await backend.attachments.setStatus(attachmentId, "needs_review",
@@ -260,7 +277,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     if(lowImageEvidence){const reason='Invoice image text needs source clarification';await backend.attachments.setStatus(attachmentId,'needs_review',reason);return {outcome:'needs_review',reason};}
     const service = createImportService(backend);
     const vendorItems = await service.vendorItems(organizationId, vendorId);
-    const prepared = await prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems,importService:service});
+    const prepared = await prepareAutomaticInvoice({text:rawText,rows:parsedRows,organizationId,vendorId,vendorItems,importService:service},procurement);
     if (prepared.reason) {
       await backend.attachments.setStatus(attachmentId, "needs_review", prepared.reason);
       return {outcome:"needs_review",reason:prepared.reason};
@@ -363,17 +380,16 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     workingCatalogItems,
     workingCategories,
     workingMappings,
-    invoiceSources,
-    organization,
+    rawInvoices,
   ] = await Promise.all([
     loadOrganizationRows(backend, "vendor_items", organizationId),
     loadOrganizationRows(backend, "catalog_items", organizationId),
     loadOrganizationRows(backend, "catalog_categories", organizationId),
     loadOrganizationRows(backend, "item_mappings", organizationId),
     importService.invoiceSources(organizationId, vendorId),
-    runQuery(backend.records.query("organizations").select("industry").eq("id", organizationId).maybeSingle(), "organization industry"),
   ]);
-  const catalogService = createCatalogService(backend, { industry: organization?.industry ?? null });
+  const invoiceSources=readInvoiceEvidence(rawInvoices,organizationId,vendorId,procurement);
+  const catalogService = createCatalogService(backend,procurement);
 
   // ── Step 6: run the import engine row by row ───────────────────────────────
   const newCompletedKeys = [...completedRows];
@@ -417,7 +433,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // rows for review instead of applying their price to another product.
       const found=sourceRow.code
         ?{item:workingVendorItems.find(v=>v.vendor_id===vendorId&&v.vendor_item_code===sourceRow.code)||null,conflict:null}
-        :findUncodedVendorListing(sourceRow,workingVendorItems.filter(v=>v.vendor_id===vendorId));
+        :findUncodedVendorListing(sourceRow,workingVendorItems.filter(v=>v.vendor_id===vendorId),undefined,procurement);
       if(found.conflict){
         heldKeys.push(completedKey);
         heldRows.push({key:completedKey,reasons:[found.conflict]});
@@ -456,7 +472,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           workingVendorItems,
           workingMappings,
           applySelectedCategory: null,
-        });
+        },procurement);
         backend.attachments.assertLease?.();
 
         if (result.needsBasis) {

@@ -5,7 +5,7 @@
 //
 // Preserve the existing interactive refresh window when clientSettings is
 // supplied. Automatic imports retain their prior policy pending reconciliation.
-import {priceBasisFor,quotePriceOnBasis} from '../procurement.js';
+import {getProcurementContext} from '../procurement.js';
 
 const r2 = value => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -46,7 +46,7 @@ export const QUOTE_COMPARISON_NOTES = /** @type {const} */ ({
  * QUOTE_COMPARISON_NOTES value explaining why comparison was not done.
  * Never returns variance=0 for a line where comparison was not performed.
  */
-export function resolveQuoteProvenance({quote,invoiceDate,billedUnit,packSize,unitPrice}) {
+export function resolveQuoteProvenance({quote,invoiceDate,billedUnit,packSize,unitPrice}, procurement=getProcurementContext()) {
   const nullProvenance = {
     quoted_rate:               null,
     quoted_source_rate:        null,
@@ -78,11 +78,11 @@ export function resolveQuoteProvenance({quote,invoiceDate,billedUnit,packSize,un
   // Billing-basis resolution: the invoice must express a recognisable billed unit.
   const billedBasisStr = String(billedUnit || '').trim();
   if (!billedBasisStr) return fail(QUOTE_COMPARISON_NOTES.UNKNOWN_BILLED_UNIT);
-  const billedBasis = priceBasisFor(billedUnit);
+  const billedBasis = procurement.priceBasisFor(billedUnit);
   if (!billedBasis) return fail(QUOTE_COMPARISON_NOTES.UNKNOWN_BILLED_UNIT);
 
   // Convert the quoted rate to the billed basis.
-  const comparableQuote = quotePriceOnBasis(
+  const comparableQuote = procurement.quotePriceOnBasis(
     {
       price:   Number(quote.price),
       basis:   quote.price_basis || null,
@@ -113,9 +113,9 @@ export function resolveQuoteProvenance({quote,invoiceDate,billedUnit,packSize,un
 // Both UI and worker use this lookup wrapper, so a failed lookup persists the
 // same diagnostic instead of being confused with a successful empty query.
 export async function lookupQuoteComparison({importService,organizationId,vendorItemId,
-  invoiceDate,billedUnit,packSize,unitPrice,clientSettings}) {
+  invoiceDate,billedUnit,packSize,unitPrice,clientSettings}, procurement=getProcurementContext()) {
   const params={invoiceDate,billedUnit,packSize,unitPrice};
-  const empty=resolveQuoteProvenance({...params,quote:null});
+  const empty=resolveQuoteProvenance({...params,quote:null}, procurement);
   if(!vendorItemId)return empty;
   let quote;
   try {
@@ -129,5 +129,5 @@ export async function lookupQuoteComparison({importService,organizationId,vendor
   if(quote&&clientSettings?.price_refresh_mode==='automatic'&&refreshDays>0&&
       (new Date(`${invoiceDate}T12:00:00Z`)-new Date(quote.effective_date||0))/86400000>refreshDays)
     return {...empty,comparisonNote:QUOTE_COMPARISON_NOTES.CLIENT_WINDOW_EXCEEDED};
-  return resolveQuoteProvenance({...params,quote});
+  return resolveQuoteProvenance({...params,quote}, procurement);
 }

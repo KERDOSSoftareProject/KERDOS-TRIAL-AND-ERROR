@@ -57,7 +57,7 @@ for(const [name,number] of [['text-invoice','PDF-123456789'],['scanned-invoice',
 });
 await check('actual PDF bytes reach existing background atomic invoice save with original filename',async()=>{
   let saved;const statuses=[];const bytes=fixture('text-invoice');
-  const backend={records:createRecords(async spec=>({data:spec.table==='vendor_items'?vendorItems:[],error:null})),attachments:{download:async()=>bytes,extractPdfText:reader,setStatus:async(...args)=>statuses.push(args)},invoices:{recordAutomatic:async record=>{saved=record;}}};
+  const backend={records:createRecords(async spec=>({data:spec.table==='organizations'?{industry:'Generic'}:spec.table==='vendor_items'?vendorItems:[],error:null})),attachments:{download:async()=>bytes,extractPdfText:reader,setStatus:async(...args)=>statuses.push(args)},invoices:{recordAutomatic:async record=>{saved=record;}}};
   const result=await processAttachmentInBackground(backend,{id:'att',filename:'source.pdf',content_type:'application/pdf',storage_path:'org/retained/source',file_size_bytes:bytes.length},{organizationId:'org',vendorId:'vendor',documentType:'invoice'});
   assert.equal(result.outcome,'auto_imported');assert.equal(statuses.length,0);assert.equal(saved.header.file_name,'source.pdf');assert.equal(saved.header.file_path,'org/retained/source');assert.equal(saved.header.total_amount,80);assert.equal(saved.lines.length,1);
 });

@@ -2,7 +2,7 @@ import {automaticAlternativeVerified} from "./alternative-groups.js";
 import {productGroupApproved} from './product-associations.js';
 import {vendorListingLabel} from "./vendor-listing.js";
 import {calculatedUnitCost} from "./quote-controls.js";
-import {casePriceFromQuote,parsePackSize,priceBasisFor,compareProductIdentity,comparePurchasingPack,suggestCategory,quoteStatus,brandsMatch,measuredQuoteRate} from "../procurement.js";
+import {casePriceFromQuote,parsePackSize,priceBasisFor,compareProductIdentity,comparePurchasingPack,suggestCategory,quoteStatus,brandsMatch,measuredQuoteRate,getProcurementContext} from "../procurement.js";
 import {mappingVerification,mappingGap} from "../services/catalog.js";
 
 export const CATALOG_COLUMNS=[
@@ -355,12 +355,12 @@ export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendor
 // A correction belongs to this vendor's item code. Remember the original
 // field too: repeat vendor shorthand must not erase a client's clean wording.
 const FIELDS={description:"description",brand:"brand",packSize:"pack_size"};
-export function rememberImportRow(row,prior,mapping=null){
+export function rememberImportRow(row,prior,mapping=null, procurement=getProcurementContext()){
   if(!prior||(row.code?String(row.code)!==String(prior.vendor_item_code):!!prior.vendor_item_code))return row;
   if(mapping?.vendor_item_id===prior.id&&mapping.comparison_track==="exact"&&mapping.confidence_score===100){
     // The import resolved this vendor listing first. The saved association
     // and field corrections survive changes in document row order.
-    const changes=knownItemChanges(row,prior);
+    const changes=knownItemChanges(row,prior, procurement);
     const conflicts=changes.map(change=>change.reason);
     return {...row,description:prior.description,brand:prior.brand||"",packSize:prior.pack_size,
       sellingUnit:row.sellingUnit||"",knownVendorItem:true,
@@ -375,8 +375,8 @@ export function rememberImportRow(row,prior,mapping=null){
     const original=String(remembered.sourceValue??raw[input]??"").trim();
     const corrected=String(remembered.value??"").trim();
     const same=incoming===original||incoming===corrected||!incoming||
-      (input==="description"&&[original,corrected].filter(Boolean).some(d=>compareProductIdentity(incoming,d).status==="same"))||
-      (input==="packSize"&&[original,corrected].filter(Boolean).some(p=>comparePurchasingPack(incoming,p).status==="same"));
+      (input==="description"&&[original,corrected].filter(Boolean).some(d=>procurement.compareProductIdentity(incoming,d).status==="same"))||
+      (input==="packSize"&&[original,corrected].filter(Boolean).some(p=>procurement.comparePurchasingPack(incoming,p).status==="same"));
     if(!same)throw new Error(`Vendor item ${row.code||`NVIN-${prior.nvim_number}`}: ${input} changed from the known source. The saved correction and association were kept; review this field.`);
     result[input]=remembered.value??"";
   }
@@ -398,7 +398,7 @@ export function importResolutions(row,prior={},date=new Date().toISOString()){
 // Oversight is a comparison to accepted source fields after the item-number
 // lookup. It never searches the catalog or changes the existing association.
 const normalize=text=>String(text??"").trim().toUpperCase().replace(/[^A-Z0-9]+/g," ").trim();
-export function knownItemChanges(row,prior){
+export function knownItemChanges(row,prior, procurement=getProcurementContext()){
   const baseline=prior.import_row?.baseline||prior.import_row?.row||{};
   const saved={description:prior.description,brand:prior.brand,packSize:prior.pack_size,sellingUnit:prior.selling_unit,gtin:prior.gtin,manufacturerCode:prior.manufacturer_code};
   const labels={description:"Product wording",brand:"Brand",packSize:"Pack",sellingUnit:"Quoted unit",gtin:"Barcode",manufacturerCode:"Manufacturer code"};
@@ -408,9 +408,9 @@ export function knownItemChanges(row,prior){
     if(after==null||String(after).trim()==="")continue; // a code-and-price sheet can omit known fields
     const before=baseline[field]||saved[field]||"";
     if(normalize(after)===normalize(before)||normalize(after)===normalize(saved[field]))continue;
-    if(field==="packSize"&&[before,saved[field]].filter(Boolean).some(value=>comparePurchasingPack(after,value).status==="same"))continue;
+    if(field==="packSize"&&[before,saved[field]].filter(Boolean).some(value=>procurement.comparePurchasingPack(after,value).status==="same"))continue;
     if(field==="sellingUnit"){
-      const incoming=priceBasisFor(after),old=priceBasisFor(before);
+      const incoming=procurement.priceBasisFor(after),old=procurement.priceBasisFor(before);
       if(!before||incoming&&old&&incoming.basis===old.basis&&incoming.unit===old.unit)continue;
     }
     changes.push({field,before,after,reason:`${label} changed from “${before||"not stated"}” to “${after}”.`});

@@ -1,4 +1,4 @@
-import {compareProductIdentity,comparePurchasingPack,priceBasisFor,brandsMatch} from "../procurement.js";
+import {getProcurementContext} from "../procurement.js";
 import {inferPricingBasis} from "./infer-pricing-basis.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
@@ -6,16 +6,16 @@ import {unitInPrice,unitInPriceHeader} from "./source-units.js";
 
 // Interpret only bound source prices. Each amount keeps its own header
 // and coordinates, independent of calculations or later client edits.
-export function interpretStatedQuotePair(bindings){
+export function interpretStatedQuotePair(bindings, procurement=getProcurementContext()){
   const primary=bindings?.price,parallel=bindings?.parallelPrice;
   if(!primary||!parallel||primary.columnIndex===parallel.columnIndex||
     primary.evidence==="inferred"||parallel.evidence==="inferred")return [];
-  const fields=[primary,parallel].map(source=>({source,sellingUnit:unitInPriceHeader(source.header)}));
+  const fields=[primary,parallel].map(source=>({source,sellingUnit:unitInPriceHeader(source.header, procurement)}));
   const units=fields.map(field=>field.sellingUnit);
   if(!units.includes("CASE")||!units.includes("EACH"))return [];
   return fields.flatMap(({source,sellingUnit})=>{
     const price=parseAssignedMoney(source.rawValue);
-    const cellUnit=unitInPrice(source.rawValue);
+    const cellUnit=unitInPrice(source.rawValue, procurement);
     return price>0&&(!cellUnit||cellUnit===sellingUnit)?[{source,sellingUnit,price}]:[];
   });
 }
@@ -24,8 +24,8 @@ export function interpretStatedQuotePair(bindings){
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that
 // a new document with an omitted unit also quotes cases.
-export function resolveQuoteBasis(row,prior=null){
-  const explicit=priceBasisFor(row.sellingUnit);
+export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext()){
+  const explicit=procurement.priceBasisFor(row.sellingUnit);
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
   if(String(row.sellingUnit||"").trim()||row.changes?.length)return null;
   if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||prior.import_row?.evidence?.sellingUnitSource==="inferred")return null;
@@ -33,18 +33,18 @@ export function resolveQuoteBasis(row,prior=null){
   // The caller must resolve one unique NVIN first, within this vendor.
   const uncoded=!row.code&&!prior.vendor_item_code&&!!prior.id&&row.resolvedVendorItemId===prior.id;
   if(!coded&&!uncoded)return null;
-  if(row.brand&&prior.brand&&!brandsMatch(row.brand,prior.brand))return null;
+  if(row.brand&&prior.brand&&!procurement.brandsMatch(row.brand,prior.brand))return null;
   if(row.gtin&&prior.gtin&&row.gtin!==prior.gtin)return null;
   if(row.manufacturerCode&&prior.manufacturer_code&&row.manufacturerCode!==prior.manufacturer_code)return null;
-  if(compareProductIdentity(row.description,prior.description).status!=="same"||
-     comparePurchasingPack(row.packSize,prior.pack_size).status!=="same")return null;
-  const learned=priceBasisFor(prior.selling_unit);
+  if(procurement.compareProductIdentity(row.description,prior.description).status!=="same"||
+     procurement.comparePurchasingPack(row.packSize,prior.pack_size).status!=="same")return null;
+  const learned=procurement.priceBasisFor(prior.selling_unit);
   return learned?.basis===prior.price_basis?{basis:learned,sellingUnit:prior.selling_unit,source:"confirmed vendor item"}:null;
 }
 
 // Invoice billing evidence is reusable only for a consistent vendor listing.
 // Arithmetic validates the source; the explicit billed unit identifies its basis.
-export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null){
+export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null, procurement=getProcurementContext()){
   if(String(row.sellingUnit||'').trim())return null;
   const normalize=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const code=String(row.code||'').trim(),description=normalize(row.description);
@@ -63,17 +63,17 @@ export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null){
     if(!description||!normalize(invoice.description)){
       fail('Product description is missing');continue;
     }
-    if(description!==normalize(invoice.description)&&compareProductIdentity(row.description,invoice.description).status!=='same'){
+    if(description!==normalize(invoice.description)&&procurement.compareProductIdentity(row.description,invoice.description).status!=='same'){
       fail('Product description identity is different or unresolved for this item code');continue;
     }
-    if(!row.packSize||!invoice.packSize||comparePurchasingPack(row.packSize,invoice.packSize).status!=='same'){
+    if(!row.packSize||!invoice.packSize||procurement.comparePurchasingPack(row.packSize,invoice.packSize).status!=='same'){
       fail('Purchasing pack differs, is missing, or cannot be confirmed');continue;
     }
     if(row.gtin&&invoice.gtin&&row.gtin!==invoice.gtin||row.manufacturerCode&&invoice.manufacturerCode&&row.manufacturerCode!==invoice.manufacturerCode){
       fail('Product identifier differs');continue;
     }
     const evidence=billingUnitEvidence(invoice);
-    const basis=priceBasisFor(invoice.sellingUnit);
+    const basis=procurement.priceBasisFor(invoice.sellingUnit);
     if(!evidence||!basis){fail('Explicit billed-unit evidence is missing or ambiguous');continue;}
     if(invoice.requiresReview||invoice.priceNeedsReview||invoice.issues?.length||invoice.cellConflicts?.length){
       fail('Invoice has unresolved issues or conflicting billing evidence');continue;
@@ -96,9 +96,9 @@ export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null){
     invoiceReferences:usable.map(value=>({...value.reference,billingUnitEvidence:value.evidence}))};
 }
 
-export function inferQuoteBasis(row) {
+export function inferQuoteBasis(row, procurement=getProcurementContext()) {
   if (String(row.sellingUnit||'').trim()) return null; // explicit unit already present
-  const result = inferPricingBasis(row);
+  const result = inferPricingBasis(row, procurement);
   if (!result.basis) return null;
   return {
     basis: result.basis,
