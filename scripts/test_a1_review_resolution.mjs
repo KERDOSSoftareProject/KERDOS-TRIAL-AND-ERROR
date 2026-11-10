@@ -9,7 +9,11 @@ const source=String.raw`
 import React from 'react';
 import Renderer,{act} from 'react-test-renderer';
 import assert from 'node:assert/strict';
+import * as XLSX from 'xlsx';
 import {createRecords} from './src/backend/records.js';
+import {readWorkbook} from './src/core/document-reading.js';
+import {parseStructuredDocument} from './src/core/document-structuring.js';
+import {createSourceRowSnapshot} from './src/core/import-resume.js';
 import {parseDocument} from './src/ingestion.js';
 import {PasteModal} from './src/pages/ImportModal.jsx';
 const csv='Code,Description,Pack,Price Unit,Price\nA1-R-001,Chicken Breast Boneless Skinless,1/10 LB,CASE,10\nA1-R-002,Beef Tenderloin Choice Cut,1/10 LB,,20\n';
@@ -38,19 +42,19 @@ globalThis.__resolutionBackend={records,documents:{upload:async()=>{uploads++;th
   if(!quotes.some(row=>row.source_row_key===q.importRow.rowKey))quotes.push({organization_id:org,source_document_id:doc,source_row_key:q.importRow.rowKey,source_line:q.sourceLine});
   return 'vi1';}},catalog:{saveRow:async()=>{throw new Error('Unexpected catalog write');}}};
 const text=node=>node.children.map(value=>typeof value==='string'?value:text(value)).join('');
-async function open(){
+async function open(file=new File([csv],'mixed.csv',{type:'text/csv'}),expectReview=true){
  let tree;
  await act(async()=>{tree=Renderer.create(React.createElement(PasteModal,{vendors:[{id:vendor,name:'Test vendor'}],orgId:org,orgSettings:{},
   catalogItems:catalogs,categories,vendorItems:items,mappings,initialVendorId:vendor,initialMode:'pricelist',
-  initialFiles:[new File([csv],'mixed.csv',{type:'text/csv'})],inboxImportDocumentId:doc,onClose:()=>{},onDone:()=>{},
+  initialFiles:[file],inboxImportDocumentId:doc,onClose:()=>{},onDone:()=>{},
   onBeforeSave:async()=>{reservations++;return true;},onFinished:()=>{finishes++;}}));});
- for(let i=0;i<60&&!tree.root.findAllByType('button').some(button=>text(button)==='Apply corrections');i++){
+ for(let i=0;i<60&&!tree.root.findAllByType('button').some(button=>text(button)==='Apply corrections')&&!text(tree.root).includes('complete worksheet snapshot');i++){
   await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
  }
  const next=tree.root.findAllByType('button').find(button=>text(button)==='Save Import →');
  assert.equal(next,undefined,'Inbox review must not require the upload-preview continuation');
  const save=()=>tree.root.findAllByType('button').find(button=>text(button)==='Apply corrections');
- assert.ok(save(),'Stored initial attachment must parse without upload/paste; controls: '+tree.root.findAllByType('button').map(text).join(' | '));
+ if(expectReview)assert.ok(save(),'Stored initial attachment must parse without upload/paste; controls: '+tree.root.findAllByType('button').map(text).join(' | '));
  return {tree,save};
 }
 let p=await open();
@@ -76,14 +80,49 @@ assert.equal(items[1].import_row.reviewRequired,false);assert.equal(finishes,1);
 assert.equal(document.file_name,'mixed.csv');assert.equal(document.file_path,'original/mixed.csv');
 console.log('PASS reviewer unit resolution completes the same document and writes only the unresolved row');
 await act(async()=>p.tree.unmount());
-console.log('3/3 rendered Inbox resolution checks passed (local component evidence).');
+
+const book=XLSX.utils.book_new();
+const headers=['Code','Description','Pack','Price Unit','Price'];
+for(const [index,row] of rows.entries()){
+ XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([headers,[row.code,row.description,row.packSize,row.sellingUnit,row.price]],{origin:index?'C4':'A1'}),'Worksheet '+(index+1));
+}
+const reading=readWorkbook(book,XLSX,'mixed.xlsx');
+const worksheetRows=parseStructuredDocument(reading.text,reading).rows;
+const file=Object.assign(new File([reading.text],'mixed.xlsx'),{reading});
+Object.assign(document,{status:'partial',completed_keys:['row:0'],source_rows:null,file_name:'mixed.xlsx',file_path:'original/mixed.xlsx'});
+const reservationCount=reservations,previousWrites=calls.length;
+p=await open(file,false);
+assert.match(text(p.tree.root),/complete worksheet snapshot/);
+assert.equal(p.save(),undefined);
+assert.equal(reservations,reservationCount);
+assert.equal(calls.length,previousWrites);
+await act(async()=>p.tree.unmount());
+console.log('PASS old workbook without a worksheet snapshot keeps its saved rows and does not reserve the attachment');
+
+document.source_rows=createSourceRowSnapshot(worksheetRows);
+quotes.splice(0,quotes.length,{id:'q0',organization_id:org,vendor_item_id:'vi0',source_document_id:doc,source_row_key:'row:0',source_line:worksheetRows[0].sourceLine});
+items.forEach((item,i)=>Object.assign(item,{price_unavailable:i===1,import_row:{row:worksheetRows[i],rowKey:'row:'+i,sourceDocumentId:doc,reviewRequired:i===1}}));
+p=await open(file);
+const worksheetUnit=p.tree.root.findAllByType('select').find(select=>select.props['aria-label']==='Quoted price per unit for Beef Tenderloin Choice Cut');
+await act(async()=>worksheetUnit.props.onChange({target:{value:'CASE'}}));
+await act(async()=>{await p.save().props.onClick();});
+assert.equal(document.status,'complete');
+assert.deepEqual(document.completed_keys,['row:0','row:1']);
+assert.equal(calls.length,previousWrites+1);
+assert.equal(calls.at(-1).importRow.rowKey,'row:1');
+assert.equal(calls.at(-1).importRow.row.sourceProvenance.worksheet,'Worksheet 2');
+assert.equal(calls.at(-1).sourceFilePath,'original/mixed.xlsx');
+assert.equal(uploads,0);
+await act(async()=>p.tree.unmount());
+console.log('PASS linked workbook applies the correction to the second worksheet without rewriting the first');
+console.log('5/5 rendered Inbox resolution checks passed (local component evidence).');
 process.exit(0);
 `;
 try{
  const outfile=join(directory,'test.mjs');
- await build({stdin:{contents:source,resolveDir:process.cwd(),loader:'jsx'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['xlsx','pdfjs-dist','tesseract.js'],plugins:[{name:'resolution-adapter',setup(b){
+ await build({stdin:{contents:source,resolveDir:process.cwd(),loader:'jsx'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},external:['pdfjs-dist','tesseract.js'],plugins:[{name:'resolution-adapter',setup(b){
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'stub'}));
-  b.onLoad({filter:/reader/,namespace:'stub'},()=>({contents:'export async function fileToText(file){return file.text();}'}));
+  b.onLoad({filter:/reader/,namespace:'stub'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.reading)onRead?.(file.reading);return file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'stub'}));
   b.onLoad({filter:/backend/,namespace:'stub'},()=>({contents:'export const backend={records:{query:(...a)=>globalThis.__resolutionBackend.records.query(...a)},pricing:{applyQuote:(...a)=>globalThis.__resolutionBackend.pricing.applyQuote(...a)},documents:{upload:(...a)=>globalThis.__resolutionBackend.documents.upload(...a)},catalog:{saveRow:(...a)=>globalThis.__resolutionBackend.catalog.saveRow(...a)}};'}));
  }}]});

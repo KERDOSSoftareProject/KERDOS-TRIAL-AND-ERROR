@@ -14,7 +14,7 @@
  *   • application/vnd.ms-excel (.xls)
  *   • text/csv that Postmark mis-labels as an Excel MIME
  *     → { kind: "sheets", sheets: Array<{ name: string, rows: string[][] }> }
- *       background-import converts the first non-empty sheet back to CSV text.
+ *       worksheet cells retain coordinates for the shared structurer.
  *
  *   • anything else
  *     → { kind: "unsupported", mimeType: string }
@@ -158,7 +158,7 @@ async function parseXlsx(bytes) {
   const results = [];
   for (const def of sheetDefs) {
     const target = rels[def.rId];
-    if (!target) continue;
+    if (!target) throw new FileReadError("Workbook contains a worksheet with no readable relationship");
 
     // Normalise path: xl/worksheets/sheet1.xml
     const sheetPath = target.startsWith("/")
@@ -166,10 +166,11 @@ async function parseXlsx(bytes) {
       : `xl/${target.replace(/^\.\.\//, "")}`;
 
     const sheetEntry = zip[sheetPath];
-    if (!sheetEntry) continue;
+    if (!sheetEntry) throw new FileReadError("Workbook contains an unreadable worksheet");
 
-    const rows = parseWorksheet(bytesToString(sheetEntry), sharedStrings);
-    results.push({ name: def.name, rows });
+    const worksheet=bytesToString(sheetEntry);
+    if(!/<worksheet\b/.test(worksheet))throw new FileReadError("Workbook contains an unsupported worksheet type");
+    results.push({ name: xmlUnescape(def.name), ...parseWorksheet(worksheet, sharedStrings) });
   }
 
   return results;
@@ -299,6 +300,10 @@ function bytesToString(bytes) {
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
+function worksheetTextRuns(xml) {
+  return [...xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(match=>xmlUnescape(match[1])).join("");
+}
+
 /** Extract all <si> text values from sharedStrings.xml */
 function parseSharedStrings(xml) {
   const results = [];
@@ -307,13 +312,7 @@ function parseSharedStrings(xml) {
   let m;
   while ((m = siRe.exec(xml)) !== null) {
     // Concatenate all <t> values (handles rich text runs with multiple <t> elements).
-    const tRe = /<t[^>]*>([\s\S]*?)<\/t>/g;
-    let text = "";
-    let tm;
-    while ((tm = tRe.exec(m[1])) !== null) {
-      text += xmlUnescape(tm[1]);
-    }
-    results.push(text);
+    results.push(worksheetTextRuns(m[1]));
   }
   return results;
 }
@@ -327,7 +326,7 @@ function parseWorkbookSheets(xml) {
     const tag = m[0];
     const name  = attrVal(tag, "name")  || `Sheet${results.length + 1}`;
     const rId   = attrVal(tag, "r:id") || attrVal(tag, "id") || "";
-    if (rId) results.push({ name, rId });
+    results.push({ name, rId });
   }
   return results;
 }
@@ -346,30 +345,35 @@ function parseRels(xml) {
   return rels;
 }
 
-/** Parse a worksheet XML into string[][] rows */
+/** Retain the existing text rows and original cell coordinates. */
 function parseWorksheet(xml, sharedStrings) {
   // Extract the <sheetData> block.
   const dataMatch = /<sheetData>([\s\S]*?)<\/sheetData>/.exec(xml);
-  if (!dataMatch) return [];
+  if (!dataMatch) return { rows: [], cells: [] };
 
   const rows = [];
-  const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g;
+  const sourceCells = [];
+  const rowRe = /<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g;
   let rowMatch;
 
   while ((rowMatch = rowRe.exec(dataMatch[1])) !== null) {
     const cells = [];
-    const cellRe = /<c\s([^>]*)>([\s\S]*?)<\/c>/g;
+    const cellRe = /<c\s([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
     let cellMatch;
 
-    while ((cellMatch = cellRe.exec(rowMatch[1])) !== null) {
+    while ((cellMatch = cellRe.exec(rowMatch[1] ?? "")) !== null) {
       const attrs  = cellMatch[1];
-      const inner  = cellMatch[2];
+      const inner  = cellMatch[2] ?? "";
       const cellRef  = attrVal(`<c ${attrs}>`, "r") || "";
       const cellType = attrVal(`<c ${attrs}>`, "t") || "n";
 
       // Calculate column index from cell reference (e.g. "C3" → 2)
-      const colLetter = cellRef.replace(/\d/g, "");
+      const position = /^([A-Z]{1,3})([1-9]\d*)$/.exec(cellRef);
+      if (!position) throw new FileReadError("Worksheet contains a cell without a readable position");
+      const colLetter = position[1];
       const colIndex  = colLetterToIndex(colLetter);
+      const rowNumber = Number(position[2]);
+      if(colIndex>=16384||rowNumber>1048576)throw new FileReadError("Worksheet cell position is outside the Excel range");
 
       // Pad cells array to the correct column position.
       while (cells.length < colIndex) cells.push("");
@@ -384,12 +388,16 @@ function parseWorksheet(xml, sharedStrings) {
         const idx = parseInt(vMatch[1], 10);
         cellValue = sharedStrings[idx] ?? "";
       } else if (cellType === "inlineStr" && isVal) {
-        const tMatch = /<t[^>]*>([\s\S]*?)<\/t>/.exec(isVal[1]);
-        cellValue = tMatch ? xmlUnescape(tMatch[1]) : "";
+        cellValue = worksheetTextRuns(isVal[1]);
       } else if (vMatch) {
-        cellValue = vMatch[1];
+        cellValue = cellType === "str" ? xmlUnescape(vMatch[1]) : vMatch[1];
       }
 
+      if(cellValue!==""){
+        const number=cellType==="n"?Number(cellValue):NaN;
+        const value=Number.isFinite(number)?number:cellType==="b"?cellValue==="1":cellValue;
+        sourceCells.push({address:cellRef,row:rowNumber,column:colIndex+1,value});
+      }
       if (cells.length === colIndex) {
         cells.push(String(cellValue));
       } else {
@@ -402,7 +410,7 @@ function parseWorksheet(xml, sharedStrings) {
     }
   }
 
-  return rows;
+  return { rows, cells: sourceCells };
 }
 
 function colLetterToIndex(letters) {
@@ -421,11 +429,11 @@ function attrVal(tag, name) {
 
 function xmlUnescape(s) {
   return s
-    .replace(/&amp;/g,  "&")
     .replace(/&lt;/g,   "<")
     .replace(/&gt;/g,   ">")
     .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g,  "&");
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────

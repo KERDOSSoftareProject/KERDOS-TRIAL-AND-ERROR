@@ -4,7 +4,7 @@ import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {useEffect,useMemo,useRef,useState} from "react";
 import {backend} from "../backend/index.js";
 import {fileToText} from "../document-reader.js";
-import {parseStructuredDocument} from "../core/document-structuring.js";
+import {nonemptyWorkbookSheets,parseStructuredDocument} from "../core/document-structuring.js";
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
 import {findUncodedVendorListing,vendorListingLabel} from "../core/vendor-listing.js";
 import {lookupQuoteComparison} from "../core/quote-provenance.js";
@@ -19,7 +19,7 @@ import {formatMoney} from "../localization.js";
 import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
 import {importPriceRow,MISSING_DESCRIPTION} from "../core/import-price-row.js";
-import {verifyResumeRows,createSourceRowSnapshot} from "../core/import-resume.js";
+import {verifyResumeRows,createSourceRowSnapshot,hasWorksheetSnapshot,LEGACY_WORKBOOK_REVIEW} from "../core/import-resume.js";
 import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
 import {priceDocumentStatus} from "../core/import-status.js";
@@ -213,6 +213,10 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     return rememberedLayout(layoutSettings.current.value,vendorId,fingerprint);
   }
   function parseWithLayout(text,reading,overrides={}){
+    const multiSheet=nonemptyWorkbookSheets(reading).length>1;
+    // A linked workbook must reproduce the worker's original layout before
+    // a reviewer can edit individual rows or skip completed positions.
+    if(inboxImportDocumentId&&multiSheet)return parseStructuredDocument(text,reading);
     const parse=(part,options={})=>{
       const first=parseDocument(part,options);
       const fingerprint=first.layout?.fingerprint||"";
@@ -221,7 +225,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     };
     // The inbox's retained partial rows keep the worker's existing ordinal
     // contract. B3 changes the separate manual-upload path only.
-    return parseStructuredDocument(text,inboxReview?null:reading,parse);
+    return parseStructuredDocument(text,inboxReview&&!multiSheet?null:reading,parse);
   }
   const layoutsFor=group=>group.parts?.length?group.parts:[group];
   // Unknown column headers: collect any that the engine couldn't map by
@@ -233,6 +237,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   function gatherUnknownsForConfirmation(groups){
     const toAsk=[];
     for(const g of groups)for(const part of layoutsFor(g)){
+      if(g.workbookResumeRows)continue;
       const fp=part.layout?.fingerprint;
       const unknown=(part.layout?.unknown||[]).filter(h=>h.label);
       if(!fp||!unknown.length||toAsk.some(entry=>entry.fingerprint===fp))continue;
@@ -348,8 +353,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       const groups=[];
       for(const d of docs){
         try{
+          const workbookResume=inboxImportDocumentId&&nonemptyWorkbookSheets(d.reading).length>1;
+          if(workbookResume){
+            const retained=await importService.findPriceDocumentById({organizationId:orgId,vendorId,documentId:inboxImportDocumentId});
+            if(!hasWorksheetSnapshot(retained?.source_rows))throw new Error(LEGACY_WORKBOOK_REVIEW);
+          }
           const parsed=parseWithLayout(d.text,d.reading);
-          groups.push({...d,rows:parsed.rows.map(settleRow),skipped:parsed.skipped,documentKind:parsed.documentKind,quoteValidUntil:parsed.quoteValidUntil,invoiceDate:findDate(d.text)||"",layout:parsed.layout,columnMap:parsed.columnMap,parts:parsed.parts,structure:parsed.structure});
+          groups.push({...d,rows:parsed.rows.map(settleRow),...(workbookResume?{workbookResumeRows:parsed.rows}:{}),skipped:parsed.skipped,documentKind:parsed.documentKind,quoteValidUntil:parsed.quoteValidUntil,invoiceDate:findDate(d.text)||"",layout:parsed.layout,columnMap:parsed.columnMap,parts:parsed.parts,structure:parsed.structure});
         }catch(error){if(!automaticImport)throw new Error(`${d.name}: ${error.message||String(error)}`);groups.push({...d,rows:[],skipped:[],automaticException:`Could not parse source: ${error.message||String(error)}`});}
         await new Promise(resolve=>setTimeout(resolve,0));
       }
@@ -514,6 +524,11 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           catch(error){assertActive();failedRows+=Math.max(1,group.rows.length);saveError=[saveError,group.name+': '+error.message].filter(Boolean).join(' ');continue;}
           unchangedDocuments++;lastSourceDocumentId=existingDoc.id;continue;
         }
+        if(group.workbookResumeRows&&!hasWorksheetSnapshot(existingDoc?.source_rows)){
+          failedRows+=group.rows.length;
+          saveError=[saveError,`${group.name}: ${LEGACY_WORKBOOK_REVIEW}`].filter(Boolean).join(" ");
+          continue;
+        }
         if(existingDoc&&existingDoc.status==="complete"){saveError=(saveError?saveError+" ":"")+`${group.name}: already imported in full. Use Delete & re-import in Price Sheets to load it again.`;continue;}
         const completedKeys=new Set(Array.isArray(existingDoc?.completed_keys)?existingDoc.completed_keys:[]);
         savedSourceRows+=completedKeys.size;
@@ -541,7 +556,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           }
         }
         if(existingDoc){
-          try{verifyResumeRows(group.rows,[...new Set([...completedKeys,...Object.keys(existingDoc.staged_row_receipts||{})])],await importService.resumeSources(orgId,vendorId,existingDoc.id),existingDoc.source_rows??null);}
+          try{verifyResumeRows(group.workbookResumeRows||group.rows,[...new Set([...completedKeys,...Object.keys(existingDoc.staged_row_receipts||{})])],await importService.resumeSources(orgId,vendorId,existingDoc.id),existingDoc.source_rows??null);}
           catch(error){failedRows+=group.rows.length;saveError=(saveError?saveError+" ":"")+`${group.name}: ${error.message}`;continue;}
         }
         sourceFilePath=existingDoc?.file_path||sourceFilePath;

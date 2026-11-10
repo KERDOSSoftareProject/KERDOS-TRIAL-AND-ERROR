@@ -187,6 +187,10 @@ export function structureDocument(reading){
   return {segments:[],skipped:[]};
 }
 
+export function nonemptyWorkbookSheets(reading){
+  return reading?.kind==='workbook'?reading.worksheets.filter(sheet=>sheet.cells.some(cell=>clean(cell.value))):[];
+}
+
 function unlabelledRoles(segment){
   if(segment.kind!=='positioned-unlabelled')return null;
   const count=segment.rows[0].cells.length;
@@ -227,6 +231,11 @@ function matchSourceRow(row,sources,claimed,tabular){
 export function parseStructuredDocument(text,reading,parse=(input,options)=>parseDocument(input,options)){
   const structure=structureDocument(reading);
   if(!structure.segments.length)return {...parse(text),parts:[],structure};
+  const workbookSheets=nonemptyWorkbookSheets(reading);
+  const workbookEvidence=workbookSheets.length>1?new Map(workbookSheets.map(sheet=>[sheet.name,{
+    unit:documentQuoteUnit(sheet.text),expiry:findQuoteValidity(sheet.text),kind:detectDocumentKind(sheet.text),
+  }])):null;
+  const documentUnit=workbookEvidence?null:documentQuoteUnit(text);
   const parts=structure.segments.map((segment,index)=>{
     const inferredColumns=unlabelledRoles(segment);
     const fallback=segment.kind==='freeform'||(segment.kind==='positioned-unlabelled'&&!inferredColumns);
@@ -244,7 +253,8 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
       if(page?.source==='local-ocr'&&typeof page.ocr?.confidence==='number')confidence.push(page.ocr.confidence);
       const lowOcr=confidence.some(value=>value<90);
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
-      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback}};
+      const worksheet=workbookEvidence?.get(segment.worksheet);
+      return {...applySourceUnits(row,{documentUnit:worksheet?.unit??documentUnit}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback,...(worksheet?{quoteValidUntil:worksheet.expiry}:{})}};
     });
     const sourceLocation={page:segment.page??null,worksheet:segment.worksheet??null,table:index};
     const skipped=parsed.skipped.map(entry=>{
@@ -275,8 +285,8 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
       }else seen.set(key,{page:page.number,rows,copy});
     }
   }
-  const kinds=new Set(parts.map(part=>part.documentKind).filter(kind=>kind!=='unknown'));
+  const kinds=new Set([...parts.map(part=>part.documentKind),...(workbookEvidence?[...workbookEvidence.values()].map(sheet=>sheet.kind):[])].filter(kind=>kind!=='unknown'));
   const documentKind=detectDocumentKind(text);
   return {...parts[0],rows:parts.flatMap(part=>part.rows),skipped:[...structure.skipped,...parts.flatMap(part=>part.skipped),...duplicatePages],parts,structure,duplicatePages,
-    documentKind:documentKind==='unknown'?(kinds.size>1?'mixed':[...kinds][0]||'unknown'):documentKind,quoteValidUntil:findQuoteValidity(text)};
+    documentKind:workbookEvidence&&kinds.size>1?'mixed':documentKind==='unknown'?(kinds.size>1?'mixed':[...kinds][0]||'unknown'):documentKind,quoteValidUntil:workbookEvidence?null:findQuoteValidity(text)};
 }
