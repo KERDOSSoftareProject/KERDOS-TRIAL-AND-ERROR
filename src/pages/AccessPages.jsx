@@ -43,9 +43,6 @@ export function LandingGate() {
     <div className="landing-gate" style={{minHeight:"100vh",background:"linear-gradient(160deg,#003584 0%,#00204F 100%)",padding:"48px 20px 60px"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
         <BrandLogo />
-        <div style={{fontWeight:900,fontSize:22,color:"white",marginBottom:10,maxWidth:480,marginLeft:"auto",marginRight:"auto",lineHeight:1.3}}>
-          KERDOS a procurement software
-        </div>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(min(260px,100%), 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>
