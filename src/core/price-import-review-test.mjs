@@ -48,6 +48,20 @@ assert.equal(unreadable.row.changes.length,0,"same unresolved text isn't reporte
 const omitted=preparePriceImport({code:"A-001",price:32},prior,exact);
 assert.equal(omitted.requiresReview,false,"confirmed code-only repeat keeps saved specifications");
 assert.equal(omitted.row.packSize,"18 LB");
+const newEachQuote={...source,sellingUnit:"EACH",sellingUnitSource:"price header"};
+const changedUnit=preparePriceImport(newEachQuote,prior,exact);
+assert.equal(changedUnit.row.sellingUnit,"EACH","retain the incoming stated unit even when the existing listing is verified");
+assert.equal(changedUnit.row.sellingUnitSource,"price header");
+assert.equal(changedUnit.resolved.basis.basis,"each");
+assert.equal(changedUnit.requiresReview,true,"a changed quoted unit must not replace the accepted quote");
+const changedUnitPreview=explainImportRow(newEachQuote,{vendor:{id:"vendor"},vendorItems:[{...prior,vendor_id:"vendor"}],mappings:[exact]});
+assert.equal(changedUnitPreview.sellingUnit.value,"EACH");
+assert.equal(changedUnitPreview.qualification.ready,false);
+const changedPackWithoutUnit=preparePriceImport({...source,packSize:"24 LB",sellingUnit:null},prior,exact);
+assert.equal(changedPackWithoutUnit.requiresReview,true);
+assert.notEqual(changedPackWithoutUnit.resolved?.source,"confirmed vendor item","a changed source pack cannot borrow the old unit");
+const sourceMarkedForReview=preparePriceImport({...source,priceNeedsReview:true},prior,exact);
+assert.equal(sourceMarkedForReview.requiresReview,true,"a known listing does not clear incoming price-review evidence");
 const corrected={...prior,pack_size:"18 LB",field_resolutions:{pack_size:{sourceValue:"CASE",value:"18 LB"}},import_row:{row:{packSize:"CASE"}}};
 assert.equal(preparePriceImport({...source,packSize:"CASE"},corrected,pending).requiresReview,false,"known source shorthand retains manual correction");
 assert.equal(preparePriceImport({...source,packSize:"BOX"},corrected,pending).requiresReview,true,"changed corrected field is saved for review, not thrown away");
@@ -93,3 +107,42 @@ assert.equal(ranged.total,null);assert.equal(ranged.baseTotal,null);assert.equal
 assert.equal(packsEquivalent('2/6-8 LBA','2/6-8 LB AVG'),true);
 assert.equal(packsEquivalent('2/6-8 LBA','2/7-9 LBA'),false);
 for(const invalid of ['2/8-6 LBA','2/0-8 LBA','0/6-8 LBA','2/6-8 LBA EXTRA'])assert.ok(!parsePackSize(invalid)?.parsed,invalid);
+
+const pairedSheet='SKU,Description,Pack,Price/Case,Each Price\nA-002,Example fastener,6/1 EA,$23.00,$4.25';
+const paired=parseDocument(pairedSheet);
+assert.equal(paired.rows.length,1,'two stated rates still describe one source row');
+const pairRow=paired.rows[0];
+assert.equal(pairRow.fieldIdentification.bindings.parallelPrice.columnIndex,4);
+assert.equal(pairRow.fieldIdentification.bindings.parallelPrice.rawValue,'$4.25');
+assert.ok(!paired.layout.unknown.some(column=>column.label==='Each Price'));
+const rates=quotes=>quotes.map(({sellingUnit,price})=>[sellingUnit,price]);
+const pair=preparePriceImport(pairRow);
+assert.deepEqual(rates(pair.row.statedPriceQuotes),[['CASE',23],['EACH',4.25]]);
+assert.equal(pair.row.statedPriceQuotes[1].source.header,'Each Price');
+assert.equal(pair.resolved.basis.basis,'case');
+assert.equal(pair.row.price,23);
+assert.equal(pair.requiresReview,false);
+assert.deepEqual(rates(explainImportRow(pairRow).statedPriceQuotes),[['CASE',23],['EACH',4.25]]);
+
+for(const value of ['', '0', 'Call', '$ 4.25 / CASE', '4.25XX']){
+  const row=parseDocument(pairedSheet.replace('$4.25',value)).rows[0];
+  const interpreted=preparePriceImport(row);
+  assert.deepEqual(rates(interpreted.row.statedPriceQuotes),[['CASE',23]],`an invalid or absent each price cannot become a quote: ${value}`);
+  assert.equal(interpreted.row.price,23);
+}
+const ignoredPair=parseDocument(pairedSheet,{layoutAnswers:{4:'ignore'}}).rows[0];
+assert.equal(preparePriceImport(ignoredPair).row.statedPriceQuotes,undefined,'a saved ignore answer still applies');
+const single=parseDocument('SKU,Description,Pack,Case Price\nA-002,Example fastener,6/1 EA,23').rows[0];
+assert.equal(single.sellingUnit,'CASE');
+assert.equal(preparePriceImport(single).row.statedPriceQuotes,undefined,'a single case rate cannot create a second quote');
+const generic=parseDocument('SKU,Description,Pack,Unit Price\nA-002,Example fastener,6/1 EA,23').rows[0];
+assert.equal(generic.sellingUnit,null,'Unit Price alone does not mean per each');
+
+const eachFirst=parseDocument('SKU,Description,Pack,Each Price,Case Price\nA-002,Example fastener,6/1 EA,$4.25/EA,$23/CS').rows[0];
+const eachQuote=preparePriceImport(eachFirst);
+assert.deepEqual(rates(eachQuote.row.statedPriceQuotes),[['EACH',4.25],['CASE',23]]);
+assert.equal(eachQuote.row.price,4.25);
+assert.equal(eachQuote.resolved.basis.basis,'each');
+const alternateOnly=parseDocument(pairedSheet.replace('$23.00','')).rows[0];
+assert.deepEqual(rates(preparePriceImport(alternateOnly).row.statedPriceQuotes),[['EACH',4.25]]);
+assert.equal(alternateOnly.price,null,'the each rate never fills the blank case price');

@@ -5,7 +5,6 @@ import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
 import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
 import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {automaticAlternativeVerified} from "./core/alternative-groups.js";
-import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
@@ -17,8 +16,8 @@ import { createVendorService } from "./services/vendors.js";
 import { createCatalogService } from "./services/catalog.js";
 import { createOperationsService } from "./services/operations.js";
 import { loadSnapshot, saveSnapshot } from "./offline-store.js";
-import { configureProcurement, priceBasisFor, eachPrice, pricePerUnit, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
-import { blockReason, orderable, priceForOffer, rankVendorOffers, solveOrder } from "./core/ordering.js";
+import { configureProcurement, priceBasisFor, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
+import { blockReason, compareOrderOffers, orderable, priceForOffer, rankVendorOffers, solveOrder, supportsOrderUnit } from "./core/ordering.js";
 import {orderGuideGroups,orderGuideCategories} from './core/order-guide-groups.js';
 import {associationProfile,productAssociationIdentity,productGroupApproved} from './core/product-associations.js';
 import {clientProductName} from './core/client-product-name.js';
@@ -437,14 +436,13 @@ export default function App() {
         const pack=vi.pack_size||(costOverride?"Client-approved purchasing pack":null);
         const assessment=orderGuideAssessment({item:ci,vendorItem:vi,mapping:m,vendor:v,category:categoriesById.get(ci.category_id),
           peers:ciMappings.filter(other=>other.id!==m.id).map(other=>viMap.get(other.vendor_item_id)).filter(Boolean),categories,settings:org?.settings||{}});
-        // Every vendor is ranked on the price of one full pack. A quote
-        // recorded per pound/gallon/each is converted through the pack;
-        // legacy rows with no recorded basis were always pack prices.
+        // A full-pack equivalent supports comparison across pack sizes.
+        // An each quote keeps its original amount for purchasing.
         const quoteBasis=vi.price_basis||priceBasisFor(vi.selling_unit)?.basis||null;
         const quoteUnit=quoteBasis==="measure"?(vi.selling_unit||null):null;
         const price=costOverride?Number(costOverride.packPrice):casePriceFromQuote(vi.price,quoteBasis,quoteUnit,pack);
-        const basisUnconvertible=price==null&&!!quoteBasis&&quoteBasis!=="case";
-        const each=!costOverride&&quote==="current"&&price!=null?eachPrice(price,pack):null;
+        const eachPack=quoteBasis==="each"?parsePackSize(pack):null;
+        const basisUnconvertible=quoteBasis==="each"?!eachPack?.parsed:price==null&&quoteBasis==="measure";
         // A locked brand blocks every vendor item that is a different
         // brand - and one with no brand listed, since "unknown" cannot
         // be verified as the locked brand.
@@ -455,7 +453,7 @@ export default function App() {
           brand:vi.brand, packSize:pack, description:vi.description,clientApproved,costOverride,automaticAlternative:automaticAlternativeVerified(vi,ci,ciMappings.map(other=>viMap.get(other.vendor_item_id)).filter(Boolean))||productGroupApproved(vi,ci,m),
           casePrice:quote==="unavailable"&&vi.price_basis==null?null:price??(!quoteBasis&&vi.price!=null?parseFloat(vi.price):null),
           quotedPrice:vi.price==null?null:parseFloat(vi.price), quoteBasis, quoteUnit, basisUnconvertible,
-          eachPrice:each?.price||null, eachSize:each?.size||null,
+          eachPrice:eachPack?.parsed&&Number(vi.price)>0?Number(vi.price):null, eachSize:eachPack?.eachStr||null,
           mappingId:m.id,
           matchConfidence:m.confidence_score, matchTrack:m.comparison_track, matchMethod:m.match_method,
           expired,
@@ -492,19 +490,22 @@ export default function App() {
         }
       }
 
-      // Per-unit price for the honest cross-vendor comparison. Shown in
-      // the unit the client chose for this item (canonical_unit), or,
-      // until they choose one, the unit of the first readable pack.
-      const firstPack=options.map(o=>parsePackSize(o.packSize)).find(p=>p?.parsed);
-      const displayUnit=ci.canonical_unit||defaultComparisonUnit(options.find(o=>parsePackSize(o.packSize)?.parsed)?.packSize,org?.industry)||options.find(o=>o.costOverride)?.costOverride.unit||null;
-      for(const o of options){
-        o.perUnit=o.costOverride?{price:Number(o.costOverride.price),unit:o.costOverride.unit}:(orderable(o)&&displayUnit)?pricePerUnit(o.casePrice,o.packSize,displayUnit):null;
-        // Never represent unlike dimensions as competing per-unit offers.
-        if(o.perUnit && o.perUnit.unit!==displayUnit) o.perUnit=null;
-        if(orderable(o)&&options.filter(orderable).length>1&&!o.perUnit&&!o.automaticAlternative){
-          o.unverified=true;o.qualificationReason="Choose a shared comparison measurement or correct the pack before ranking alternatives";
+      // Case and Each are independent purchasing choices. A linked offer
+      // contributes comparison evidence only after its own quote is ready.
+      let orderComparisonUnit=null;
+      for(const orderUnit of ["case","each"]){
+        const unitOffers=options.filter(option=>supportsOrderUnit(option,orderUnit));
+        const comparison=compareOrderOffers(unitOffers,{orderUnit,preferredUnit:ci.canonical_unit,industry:org?.industry});
+        orderComparisonUnit||=comparison.unit;
+        for(const option of unitOffers){
+          option.perUnit=comparison.rates.get(option)||null;
+          if(orderable(option)&&!comparison.comparable.has(option)){
+            option.unverified=true;
+            option.qualificationReason="Choose a shared comparison measurement or correct the pack before ranking alternatives";
+          }
         }
       }
+      const displayUnit=ci.canonical_unit||orderComparisonUnit;
 
       return {
         catalogItemId:ci.id,
@@ -520,7 +521,6 @@ export default function App() {
         matchingBehavior:ci.matching_behavior||"flexible",
         canonicalUnit:ci.canonical_unit||null,
         displayUnit,
-        unitDimension:firstPack?.dimension||null,
         options,
         // All distinct vendor IDs linked to this KERDOS item, regardless of
         // whether they are currently orderable. Used by the multi-vendor badge
@@ -621,8 +621,8 @@ export default function App() {
     const product=productList.find(item=>item.catalogItemId===dragged.catalogItemId);
     if(!product) return;
     if(vendorId){
-      const wantsEach=dragged.key.endsWith("_each");
-      const option=product.options.find(candidate=>candidate.vendorId===vendorId&&orderable(candidate)&&(!wantsEach||candidate.eachPrice));
+      const unit=dragged.key.endsWith("_each")?"each":"case";
+      const option=product.options.find(candidate=>candidate.vendorId===vendorId&&orderable(candidate)&&supportsOrderUnit(candidate,unit));
       if(!option){
         const vendorName=vendors.find(vendor=>vendor.id===vendorId)?.name||"That vendor";
         setDropNotice(`${vendorName} has no current quote for ${product.name}.`);
@@ -638,41 +638,25 @@ export default function App() {
   const cartItems=useMemo(()=>{
     const items=[];
     for(const prod of productList){
-      const caseKey=`${prod.catalogItemId}_case`;
-      const eachKey=`${prod.catalogItemId}_each`;
-      const caseQty=quantities[caseKey]||0;
-      const eachQty=quantities[eachKey]||0;
-      if(caseQty>0){
-        const customVendorId=vendorOverride[caseKey]||null;
-        const negotiation=negotiatedPrices[caseKey];
-        const ranked=rankVendorOffers(prod.options,negotiation);
+      for(const unit of ["case","each"]){
+        const key=`${prod.catalogItemId}_${unit}`;
+        const quantity=quantities[key]||0;
+        if(quantity<=0)continue;
+        const negotiation=negotiatedPrices[key];
+        const unitOffers=prod.options.filter(o=>supportsOrderUnit(o,unit));
+        const ranked=rankVendorOffers(unitOffers,negotiation,unit);
+        const customVendorId=vendorOverride[key]||null;
         const selectedOffer=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId));
         const preferredOffer=ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand));
         const primaryOffer=selectedOffer||preferredOffer||ranked.find(orderable);
-        const split=splitOrders[caseKey];
-        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(caseQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
-        items.push({...prod,quantity:caseQty-splitQty,orderUnit:"case",
-          options:prod.options.map(o=>({...o,price:priceForOffer(o,negotiation),orderUnit:"case"})),
-          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,
-          forcedPrice:null});
-        if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_case`,quantity:splitQty,orderUnit:"case",
-          options:prod.options.map(o=>({...o,price:priceForOffer(o,negotiation),orderUnit:"case"})),forcedVendorId:split.vendorId,forcedPrice:null});
-      }
-      if(eachQty>0&&prod.options.some(o=>o.eachPrice)){
-        const customVendorId=vendorOverride[eachKey]||null;
-        const negotiation=negotiatedPrices[eachKey];
-        const ranked=rankVendorOffers(prod.options.filter(o=>o.eachPrice),negotiation,"each");
-        const selectedOffer=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId));
-        const preferredOffer=ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand));
-        const primaryOffer=selectedOffer||preferredOffer||ranked.find(orderable);
-        const split=splitOrders[eachKey];
-        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&ranked.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(eachQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
-        items.push({...prod,catalogItemId:`${prod.catalogItemId}_each`,quantity:eachQty-splitQty,orderUnit:"each",
-          options:prod.options.filter(o=>o.eachPrice).map(o=>({...o,price:priceForOffer(o,negotiation,"each"),packSize:o.eachSize,orderUnit:"each"})),
-          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,
-          forcedPrice:null});
-        if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_each`,quantity:splitQty,orderUnit:"each",
-          options:prod.options.filter(o=>o.eachPrice).map(o=>({...o,price:priceForOffer(o,negotiation,"each"),packSize:o.eachSize,orderUnit:"each"})),forcedVendorId:split.vendorId,forcedPrice:null});
+        const split=splitOrders[key];
+        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&
+          ranked.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(quantity-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
+        const options=unitOffers.map(o=>({...o,price:priceForOffer(o,negotiation,unit),packSize:unit==="each"?o.eachSize:o.packSize,orderUnit:unit}));
+        items.push({...prod,catalogItemId:unit==="each"?key:prod.catalogItemId,quantity:quantity-splitQty,orderUnit:unit,options,
+          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,forcedPrice:null});
+        if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_${unit}`,quantity:splitQty,orderUnit:unit,options,
+          forcedVendorId:split.vendorId,forcedPrice:null});
       }
     }
     return items;
@@ -692,10 +676,8 @@ export default function App() {
     return Array.from(map.values());
   },[assignments]);
 
-  const baselineSpend=useMemo(()=>cartItems.reduce((s,i)=>{
-    const cheapest=i.options.filter(orderable).sort((a,b)=>a.price-b.price)[0];
-    return s+(cheapest?.price||0)*i.quantity;
-  },0),[cartItems]);
+  const baselineSpend=useMemo(()=>assignments.reduce((total,line)=>
+    total+r2(line.cheapestPrice*line.quantity),0),[assignments]);
   const blockedCartItems=assignments.filter(a=>a.unorderable||!a.assignedVendorId);
   const totalSpend=baskets.reduce((s,b)=>s+b.dollar,0);
   const totalUnits=baskets.reduce((s,b)=>s+b.units,0);
@@ -1042,37 +1024,44 @@ export default function App() {
                         const eachKey=`${item.catalogItemId}_each`;
                         const caseQty=quantities[caseKey]||0;
                         const eachQty=quantities[eachKey]||0;
-                        const hasEach=item.options.some(o=>o.eachPrice);
-                        const selectedUnit=hasEach?(unitSelection[item.catalogItemId]||"case"):"case";
+                        const hasCase=item.linkedOptions.some(o=>supportsOrderUnit(o,"case"));
+                        const hasEach=item.linkedOptions.some(o=>supportsOrderUnit(o,"each"));
+                        // Keep an unsupported saved quantity selectable so it can be removed.
+                        const canSelectCase=hasCase||caseQty>0;
+                        const canSelectEach=hasEach||eachQty>0;
+                        const selectedUnit=canSelectEach&&(!canSelectCase||unitSelection[item.catalogItemId]==="each")?"each":"case";
                         const activeKey=selectedUnit==="case"?caseKey:eachKey;
                         const activeQty=selectedUnit==="case"?caseQty:eachQty;
                         const cartItemIdForActive=selectedUnit==="case"?item.catalogItemId:item.catalogItemId+"_each";
                         const assignment=assignMap.get(cartItemIdForActive);
                         const negotiation=negotiatedPrices[activeKey];
-                        const unitOptions=rankVendorOffers(selectedUnit==="case"?item.options:item.options.filter(o=>o.eachPrice),negotiation,selectedUnit);
-                        const rankedOptions=unitOptions.filter(orderable);
-                        const heldOptions=(item.linkedOptions||[]).filter(opt=>!orderable(opt)).sort((a,b)=>(a.casePrice??Infinity)-(b.casePrice??Infinity));
-                        const chosenLinkedOption=(item.linkedOptions||[]).find(o=>o.vendorItemId===vendorOverride[activeKey]);
-                        const selectedHeldOption=chosenLinkedOption&&!orderable(chosenLinkedOption)?chosenLinkedOption:null;
+                        const linkedForUnit=item.linkedOptions.filter(o=>supportsOrderUnit(o,selectedUnit));
+                        const allUnitListings=rankVendorOffers(linkedForUnit,negotiation,selectedUnit);
+                        const rankedOptions=allUnitListings.filter(orderable);
+                        const heldOptions=allUnitListings.filter(o=>!orderable(o)).sort((a,b)=>(a.unitPrice??Infinity)-(b.unitPrice??Infinity));
+                        const chosenLinkedOption=item.linkedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]);
+                        const wrongUnit=chosenLinkedOption&&!supportsOrderUnit(chosenLinkedOption,selectedUnit);
+                        const selectedHeldOption=chosenLinkedOption&&(wrongUnit||!orderable(chosenLinkedOption))?chosenLinkedOption:null;
                         const selectedReadyOption=rankedOptions.find(o=>o.vendorItemId===vendorOverride[activeKey]||o.vendorId===vendorOverride[activeKey]);
                         const displayOption=selectedHeldOption||selectedReadyOption||(
-                          assignment?unitOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId):null
+                          assignment?rankedOptions.find(opt=>opt.vendorItemId===assignment.vendorItemId):null
                         )||rankedOptions.find(o=>item.preferredBrand&&brandsMatch(o.brand,item.preferredBrand))||rankedOptions[0]||heldOptions[0];
-                        const activePrice=selectedHeldOption?selectedHeldOption.casePrice:selectedReadyOption?selectedReadyOption.unitPrice:assignment?assignment.price:displayOption?.unitPrice??displayOption?.casePrice;
+                        const activePrice=wrongUnit?null:selectedHeldOption?priceForOffer(selectedHeldOption,null,selectedUnit):
+                          selectedReadyOption?selectedReadyOption.unitPrice:assignment&&!assignment.unorderable?assignment.price:displayOption?.unitPrice;
                         const activeVendorName=displayOption?.vendorName||assignment?.assignedVendorName;
                         const activeVendorId=displayOption?.vendorId||assignment?.assignedVendorId;
                         const vc=vendorColors.get(activeVendorId)||PALETTE[0];
                         const menuOpen=openPriceMenu===activeKey;
                         const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
-                        const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
-                        const allListings=rankVendorOffers(item.linkedOptions||[],negotiation,selectedUnit);
+                        const activeBlockReason=activeBlocked?(wrongUnit?"This listing has no quote for the selected unit":displayOption?blockReason(displayOption):"No quote for the selected unit"):null;
+                        const allListings=[...allUnitListings,...item.linkedOptions.filter(o=>!supportsOrderUnit(o,selectedUnit))];
                         const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
                         const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
                         const multipleVendors=vendorCount>1;
                         const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}
                           offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} industry={org.industry} vocabulary={vocabulary} unit={selectedUnit} listingEdits={listingEdits}
                           onSelect={offer=>{
-                            const nextUnit=selectedUnit==='each'&&!offer.eachPrice?'case':selectedUnit;
+                            const nextUnit=supportsOrderUnit(offer,"each")?"each":"case";
                             if(nextUnit!==selectedUnit)setUnitSelection(previous=>({...previous,[item.catalogItemId]:nextUnit}));
                             setVendorOverride(previous=>({...previous,[`${item.catalogItemId}_${nextUnit}`]:offer.vendorItemId}));
                             setOpenPriceMenu(null);
@@ -1091,8 +1080,8 @@ export default function App() {
                           <div className="order-item-unit" key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?"#E0F2F1":"#FAFBFC"}}>
                             <select aria-label={`Order unit for ${item.name}`} value={selectedUnit} onChange={e=>setUnitSelection(prev=>({...prev,[item.catalogItemId]:e.target.value}))}
                               style={{width:"100%",fontSize:11,padding:"4px 2px",borderRadius:6,border:hasEach?"2px solid #008577":"1px solid #DDD",background:"white",color:hasEach?"#00695C":"#444",fontWeight:hasEach?800:400}}>
-                              <option value="case">Case</option>
-                              <option value="each" disabled={!hasEach}>Each {!hasEach?"(unavailable)":""}</option>
+                              <option value="case" disabled={!canSelectCase}>Case {!hasCase?"(unavailable)":""}</option>
+                              <option value="each" disabled={!canSelectEach}>Each {!hasEach?"(unavailable)":""}</option>
                             </select>
                           </div>,
                           <div className="order-item-qty" key={item.catalogItemId+"_qty"} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#F5F8FF"}}>
@@ -1321,7 +1310,7 @@ export default function App() {
                       <span style={{fontWeight:600}}>{totalUnits}</span>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:11,opacity:0.6}}>Cheapest possible</span>
+                      <span style={{fontSize:11,opacity:0.6}}>Best unit-price total</span>
                       <span style={{fontWeight:600}}>{formatMoney(baselineSpend)}</span>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>

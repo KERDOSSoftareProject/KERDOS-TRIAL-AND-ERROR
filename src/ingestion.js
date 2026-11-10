@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════════
 import {isSourceMetadataHeader} from "./core/source-metadata.js";
-import {applySourceUnits,documentQuoteUnit} from "./core/source-units.js";
+import {applySourceUnits,documentQuoteUnit,unitInPriceHeader} from "./core/source-units.js";
 import {billedQuantityHeader} from './core/invoice-quantity-evidence.js';
 import {pricingUnitHeader} from "./core/billing-unit-evidence.js";
 import {analyzeRow} from "./core/cell-analysis.js";
@@ -293,6 +293,15 @@ function mapColumnsFromHeader(headerCells) {
     }
     if(map.price===undefined) map.price=priceCandidates[0].idx;
   }
+  // Bind one independent each/case pair while retaining the established
+  // primary price role. Totals and other assigned fields stay separate.
+  const pairedPrices=priceCandidates.filter(({idx})=>
+    (idx===map.price||!Object.values(map).includes(idx))&&
+    ["CASE","EACH"].includes(unitInPriceHeader(headerCells[idx])));
+  if(pairedPrices.length===2&&pairedPrices.some(({idx})=>idx===map.price)){
+    const alternate=pairedPrices.find(({idx})=>idx!==map.price).idx;
+    if(unitInPriceHeader(headerCells[alternate])!==unitInPriceHeader(headerCells[map.price]))map.parallelPrice=alternate;
+  }
   return map;
 }
 
@@ -556,7 +565,7 @@ function extractRow(cells, columnMap, priceHeader, confirmedColIndices, sourceHe
   // Build a header-hint array from the column map: each cell gets its role name as the hint.
   const roleByCol = Object.fromEntries(Object.entries(columnMap).map(([role,idx])=>[idx,role]));
   const headerHints = cells.map((_,i) => roleByCol[i] || '');
-  const analysisCells=cells.map((cell,index)=>metadataIndices.has(index)?"":cell);
+  const analysisCells=cells.map((cell,index)=>metadataIndices.has(index)||index===columnMap.parallelPrice?"":cell);
   const cellEvidence = analyzeRow(analysisCells, headerHints, priceHeader, confirmedColIndices);
   const priceProposal = cellEvidence.resolved.price;
   const packProposal  = cellEvidence.resolved.pack;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {blockReason,orderable,priceForOffer,rankVendorOffers,offerDollarDifference,solveOrder} from "./ordering.js";
+import {blockReason,compareOrderOffers,orderable,priceForOffer,rankVendorOffers,offerDollarDifference,solveOrder} from "./ordering.js";
 const option=(vendorId,price,extra={})=>({vendorId,vendorName:vendorId,vendorItemId:`${vendorId}-item`,price,packSize:"1 CT",matchTrack:"exact",matchConfidence:100,...extra});
 assert.equal(orderable(option("a",10)),true);
 assert.equal(orderable(option("a",10,{matchTrack:"new"})),false);
@@ -95,6 +95,71 @@ assert.equal(eachRanked[0].difference,0,"the each-price winner carries differenc
 assert.equal(eachRanked[1].difference,1,"the more expensive each-price option carries the correct premium");
 console.log("Each-unit ranking uses eachPrice passed.");
 
+const pricedEach=[
+  option("large",16.75,{quoteBasis:"each",orderUnit:"each",packSize:"4/5 LB",eachSize:"5 LB",casePrice:67,eachPrice:16.75,perUnit:{price:3.35,unit:"LB"}}),
+  option("small",4,{quoteBasis:"each",orderUnit:"each",packSize:"12/1 LB",eachSize:"1 LB",casePrice:48,eachPrice:4,perUnit:{price:4,unit:"LB"}}),
+];
+const rankedEach=rankVendorOffers(pricedEach,null,"each");
+assert.equal(rankedEach[0].vendorId,"large","Each offers with a common measure rank by cost for the same quantity");
+assert.equal(rankedEach[0].unitPrice,16.75,"the accepted charge is still per five-pound package");
+assert.equal(rankedEach[0].comparisonPrice,3.35);
+assert.equal(offerDollarDifference(rankedEach[1],rankedEach[0]),3.25,"use the contents of one purchasable Each for dollar differences");
+assert.equal(rankVendorOffers(pricedEach,{small:3},"each")[0].vendorId,"small","the agreed each price uses the same pack comparison");
+const eachOrder=solveOrder([{catalogItemId:"each",quantity:2,orderUnit:"each",options:pricedEach}],[])[0];
+assert.equal(eachOrder.vendorItemId,"large-item");
+assert.equal(eachOrder.lineTotal,33.50,"the basket charges two stated each prices");
+const sameVendorEach=pricedEach.map(o=>({...o,vendorId:"shared"}));
+const sameVendorOrder=solveOrder([{catalogItemId:"shared",quantity:2,orderUnit:"each",options:sameVendorEach}],[])[0];
+assert.equal(sameVendorOrder.vendorItemId,"large-item","same-vendor rates remain scoped to the individual listing");
+assert.equal(sameVendorOrder.lineTotal,33.50);
+
+const byVolume=option("volume",1,{quoteBasis:"each",eachSize:"1 GAL",packSize:"1 GAL",eachPrice:1,casePrice:1});
+const incompatible=[byVolume,...pricedEach];
+for(const options of [incompatible,[...incompatible].reverse()]){
+  const comparison=compareOrderOffers(options,{orderUnit:"each"});
+  assert.deepEqual(new Set(comparison.comparable),new Set(pricedEach),"the two weight vendors keep their comparison in either input order");
+  assert.equal(comparison.rates.has(byVolume),false);
+}
+const tied=[byVolume,pricedEach[0]];
+assert.equal(compareOrderOffers(tied,{orderUnit:"each"}).comparable.size,0,"a tie between unrelated measurements needs a choice");
+const preferred=compareOrderOffers(tied,{orderUnit:"each",preferredUnit:"GAL"});
+assert.equal(preferred.unit,"GAL");
+assert.deepEqual([...preferred.comparable],[byVolume],"the catalog's supported comparison unit takes precedence");
+const expiredVolume={...byVolume,expired:true};
+assert.deepEqual([...compareOrderOffers([expiredVolume,pricedEach[0]],{orderUnit:"each"}).comparable],[pricedEach[0]]);
+
+const closeCases=[
+  option("small-case",10,{casePrice:10,packSize:"10000 CT"}),
+  option("large-case",19.99,{casePrice:19.99,packSize:"20000 CT"}),
+];
+const caseComparison=compareOrderOffers(closeCases,{orderUnit:"case"});
+const closeCaseOffers=closeCases.map(offer=>({...offer,perUnit:caseComparison.rates.get(offer)}));
+const closeCaseRanking=rankVendorOffers(closeCaseOffers);
+assert.equal(closeCaseRanking[0].vendorId,"large-case","comparison retains differences smaller than the display precision");
+assert.equal(offerDollarDifference(closeCaseRanking[1],closeCaseRanking[0]),0.01);
+const closeCaseOrder=solveOrder([{catalogItemId:"close-case",quantity:2,orderUnit:"case",options:closeCaseOffers}],[])[0];
+assert.equal(closeCaseOrder.vendorItemId,"large-case-item");
+assert.equal(closeCaseOrder.lineTotal,39.98,"comparison precision does not change the amount charged");
+
+const smallRates=[
+  option("small-rate-pack",2.50,{casePrice:2.50,packSize:"100000 CT"}),
+  option("large-rate-pack",4,{casePrice:4,packSize:"250000 CT"}),
+];
+const smallComparison=compareOrderOffers(smallRates,{orderUnit:"case"});
+assert.equal(smallComparison.comparable.size,2,"positive rates that display as zero can still be compared");
+assert.equal(rankVendorOffers(smallRates.map(offer=>({...offer,perUnit:smallComparison.rates.get(offer)})))[0].vendorId,"large-rate-pack");
+
+const closeEach=[
+  option("higher-each",10.00101,{casePrice:30.003,eachPrice:10.00101,eachSize:"1000 CT",packSize:"3/1000 CT"}),
+  option("lower-each",10.001,{casePrice:30.003,eachPrice:10.001,eachSize:"1000 CT",packSize:"3/1000 CT"}),
+];
+const eachComparison=compareOrderOffers(closeEach,{orderUnit:"each"});
+assert.equal(rankVendorOffers(closeEach.map(offer=>({...offer,perUnit:eachComparison.rates.get(offer)})),null,"each")[0].vendorId,
+  "lower-each","rank a stated Each price using its own amount and contents");
+
+
+
+
 // [4a] Dollar-minimum fill — path A success.
 // item-x: vendor-a $30 (wins initially), vendor-b $60.
 // item-y: vendor-b $35 (wins initially), vendor-a $40.
@@ -140,6 +205,41 @@ assert.equal(lockedShort[0].assignedVendorId,'a');assert.equal(lockedShort[0].pr
 assert.ok(lockedShort[0].lineTotal<60,'a purchasing-eligible locked line is not proof that the basket meets minimum');
 const coupled=solveOrder([line('x',30,60),line('y',40,35)],[...minVendors,{id:'b',name:'B',delivery_minimum_dollar:70}]);
 assert.deepEqual(coupled.map(a=>a.assignedVendorId),['a','a'],'consolidation resolves competing short baskets without leaving a short active vendor');
+
+const differentPacks=solveOrder([
+  {catalogItemId:"short",quantity:1,orderUnit:"case",options:[
+    option("a",30,{packSize:"2/5 LB"}),option("b",60,{packSize:"10 LB"}),
+  ]},
+  {catalogItemId:"fill",quantity:1,orderUnit:"case",options:[
+    option("b",35,{packSize:"10 LB"}),option("a",40,{packSize:"5 LB"}),
+  ]},
+],minVendors);
+assert.deepEqual(differentPacks.map(a=>[a.assignedVendorId,a.packSize,a.lineTotal]),[
+  ["a","2/5 LB",30],["b","10 LB",35],
+],"minimum consolidation preserves both package configuration and the amount ordered");
+
+const equivalentFallback=solveOrder([{
+  catalogItemId:"fallback",quantity:2,orderUnit:"case",options:[
+    option("a",10,{packSize:"10 LB"}),option("b",11,{packSize:"5 LB"}),option("c",12,{packSize:"160 OZ"}),
+  ],
+}],minVendors)[0];
+assert.equal(equivalentFallback.assignedVendorId,"c","a short basket can move to a different supplier with an equivalent pack");
+assert.equal(equivalentFallback.lineTotal,24);
+
+const eachMinimum=solveOrder([
+  {catalogItemId:"each-short",quantity:1,orderUnit:"each",options:[
+    option("a",30,{orderUnit:"each",eachPrice:30,eachSize:"1 LB",packSize:"4/1 LB"}),
+    option("b",60,{orderUnit:"each",eachPrice:60,eachSize:"16 OZ",packSize:"8/16 OZ"}),
+  ]},
+  {catalogItemId:"each-fill",quantity:1,orderUnit:"each",options:[
+    option("b",35,{orderUnit:"each",eachPrice:35,eachSize:"5 LB",packSize:"4/5 LB"}),
+    option("a",40,{orderUnit:"each",eachPrice:40,eachSize:"80 OZ",packSize:"12/80 OZ"}),
+  ]},
+],minVendors);
+assert.deepEqual(eachMinimum.map(a=>[a.assignedVendorId,a.packSize,a.lineTotal]),[
+  ["a","1 LB",30],["a","80 OZ",40],
+],"Each reassignment compares one purchasable package even when the case counts differ");
+
 // This deliberately infeasible fixture reached the current iteration cap in
 // diagnostic tracing: B/C cannot meet their minimum even with every offer.
 // Assert the public contract: termination, honest charges, no lost/held lines,

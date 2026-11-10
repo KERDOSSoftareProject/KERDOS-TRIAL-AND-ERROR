@@ -45,13 +45,14 @@ export function buildProductAssociations({vendorItems=[],catalogItems=[],mapping
  for(const row of [...vendorItems].sort((a,b)=>String(a.id).localeCompare(String(b.id)))){
   const identity=productAssociationIdentity(row,profile),links=byRow.get(row.id)||[];
   if(!identity.key){unresolved.push({row,reason:identity.reason});continue;}
-  const item=itemById.get(links[0]?.catalog_item_id);
+  const mapping=links[0],item=itemById.get(mapping?.catalog_item_id);
   // Existing explicit groups/brand restrictions and rejected pairs are not
   // silently absorbed. A separate intentional manual edit remains available.
   const protectedRow=links.length!==1||!item||item.merged_into_id||item.brand_locked||item.preferred_brand||item.comparison_mode==='exact'||
-   row.field_resolutions?.automatic_group_excluded||row.field_resolutions?.catalog_item_id?.confirmedBy||links[0]?.match_method==='rejected';
+   row.field_resolutions?.automatic_group_excluded||row.field_resolutions?.catalog_item_id?.confirmedBy||
+   mapping?.match_method==='rejected'||productGroupApproved(row,item,mapping);
   const key=protectedRow?'retained:'+(item?.id||row.id):identity.key;
-  const list=buckets.get(key)||[];list.push({row,identity,item,protectedRow});buckets.set(key,list);
+  const list=buckets.get(key)||[];list.push({row,identity,item,mapping,protectedRow});buckets.set(key,list);
  }
  const groups=[];
  for(const [key,entries] of buckets){
@@ -65,12 +66,16 @@ export function buildProductAssociations({vendorItems=[],catalogItems=[],mapping
    const ids=new Set(part.map(e=>e.row.id));
    const safeItems=catalogIds.map(id=>itemById.get(id)).filter(item=>!item.merged_into_id&&!mappings.some(m=>m.catalog_item_id===item.id&&!ids.has(m.vendor_item_id)));
    const target=safeItems.sort((a,b)=>Number(a.master_item_number)-Number(b.master_item_number)||a.id.localeCompare(b.id))[0];
-   groups.push({key:key+'|'+part[0].row.id,label:part[0].protectedRow?target?.name||part[0].identity.label:part[0].identity.label,
+   const protectedGroup=part.some(e=>e.protectedRow);
+   const needsApply=!protectedGroup&&(catalogIds.length>1||!target);
+   const awaitingConfirmation=!protectedGroup&&!needsApply&&part.some(e=>e.row.field_resolutions?.product_group?.confirmed===false);
+   const confirmed=target&&part.every(e=>productGroupApproved(e.row,target,e.mapping));
+   const disposition=confirmed?'confirmed':needsApply?'proposed':awaitingConfirmation?'awaiting_confirmation':'retained';
+   groups.push({key:key+'|'+part[0].row.id,label:protectedGroup?target?.name||part[0].identity.label:part[0].identity.label,
     rows:part.map(e=>e.row),targetCatalogItemId:target?.id??null,catalogIds,
-    saved:catalogIds.length===1&&part.length>1,protected:part.some(e=>e.protectedRow),
-    needsApply:(catalogIds.length>1||!target)&&!part.some(e=>e.protectedRow),
-    canSave:part.length<=100&&(catalogIds.length>1||!target||part.some(e=>e.row.field_resolutions?.product_group?.confirmed===false))&&!part.some(e=>e.protectedRow),
-    reason:part[0].protectedRow?'Existing client decision or restriction retained':!target?'Allocate a distinct KERDOS item for this product group':part[0].identity.reason});
+    disposition,protected:protectedGroup,needsApply,
+    canSave:part.length<=100&&(needsApply||awaitingConfirmation),
+    reason:protectedGroup?'Existing client decision or restriction retained':!target?'Allocate a distinct KERDOS item for this product group':part[0].identity.reason});
   }
  }
  groups.sort((a,b)=>a.label.localeCompare(b.label)||a.key.localeCompare(b.key));
@@ -82,6 +87,6 @@ export function buildProductAssociations({vendorItems=[],catalogItems=[],mapping
 // accepted target changes. Pack, price and all field checks stay independent.
 export function productGroupApproved(row,item,mapping){
  const record=row?.field_resolutions?.product_group;
- return !!record&&mapping?.match_method==='manual'&&mapping.comparison_track==='exact'&&mapping.confidence_score===100&&
+ return !!item&&!!record&&record.confirmed!==false&&mapping?.match_method==='manual'&&mapping.comparison_track==='exact'&&mapping.confidence_score===100&&
   record.catalogItemId===item?.id&&mapping.catalog_item_id===item?.id&&record.description===row.description&&record.brand===(row.brand??null);
 }

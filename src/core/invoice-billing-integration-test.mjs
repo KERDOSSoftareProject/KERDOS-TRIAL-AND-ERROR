@@ -4,6 +4,7 @@ import {parseDocument} from '../ingestion.js';
 import {configureProcurement} from '../procurement.js';
 import {preparePriceImport} from './price-import-review.js';
 import {invoiceEvidence} from './invoice-evidence.js';
+import {explainImportRow} from './import-evidence.js';
 import {resolveFromInvoiceArithmetic} from './quote-basis.js';
 
 configureProcurement({industry:'restaurant'});
@@ -18,6 +19,11 @@ assert.equal(billed.qty,40);
 assert.equal(billed.amount,82.40);
 const prepared=preparePriceImport(sheet,null,null,[],[entry(billed)],scope);
 assert.equal(prepared.resolved.sellingUnit,'LB');
+assert.equal(prepared.row.sellingUnit,'LB','the interpreted row and quote decision agree');
+const preview=explainImportRow(sheet,{vendor:{id:scope.vendorId},invoices:[entry(billed)]});
+assert.equal(preview.sellingUnit.value,'LB');
+assert.equal(preview.sellingUnit.source,'invoice');
+assert.match(preview.sellingUnit.reason,/invoice’s billed unit/);
 assert.equal(prepared.requiresReview,false);
 assert.equal(prepared.row.quoteBasisEvidence.references[0].documentId,'invoice-a');
 assert.equal(prepared.row.quoteBasisEvidence.references[0].billingUnitEvidence.header,'Price Unit');
@@ -41,6 +47,20 @@ for(const changed of [{organizationId:'other-client'},{vendorId:'other-vendor'}]
 }
 assert.equal(resolveFromInvoiceArithmetic(sheet,[entry({...billed,billingUnitEvidence:null,priceBasis:'measure'})],scope).conflict,true,'priceBasis alone is not provenance');
 assert.equal(preparePriceImport(sheet,null,null,[],[],scope).requiresReview,true,'Fresh sheets without evidence stay reviewable');
+
+const savedCase={id:'listing-a',vendor_item_code:sheet.code,description:sheet.description,pack_size:sheet.packSize,selling_unit:'CS',price_basis:'case',price:80};
+const savedMeasure={...savedCase,selling_unit:'LB',price_basis:'measure'};
+const knownMapping={vendor_item_id:savedCase.id,comparison_track:'exact',confidence_score:100};
+const disagreement=preparePriceImport(sheet,savedCase,knownMapping,[],[entry(billed)],scope);
+assert.equal(disagreement.resolved,null,'an unstated quote cannot choose between remembered case and verified invoice weight');
+assert.equal(disagreement.row.sellingUnit,'');
+assert.ok(disagreement.reviewFields.includes('selling_unit'));
+assert.match(disagreement.reasons.join(' '),/Quoted unit.*CS.*LB/);
+assert.equal(preparePriceImport(sheet,savedMeasure,knownMapping,[],[entry(billed)],scope).requiresReview,false);
+assert.equal(preparePriceImport({...sheet,sellingUnit:'CASE'},savedCase,knownMapping,[],[entry(billed)],scope).requiresReview,false,
+  'a current stated case quote can coexist with an invoice billed by weight');
+assert.equal(preparePriceImport(sheet,savedCase,knownMapping,[],[{...entry(billed),vendorId:'another-vendor'}],scope).resolved.sellingUnit,'CS');
+assert.equal(preparePriceImport(sheet,null,null,[],[entry(ordering)],scope).resolved,null,'conflicting invoice evidence cannot become an inferred quote');
 
 // Keep the actual import orchestrator connected; isolated resolver tests cannot catch this omission.
 // The call now lives in the shared import-price-row.js, not directly in ImportModal.jsx.

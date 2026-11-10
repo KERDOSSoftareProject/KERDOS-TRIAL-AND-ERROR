@@ -21,6 +21,7 @@
 // Uses createInMemoryBackend() — no real Supabase connection needed.
 
 import assert from "node:assert/strict";
+import {parseDocument} from "../ingestion.js";
 import {importPriceRow} from "../core/import-price-row.js";
 import {createCatalogService} from "../services/catalog.js";
 
@@ -456,4 +457,52 @@ for(const held of [false,true])run(held?'held conflicting source preserves saved
  assert.deepEqual(backend._stores.mappings.get(mappingId),beforeMapping);
  assert.deepEqual(backend._stores.catalogs.get(catItemId),beforeCatalog);
  assert.equal(backend._stores.vendors.size,1);assert.equal(backend._stores.mappings.size,1);
+});
+
+run('a changed stated unit is retained for review while the accepted quote stays intact',async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const {vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const prior={...backend._stores.vendors.get(vendorItemId),selling_unit:"CASE",price_basis:"case",price:80};
+  backend._stores.vendors.set(vendorItemId,prior);
+  backend._stores.mappings.set(mappingId,{...backend._stores.mappings.get(mappingId),comparison_track:"exact",confidence_score:100});
+  backend.pricing.applyQuote=async()=>assert.fail("the incoming change must not replace the accepted quote");
+  const result=await reimport(backend,{orgId:ORG,vendorId:VENDOR,vendorItemId,mappingId,...makeServices(backend,ORG)},{
+    rowOverrides:{sellingUnit:"LB",sellingUnitSource:"price header"},
+    sourceOverrides:{sellingUnit:"LB",sellingUnitSource:"price header"},
+  });
+  assert.equal(result.needsBasis,true);
+  const saved=backend._stores.vendors.get(vendorItemId);
+  assert.equal(saved.price,80);
+  assert.equal(saved.selling_unit,"CASE");
+  assert.equal(saved.import_row.row.sellingUnit,"LB");
+  assert.equal(saved.import_row.evidence.sellingUnit,"LB");
+  assert.equal(saved.import_row.evidence.sellingUnitSource,"price header");
+  assert.ok(saved.import_row.reviewFields.includes("selling_unit"));
+});
+
+run("separately stated each and case rates survive in one saved source observation",async()=>{
+  const backend=createInMemoryBackend({orgId:ORG,userId:USER});
+  const {vendorItemId,mappingId}=seed(backend,ORG,VENDOR);
+  const prior={...backend._stores.vendors.get(vendorItemId),pack_size:"6/1 EA",selling_unit:"CASE",price_basis:"case",price:80};
+  backend._stores.vendors.set(vendorItemId,prior);
+  const [row]=parseDocument("SKU,Description,Pack,Price/Case,Each Price\nROM-LB,Romaine Lettuce,6/1 EA,23.00,4.25").rows;
+  const quoteWrites=[];
+  const applyQuote=backend.pricing.applyQuote;
+  backend.pricing.applyQuote=async args=>{
+    quoteWrites.push(args);
+    return applyQuote(args);
+  };
+  const result=await reimport(backend,{orgId:ORG,vendorId:VENDOR,vendorItemId,mappingId,...makeServices(backend,ORG)},{
+    rowOverrides:row,sourceOverrides:row,
+  });
+  assert.equal(result.needsBasis,false);
+  assert.equal(quoteWrites.length,1);
+  const [saved]=quoteWrites;
+  assert.equal(saved.price,23);
+  assert.equal(saved.sellingUnit,"CASE");
+  assert.deepEqual(saved.importRow.evidence.statedPriceQuotes.map(({sellingUnit,price,source})=>[sellingUnit,price,source.columnIndex]),[
+    ["CASE",23,3],["EACH",4.25,4],
+  ]);
+  assert.equal(backend._stores.vendors.size,1);
+  assert.deepEqual(backend.pricing._priceHistory.get(vendorItemId),[{sourceDocumentId:"doc-2",price:23}]);
 });

@@ -1,6 +1,25 @@
 import {compareProductIdentity,comparePurchasingPack,priceBasisFor,brandsMatch} from "../procurement.js";
 import {inferPricingBasis} from "./infer-pricing-basis.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
+import {parseAssignedMoney} from "./assigned-numbers.js";
+import {unitInPrice,unitInPriceHeader} from "./source-units.js";
+
+// Interpret only bound source prices. Each amount keeps its own header
+// and coordinates, independent of calculations or later client edits.
+export function interpretStatedQuotePair(bindings){
+  const primary=bindings?.price,parallel=bindings?.parallelPrice;
+  if(!primary||!parallel||primary.columnIndex===parallel.columnIndex||
+    primary.evidence==="inferred"||parallel.evidence==="inferred")return [];
+  const fields=[primary,parallel].map(source=>({source,sellingUnit:unitInPriceHeader(source.header)}));
+  const units=fields.map(field=>field.sellingUnit);
+  if(!units.includes("CASE")||!units.includes("EACH"))return [];
+  return fields.flatMap(({source,sellingUnit})=>{
+    const price=parseAssignedMoney(source.rawValue);
+    const cellUnit=unitInPrice(source.rawValue);
+    return price>0&&(!cellUnit||cellUnit===sellingUnit)?[{source,sellingUnit,price}]:[];
+  });
+}
+
 
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that
@@ -8,7 +27,7 @@ import {billingUnitEvidence} from "./billing-unit-evidence.js";
 export function resolveQuoteBasis(row,prior=null){
   const explicit=priceBasisFor(row.sellingUnit);
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
-  if(String(row.sellingUnit||"").trim())return null;
+  if(String(row.sellingUnit||"").trim()||row.changes?.length)return null;
   if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||prior.import_row?.evidence?.sellingUnitSource==="inferred")return null;
   const coded=row.code&&String(prior.vendor_item_code)===String(row.code);
   // The caller must resolve one unique NVIN first, within this vendor.
