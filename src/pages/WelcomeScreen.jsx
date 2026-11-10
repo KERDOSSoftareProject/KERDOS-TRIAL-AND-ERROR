@@ -31,7 +31,7 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
   };
   return <section className="welcome-screen" aria-label="Welcome to KERDOS">
     <style>{`
-      .welcome-screen { min-height:calc(100vh - 60px); box-sizing:border-box; padding:72px 32px 96px; background:linear-gradient(160deg,#003584 0%,#00204F 100%); color:white; font-family:"Times New Roman",Times,serif; }
+      .welcome-screen { min-height:calc(100vh - 60px); box-sizing:border-box; padding:72px 32px 96px; background:linear-gradient(160deg,#003584 0%,#00204F 100%); color:white; }
       .welcome-inner { max-width:1180px; margin:0 auto; }
       .welcome-greeting { margin:0; text-align:center; font-size:clamp(27px,3vw,38px); font-weight:500; line-height:1.2; }
       .welcome-greeting strong { font-weight:650; color:white; }

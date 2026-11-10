@@ -1,8 +1,8 @@
-.landing-gate, .workspace-shell {
+body {
   font-family: "DM Sans", Inter, -apple-system, sans-serif;
 }
 
-.landing-gate button, .landing-gate input {
+button, input, select, textarea, pre, code {
   font-family: inherit;
 }
 
@@ -34,7 +34,7 @@
   }
 }
 
-.mobile-detail-window { position:fixed; inset:0; margin:auto; width:min(calc(100% - 24px),720px); max-height:min(85dvh,720px); box-sizing:border-box; padding:0; overflow:hidden; border:2px solid #003584; border-radius:12px; background:#E8F1FF; color:#17243A; font-family:"DM Sans",Inter,-apple-system,sans-serif; }
+.mobile-detail-window { position:fixed; inset:0; margin:auto; width:min(calc(100% - 24px),720px); max-height:min(85dvh,720px); box-sizing:border-box; padding:0; overflow:hidden; border:2px solid #003584; border-radius:12px; background:#E8F1FF; color:#17243A; }
 .mobile-detail-window[open] { display:flex; flex-direction:column; }
 .mobile-detail-window::backdrop { background:#17243A99; }
 .mobile-detail-window-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; background:#003584; color:white; }
