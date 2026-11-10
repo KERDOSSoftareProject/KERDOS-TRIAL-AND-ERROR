@@ -25,12 +25,18 @@ export function LandingGate() {
   }
 
   const SERVICES=[
+    {icon:"💰",color:"#2E7D32",bg:"#E8F5E9",name:"Price Comparison",tag:null,
+      text:"See every vendor's price for the same product side-by-side, ranked cheapest first.",
+      value:"Save money on every order."},
     {icon:"✅",color:"#1565C0",bg:"#E3F2FD",name:"Price Verification",tag:null,
       text:"Every invoice is checked against what was quoted, automatically — mismatches are flagged.",
       value:"Ensures the price you're quoted is the price you pay."},
     {icon:"🗄️",color:"#6A1B9A",bg:"#F3E5F5",name:"Invoice Retention",tag:null,
       text:"Every invoice kept and organized, never lost in a shoebox or a shared drive.",
       value:"Built for audit-ready record keeping."},
+    {icon:"🔌",color:"#00695C",bg:"#E0F2F1",name:"Vendor Integration",tag:null,
+      text:"Connect supported vendor sources and bring price sheets into KERDOS.",
+      value:"Refresh prices from connected vendors."},
     {icon:"🔗",color:"#888",bg:"#F0F0F0",name:"QuickBooks Integration",tag:"Coming Soon",
       text:"Send recorded invoices straight to QuickBooks — no re-entry.",
       value:"Easier accounting, one click away."},
