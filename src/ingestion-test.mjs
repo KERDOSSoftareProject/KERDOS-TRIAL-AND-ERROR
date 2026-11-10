@@ -44,7 +44,56 @@ t('vendor description stays a description',vendorSheet.rows[0]?.description,'ALU
 t('vendor brand is kept separately',vendorSheet.rows[1]?.brand,'RNGELN');
 t('vendor pack is kept separately',vendorSheet.rows[1]?.packSize,'1/15 LB');
 const twoColumnQuote=parseDocument('Price List\nProduct    Price    Product    Price\nAPPLE GALA 40 LB    34.00    LIME 150CT    47.50');
-t('adjacent quote prices require row review',twoColumnQuote.rows.some(row=>row.issues.some(issue=>issue.includes('Two different prices'))),true);
+const descriptionPriceSheet=parseDocument('Product Price\nCHEESE AMERICAN SLICED (USA) 5 lb. 16.75\nCHEESE ROMANO GRATED 5LB (USA) 20.50');
+assert.deepEqual(descriptionPriceSheet.rows.map(({code,description,price,qty})=>({code,description,price,qty})),[
+  {code:null,description:'CHEESE AMERICAN SLICED (USA) 5 lb.',price:16.75,qty:null},
+  {code:null,description:'CHEESE ROMANO GRATED 5LB (USA)',price:20.50,qty:null},
+]);
+const sideBySide=parseDocument('Product,Price,Product,Price\nCIDER APPLE (NY) 4/1 GAL.,26.15,CHEESE AMERICAN SLICED (USA) 5 lb.,16.75\nProduct,Price,Product,Price\nJUICE ORANGE,12.00,CRACKERS PLAIN,8.50',{includeSourceIndex:true});
+assert.deepEqual(sideBySide.rows.map(({code,description,price,sourceIndex,sourceColumnStart})=>({code,description,price,sourceIndex,sourceColumnStart})),[
+  {code:null,description:'CIDER APPLE (NY)',price:26.15,sourceIndex:1,sourceColumnStart:0},
+  {code:null,description:'CHEESE AMERICAN SLICED (USA)',price:16.75,sourceIndex:1,sourceColumnStart:2},
+  {code:null,description:'JUICE ORANGE',price:12,sourceIndex:3,sourceColumnStart:0},
+  {code:null,description:'CRACKERS PLAIN',price:8.5,sourceIndex:3,sourceColumnStart:2},
+]);
+assert.match(sideBySide.rows[1].sourceLine,/5 lb\./);
+const pairedCodes=parseDocument('Item Number,Product,Price,Item Number,Product,Price\nAB-C7,INDUSTRIAL PART,16.75,XY-12,ANOTHER PART,22.50');
+assert.deepEqual(pairedCodes.rows.map(({code,price})=>({code,price})),[{code:'AB-C7',price:16.75},{code:'XY-12',price:22.5}]);
+const freeformRoles={
+  description:parseDocument('Description Price\nCIDER APPLE (NY) 26.15'),
+  explicitWordCode:parseDocument('Code Description Price\nCIDER APPLE (NY) 26.15'),
+  explicitMixedCode:parseDocument('SKU Description Price\nAB-C7 APPLE (NY) 26.15'),
+  itemNumberSymbol:parseDocument('Item # Description Price\nCIDER APPLE (NY) 26.15'),
+};
+assert.deepEqual(freeformRoles.description.rows.map(({code,description,price})=>({code,description,price})),[{code:null,description:'CIDER APPLE (NY)',price:26.15}]);
+assert.deepEqual(freeformRoles.explicitWordCode.rows.map(({code,description,price})=>({code,description,price})),[{code:'CIDER',description:'APPLE (NY)',price:26.15}]);
+assert.deepEqual(freeformRoles.explicitMixedCode.rows.map(({code,description,price})=>({code,description,price})),[{code:'AB-C7',description:'APPLE (NY)',price:26.15}]);
+assert.equal(freeformRoles.itemNumberSymbol.rows[0].code,'CIDER');
+assert.equal(freeformRoles.explicitMixedCode.rows[0].sourceLine,'AB-C7 APPLE (NY) 26.15');
+const mixedProductWord=parseDocument('Qty Description Price\nB12 VITAMIN 100 CT 12.50');
+assert.deepEqual(mixedProductWord.rows.map(({code,description,price})=>({code,description,price})),
+  [{code:null,description:'B12 VITAMIN 100 CT',price:12.50}],
+  'a product word and pack count cannot supply an unlabeled code or quote');
+const trailingCodeLikeDetail=parseDocument('Product,Price,Notes\nVITAMIN B12,12.50,AB-100\nWIDGET,8.75,ZX-90');
+assert.deepEqual(trailingCodeLikeDetail.rows.map(({code,description,details,price})=>({code,description,details,price})),[
+  {code:null,description:'VITAMIN B12 AB-100',details:['AB-100'],price:12.50},
+  {code:null,description:'WIDGET ZX-90',details:['ZX-90'],price:8.75},
+], 'a trailing unlabeled note is retained as detail, never promoted to a vendor code');
+assert.equal(trailingCodeLikeDetail.rows[0].sourceLine,'VITAMIN B12\t12.50\tAB-100');
+const leadingUnknownCode=parseDocument('Material,Description,Price\nX2700,TERRY TOWEL WHITE,12.90');
+assert.equal(leadingUnknownCode.rows[0].code,'X2700','a distinct leading source cell beside an explicit description still supports a code');
+const differentPriceColumns=parseDocument('Product,Your Price,List Price\nAPPLE GALA,34.00,47.50');
+assert.equal(differentPriceColumns.rows.length,1);
+assert.equal(differentPriceColumns.rows[0].price,34);
+const receivedNumbers=parseDocument('Product Price\nWIDGET 125 40 LB 34.00\nABC-123 INDUSTRIAL PART 12.50');
+assert.equal(receivedNumbers.rows[0].description,'WIDGET 125 40 LB');
+assert.equal(receivedNumbers.rows[0].price,34);
+assert.equal(receivedNumbers.rows[1].code,null);
+assert.equal(receivedNumbers.rows[1].description,'ABC-123 INDUSTRIAL PART');
+assert.deepEqual(twoColumnQuote.rows.map(({description,price,sourceColumnStart})=>({description,price,sourceColumnStart})),[
+  {description:'APPLE GALA',price:34,sourceColumnStart:0},
+  {description:'LIME',price:47.5,sourceColumnStart:2},
+]);
 const unusualInvoice=parseDocument('INVOICE #12345\nMATERIAL    DESCRIPTION    QTY    UNIT PRICE    LINE TOTAL\nX2700    TERRY TOWEL WHITE    125    0.099    12.90');
 t('uncertain invoice arithmetic requires review',unusualInvoice.rows.some(row=>row.issues.some(issue=>issue.includes('reconcile'))),true);
 t('an unlabeled code-like cell becomes the vendor code',unusualInvoice.rows[0]?.code,'X2700');

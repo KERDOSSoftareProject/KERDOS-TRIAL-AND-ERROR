@@ -9,6 +9,11 @@ const nonProductSection=text=>/(?:following items were out of stock|these are yo
 const roles=cells=>mapColumnsFromHeader(cells.map(cell=>clean(cell.text??cell)));
 const isHeader=(cells,previousColumns={})=>isTableHeader(cells.map(cell=>clean(cell.text??cell)),previousColumns);
 const lineText=row=>row.cells.map(cell=>clean(cell.text)).join('\t');
+const compactLine=value=>String(value??'').replace(/\s+/g,' ').trim();
+const parsedCellText=cell=>{
+  const text=clean(cell.text);
+  return text.startsWith('"')&&text.endsWith('"')?text.slice(1,-1).replace(/""/g,'"'):text;
+};
 
 function ocrWords(nodes,scale,height,result=[]){
   for(const node of nodes||[]){
@@ -79,17 +84,29 @@ function alignDescriptionPrices(table){
   if(prices.length<2)return table;
   const buckets=prices.map(row=>({cells:table.anchors.map(()=>({text:'',words:[]})),center:row.cells[map.price].words[0].y}));
   const height=median(body.flatMap(row=>row.cells.flatMap(cell=>cell.words.map(word=>word.height))));
-  const unmatched=[];
+  const unmatched=new Map();
   for(const row of body)for(let column=0;column<row.cells.length;column++)for(const word of row.cells[column].words){
-    const target=[...buckets].sort((a,b)=>Math.abs(a.center-word.y)-Math.abs(b.center-word.y))[0];
-    if(Math.abs(target.center-word.y)>height*1.4){unmatched.push({cells:table.anchors.map((_,index)=>({text:index===column?word.text:'',words:index===column?[word]:[]})),lines:[word.line],y:word.y});continue;}
+    const ranked=[...buckets].sort((a,b)=>Math.abs(a.center-word.y)-Math.abs(b.center-word.y));
+    const target=ranked[0],distance=Math.abs(target.center-word.y);
+    // A continuation midway between two prices has no unique structural
+    // owner. Keep its source word/line separately instead of assigning it to
+    // the first bucket by sort order. A price at its own center is unambiguous.
+    const next=ranked[1],ambiguous=distance>0&&next&&Math.abs(Math.abs(next.center-word.y)-distance)<height*.25;
+    if(distance>height*1.4||ambiguous){
+      if(!unmatched.has(word.line))unmatched.set(word.line,{cells:table.anchors.map(()=>({text:'',words:[]})),lines:[word.line],y:row.y,unresolvedContinuation:true});
+      const cell=unmatched.get(word.line).cells[column];
+      cell.words.push(word);
+      cell.text+=(cell.text?' ':'')+word.text;
+      continue;
+    }
     target.cells[column].words.push(word);
   }
   const rows=buckets.map(bucket=>{for(const cell of bucket.cells){cell.words.sort((a,b)=>b.y-a.y||a.x-b.x);cell.text=cell.words.map(word=>word.text).join(' ');}return {cells:bucket.cells,lines:[...new Set(bucket.cells.flatMap(cell=>cell.words.map(word=>word.line)))].sort((a,b)=>a-b),y:bucket.center};});
-  return {...table,rows:[table.rows[0],...rows,...unmatched].sort((a,b)=>b.y-a.y)};
+  return {...table,rows:[table.rows[0],...rows,...unmatched.values()].sort((a,b)=>b.y-a.y)};
 }
 function pdfSegments(reading){
   const segments=[],skipped=[];
+  const sourceLine=line=>({cells:[{text:line.words.map(word=>word.text).join(' '),words:line.words}],lines:[line.index]});
   for(const page of reading.pages){
     const words=pageWords(page),lines=groupLines(words);let active=[],afterItems=false;
     const finish=()=>{for(const table of active)if(table.rows.length>1)segments.push(alignDescriptionPrices(table));active=[];};
@@ -125,7 +142,7 @@ function pdfSegments(reading){
       const used=new Set(pageTables.flatMap(table=>table.rows.flatMap(row=>row.lines)));
       const excluded=new Set(skipped.filter(line=>line.page===page.number&&/non-product/.test(line.reason)).map(line=>line.lineNumber));
       const outside=lines.filter(line=>!used.has(line.index)&&!excluded.has(line.index)&&!furniture(line.words.map(word=>word.text).join(' ')));
-      if(outside.length)segments.push({kind:'freeform',page:page.number,text:outside.map(line=>line.words.map(word=>word.text).join(' ')).join('\n'),rows:[],reason:'Content outside positioned tables remains available to fallback'});
+      if(outside.length)segments.push({kind:'freeform',page:page.number,text:outside.map(line=>line.words.map(word=>word.text).join(' ')).join('\n'),rows:outside.map(sourceLine),reason:'Content outside positioned tables remains available to fallback'});
     }
     if(!pageTables.length){
       // Alignment can establish structure without inventing field labels. Three
@@ -134,7 +151,7 @@ function pdfSegments(reading){
       const count=candidates[0]?.cells.length;
       const aligned=candidates.length>=3&&count>=2&&candidates.every(row=>row.cells.length===count&&row.cells.every((cell,index)=>Math.abs(cell.x-candidates[0].cells[index].x)<=height));
       if(aligned)segments.push({kind:'positioned-unlabelled',page:page.number,rows:candidates.map(line=>({cells:line.cells,lines:[line.index]}))});
-      else segments.push({kind:'freeform',page:page.number,text:page.text,rows:[],reason:'Geometry does not establish reliable columns'});
+      else segments.push({kind:'freeform',page:page.number,text:page.text,rows:lines.map(sourceLine),reason:'Geometry does not establish reliable columns'});
     }
   }
   return {segments,skipped};
@@ -180,6 +197,31 @@ function unlabelledRoles(segment){
   return text?.length?{price:money[0],description:text.index}:null;
 }
 
+function matchSourceRow(row,sources,claimed,tabular){
+  if(!row.sourceLine)return null;
+  const match=source=>{
+    if(!source)return null;
+    const start=row.sourceColumnStart??0,count=row.sourceColumnCount??source.cells.length;
+    if(!Number.isInteger(start)||!Number.isInteger(count)||start<0||count<1||start+count>source.cells.length)return null;
+    const cells=source.cells.slice(start,start+count);
+    const matches=tabular
+      ?cells.map(parsedCellText).join('\t').replace(/\t+$/,'')===row.sourceLine.replace(/\t+$/,'')
+      :compactLine(cells.map(cell=>cell.text).join(' '))===compactLine(row.sourceLine);
+    return matches?{source,cells}:null;
+  };
+  let found=Number.isInteger(row.sourceIndex)?match(sources[row.sourceIndex]):null;
+  if(!found){
+    const candidates=sources.map(match).filter(Boolean);
+    if(candidates.length!==1)return null;
+    [found]=candidates;
+  }
+  const used=claimed.get(found.source)||new Set();
+  if(found.cells.some(cell=>used.has(cell)))return null;
+  for(const cell of found.cells)used.add(cell);
+  claimed.set(found.source,used);
+  return found;
+}
+
 // All parts stay inside ONE original file group/document. Row ordinals remain
 // deterministic for duplicate/resume keys, while layouts are tracked per table.
 export function parseStructuredDocument(text,reading,parse=(input,options)=>parseDocument(input,options)){
@@ -188,19 +230,32 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
   const parts=structure.segments.map((segment,index)=>{
     const inferredColumns=unlabelledRoles(segment);
     const fallback=segment.kind==='freeform'||(segment.kind==='positioned-unlabelled'&&!inferredColumns);
-    const input=fallback?(segment.text??segment.rows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):segment.rows.map(lineText).join('\n');
-    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})}),available=[...segment.rows];
+    const sourceRows=segment.rows.filter(row=>!row.unresolvedContinuation);
+    const input=fallback?(segment.text??sourceRows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):sourceRows.map(lineText).join('\n');
+    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})});
+    const claimed=new Map();
     const rows=parsed.rows.map(row=>{
-      const at=available.findIndex(source=>lineText(source)===row.sourceLine);
-      const source=Number.isInteger(row.sourceIndex)?segment.rows[row.sourceIndex]:(at>=0?available.splice(at,1)[0]:null);
+      // A parser index is only a hint. Side-by-side products can share a
+      // physical row, but their source cells must be distinct.
+      const match=matchSourceRow(row,sourceRows,claimed,parsed.mode==='tabular');
+      const source=match?.source,sourceCells=match?.cells;
       const page=reading.pages?.find(page=>page.number===segment.page);
-      const confidence=source?.cells.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
+      const confidence=sourceCells?.flatMap(cell=>cell.words||[]).map(word=>word.confidence).filter(value=>typeof value==='number')||[];
       if(page?.source==='local-ocr'&&typeof page.ocr?.confidence==='number')confidence.push(page.ocr.confidence);
       const lowOcr=confidence.some(value=>value<90);
       const issues=[...(row.issues||[]),...(inferredColumns?[{kind:'inferred-column',message:'Price column inferred from aligned decimal amounts; no column label confirms its meaning.'}]:[]),...(lowOcr?[{kind:'low-confidence-ocr',message:'Source recognition is below 90%; retained values need confirmation.'}]:[])];
-      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:source?.cells??[],fallback}};
+      return {...applySourceUnits(row,{documentUnit:documentQuoteUnit(text)}),...(inferredColumns||lowOcr?{priceNeedsReview:true,issues}:{}),sourceProvenance:{filename:reading.filename,kind:fallback?'freeform':segment.kind,page:segment.page??null,worksheet:segment.worksheet??null,table:index,lines:source?.lines??[],cells:sourceCells??[],fallback}};
     });
-    return {...parsed,rows,segment:index};
+    const sourceLocation={page:segment.page??null,worksheet:segment.worksheet??null,table:index};
+    const skipped=parsed.skipped.map(entry=>{
+      const match=matchSourceRow({...entry,sourceLine:entry.line},sourceRows,claimed,parsed.mode==='tabular');
+      return {...entry,...sourceLocation,lines:match?.source.lines??[]};
+    });
+    for(const row of segment.rows){
+      if(!row.unresolvedContinuation)continue;
+      skipped.push({line:row.cells.map(cell=>cell.text).filter(Boolean).join(' '),reason:'Could not link this line to a product using the document layout',...sourceLocation,lines:row.lines});
+    }
+    return {...parsed,rows,skipped,segment:index};
   });
   const duplicatePages=[];
   if(detectDocumentKind(text)==='invoice'){

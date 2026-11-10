@@ -15,12 +15,31 @@ export function exportFailureMessage(outcome,{refresh=false}={}){
   case 'capture_unavailable':guidance='The companion could not capture this export. Keep the original download for review.';break;
   case 'unsupported_encoding':guidance='This export uses an unsupported text encoding. Keep the original file for review.';break;
   case 'invalid_csv':guidance='The captured file is not a supported CSV export. Check the vendor export format.';break;
+  case 'download_dialog_multiple':guidance='The companion found multiple matching download dialogs and stopped before exporting.';break;
+  case 'download_control_missing':guidance='The companion found no matching download dialog and no unique Download control on the list page.';break;
+  case 'download_control_multiple':guidance='The companion found no matching download dialog and multiple Download controls on the list page.';break;
+  case 'download_open_failed':guidance='The companion identified the list-page Download control, but opening it failed.';break;
+  case 'download_dialog_not_found':guidance='The companion clicked the list-page Download control, but no matching download dialog was recognized before the wait ended.';break;
+  case 'download_dialog_inspection_failed':guidance='The companion encountered an error while inspecting the download dialog.';break;
+  case 'download_dialog_unavailable':guidance='The companion could not identify one download dialog for the selected list. Close extra download dialogs and reopen the selected list.';break;
+  case 'download_options_unavailable':guidance='The companion could not identify Download Options in the selected list’s download dialog.';break;
+  case 'product_prices_unavailable':guidance='The companion could not find or confirm Product Prices in the download options.';break;
+  case 'download_export_unavailable':guidance='The companion could not complete the Download step for the selected list. Keep any original download for review.';break;
   case 'ambiguous_control':case 'page_changed':case 'page_unavailable':guidance='The vendor page could not be verified for this export. Reopen the selected account and list.';break;
   case 'wrong_origin':guidance='Open the vendor portal selected for this connection.';break;
   case 'execution_unavailable':case 'unsupported_adapter':guidance='This connection cannot export through the current companion.';break;
   default:return 'The vendor export did not complete. No file was sent to KERDOS. '+(refresh?'Click Refresh prices to retry.':'Prepare a new transfer to retry.');
  }
  return guidance+' No file was sent to KERDOS. '+(refresh?'Click Refresh prices to retry.':'Prepare and pair a new transfer before retrying.');
+}
+// A finite numeric schema is the only adapter diagnostic accepted by the host.
+export function formatDialogStructure(value){
+ try{
+  const keys=['markers','visibleMarkers','exactMarkers','prefixMarkers','exactMarkersInContainer','containers','exactHeadings','headingsInContainer','legacyContainers','legacyTitleMatches','legacyAcceptedContainers'];
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length||!keys.every(key=>Object.hasOwn(value,key)&&Number.isInteger(value[key])&&value[key]>=0&&value[key]<=1000))return '';
+  if(value.visibleMarkers>value.markers||value.exactMarkers>value.visibleMarkers||value.prefixMarkers<value.exactMarkers||value.prefixMarkers>value.visibleMarkers||value.exactMarkersInContainer>value.exactMarkers||value.legacyAcceptedContainers>value.legacyContainers||value.headingsInContainer>value.exactHeadings||value.legacyTitleMatches>value.legacyContainers)return '';
+  return ` Structure check: title markers ${value.markers}, visible ${value.visibleMarkers}, exact ${value.exactMarkers}, prefix ${value.prefixMarkers}, exact inside expected container ${value.exactMarkersInContainer}; expected containers ${value.containers}; exact headings ${value.exactHeadings}, inside expected container ${value.headingsInContainer}; legacy containers ${value.legacyContainers}, title matches ${value.legacyTitleMatches}, accepted by recognition rules ${value.legacyAcceptedContainers}.`;
+ }catch{return '';}
 }
 export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>crypto.randomUUID()}={}){
  let active=false,current={busy:false,message:'Prepare a browser transfer in KERDOS, then pair this tab.'};
@@ -55,6 +74,11 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
      if(source?.outcome!=='ready'){
       await host.clearPairing();
       const messages={permission_required:'Enable Refresh prices access once in the K companion, then return here and click Refresh prices.',ambiguous_source:'More than one vendor tab matches this account and list. Close the extra matching tabs, then click Refresh prices.',verification_needed:'Your vendor requires sign-in or verification. Complete it directly with the vendor, then click Refresh prices.',source_selection_required:'Open the selected account and pricing list with your vendor once, then return here and click Refresh prices.'};
+      Object.assign(messages,{
+       source_account_unverified:'The vendor list is open, but the companion could not confirm the selected account. No export was started. Check that the account name in KERDOS matches the vendor page.',
+       source_list_unverified:'The vendor list is open, but the companion could not confirm the selected list name. No export was started. Check that the list name in KERDOS matches the vendor page.',
+       source_inspection_failed:'The companion could not read the open vendor list page. No export was started. Check companion access to the vendor site before retrying.'
+      });
       const outcome=Object.hasOwn(messages,source?.outcome)?source.outcome:'source_unavailable';
       return terminal(outcome==='source_unavailable'?'The selected vendor page is unavailable. Open its pricing list and click Refresh prices to retry.':messages[outcome],outcome);
      }
@@ -75,7 +99,7 @@ export function createPortableTransferRunner(host,{now=Date.now,randomUUID=()=>c
    await host.clearPairing();
    await save(true,'Checking the selected account and exporting its pricing list… You may close this popup and reopen it for the result.');
    const response=await host.retrieve(target,pairing);
-   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome,{refresh:refreshContext}));}
+   if(response?.outcome!=='export_captured'){await reportFailure(reservation);return terminal(exportFailureMessage(response?.outcome,{refresh:refreshContext})+(['download_dialog_not_found','download_dialog_multiple','download_control_missing','download_control_multiple','download_dialog_inspection_failed'].includes(response?.outcome)?formatDialogStructure(response.structure):''));}
    await save(true,'Delivering the selected pricing file to KERDOS… Prices are not confirmed saved.');
    deliveryStarted=true;
    const ack=await host.deliver(pairing,claimId,response.artifact);

@@ -10,6 +10,7 @@
 // a unit must be a unit. A failing cell is flagged with its reason; the
 // row still saves. Description is the only column that is interpreted.
 import {parsePackSize,priceBasisFor,normalizeGtin} from "../procurement.js";
+import {parseAssignedMoney} from './assigned-numbers.js';
 
 export const COLUMN_ROLE_LABELS={
   description:"Product description",
@@ -72,8 +73,7 @@ export function checkCell(role,value){
   switch(role){
     case "price":
     case "amount":{
-      const n=Number(text.replace(/[$,\s]/g,""));
-      return Number.isFinite(n)?{ok:true}:{ok:false,reason:`"${text}" is not an amount`};
+      return parseAssignedMoney(text)!==null?{ok:true}:{ok:false,reason:`"${text}" is not an amount`};
     }
     case "qty":{
       const n=Number(text.replace(/[,\s]/g,""));

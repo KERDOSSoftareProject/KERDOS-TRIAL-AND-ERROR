@@ -1,3 +1,4 @@
+import {BrandCoin,BrandLogo} from "../ui/Brand.jsx";
 import {useEffect,useState} from "react";
 import {backend} from "../backend/index.js";
 import {createOrganizationService} from "../services/organization.js";
@@ -17,7 +18,10 @@ export function LandingGate() {
     e.preventDefault(); setLoading(true); setError(""); setNotice("");
     try{
       if(mode==="login") await backend.session.signIn({email,password});
-      else await backend.session.signUp({email,password});
+      else {
+        const emailRedirectTo=new URL(import.meta.env?.BASE_URL||"/",window.location.origin).href;
+        await backend.session.signUp({email,password,options:{emailRedirectTo}});
+      }
       if(mode==="signup") setNotice("Check your email to confirm, then sign in.");
     }catch(err){setError(err.message||String(err));}
     setLoading(false);
@@ -33,6 +37,9 @@ export function LandingGate() {
     {icon:"🗄️",color:"#6A1B9A",bg:"#F3E5F5",name:"Invoice Retention",tag:null,
       text:"Every invoice kept and organized, never lost in a shoebox or a shared drive.",
       value:"Built for audit-ready record keeping."},
+    {icon:"🔌",color:"#00695C",bg:"#E0F2F1",name:"Vendor Integration",tag:null,
+      text:"Connect supported vendor portals, such as US Foods MOXē, and import price sheets into KERDOS.",
+      value:"Refresh prices from connected vendors."},
     {icon:"🔗",color:"#888",bg:"#F0F0F0",name:"QuickBooks Integration",tag:"Coming Soon",
       text:"Send recorded invoices straight to QuickBooks — no re-entry.",
       value:"Easier accounting, one click away."},
@@ -42,19 +49,12 @@ export function LandingGate() {
   ];
 
   return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#003584 0%,#00204F 100%)",padding:"48px 20px 60px"}}>
+    <div className="landing-gate" style={{minHeight:"100vh",background:"linear-gradient(160deg,#003584 0%,#00204F 100%)",padding:"48px 20px 60px"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
-        <div style={{fontSize:64,marginBottom:14}}>🦉</div>
-        <div style={{fontWeight:900,fontSize:34,letterSpacing:"0.2em",color:"white",marginBottom:14}}>KERDOS</div>
-        <div style={{fontWeight:900,fontSize:22,color:"white",marginBottom:10,maxWidth:480,marginLeft:"auto",marginRight:"auto",lineHeight:1.3}}>
-          Stop overpaying because you didn't check the other vendor.
-        </div>
-        <div style={{color:"rgba(255,255,255,0.7)",fontSize:15,maxWidth:480,margin:"0 auto"}}>
-          Procurement software that compares vendor prices for you, keeps your ordering and records in one place.
-        </div>
+        <BrandLogo />
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(min(260px,100%), 1fr))",gap:16,maxWidth:1000,margin:"0 auto 40px"}}>
         {SERVICES.map((s,i)=>(
           <div key={i} style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.28)",borderRadius:14,padding:"20px",position:"relative"}}>
             {s.tag&&<div style={{position:"absolute",top:14,right:14,fontSize:10,fontWeight:800,color:"white",background:"rgba(255,255,255,0.2)",padding:"3px 8px",borderRadius:20}}>{s.tag}</div>}
@@ -66,17 +66,17 @@ export function LandingGate() {
         ))}
       </div>
 
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:380,margin:"0 auto",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:436,margin:"0 auto",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",background:"#F0F2F5",borderRadius:8,padding:3,marginBottom:20}}>
-          <button onClick={()=>{setMode("login");setError("");setNotice("");}}
+          <button aria-pressed={mode==="login"} onClick={()=>{setMode("login");setError("");setNotice("");}}
             style={{flex:1,padding:"9px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-              background:mode==="login"?"white":"transparent",color:mode==="login"?"#003584":"#888",
+              background:mode==="login"?"#B3D4FF":"transparent",color:"#003584",
               boxShadow:mode==="login"?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
             Sign In
           </button>
-          <button onClick={()=>{setMode("signup");setError("");setNotice("");}}
+          <button aria-pressed={mode==="signup"} onClick={()=>{setMode("signup");setError("");setNotice("");}}
             style={{flex:1,padding:"9px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-              background:mode==="signup"?"white":"transparent",color:mode==="signup"?"#003584":"#888",
+              background:mode==="signup"?"#B3D4FF":"transparent",color:"#003584",
               boxShadow:mode==="signup"?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
             Sign Up
           </button>
@@ -149,7 +149,7 @@ function Setup({user,onComplete}) {
   async function create() {
     setLoading(true); setError("");
     try {
-      const org=await organizationService.create({name:orgName,industry,userId:user.id,vendors});
+      const org=await organizationService.create({name:orgName,industry,vendors});
       try{localStorage.removeItem(draftKey);}catch{}
       onComplete(org);
     } catch(err){setError(err.message);}
@@ -158,9 +158,9 @@ function Setup({user,onComplete}) {
 
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:480,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:536,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-          <span style={{fontSize:20}}>🦉</span>
+          <BrandCoin />
           <span style={{fontWeight:900,fontSize:16,letterSpacing:"0.18em",color:"#003584"}}>KERDOS</span>
         </div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Welcome — let's get set up</h2>
@@ -232,8 +232,8 @@ export function OrgGate({user,onComplete}) {
 
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:420,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",textAlign:"center"}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><span style={{fontSize:36}}>🦉</span></div>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:476,boxShadow:"0 2px 8px rgba(0,0,0,0.1)",textAlign:"center"}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:8}}><BrandCoin size={44} /></div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Welcome to KERDOS</h2>
         <p style={{color:"#888",fontSize:13,margin:"0 0 24px"}}>Are you starting a new organization, or joining one your team already set up?</p>
         <button onClick={()=>setPath("create")} style={{...btn("#003584"),width:"100%",marginBottom:10}}>Create a new organization</button>
@@ -260,9 +260,9 @@ function JoinWithCode({user,onComplete,onBack}) {
 
   return (
     <div style={{minHeight:"100vh",background:"#F0F2F5",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"white",borderRadius:12,padding:28,width:"100%",maxWidth:420,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:476,boxShadow:"0 2px 8px rgba(0,0,0,0.1)"}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
-          <span style={{fontSize:20}}>🦉</span>
+          <BrandCoin />
           <span style={{fontWeight:900,fontSize:16,letterSpacing:"0.18em",color:"#003584"}}>KERDOS</span>
         </div>
         <h2 style={{margin:"0 0 4px",fontSize:18}}>Join your team</h2>

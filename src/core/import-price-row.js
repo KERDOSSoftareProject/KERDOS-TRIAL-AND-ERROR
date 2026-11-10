@@ -24,6 +24,8 @@ import {preparePriceImport} from './price-import-review.js';
 import {importResolutions} from './catalog-fields.js';
 import {engineVerifiable} from '../services/catalog.js';
 
+export const MISSING_DESCRIPTION = 'Product description is missing. Source row retained for review.';
+
 /**
  * @param {object} p
  * @param {object} p.backend          - KERDOS backend (pricing.applyQuote)
@@ -57,6 +59,7 @@ export async function importPriceRow({
   applySelectedCategory,assertActive=()=>{},
 }) {
   assertActive();
+  if(!row.description?.trim())throw new Error(MISSING_DESCRIPTION);
   if(stagedReceipt&&(!ex||stagedReceipt.vendorItemId!==ex.id))throw new Error('The retained source-row listing differs from this retry.');
   if (!rowNeedsReview && !row.priceUnavailable && (!Number.isFinite(Number(row.price)) || Number(row.price) <= 0))
     throw new Error('No confirmed positive unit price');

@@ -20,7 +20,22 @@ export function createTransferRunner(api){
   pair:async target=>{const result=await api.scripting.executeScript({target:{tabId:target.id},func:pairKerdosTab});return result[0]?.result;},
   reserve:(pairing,claimId)=>api.tabs.sendMessage(pairing.receiverId,{type:'kerdos-claim',nonce:pairing.nonce,claimId}),
   reportFailure:(pairing,claimId)=>api.tabs.sendMessage(pairing.receiverId,{type:'kerdos-export-failed',nonce:pairing.nonce,claimId}),
-  retrieve:async(target,pairing)=>{const provider=providerFor(target,pairing);if(!provider)return {outcome:'execution_unavailable'};const result=await api.scripting.executeScript({target:{tabId:target.id},world:'MAIN',func:provider.execute,args:[{account:pairing.account,list:pairing.list,capture:true}]});return result[0]?.result;},
+  retrieve:async(target,pairing)=>{
+   const provider=providerFor(target,pairing);if(!provider)return {outcome:'execution_unavailable'};
+   // User-started portal exports may render their dialog on animation frames,
+   // which a background tab need not receive. Activate only the verified source.
+   await api.tabs.update(target.id,{active:true});
+   try{
+    const result=await api.scripting.executeScript({target:{tabId:target.id},world:'MAIN',func:provider.execute,args:[{account:pairing.account,list:pairing.list,capture:true}]});return result[0]?.result;
+   }finally{
+    // Restore only while the source is still selected and unchanged in the
+    // receiver's window. Never override an intervening tab/window/navigation.
+    try{
+     const source=await api.tabs.get(target.id),receiver=await api.tabs.get(pairing.receiverId);
+     if(!target.active&&source.active&&source.url===target.url&&source.windowId===receiver.windowId&&approvedKerdosTab(receiver.url))await api.tabs.update(pairing.receiverId,{active:true});
+    }catch{/* A closed tab or unavailable receiver does not invalidate capture. */}
+   }
+  },
   deliver:(pairing,claimId,artifact)=>api.tabs.sendMessage(pairing.receiverId,{type:'kerdos-deliver',nonce:pairing.nonce,claimId,artifact}),
  });
 }

@@ -18,7 +18,7 @@ export function userInitials(name){
   return (name||"").trim().split(/\s+/).slice(0,2).map(part=>part[0]?.toUpperCase()||"").join("")||"K";
 }
 
-export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,invoiceReviewCount=0,inboxCount=0}){
+export default function WelcomeScreen({clientName,userName,role,onNavigate,attentionCount=0,invoiceReviewCount=0,inboxCount=0}){
   const [now,setNow]=useState(()=>new Date());
   useEffect(()=>{
     const timer=setInterval(()=>setNow(new Date()),30000);
@@ -31,7 +31,7 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
   };
   return <section className="welcome-screen" aria-label="Welcome to KERDOS">
     <style>{`
-      .welcome-screen { min-height:calc(100vh - 60px); box-sizing:border-box; padding:72px 32px 96px; background:linear-gradient(160deg,#003584 0%,#00204F 100%); color:white; font-family:"Times New Roman",Times,serif; }
+      .welcome-screen { min-height:calc(100vh - 60px); box-sizing:border-box; padding:72px 32px 96px; background:linear-gradient(160deg,#003584 0%,#00204F 100%); color:white; }
       .welcome-inner { max-width:1180px; margin:0 auto; }
       .welcome-greeting { margin:0; text-align:center; font-size:clamp(27px,3vw,38px); font-weight:500; line-height:1.2; }
       .welcome-greeting strong { font-weight:650; color:white; }
@@ -47,8 +47,8 @@ export default function WelcomeScreen({orgName,role,onNavigate,attentionCount=0,
       @media (max-width:380px) { .welcome-grid { grid-template-columns:1fr; } .welcome-tile { min-height:116px; } }
     `}</style>
     <div className="welcome-inner">
-      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome</p>
-      <h1 className="welcome-greeting">{welcomeGreeting(now)}{orgName?` ${orgName}`:""}!</h1>
+      <p style={{textAlign:"center",margin:"0 0 16px",fontSize:18}}>Welcome{clientName?` ${clientName}`:""}!</p>
+      <h1 className="welcome-greeting">{welcomeGreeting(now)}{userName?`, ${userName}`:""}!</h1>
       <div className="welcome-grid">
         {navigationPages(role).map(item=><button type="button" className="welcome-tile" key={item.id} onClick={()=>onNavigate(item.id)}>
           <span className="welcome-icon" aria-hidden="true">{item.icon}</span>

@@ -51,12 +51,21 @@ await check('CSV retains exact source text, quoted commas/newlines, codes and pr
   assert.equal(cells.find(cell=>cell.address==='B2').value,'Chicken, boneless');
   assert.equal(cells.find(cell=>cell.address==='B3').value,'Turkey\nsmoked');
 });
-await check('Windows-1252 CSV reads product words without altering original bytes',async()=>{
-  const bytes=Buffer.from('Code,Description,Price\r\n00125,Crème brûlée® \x96 jalapeño,12.50\r\n','latin1');
-  const result=await makeReader()(file('vendor.csv',bytes));
-  assert.match(result.text,/Crème brûlée® – jalapeño/);
+await check('Windows-1252 CSV decodes punctuation and preserves original bytes',async()=>{
+  const bytes=Buffer.from('Code,Description,Price\r\n00123,Crème brûlée® \x96 jalapeño,12.50\r\n','latin1');
+  const original=Buffer.from(bytes);
+  const result=await makeReader()(file('legacy.csv',bytes));
+  assert.equal(result.text,'Code,Description,Price\r\n00123,Crème brûlée® – jalapeño,12.50\r\n');
   assert.equal(result.worksheets[0].cells.find(cell=>cell.address==='B2').value,'Crème brûlée® – jalapeño');
-  assert.equal(bytes.includes(0x96),true);
+  assert.deepEqual(bytes,original);
+});
+await check('unsupported CSV encodings and binary controls fail before worksheet reading',async()=>{
+  for(const bytes of [
+    Buffer.concat([Buffer.of(0xff,0xfe),Buffer.from('Code,Name\n1,Test\n','utf16le')]),
+    Buffer.from('Code,Name\n1,Te\0st\n'),
+    Buffer.from('Code,Name\n1,Te\x81st\n','latin1'),
+    Buffer.from('%PDF-1.7\nCode,Name\n1,Test\n'),
+  ])await assert.rejects(()=>makeReader()(file('unsafe.csv',bytes)),/Unsupported CSV encoding|binary data|does not contain CSV text/);
 });
 await check('XLSX reads all worksheets, blank tabs, offsets, typed values and formulas',async()=>{
   const book=XLSX.utils.book_new();

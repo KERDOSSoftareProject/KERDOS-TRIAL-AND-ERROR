@@ -1,4 +1,61 @@
-# Companion 0.2.7 · Refresh prices
+# Companion 0.2.17 · Refresh prices
+
+CSV capture supports UTF-8 and Windows-1252 text. KERDOS checks for unsupported
+encodings and control characters before import, and verifies the original bytes
+using the same receipt hash. Install the complete 0.2.17 folder for this change.
+
+A fresh app command reopens a previously verified, client/vendor/account/list-scoped saved route in the foreground before checking its visible account header. Bringing a tab forward is navigation only: account/list proof and the one-use export claim remain mandatory. Wrong accounts, wrong lists and verification pages still stop without exporting or replacing the saved route. The controlled regression models account rendering dependent on native tab selection; it does not establish the cause of any particular supplier sign-in behavior.
+
+## Foreground export — 0.2.15
+
+User-started exports activate only their verified vendor tab after KERDOS accepts the one-use claim. This allows foreground-dependent portal rendering without relaxing any account, list or dialog checks. If that source began in the background, the companion returns to its approved KERDOS receiver only when the source is still selected, its URL is unchanged, and both tabs are in the same window. It preserves an intervening user tab choice or navigation and does not move a manual popup export away from its initially active vendor tab. The eleven-count structural report remains available if recognition fails. This addresses a reproduced rendering condition; live supplier acceptance remains unverified.
+
+When dialog recognition, inspection or initial Download-control selection fails, a structural check reports eleven bounded counts: title markers, visible markers, exact title markers, expected containers, exact headings, headings inside expected containers, legacy containers, legacy title matches, title prefixes, exact markers inside expected containers and legacy containers accepted by the actual recognition rules. A title prefix is diagnostic only and never authorizes selecting a different list. It reads only these structural facts; it does not copy DOM text, HTML, attributes, credentials or raw exceptions. The host rejects unknown keys, non-integers, inconsistent counts and out-of-range values. This diagnoses the installed recognition failure; it does not claim to fix it.
+
+This diagnostic release distinguishes a missing or multiple list-page Download control, failure clicking that control, a dialog recognition timeout, multiple matching dialogs, and a dialog inspection error. It retains exact list-title matching. It does not claim to fix the installed supplier failure. Only fixed outcome codes reach KERDOS; no DOM text or raw vendor errors are reported.
+
+The MOXē adapter also recognizes the published two-pane download modal by its exact selected-list title, including wrappers without their own layout box. Multiple matching dialogs still stop the export.
+
+Discovery now preserves fixed account-recognition, list-recognition and page-
+inspection failures for a single already-open approved list page. It no longer
+reports every failure as an instruction to open that list. A verified match
+always wins over other tabs; failed or ambiguous pages cannot export or cache
+a route. No raw page content or errors are reported or stored. This improves
+failure classification; it does not prove the installed recognition issue is fixed.
+
+## Connect after enabling — 0.2.10
+
+Enabling Refresh prices now reconnects already-open approved KERDOS tabs using
+the shipped control channel. A page reload is unnecessary when attachment
+succeeds. Repeating enable does not install a second command listener. Access
+denial touches no tabs; a closed/inaccessible app tab gives reload guidance.
+This action never prepares, exports, delivers or retries pricing. It does not
+add scheduling, keep-alive behavior, host permissions or automatic supplier access.
+
+## Product Prices labels — 0.2.9
+
+Version 0.2.9 recognizes the Product Prices checkbox by its own primary label,
+including the nested Ionic label, before considering its enclosing text. A
+parent containing several download options no longer hides an exact label.
+After a click, confirmation re-reads the current unique labelled control so a
+replaced component host does not leave the check waiting on a detached node.
+Exact matching and ambiguity guards remain; other export options are untouched.
+Reload the complete folder, then refresh KERDOS before installed acceptance.
+
+## Export-dialog recovery — 0.2.8
+
+Version 0.2.8 reuses one open download dialog for the selected list and leaves an
+already enabled Product Prices option enabled. A fresh explicit retry no longer
+mistakes the page and modal Download buttons for ambiguous controls. Multiple
+matching dialogs or pricing checkboxes still stop the export. Fixed guidance now
+identifies download-dialog, Download Options, Product Prices or final Download
+failures without recording page content or raw diagnostics. A failure never
+automatically retries. Reload the complete folder, then refresh KERDOS; existing
+site permissions, client/vendor binding and one-use handoff remain unchanged.
+
+The first installed 0.2.7 failure was reported with a shared generic message;
+its precise export substep is not established. The open-dialog retry defect is
+reproduced separately. Synthetic tests are not real-supplier acceptance.
 
 Install the complete folder including adapters and core. Enable only this version, then refresh the KERDOS tab. In the K popup, choose the provider and click **Enable Refresh prices** once to grant access to the KERDOS host and that vendor portal. Open the correct account/list with the vendor for initial setup. Later use **Refresh prices** in KERDOS; preparation, pairing, export and processing run through the existing checked handoff. The verified list route can reopen when its tab is closed. Login/MFA pauses for the user; no password/code is read or stored.
 

@@ -36,6 +36,18 @@ const quote=await db.query(`select kerdos_apply_price_quote(null,$1,$2,'001001',
 const vi=quote.rows[0].id;
 await db.query(`insert into item_mappings values($1,$2,$3,$4,'review',75,'rule_based')`,[mapping,org,vi,item]);
 const save=(revision,patch,basis='measure',available=true,orgId=org)=>db.query(`select kerdos_save_catalog_row($1,$2,$3,$4,$5::jsonb,$6,$7) as row`,[orgId,vi,mapping,revision,JSON.stringify(patch),basis,available]);
+// Base-field trial: a received dollar amount saves without supplying a unit,
+// rewriting the pack/description or approving the rest of the listing.
+await db.exec('BEGIN');
+try {
+ const before=(await db.query('select * from vendor_items where id=$1',[vi])).rows[0];
+ const saved=(await save(0,{price:2.29},null,false)).rows[0].row;
+ assert.equal(Number(saved.price),2.29);
+ for(const key of ['vendor_item_code','description','brand','pack_size','selling_unit'])assert.equal(saved[key],before[key],key+' is retained by dollar-only save');
+ assert.equal(saved.selling_unit,null);assert.equal(saved.price_basis,null);assert.equal(saved.price_unavailable,true);
+ assert.deepEqual(Object.keys(saved.field_resolutions),['price']);
+ assert.equal((await db.query('select comparison_track from item_mappings where id=$1',[mapping])).rows[0].comparison_track,'review');
+}finally{await db.exec('ROLLBACK');}
 let result=await save(0,{brand:'Brand A'},null,false);
 assert.equal(result.rows[0].row.brand,'Brand A');
 assert.equal(result.rows[0].row.price_unavailable,true,'missing unit remains out of ordering');
@@ -236,6 +248,26 @@ assert.equal(groupedItem.comparison_mode,'alternatives');
 assert.equal(orderGuideAssessment({item:{...groupedItem,brand_locked:true,locked_brand:'Other brand'},vendorItem:checked.vendorItem,mapping:checked.mapping,category:{id:cat,name:'General'},peers:[alternative]}).ready,false,'required brand still blocks a different brand');
 assert.equal(orderGuideAssessment({item:{...groupedItem,comparison_mode:'exact'},vendorItem:checked.vendorItem,mapping:checked.mapping,category:{id:cat,name:'General'},peers:[alternative]}).ready,false,'exact mode retains identity checks');
 console.log('Selected alternatives passed: atomic grouping, different brands/packs, persistent preference, stale selection, role isolation and exact/required-brand modes.');
+const approval={catalogItemId:target,description:checked.vendorItem.description,brand:checked.vendorItem.brand,confirmedBy:user};
+await db.query("update vendor_items set field_resolutions=jsonb_set(field_resolutions-'row_approval','{product_group}',$2::jsonb) where id=$1",[vi,JSON.stringify(approval)]);
+await save(await nextRevision(),{pack_size:'1/600 FT'},'each');
+checked=await readAssessment();
+assert.equal(checked.mapping.comparison_track,'review','the catalog save reopens mapping verification after a pack edit');
+const correctedGroup={catalogItems:[groupedItem],vendorItems:[checked.vendorItem,alternative],mappings:[checked.mapping,{id:alternativeMapping,vendor_item_id:alternativeId,catalog_item_id:target,comparison_track:'exact',confidence_score:100}],vendors:[{id:vendor}],categories:[{id:cat,name:'General'}]};
+const [requalified]=autoPlaceable(correctedGroup);
+assert.equal(requalified?.mappingId,mapping,'a valid new pack can reuse the explicit product approval across different vendor packs');
+assert.equal(requalified.verification.match_method,'manual','the existing client approval retains its provenance');
+for(const row of [
+ {...checked.vendorItem,description:'Different product'},
+ {...checked.vendorItem,brand:'Different brand'},
+ {...checked.vendorItem,price_quote_valid_until:'2000-01-01'},
+ {...checked.vendorItem,import_row:{reviewRequired:true}},
+ {...checked.vendorItem,field_resolutions:{...checked.vendorItem.field_resolutions,product_group:{...approval,confirmed:false}}},
+]){
+ assert.equal(autoPlaceable({...correctedGroup,vendorItems:[row,alternative]}).length,0);
+}
+assert.equal(autoPlaceable({...correctedGroup,catalogItems:[{...groupedItem,comparison_mode:'exact'}]}).length,0);
+console.log('Pack correction passed: manual product approval can be reused for a current, independently valid alternative.');
 await db.exec(fs.readFileSync(root+'/knowledge/migration_023_automatic_alternatives.sql','utf8'));
 await db.exec(fs.readFileSync(root+'/knowledge/migration_023_automatic_alternatives.sql','utf8'));
 const {alternativeKey,automaticAlternativeVerified,alternativeGroups}=await import('../core/alternative-groups.js');

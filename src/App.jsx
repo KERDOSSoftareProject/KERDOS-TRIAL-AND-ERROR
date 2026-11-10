@@ -1,12 +1,16 @@
+import {BrandCoinFaces} from "./ui/Brand.jsx";
+import {Drachma} from "./ui/Drachma.jsx";
+import {MobileDetailWindow} from './ui/MobileDetailWindow.jsx';
 import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
-import {OrderGuideListings} from './pages/OrderGuideListings.jsx';
+import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
+import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {alternativeGroups,automaticAlternativeVerified} from "./core/alternative-groups.js";
 import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
 import { createDocumentService } from "./services/documents.js";
-import { autoPlaceable,orderGuideAssessment,BLOCKER_LABELS } from "./core/catalog-fields.js";
+import { autoPlaceable,orderGuideAssessment,BLOCKER_LABELS,initialsFor } from "./core/catalog-fields.js";
 import { holdingPen } from "./services/categories.js";
 import { createOrganizationService } from "./services/organization.js";
 import { createVendorService } from "./services/vendors.js";
@@ -20,7 +24,7 @@ import {associationProfile,productAssociationIdentity,productGroupApproved} from
 import {clientProductName} from './core/client-product-name.js';
 import {sourceOnlyListings} from './core/source-only-listings.js';
 import { configureLocale, formatDate, formatMoney } from "./localization.js";
-import { buildVarianceReportCSV, downloadTextFile } from "./reporting.js";
+import { buildComparisonReportCSV, downloadTextFile } from "./reporting.js";
 import {InvoicesPage,PriceSheetsPage} from "./pages/DocumentPages.jsx";
 import {LandingGate,OrgGate} from "./pages/AccessPages.jsx";
 import {InvoiceEditModal,AddVendorModal} from "./pages/RecordModals.jsx";
@@ -34,6 +38,7 @@ import WelcomeScreen,{userInitials} from "./pages/WelcomeScreen.jsx";
 import TabHeading from "./ui/TabHeading.jsx";
 import {pageName} from "./ui/workspace-pages.js";
 import VendorConnectPage from "./pages/VendorConnectPage.jsx";
+import {settleScheduledImport} from "./services/scheduled-refresh-result.js";
 import {listMessages} from "./services/email-routing.js";
 import {PALETTE,btn,inp} from "./ui/styles.js";
 
@@ -139,16 +144,33 @@ export default function App() {
   const [unitSelection,setUnitSelection]=useState({});
   const [vendorOverride,setVendorOverride]=useState({});
   const [negotiatedPrices,setNegotiatedPrices]=useState({}); // unit key -> vendor ID -> agreed price
+  const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,
+    canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping,patch)=>{
+      // A legacy device-only price must not conceal a freshly saved quote.
+      if(['price','pack_size','selling_unit'].some(field=>Object.hasOwn(patch,field)))setNegotiatedPrices(previous=>{
+        const next={...previous};
+        for(const unit of ['case','each']){
+          const key=`${mapping.catalog_item_id}_${unit}`;
+          if(!next[key])continue;
+          const prices={...next[key]};delete prices[vendorItem.vendor_id];
+          if(Object.keys(prices).length)next[key]=prices;else delete next[key];
+        }
+        return next;
+      });
+      await loadData();
+    }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
+  const mobileOrder=useLayoutQuery(mobileOrderQuery);
+  const mobileDetails=useLayoutQuery(`${mobileOrderQuery}, (hover: none) and (pointer: coarse)`);
   useEffect(()=>{
-    if(openPriceMenu==null)return;
+    if(openPriceMenu==null||mobileDetails)return;
     const closeOutside=event=>{if(!(event.target instanceof Element)||!event.target.closest("[data-price-menu]"))setOpenPriceMenu(null);};
     const closeEscape=event=>{if(event.key==="Escape")setOpenPriceMenu(null);};
     document.addEventListener("pointerdown",closeOutside);
     document.addEventListener("keydown",closeEscape);
     return ()=>{document.removeEventListener("pointerdown",closeOutside);document.removeEventListener("keydown",closeEscape);};
-  },[openPriceMenu]);
+  },[openPriceMenu,mobileDetails]);
   const [expandedOrderTabOrder,setExpandedOrderTabOrder]=useState(null);
   const [expandedInvoiceId,setExpandedInvoiceId]=useState(null);
   const [expandedPricePeriod,setExpandedPricePeriod]=useState(null);
@@ -384,7 +406,8 @@ export default function App() {
     if(!org||org.role==="employee"||loading||autoPlacing||backfilling)return;
     const ready=autoPlaceable({catalogItems,vendorItems,mappings,vendors,categories,settings:org.settings});
     if(!ready.length)return;
-    const key=JSON.stringify([org.id,autoPlaceRetry,ready.map(r=>r.mappingId).sort()]);
+    const revisions=new Map(vendorItems.map(row=>[row.id,row.row_revision??0]));
+    const key=JSON.stringify([org.id,autoPlaceRetry,ready.map(r=>[r.mappingId,revisions.get(r.vendorItemId)]).sort()]);
     if(attemptedAutoPlace.current.has(key))return;
     attemptedAutoPlace.current.add(key);
     setAutoPlacing(true);setAutoPlaceError("");
@@ -643,12 +666,14 @@ export default function App() {
         const customVendorId=vendorOverride[caseKey]||null;
         const negotiation=negotiatedPrices[caseKey];
         const ranked=rankVendorOffers(prod.options,negotiation);
-        const preferredVendorId=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId))?.vendorId||(ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))||ranked.find(orderable))?.vendorId;
+        const selectedOffer=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId));
+        const preferredOffer=ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand));
+        const primaryOffer=selectedOffer||preferredOffer||ranked.find(orderable);
         const split=splitOrders[caseKey];
-        const splitQty=split&&split.vendorId!==preferredVendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(caseQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
+        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(caseQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
         items.push({...prod,quantity:caseQty-splitQty,orderUnit:"case",
           options:prod.options.map(o=>({...o,price:priceForOffer(o,negotiation),orderUnit:"case"})),
-          forcedVendorId:splitQty>0?preferredVendorId:customVendorId||rankVendorOffers(prod.options,negotiation).find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))?.vendorItemId||null,
+          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,
           forcedPrice:null});
         if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_case`,quantity:splitQty,orderUnit:"case",
           options:prod.options.map(o=>({...o,price:priceForOffer(o,negotiation),orderUnit:"case"})),forcedVendorId:split.vendorId,forcedPrice:null});
@@ -657,12 +682,14 @@ export default function App() {
         const customVendorId=vendorOverride[eachKey]||null;
         const negotiation=negotiatedPrices[eachKey];
         const ranked=rankVendorOffers(prod.options.filter(o=>o.eachPrice),negotiation,"each");
-        const preferredVendorId=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId))?.vendorId||(ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))||ranked.find(orderable))?.vendorId;
+        const selectedOffer=ranked.find(o=>orderable(o)&&(o.vendorItemId===customVendorId||o.vendorId===customVendorId));
+        const preferredOffer=ranked.find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand));
+        const primaryOffer=selectedOffer||preferredOffer||ranked.find(orderable);
         const split=splitOrders[eachKey];
-        const splitQty=split&&split.vendorId!==preferredVendorId&&prod.options.some(o=>o.vendorId===split.vendorId&&o.eachPrice&&orderable(o))?Math.min(eachQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
+        const splitQty=split&&(!customVendorId||selectedOffer)&&split.vendorId!==primaryOffer?.vendorId&&ranked.some(o=>o.vendorId===split.vendorId&&orderable(o))?Math.min(eachQty-1,Math.max(0,Math.floor(Number(split.quantity)||0))):0;
         items.push({...prod,catalogItemId:`${prod.catalogItemId}_each`,quantity:eachQty-splitQty,orderUnit:"each",
           options:prod.options.filter(o=>o.eachPrice).map(o=>({...o,price:priceForOffer(o,negotiation,"each"),packSize:o.eachSize,orderUnit:"each"})),
-          forcedVendorId:splitQty>0?preferredVendorId:customVendorId||rankVendorOffers(prod.options.filter(o=>o.eachPrice),negotiation,"each").find(o=>orderable(o)&&prod.preferredBrand&&brandsMatch(o.brand,prod.preferredBrand))?.vendorItemId||null,
+          forcedVendorId:customVendorId||(splitQty>0?primaryOffer?.vendorId:preferredOffer?.vendorItemId)||null,
           forcedPrice:null});
         if(splitQty>0)items.push({...prod,catalogItemId:`${prod.catalogItemId}_split_each`,quantity:splitQty,orderUnit:"each",
           options:prod.options.filter(o=>o.eachPrice).map(o=>({...o,price:priceForOffer(o,negotiation,"each"),packSize:o.eachSize,orderUnit:"each"})),forcedVendorId:split.vendorId,forcedPrice:null});
@@ -850,7 +877,7 @@ export default function App() {
   if(session===undefined||loading) return (
     <div style={{minHeight:"100vh",background:"#003584",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:"white",textAlign:"center"}}>
-        <div style={{fontSize:48}}>🦉</div>
+        <Drachma size={56} label="Loading KERDOS" style={{gap:0}} showLabel={false} />
         <div style={{fontWeight:900,fontSize:20,letterSpacing:"0.18em",color:"#4A90D9",marginTop:8}}>KERDOS</div>
         <div style={{marginTop:12,opacity:0.6,fontSize:13}}>Loading...</div>
       </div>
@@ -859,18 +886,63 @@ export default function App() {
   if(!session) return <LandingGate />;
   if(!org) return <OrgGate user={session.user} onComplete={o=>{setOrg(o);loadData();}} />;
 
+  const account = session.user;
+  const metadata = account.user_metadata;
+  const savedInitials = metadata?.kerdos_initials;
+  const accountName = [metadata?.full_name, metadata?.name, account.full_name, account.name]
+    .find(name => typeof name === "string" && name.trim())?.trim();
+  const accountInitials = typeof savedInitials === "string" && /^\p{L}{1,3}$/u.test(savedInitials)
+    ? savedInitials.toUpperCase()
+    : accountName ? userInitials(accountName) : initialsFor({email:account.email}) || "?";
+  const welcomeName = org.settings?.welcome_name;
+  const clientName = (typeof welcomeName === "string" && welcomeName.trim()) || org.name;
+
   return (
-    <div style={{fontFamily:"'DM Sans',Inter,-apple-system,sans-serif",minHeight:"100vh",background:"#003584"}}>
+    <div className="workspace-shell" style={{minHeight:"100vh",background:"#003584"}}>
+      <style>{`
+        .workspace-shell { --workspace-header-height:60px; --workspace-tabs-height:54px; --browse-top:calc(var(--workspace-header-height) + var(--workspace-tabs-height)); }
+        .workspace-sticky-tabs { position:sticky; top:var(--workspace-header-height); z-index:120; height:var(--workspace-tabs-height); max-width:1400px; margin:12px auto 18px; padding:0 18px; background:#003584; }
+        .workspace-sticky-tabs h1 { flex:none; }
+        .workspace-sticky-tabs nav { overflow-x:auto; padding:4px 2px; }
+        .workspace-sticky-tabs nav button { flex:none; white-space:nowrap; }
+        .workspace-browse-controls { position:sticky; top:var(--browse-top); z-index:100; background:#003584; padding-bottom:10px; }
+        .mobile-page-picker { display:none; }
+        @media (max-width:720px) {
+          .workspace-shell { overflow-wrap:anywhere; }
+          .workspace-sticky-tabs { justify-content:space-between; }
+          .workspace-sticky-tabs h1 { flex:1; min-width:0; font-size:14px!important; overflow-wrap:anywhere; }
+          .workspace-sticky-tabs nav { display:none!important; }
+          .mobile-page-picker { display:block; max-width:56%; min-height:44px; border:1px solid #B7C8DE; background:white; color:#003584; border-radius:8px; font:inherit; font-size:16px; padding:4px 8px; }
+          .workspace-browse-controls input,.workspace-browse-controls select { min-height:44px; min-width:0!important; max-width:100%; font-size:16px!important; }
+          .catalog-browse-filters { display:grid!important; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px!important; padding:10px!important; margin-bottom:8px!important; }
+          .catalog-browse-filters > select { width:100%!important; }
+          .mobile-edit-table,.mobile-edit-table > tbody { display:block; width:100%; min-width:0!important; }
+          .mobile-edit-table > thead { display:none; }
+          .mobile-edit-table > tbody > tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:8px; border-top:1px solid #DEE7F0; }
+          .mobile-edit-table > tbody > tr > td { display:block; min-width:0!important; overflow-wrap:anywhere; }
+          .mobile-edit-table td[colspan],.mobile-edit-table td[data-mobile-wide] { grid-column:1 / -1; }
+          .mobile-edit-table td[data-field-label]::before { display:block; content:attr(data-field-label); margin-bottom:4px; font-weight:700; color:#52647A; }
+          .mobile-edit-table input,.mobile-edit-table select { width:100%!important; min-width:0!important; min-height:44px; font-size:16px!important; }
+          .mobile-edit-table button { min-height:44px; }
+          .document-browse-row { flex-wrap:wrap; }
+          .document-browse-title { flex:1 1 100%; white-space:normal!important; overflow-wrap:anywhere; }
+          .document-browse-title > div:first-child { white-space:normal!important; overflow-wrap:anywhere; }
+          .document-browse-actions { flex-wrap:wrap; min-width:0; max-width:100%; }
+          .vendor-detail-item-name { white-space:normal!important; overflow-wrap:anywhere; }
+        }
+        @media (max-height:480px) { .workspace-browse-controls { position:relative; top:auto; } }
+      `}</style>
 
       {/* HEADER */}
-      <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:60,
+      <header style={{background:tab==="home"?"#003584":"white",color:tab==="home"?"white":"#1A4FA8",padding:"0 22px",height:"var(--workspace-header-height)",
         display:"flex",alignItems:"center",justifyContent:"space-between",
         position:"sticky",top:0,zIndex:200,boxShadow:"0 2px 8px rgba(0,0,0,0.3)"}}>
-        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",fontFamily:tab==="home"?'"Times New Roman",Times,serif':"inherit",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span aria-hidden="true">🦉</span>KERDOS</button>
+        <button type="button" onClick={()=>setTab("home")} aria-label="KERDOS Home" style={{display:"flex",alignItems:"center",gap:9,border:0,background:"none",color:tab==="home"?"white":"#1A4FA8",cursor:"pointer",fontWeight:900,fontSize:19,letterSpacing:".12em"}}><span className="kerdos-header-coin"><BrandCoinFaces size={28} className="kerdos-header-coin-turn" /></span>KERDOS</button>
         <div style={{position:"relative"}}>
-          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{userInitials(org.name)}</button>
-          {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
-            {organizations.length>1?<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>:<div style={{marginBottom:10,fontWeight:700}}>{org.name}</div>}
+          <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{accountInitials}</button>
+          {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,maxWidth:"calc(100vw - 76px)",overflowWrap:"anywhere",background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
+            <div style={{marginBottom:10,fontWeight:700}}>{accountName||account.email||"Your account"}</div>
+            {organizations.length>1&&<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>}
             <button type="button" onClick={()=>{setAccountMenuOpen(false);try{sessionStorage.removeItem("kerdos.activeTab.v2");}catch{} backend.session.signOut().catch(err=>alert(err.message));}} style={{background:"none",border:0,color:"#1A4FA8",cursor:"pointer",padding:0}}>Sign out</button>
           </div>}
         </div>
@@ -883,17 +955,13 @@ export default function App() {
         </div>
       )}
 
-      {tab==="home"&&<WelcomeScreen orgName={org.name} role={org.role}
+      <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} sticky onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
+
+      {tab==="home"&&<WelcomeScreen clientName={clientName} userName={accountName} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 
-      {tab!=="home"&&<div style={{maxWidth:1400,margin:"0 auto",padding:"12px 18px 80px"}}>
-        <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
-
-        {tab==="vendorConnect"&&["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importInProgress={companionImport?.organizationId===org.id} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
-          if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
-          setCompanionImport(payload);
-        }} />}
+      <div style={{maxWidth:1400,margin:"0 auto",padding:"0 18px 80px",display:tab==="home"?"none":undefined}}>
 
         {/* HOME TAB */}
         {/* ORDER TAB */}
@@ -901,41 +969,68 @@ export default function App() {
           <div className="order-layout">
             <style>{`
               .order-layout { display:flex; gap:18px; align-items:flex-start; max-width:1320px; margin:0 auto; }
-              .order-aside { width:330px; flex-shrink:0; position:sticky; top:104px; align-self:flex-start; max-height:calc(100vh - 112px); overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+              .order-aside { width:330px; flex-shrink:0; position:sticky; top:var(--browse-top); align-self:flex-start; max-height:calc(100vh - var(--browse-top) - 8px); overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
               .order-aside-inner { position:static; }
               .order-column-head { font-size:9px; font-weight:800; color:#718096; letter-spacing:.06em; text-transform:uppercase; }
-              .order-browse-filters select { max-width:48%; }
+              .order-browse-filters select { max-width:48%; min-width:0; }
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
-              @media (max-width:720px) {
-                .order-layout { flex-direction:column; }
+              .order-item-listings { border-top:1px solid #E3E7ED; }
+              .order-item-grid { display:grid; grid-template-columns:minmax(220px,1fr) 88px 104px minmax(370px,420px); gap:2px 10px; align-items:center; padding:8px 12px; }
+              .order-item { display:contents; }
+              @media (max-width:1240px) {
+                .order-item-grid { grid-template-columns:minmax(120px,1fr) 80px 104px minmax(190px,1.35fr); }
+              }
+              @media ${mobileOrderQuery} {
+                .order-layout { display:block; }
+                .order-item-grid { display:block; }
+                .order-column-head { display:none; }
+                .order-item { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,1fr); border:1px solid #6B9BCD; border-bottom-width:2px; border-radius:10px; background:#DCEBFC; padding:8px; margin-bottom:10px; }
+                .order-item-name,.order-item-price,.order-item-listings { grid-column:1 / -1; }
+                .order-item-name,.order-item-price { border:0!important; }
+                .order-item-name { color:#003584; }
+                .order-item-price { background:transparent!important; padding:6px 0 0!important; }
+                .order-item-unit,.order-item-qty { background:#EEF5FF!important; border-color:#C6DAF3!important; }
+                .order-item-name > div:first-child { white-space:normal!important; font-size:16px!important; overflow-wrap:anywhere; }
+                .order-item select,.order-item input { font-size:16px!important; min-height:44px; }
+                .order-item-qty button { width:44px!important; height:44px!important; }
+                .order-price-card > button:first-child { min-height:44px; font-size:14px!important; }
+                .order-price-card > button[aria-expanded="true"] { background:#003584!important; border-color:#003584!important; color:white; }
+                .mobile-basket-launch { position:fixed; z-index:130; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom)); display:flex; gap:12px; justify-content:space-between; align-items:center; min-height:48px; padding:8px 16px; border:1px solid #C8DAF2; border-radius:10px; background:#003584; color:white; font-family:inherit; font-size:16px; font-weight:700; box-shadow:0 3px 14px #00204F66; cursor:pointer; }
+                .mobile-basket-dialog { position:fixed; inset:auto 0 0; margin:0; width:100%; max-width:none; max-height:85dvh; box-sizing:border-box; padding:0 14px calc(14px + env(safe-area-inset-bottom)); border:0; border-radius:16px 16px 0 0; background:#F2F6FA; overflow:auto; overscroll-behavior:contain; }
+                .mobile-basket-dialog::backdrop { background:#17243A88; }
+                .mobile-basket-heading { display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:1; background:#F2F6FA; padding:6px 0; color:#003584; }
+                .mobile-basket-heading button { min-height:44px; padding:0 14px; border:1px solid #B8C8DC; background:white; border-radius:8px; font-size:16px; cursor:pointer; }
+                body:has(.mobile-basket-dialog[open]) { overflow:hidden; }
+                .order-layout > main { width:100%; }
                 .order-aside { width:100%; position:static; max-height:none; overflow:visible; }
                 .order-aside-inner { position:static; }
                 .order-price-grid { grid-template-columns:1fr; }
-                .order-browse-filters { width:100%; }
-                .order-browse-filters select { flex:1; min-width:0!important; }
+                .order-browse-filters select { flex:1; }
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
-              <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
-                <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="">Vendors</option>
-                  {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
-                <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);}} style={{...inp,width:"auto",minWidth:220,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="">Item Categories</option>
-                  {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-                <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-                  <option value="alphabetical">Item A–Z</option>
-                  <option value="added">Date Added</option>
-                  <option value="itemNumber">Item #</option>
-                  <option value="vendorCode">Vendor Code</option>
-                </select>
+              <div className="workspace-browse-controls" role="region" aria-label="Order Guide controls">
+                <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
+                  <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:180,background:"white",color:"#174EAB",fontWeight:700}}>
+                    <option value="">Vendors</option>
+                    {vendors.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                  <select aria-label="Item Categories" value={orderCategoryFilter} onChange={e=>{setOrderCategoryFilter(e.target.value);}} style={{...inp,width:220,background:"white",color:"#174EAB",fontWeight:700}}>
+                    <option value="">Item Categories</option>
+                    {orderCategoryList.map(c=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select aria-label="Sort" value={orderSortMode} onChange={e=>setOrderSortMode(e.target.value)} style={{...inp,width:180,background:"white",color:"#174EAB",fontWeight:700}}>
+                    <option value="alphabetical">Item A–Z</option>
+                    <option value="added">Date Added</option>
+                    <option value="itemNumber">Item #</option>
+                    <option value="vendorCode">Vendor Code</option>
+                  </select>
+                </div>
+                <input value={search} onChange={e=>setSearch(e.target.value)}
+                  placeholder={`🔍 Search ${productList.length} items by name, vendor wording, or code...`}
+                  style={inp} />
               </div>
-              <input value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder={`🔍 Search ${productList.length} items by name, vendor wording, or code...`}
-                style={{...inp,marginBottom:10}} />
 
               {productList.length===0&&(
                 <div style={{background:"white",borderRadius:10,padding:32,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
@@ -957,12 +1052,12 @@ export default function App() {
               {filtered.map(group=>(
                 <div key={group.category} style={{marginBottom:8}}>
                   <div style={{background:"white",borderRadius:8}}>
-                    <div style={{display:"grid",gridTemplateColumns:"minmax(220px,1fr) 88px 104px minmax(370px,420px)",columnGap:10,rowGap:2,alignItems:"center",padding:"8px 12px"}}>
+                    <div className="order-item-grid">
                       <div className="order-column-head" style={{padding:"2px 2px 7px"}}>Item</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px",textAlign:"center"}}>Qty</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>PRICE</div>
-                      {group.items.flatMap(item=>{
+                      {group.items.map(item=>{
                         const caseKey=`${item.catalogItemId}_case`;
                         const eachKey=`${item.catalogItemId}_each`;
                         const caseQty=quantities[caseKey]||0;
@@ -991,17 +1086,19 @@ export default function App() {
                         const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
                         const activeBlockReason=activeBlocked?(selectedHeldOption?blockReason(selectedHeldOption):displayOption?blockReason(displayOption):"No price on file"):null;
                         const allListings=rankVendorOffers(item.linkedOptions||[],negotiation,selectedUnit);
-                        const alternativesMenu=menuOpen&&<OrderGuideListings backend={backend} organizationId={org.id} canManage={['owner','manager'].includes(org.role)}
-                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} mappings={mappings} unit={selectedUnit}
-                          onSelect={offer=>{setVendorOverride(previous=>({...previous,[activeKey]:offer.vendorItemId}));setOpenPriceMenu(null);}}
-                          onApplied={async offer=>{
-                            // Old device-only negotiated values must not conceal the saved quote.
-                            setNegotiatedPrices(previous=>{const next={...previous};for(const key of [caseKey,eachKey]){if(!next[key])continue;const prices={...next[key]};delete prices[offer.vendorId];if(Object.keys(prices).length)next[key]=prices;else delete next[key];}return next;});
-                            setVendorOverride(previous=>{const next={...previous};delete next[caseKey];delete next[eachKey];return next;});
-                            await loadData();
+                        const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
+                        const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
+                        const multipleVendors=vendorCount>1;
+                        const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}
+                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} industry={org.industry} vocabulary={vocabulary} unit={selectedUnit} listingEdits={listingEdits}
+                          onSelect={offer=>{
+                            const nextUnit=selectedUnit==='each'&&!offer.eachPrice?'case':selectedUnit;
+                            if(nextUnit!==selectedUnit)setUnitSelection(previous=>({...previous,[item.catalogItemId]:nextUnit}));
+                            setVendorOverride(previous=>({...previous,[`${item.catalogItemId}_${nextUnit}`]:offer.vendorItemId}));
+                            setOpenPriceMenu(null);
                           }}/>;
                         const cells=[
-                          <div key={item.catalogItemId+"_name"} draggable={!activeBlocked}
+                          <div className="order-item-name" key={item.catalogItemId+"_name"} draggable={!activeBlocked}
                             onDragStart={event=>{event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("text/plain",activeKey);setDragItem({catalogItemId:item.catalogItemId,key:activeKey,name:item.name});}}
                             onDragEnd={()=>{setDragItem(null);setDropTarget(null);}}
                             title={activeBlocked?undefined:"Drag onto a vendor basket to order from that vendor"}
@@ -1011,29 +1108,34 @@ export default function App() {
                             </div>
                             <div style={{fontSize:10,color:'#52647A',marginTop:4}}>KERDOS #{item.masterItemNumber}</div>
                           </div>,
-                          <div key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?"#E0F2F1":"#FAFBFC"}}>
+                          <div className="order-item-unit" key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?"#E0F2F1":"#FAFBFC"}}>
                             <select aria-label={`Order unit for ${item.name}`} value={selectedUnit} onChange={e=>setUnitSelection(prev=>({...prev,[item.catalogItemId]:e.target.value}))}
                               style={{width:"100%",fontSize:11,padding:"4px 2px",borderRadius:6,border:hasEach?"2px solid #008577":"1px solid #DDD",background:"white",color:hasEach?"#00695C":"#444",fontWeight:hasEach?800:400}}>
                               <option value="case">Case</option>
                               <option value="each" disabled={!hasEach}>Each {!hasEach?"(unavailable)":""}</option>
                             </select>
                           </div>,
-                          <div key={item.catalogItemId+"_qty"} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#F5F8FF"}}>
-                            <button onClick={()=>setQty(activeKey,activeQty-1)}
+                          <div className="order-item-qty" key={item.catalogItemId+"_qty"} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4,padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#F5F8FF"}}>
+                            <button aria-label={`Remove one ${selectedUnit} of ${item.name}`} onClick={()=>setQty(activeKey,activeQty-1)}
                               style={{width:26,height:26,borderRadius:7,border:"1px solid #FFCDD2",background:"#FFEBEE",cursor:"pointer",fontSize:15,fontWeight:800,color:"#D32F2F",flexShrink:0}}>−</button>
                             <span style={{width:18,textAlign:"center",fontWeight:800,fontSize:13,color:activeQty>0?vc.accent:"#CCC"}}>{activeQty||"·"}</span>
-                            <button onClick={()=>{if(!activeBlocked) setQty(activeKey,activeQty+1);}} disabled={activeBlocked}
+                            <button aria-label={`Add one ${selectedUnit} of ${item.name}`} onClick={()=>{if(!activeBlocked) setQty(activeKey,activeQty+1);}} disabled={activeBlocked}
                               title={activeBlocked?activeBlockReason:undefined}
                               style={{width:26,height:26,borderRadius:7,border:"none",background:activeBlocked?"#DDD":"#2E7D32",cursor:activeBlocked?"not-allowed":"pointer",fontSize:15,fontWeight:800,color:"white",flexShrink:0}}>+</button>
                           </div>,
-                          <div key={item.catalogItemId+"_price"} style={{padding:"6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#FAFBFC"}}>
+                          <div className="order-item-price" key={item.catalogItemId+"_price"} style={{padding:"6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:"#FAFBFC"}}>
                             <div className="order-price-grid">
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
-                              <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup="true" aria-expanded={menuOpen}
-                                title={activeBlocked?activeBlockReason:undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:'1px solid #CBD5E1',borderRadius:6,background:'white',cursor:'pointer',fontSize:12}}>
+                              <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup={mobileDetails?"dialog":"true"} aria-expanded={menuOpen}
+                                aria-description={multipleVendors?`${vendorCount} vendors quote this item`:undefined}
+                                title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?'2px solid #008577':'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?'#E0F2F1':'white',cursor:'pointer',fontSize:12}}>
                                 {activeVendorName||'Select listing'} · {activePrice==null?'Price unavailable':formatMoney(activePrice)} <span style={{float:'right'}}>{menuOpen?'▴':'▾'}</span>
                               </button>
-                              {vendorOverride[activeKey]&&<button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:'none',border:0,padding:'4px 0 0',cursor:'pointer'}}>Use lowest price</button>}
+                              {vendorOverride[activeKey]&&<div style={{display:'flex',justifyContent:'space-between',gap:6,alignItems:'baseline',marginTop:4}}>
+                                <small style={{color:'#52647A'}}>{[displayOption?.vendorItemCode,displayOption?.brand,displayOption?.packSize].filter(Boolean).join(' · ')}</small>
+                                <button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:'none',border:0,padding:0,cursor:'pointer'}}>Clear selection</button>
+                              </div>}
+                              {pendingListingEdit&&<small role={pendingListingEdit.error?'alert':'status'} style={{display:'block',color:pendingListingEdit.error?'#B42318':'#52647A',marginTop:4}}>{pendingListingEdit.error||'Saving listing changes…'}</small>}
                               </div>
                               {activeQty>1&&rankedOptions.some(opt=>opt.vendorId!==activeVendorId)&&(
                                 <details open={!!splitOrders[activeKey]?.vendorId} style={{marginTop:6,fontSize:11,color:"#475569"}}>
@@ -1056,10 +1158,12 @@ export default function App() {
                               )}
                             </div>
                           </div>,
-                          ...(menuOpen?[<div key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0,borderTop:'1px solid #E3E7ED'}}>{alternativesMenu}</div>]:[]),
+                          ...(menuOpen?[mobileDetails
+                            ?<MobileDetailWindow title="Vendor options" kind="vendor" key={item.catalogItemId+'_listings'} itemName={item.name} onMinimize={()=>setOpenPriceMenu(null)}>{alternativesMenu}</MobileDetailWindow>
+                            :<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>{alternativesMenu}</div>]:[]),
                         ];
 
-                        return cells;
+                        return <div className="order-item" key={item.catalogItemId}>{cells}</div>;
                       })}
                     </div>
                   </div>
@@ -1110,7 +1214,7 @@ export default function App() {
             </main>
 
             {/* BASKETS */}
-            <aside className="order-aside">
+            <OrderBasket mobile={mobileOrder} summary={`${totalUnits} units · ${formatMoney(totalSpend)}`}>
               <div className="order-aside-inner"
                 onDragOver={event=>{if(dragItem){event.preventDefault();event.dataTransfer.dropEffect="copy";if(dropTarget==null)setDropTarget("auto");}}}
                 onDragLeave={event=>{if(dropTarget==="auto"&&!event.currentTarget.contains(event.relatedTarget))setDropTarget(null);}}
@@ -1252,7 +1356,7 @@ export default function App() {
                   </div>
                 </>)}
               </div>
-            </aside>
+            </OrderBasket>
           </div>
         )}
 
@@ -1263,8 +1367,8 @@ export default function App() {
             vendorColors={vendorColors} formatDate={formatDate} formatMoney={formatMoney}
             attentionCount={flaggedInvoiceLines.length+invoiceDerivedItems.length} role={org.role}
             onImport={vendorId=>{setSelectedVendorId(vendorId);setImportMode("invoice");setShowPaste(true);}}
-            onExport={()=>downloadTextFile(`price-variance-report-${new Date().toISOString().split("T")[0]}.csv`,buildVarianceReportCSV(invoices,vendors),"text/csv")}
-            onViewOriginal={viewStoredFile} onEdit={setEditingInvoice} onDelete={deleteInvoice}
+            onExport={scope=>downloadTextFile(`price-variance-report-${new Date().toISOString().split("T")[0]}.csv`,buildComparisonReportCSV(scope.report),"text/csv")}
+            onViewSource={viewSourceDocument} onViewOriginal={viewStoredFile} onEdit={setEditingInvoice} onDelete={deleteInvoice}
             expandedId={expandedInvoiceId} setExpandedId={setExpandedInvoiceId}
           />
         )}
@@ -1323,7 +1427,7 @@ export default function App() {
             {autoPlaceError&&org.role!=="employee"&&<div role="alert" style={{background:"#FFF3E0",padding:12,marginBottom:12,borderRadius:8}}>
               {autoPlaceError} <button disabled={autoPlacing} onClick={()=>setAutoPlaceRetry(n=>n+1)} style={btn("#003584")}>Retry</button>
             </div>}
-            <ItemCatalogPanel industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} userId={session.user.id} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
+            <ItemCatalogPanel mobileDetails={mobileDetails} industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} userId={session.user.id} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
               vendorItems={vendorItems} categories={categories} vocabulary={vocabulary} editors={editors}
               onUpdated={loadData} />
           </>
@@ -1352,7 +1456,7 @@ export default function App() {
               logoUrl={logoUrl} onLogoUpload={handleLogoUpload} logoUploading={logoUploading} />
             <div style={{height:28}} />
             <div style={{background:"white",borderRadius:10,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div className="workspace-browse-controls" role="region" aria-label="Vendor management controls" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,background:"white",paddingBottom:0}}>
                 <h4 style={{margin:0,fontSize:14}}>Your Vendors</h4>
                 <button onClick={()=>setShowAddVendor(true)} style={{...btn("#003584","white",{fontSize:12,padding:"6px 12px"})}}>+ Add Vendor</button>
               </div>
@@ -1377,9 +1481,26 @@ export default function App() {
             <CatalogPanel orgId={org.id} orgIndustry={org.industry} categories={categories} catalogItems={catalogItems} vocabulary={vocabulary} onUpdated={loadData} />
           </>
         )}
-      </div>}
+        {["owner","manager"].includes(org.role)&&<VendorConnectPage key={org.id} visible={tab==="vendorConnect"} backend={backend} organizationId={org.id} vendors={vendors} role={org.role} importInProgress={companionImport?.organizationId===org.id} importResult={companionResult?.organizationId===org.id?companionResult:null} onTransferStart={()=>setCompanionResult(null)} onCompanionImport={payload=>{
+          if(showPaste||companionImport||payload.organizationId!==org.id||!vendors.some(v=>v.id===payload.vendorId&&v.is_active!==false))throw new Error('Import unavailable');
+          setCompanionImport(payload);
+        }} />}
+      </div>
 
-      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onIssue={issue=>setCompanionResult({organizationId:companionImport.organizationId,vendorId:companionImport.vendorId,...issue})} onFinished={notice=>{setImportNotice(notice);setCompanionResult({organizationId:companionImport.organizationId,vendorId:companionImport.vendorId,message:notice.message});setCompanionImport(null);}} automaticCompanion initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
+      {companionImport&&companionImport.organizationId===org.id&&["owner","manager"].includes(org.role)&&<PasteModal key={companionImport.evidence.sha256} industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setCompanionImport(null)} onDone={loadData} onIssue={async issue=>{
+        const payload=companionImport;
+        try{
+          await settleScheduledImport(backend,payload.evidence,issue.importDocumentId);
+          setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,...issue,completedAt:Date.now()});
+        }catch{setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,status:'needs_attention',message:'Pricing was retained, but the scheduled result could not be confirmed. Review this attempt before another scheduled export.'});}
+      }} onFinished={async notice=>{
+        const payload=companionImport;
+        try{
+          await settleScheduledImport(backend,payload.evidence,notice.importDocumentId,{required:true});
+          setImportNotice(notice);setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,message:notice.message,completedAt:Date.now()});
+        }catch{setCompanionResult({organizationId:payload.organizationId,vendorId:payload.vendorId,status:'needs_attention',message:'Pricing was retained, but the scheduled result could not be confirmed. Review this attempt before another scheduled export.'});}
+        finally{setCompanionImport(null);}
+      }} automaticCompanion initialVendorId={companionImport.vendorId} initialMode="pricelist" initialFiles={[companionImport.file]} companionEvidence={companionImport.evidence} />}
       {showPaste&&!companionImport&&org.role!=="employee"&&<PasteModal industry={org.industry} vendors={vendors} orgId={org.id} orgSettings={org.settings} catalogItems={catalogItems} categories={categories} vocabulary={vocabulary} vendorItems={vendorItems} mappings={mappings} onClose={()=>setShowPaste(false)} onDone={loadData} onFinished={setImportNotice} initialVendorId={selectedVendorId} initialMode={importMode} />}
       {importNotice&&(
         <div role="status" onClick={()=>setImportNotice(null)} style={{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",background:"#1B5E20",color:"white",padding:"12px 18px",borderRadius:8,fontSize:13,fontWeight:700,boxShadow:"0 6px 20px rgba(0,0,0,0.25)",zIndex:1000,cursor:"pointer"}}>

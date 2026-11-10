@@ -50,7 +50,7 @@ export function createDocumentReader({loadPdf,loadWorkbook,recognizePage,readOth
       const XLSX=await loadWorkbook();
       const csv=name.endsWith('.csv');
       // Keep CSV text exact for fingerprints; its cells supplement that text.
-      const text=csv?(typeof file.arrayBuffer==='function'?decodeCsvBytes(await file.arrayBuffer()):await file.text()):null;
+      const text=csv?decodeCsvBytes(new Uint8Array(await file.arrayBuffer())):null;
       const workbook=XLSX.read(csv?text:await file.arrayBuffer(),csv?{type:'string',raw:true}:{type:'array'});
       const result=readWorkbook(workbook,XLSX,file.name,csv?'csv':'workbook');
       if(csv)result.text=text;

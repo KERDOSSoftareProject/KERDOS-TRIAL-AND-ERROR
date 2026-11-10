@@ -1,43 +1,62 @@
-# Task 2: Chrome pilot transfer lifecycle
+# Task 2: browser connection lifecycle
 
-Pilot acceptance is the active priority; further accounting expansion is paused.
-The native row-86 heading defect was already fixed in PR59, followed by Dino's
-87-row Chrome transfer and save. Preserve that repair and its repeated-header,
-multi-table and 347-row controlled-document evidence. Do not reopen it as a
-current blocker or equate first-save acceptance with the remaining lifecycle work.
+A2.a.iv is the active lifecycle check. A2.c.iv's installed, user-started US Foods
+pilot passed on November 6, 2026: one new source completed automatic ingestion,
+then the unchanged source returned already-up-to-date without duplicate records.
+Both final app results reported stored-original verification. This does not prove
+unattended access, universal browser delivery or actual supplier-session recovery.
 
-The receiver previously enforced expiry/replay but left the app displaying
-Transfer ready after expiry or rejection. The receiver now publishes ready,
-receiving, received, rejected, expired and cancelled states. A bounded timer
-expires the ten-minute ticket even without incoming messages, and delivery also
-checks wall-clock expiry so throttled background timers cannot extend acceptance.
-No state automatically prepares, pairs, exports, retries or saves another import.
+## Existing boundaries
 
-The page reports expiry/rejection with explicit prepare-and-pair recovery. It
-reports received only for import review, never saved prices. Selection, account,
-list, backend, role or transfer-eligibility changes cancel the old receiver;
-inactive vendors and removed import callbacks revoke eligibility. A per-transfer
-generation prevents late callback results from changing a newer transfer's state.
-Unmount removes the receiver and timer. Expiry/cancellation during hashing cannot
-enter the importer. Cancellation after an importer callback has already been
-admitted cannot retract that review: its receipt remains received_for_review,
-but it cannot overwrite the cancelled/new page state or claim saved prices.
+The receiver publishes ready, receiving, received, rejected, expired and cancelled
+states. Its bounded timer expires a ten-minute ticket; delivery also checks
+wall-clock expiry, so background timer throttling cannot extend admission. A
+receipt acknowledges ingestion admission, not saved prices. Final saved-price and
+stored-original results belong to the app importer.
 
-The deployed app remains compatible with the installed 0.2.0 companion; no
-extension package, permissions, registry, vendor adapter, database, worker or
-Order Guide change is required. No new AI call, paid service, stored credential,
-OTP handling or supplier order action is introduced.
+No expiry, verification stop, permission change, restart or view reopening starts
+another export automatically. A fresh explicit command must establish its current
+selection and authorization. Selection, backend, role or transfer-eligibility
+changes cancel the old receiver. Generation checks prevent late results from
+changing a newer page state; unmount removes the receiver and timer.
 
-Executed controlled tests cover proactive and message-observed expiry, hashing
-interruption, replay rejection, receiving/rejected/received distinctions, timer
-cleanup, late admitted completion after cancel/reprepare, vendor deactivation,
-selection change, latest import callback, tenant/role boundaries and unmount.
-Real-reader/segmenter regression still checks all 87 synthetic product rows and
-genuine repeated/reordered tables. These are code/rendered tests, not installed
-Chrome or supplier-session acceptance.
+Connection cancellation also advances an owned connection's transfer revision.
+The authenticated selection check validates current ownership, membership,
+provider, account/list, origin and revision at preparation, pairing, export claim
+and ingestion admission. Cancel/reopen cannot revive a stale ticket. See
+[pending transfer revocation](a2_pending_transfer_revocation.md).
 
-Live continuation requires the signed-in test KERDOS tab and the user's installed
-Chrome companion. The available cloud browser currently displays KERDOS Sign In.
-Repeat/changed-price retrieval, expired supplier session/MFA, cancellation, closed
-app tab and interrupted popup remain open until observed with that environment.
-No supplier fixture or pilot price is changed by this repair.
+A supplier request already authorized cannot be retracted by later cancellation.
+Likewise, cancellation after ingestion admission does not undo an already-issued
+write. These limits must not be presented as instant transaction cancellation.
+
+## Three distinct kinds of access
+
+| Boundary | Meaning |
+| --- | --- |
+| KERDOS connection | Client/vendor-scoped setup and immutable transfer revision. Cancellation blocks the revoked pending connection; prior imports remain. |
+| Companion host permission | The browser profile's grant for an approved site origin. Revocation prevents execution. Restoring it does not itself run an export. It is not a per-client supplier login. |
+| Supplier session | Sign-in and verification controlled by the supplier in the user's browser. A sign-in stop is not successful retrieval. The client completes it with the supplier, then explicitly retries. |
+
+Cancelling one KERDOS connection must not be confused with signing out of the
+supplier or removing a shared origin permission for every client in that browser.
+The current Chrome pilot does not provide isolated unattended supplier sessions.
+No credential, one-time-code or cookie extraction is introduced by these checks.
+
+## Evidence and remaining acceptance
+
+| Check | Evidence boundary |
+| --- | --- |
+| New source and duplicate-safe repeat, original verification | Installed pilot and scoped database comparison passed November 6. All 87 rows retained; 78 accepted quotes exactly matched source values; 7 pack/basis reviews and 2 unavailable prices were explicitly accounted for. Repeat preserved the complete database graph. |
+| Expiry, cancel/reprepare, late hashing/admission, role/client guards | Controlled receiver/rendered tests. |
+| Revision fencing, no-op stability, narrow grants, cross-client/role isolation | Executed embedded PostgreSQL migration/service tests, including repeated migration. |
+| Closed receiver, interrupted worker/popup and no automatic replay | Native Chromium with the shipped extension and synthetic pages/transport. |
+| Verification stop followed by completed sign-in and a fresh retrieval | Native recovery scenario restores the synthetic selected-list page, verifies no automatic export, then requires an explicit app command. It does not authenticate to a real supplier. |
+| Permission revocation and restoration | Native recovery scenario removes/regrants only the declared host in a disposable profile; prior artifacts remain and no export resumes until a fresh app command. |
+| Actual supplier expiry/MFA/reconnect and client-visible disconnect/reconnect | Still requires installed acceptance. Do not mark A2.a.iv complete from synthetic recovery alone. |
+| Unattended scheduling and other execution hosts | Separate existing tasks. No schedule or source is activated by this work. |
+
+The recovery tests never use the live supplier, signed-in KERDOS data or a real
+credential. Their received-artifact assertions are not database persistence
+claims. The live 87-row and duplicate-safe pilot evidence remains a separate
+observation; it must not be used to infer untested lifecycle outcomes.
