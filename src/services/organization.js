@@ -9,17 +9,18 @@ async function run(promise,operation){
 export function createOrganizationService(backend){
   const table=backend.records.query;
   return {
-    async create({name,industry,userId,vendors=[]}){
-      const slug=name.toLowerCase().replace(/[^a-z0-9]/g,"-").replace(/-+/g,"-");
-      const organization=await run(table("organizations").insert({name,slug,industry}).select().single(),"Could not create the organization");
-      await run(table("organization_members").insert({organization_id:organization.id,user_id:userId,role:"owner"}),"Could not add you as owner");
+    async create({name,industry,vendors=[]}){
+      if(!backend.organization?.create)throw new Error("Company setup is unavailable for this backend.");
       const rows=vendors.filter(vendor=>vendor.name.trim()).map(vendor=>({
-        organization_id:organization.id,name:vendor.name.trim(),
-        delivery_minimum_dollar:vendor.minDollar?parseFloat(vendor.minDollar):null,
-        delivery_minimum_units:vendor.minUnits?parseInt(vendor.minUnits,10):null,
+        name:vendor.name.trim(),
+        delivery_minimum_dollar:vendor.minDollar!==""&&vendor.minDollar!=null?Number(vendor.minDollar):null,
+        delivery_minimum_units:vendor.minUnits!==""&&vendor.minUnits!=null?Number(vendor.minUnits):null,
       }));
-      if(rows.length)await run(table("vendors").insert(rows),"Could not save vendors");
-      return organization;
+      if(rows.some(row=>
+        (row.delivery_minimum_dollar!==null&&(!Number.isFinite(row.delivery_minimum_dollar)||row.delivery_minimum_dollar<0))||
+        (row.delivery_minimum_units!==null&&(!Number.isSafeInteger(row.delivery_minimum_units)||row.delivery_minimum_units<0))
+      ))throw new Error("Enter a nonnegative minimum order and a whole number of items.");
+      return backend.organization.create({name:name.trim(),industry,vendors:rows});
     },
     update(organizationId,patch){
       return run(table("organizations").update(patch).eq("id",organizationId),"Could not update the organization");

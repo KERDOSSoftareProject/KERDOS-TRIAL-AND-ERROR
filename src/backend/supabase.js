@@ -26,6 +26,11 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
   return {
     kind:"supabase",
     organization:{
+      create({name,industry,vendors}){
+        return providerResult(client.rpc("kerdos_create_first_organization",{
+          p_name:name,p_industry:industry,p_vendors:vendors,
+        }),"Could not create the organization");
+      },
       rememberVendorLayout(organizationId,vendorId,fingerprint,answers){
         return providerResult(client.rpc("kerdos_remember_vendor_layout",{
           p_organization_id:organizationId,p_vendor_id:vendorId,

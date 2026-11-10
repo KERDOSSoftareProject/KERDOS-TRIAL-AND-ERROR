@@ -18,7 +18,7 @@ function unconfigured(reason){
     invoices:{record:fail},
     team:{acceptInvite:fail},
     inbox:{beginManualReview:fail,markAttachmentIngested:fail},
-    organization:{rememberVendorLayout:fail},
+    organization:{create:fail,rememberVendorLayout:fail},
     records:{query:()=>{throw new Error(reason);}},
   };
 }
