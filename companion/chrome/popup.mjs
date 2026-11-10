@@ -2,7 +2,8 @@ import {providers} from './providers.mjs';
 import {approvedKerdosTab} from './bridge.mjs';
 // This view can close without owning or cancelling the companion's transfer.
 const button=document.getElementById('export'),pair=document.getElementById('pair'),status=document.getElementById('status');
-const setupTab=globalThis.location?.search==='?setup=1';
+const setupProvider=providers.find(provider=>globalThis.location?.search==='?setup='+encodeURIComponent(provider.key));
+const setupTab=!!setupProvider;
 if(setupTab)document.getElementById('manual-transfer').hidden=true;
 let revision=0;
 function render(value){
@@ -26,7 +27,7 @@ if(!setupTab)chrome.runtime.sendMessage({type:'kerdos-companion-control',action:
 const enableRefresh=document.getElementById('enable-refresh'),providerSelect=document.getElementById('provider');
 if(enableRefresh&&providerSelect){
  for(const provider of providers){const option=document.createElement('option');option.value=provider.key;option.textContent=provider.name;providerSelect.appendChild(option);}
- if(setupTab&&providers.length===1)document.getElementById('provider-label').hidden=true;
+ if(setupTab){providerSelect.value=setupProvider.key;document.getElementById('provider-label').hidden=true;}
  enableRefresh.addEventListener('click',()=>{
   const provider=providers.find(p=>p.key===providerSelect.value);if(!provider)return;
   // Request synchronously within this explicit extension-page click, once per provider.

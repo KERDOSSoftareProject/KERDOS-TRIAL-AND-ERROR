@@ -9,13 +9,17 @@
  let generation=0;
  async function announce(){
   const current=++generation;
-  let ready=false;
-  try{ready=(await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:'status'}))?.ready===true;}catch{}
+  let providers=[];
+  try{
+   const status=await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:'status'});
+   if(Array.isArray(status?.readyProviders))providers=status.readyProviders;
+  }catch{}
   if(current!==generation)return;
-  const value=ready?'1':'0';
-  if(document.documentElement.getAttribute('data-kerdos-refresh')===value)return;
-  document.documentElement.setAttribute('data-kerdos-refresh',value);
-  window.postMessage({channel,type:ready?'available':'unavailable',version:1},location.origin);
+  const value=JSON.stringify(providers);
+  if(document.documentElement.getAttribute('data-kerdos-ready-providers')===value)return;
+  document.documentElement.setAttribute('data-kerdos-ready-providers',value);
+  document.documentElement.setAttribute('data-kerdos-refresh',providers.length?'1':'0');
+  window.postMessage({channel,type:providers.length?'available':'unavailable',version:1},location.origin);
  }
  window.__kerdosRefreshChannelInstalled=announce;
  document.documentElement.setAttribute('data-kerdos-companion','1');
@@ -26,11 +30,12 @@
   const m=event.data;
   if(!valid(location.href)||event.source!==window||event.origin!==location.origin||m?.channel!==channel||!['refresh','setup'].includes(m.type)||typeof m.requestId!=='string'||m.requestId.length>80)return;
   if(m.type==='refresh'&&!/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(m.nonce||''))return;
+  if(m.type==='setup'&&(typeof m.adapterKey!=='string'||m.adapterKey.length>80))return;
   const reply=value=>window.postMessage({channel,type:'reply',requestId:m.requestId,...value},location.origin);
   if(pending){reply({busy:true,outcome:'busy',message:'A pricing refresh is already running. Wait for its result.'});return;}
   pending=true;
   try{
-   const r=await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:m.type,...(m.type==='refresh'?{nonce:m.nonce}:{})});
+   const r=await chrome.runtime.sendMessage({type:'kerdos-companion-refresh',action:m.type,...(m.type==='refresh'?{nonce:m.nonce}:{adapterKey:m.adapterKey})});
    reply({busy:r?.busy===true,outcome:typeof r?.outcome==='string'?r.outcome:'refresh_unavailable',message:typeof r?.message==='string'?r.message:'Check KERDOS before retrying the refresh.'});
   }catch{reply({busy:false,outcome:'refresh_unavailable',message:'Companion unavailable. Refresh KERDOS after enabling the current companion.'});}
   finally{pending=false;}

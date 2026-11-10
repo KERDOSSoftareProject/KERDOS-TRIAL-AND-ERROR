@@ -4,13 +4,16 @@ import {providers} from './providers.mjs';
 const appOrigin='https://kerdossoftareproject.github.io/*';
 export function registerCompanionWorker(api){
  const runner=createTransferRunner(api);
- const ready=async()=>!!api.permissions&&
-  (await Promise.all(providers.map(provider=>api.permissions.contains({origins:[appOrigin,provider.origin+'/*']})))).some(Boolean);
+ const readyProviders=async()=>api.permissions
+  ?(await Promise.all(providers.map(async provider=>await api.permissions.contains({origins:[appOrigin,provider.origin+'/*']})?provider.key:null))).filter(Boolean)
+  :[];
  const refreshListener=(message,sender,respond)=>{
   if(sender.id!==api.runtime.id||sender.frameId!==0||!sender.tab||!approvedKerdosTab(sender.url)||(sender.tab.url&&!approvedKerdosTab(sender.tab.url))||message?.type!=='kerdos-companion-refresh')return false;
-  if(message.action==='status'){ready().then(value=>respond({ready:value}),()=>respond({ready:false}));return true;}
+  if(message.action==='status'){readyProviders().then(keys=>respond({readyProviders:keys}),()=>respond({readyProviders:[]}));return true;}
   if(message.action==='setup'){
-   api.tabs.create({url:api.runtime.getURL('popup.html?setup=1'),openerTabId:sender.tab.id}).then(
+   const provider=providers.find(candidate=>candidate.key===message.adapterKey);
+   if(!provider)return false;
+   api.tabs.create({url:api.runtime.getURL('popup.html?setup='+encodeURIComponent(provider.key)),openerTabId:sender.tab.id}).then(
     ()=>respond({outcome:'setup_opened',message:'Approve site access in the KERDOS Companion tab. KERDOS will connect automatically.'}),
     ()=>respond({outcome:'refresh_unavailable',message:'The Companion setup tab could not open.'}));
    return true;

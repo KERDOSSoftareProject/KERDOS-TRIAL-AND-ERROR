@@ -94,17 +94,20 @@ for(const [failure,outcome] of [['account_mismatch','source_account_unverified']
 const listeners=new Set(),posted=[],runtime=[];const attrs=new Map();
 const app={top:null,location:{origin:'https://kerdossoftareproject.github.io',href:'https://kerdossoftareproject.github.io/KERDOS-TRIAL-AND-ERROR/'},document:{documentElement:{getAttribute:k=>attrs.get(k),setAttribute:(k,v)=>attrs.set(k,v)}},addEventListener:(_,fn)=>listeners.add(fn),removeEventListener:(_,fn)=>listeners.delete(fn),postMessage:m=>posted.push(m)};app.top=app;
 let siteAccess=false;
-vm.runInNewContext(readFileSync('companion/chrome/app-channel.js','utf8'),{window:app,location:app.location,document:app.document,URL,chrome:{runtime:{sendMessage:async m=>{runtime.push(m);return m.action==='status'?{ready:siteAccess}:m.action==='setup'?{outcome:'setup_opened'}:{outcome:'received_for_review',message:'Received'};}}}});
+vm.runInNewContext(readFileSync('companion/chrome/app-channel.js','utf8'),{window:app,location:app.location,document:app.document,URL,chrome:{runtime:{sendMessage:async m=>{runtime.push(m);return m.action==='status'?{readyProviders:siteAccess?['example']:[]}:m.action==='setup'?{outcome:'setup_opened'}:{outcome:'received_for_review',message:'Received'};}}}});
 const dispatch=async(data,extra={})=>{for(const listener of [...listeners])await listener({source:app,origin:app.location.origin,data,...extra});};
 const client=createCompanionRefreshClient(app);
 await new Promise(resolve=>setImmediate(resolve));
 assert.equal(client.installed(),true);assert.equal(client.available(),false);
 assert.equal((await client.refresh(nonce)).outcome,'refresh_unavailable');
-const setup=client.setup();await dispatch(posted.at(-1));await dispatch(posted.at(-1));assert.equal((await setup).outcome,'setup_opened');
+const setup=client.setup('example');await dispatch(posted.at(-1));await dispatch(posted.at(-1));assert.equal((await setup).outcome,'setup_opened');
 assert.deepEqual(runtime.map(m=>m.action),['status','setup']);
+assert.equal(runtime.at(-1).adapterKey,'example');
 const readiness=[];const unwatch=client.watch((ready,installed)=>readiness.push([ready,installed]));
 siteAccess=true;await app.__kerdosRefreshChannelInstalled();await dispatch(posted.at(-1));
 assert.deepEqual(readiness,[[false,true],[true,true]]);
+assert.equal(client.available('example'),true);assert.equal(client.available('other'),false);
+assert.equal((await client.refresh(nonce,'other')).outcome,'refresh_unavailable');
 runtime.length=0;
 const pending=client.refresh(nonce);const command=posted.at(-1);assert.deepEqual(Object.keys(command).sort(),['channel','nonce','requestId','type']);await dispatch(command,{origin:'https://evil.example'});assert.equal(runtime.length,0);await dispatch(command);assert.deepEqual(JSON.parse(JSON.stringify(runtime)),[{type:'kerdos-companion-refresh',action:'refresh',nonce}]);await dispatch(posted.at(-1));assert.equal((await pending).outcome,'received_for_review');
 siteAccess=false;await app.__kerdosRefreshChannelInstalled();await dispatch(posted.at(-1));assert.deepEqual(readiness.at(-1),[false,true]);assert.equal(client.available(),false);unwatch();client.dispose();
@@ -113,9 +116,11 @@ const registered=[],setupTabs=[];const api={runtime:{id:'self',onMessage:{addLis
 const worker=registerCompanionWorker(api);const sender={id:'self',frameId:0,url:app.location.href,tab:{id:7,url:app.location.href}};const msg={type:'kerdos-companion-refresh',action:'refresh',nonce};
 for(const bad of [{...sender,id:'other'},{...sender,frameId:1},{...sender,url:'https://evil.example/'},{...sender,tab:{id:7,url:'https://evil.example/'}},{...sender,tab:null}])assert.equal(worker.refreshListener(msg,bad,()=>assert.fail('unauthorized response')),false);
 assert.equal(worker.refreshListener({...msg,nonce:'bad'},sender,()=>{}),false);
-assert.equal(worker.refreshListener({...msg,action:'setup'},{...sender,frameId:1},()=>assert.fail('unauthorized setup')),false);
-assert.equal((await new Promise(resolve=>worker.refreshListener({...msg,action:'setup'},sender,resolve))).outcome,'setup_opened');
-assert.deepEqual(setupTabs,[{url:'chrome-extension://self/popup.html?setup=1',openerTabId:7}]);
+const setupCommand={type:msg.type,action:'setup',adapterKey:'us-foods-moxe'};
+assert.equal(worker.refreshListener(setupCommand,{...sender,frameId:1},()=>assert.fail('unauthorized setup')),false);
+assert.equal(worker.refreshListener({...setupCommand,adapterKey:'unregistered'},sender,()=>assert.fail('unknown setup')),false);
+assert.equal((await new Promise(resolve=>worker.refreshListener(setupCommand,sender,resolve))).outcome,'setup_opened');
+assert.deepEqual(setupTabs,[{url:'chrome-extension://self/popup.html?setup=us-foods-moxe',openerTabId:7}]);
 console.log('PASS A2 refresh: one command pairs/claims/exports/delivers; denied, stale, concurrent and ambiguous attempts do not export; route scope, verification and page/worker sender boundaries.');
 // Optional access is requested directly by the explicit popup click, for only
 // the app host and the registered provider selected in that popup.

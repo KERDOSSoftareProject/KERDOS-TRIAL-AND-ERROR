@@ -88,6 +88,7 @@ try{
  appWindow.postMessage=msg=>{
   replies.push(msg);
   if(msg.channel==='kerdos-refresh-v1'&&msg.type==='setup'){
+   assert.equal(msg.adapterKey,'us-foods-moxe');
    setupCommands++;
    queueMicrotask(()=>{for(const fn of [...events])fn({source:appWindow,origin:appWindow.location.origin,data:{channel:msg.channel,type:'reply',requestId:msg.requestId,outcome:'setup_opened'}});});
    return;

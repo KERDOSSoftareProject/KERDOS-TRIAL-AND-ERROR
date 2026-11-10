@@ -34,7 +34,7 @@ try{
  const app=`<!doctype html><meta charset="utf-8"><title>Synthetic KERDOS receiver</title><script type="module">
  import {createCompanionHandoff} from '/handoff.mjs';import {createCompanionRefreshClient} from '/refresh.mjs';import {decodeCsvBytes} from '/core/csv-encoding.js';
  window.received=[];window.prepare=()=>{window.handoff?.cancel();window.handoff=createCompanionHandoff({selection:{organizationId:'synthetic-client',vendorId:'synthetic-vendor',adapterKey:'us-foods-moxe',portalOrigin:'${vendorOrigin}',account:'Sample Client',list:'Example List'},now:()=>window.clock??Date.now(),onReceive:async p=>{window.received.push({text:decodeCsvBytes(new Uint8Array(await p.file.arrayBuffer())),organizationId:p.organizationId,vendorId:p.vendorId,evidence:p.evidence});}});};window.prepare();window.refreshClient=createCompanionRefreshClient(window);window.startRefresh=async()=>{window.prepare();window.refreshResult=null;window.refreshResult=await window.refreshClient.refresh(window.handoff.nonce);};
- </script><button id="connect-browser" onclick="window.refreshClient.setup()">Connect this browser</button><button id="refresh-prices" onclick="window.startRefresh()">Refresh prices</button>`;
+ </script><button id="connect-browser" onclick="window.refreshClient.setup('us-foods-moxe')">Connect this browser</button><button id="refresh-prices" onclick="window.startRefresh()">Refresh prices</button>`;
  const vendor=`<!doctype html><meta charset="utf-8"><title>Synthetic vendor</title><p>MY LIST</p><button>Sample Client (12345678)</button><span data-cy="list-banner-list-name-text">Example List</span>
  <button id="open" onclick="window.openDialog()">Download</button>
  <style>#dialog[hidden]{display:none}#dialog:not([hidden]),app-dual-pane-modal{display:contents}</style><ion-modal id="dialog" hidden><app-dual-pane-modal><div data-cy="list-download-modal-dual-pane-modal-title">Download Example List</div><p>Select Format CSV</p><div onclick="document.getElementById('prices').hidden=false"><span>Download Options</span></div><div id="prices" hidden><ion-checkbox><div class="checkbox-content"><div class="label">Product Prices</div><div class="sublabel">Include quoted prices</div></div></ion-checkbox><ion-checkbox><div class="checkbox-content"><div class="label">Product Notes</div></div></ion-checkbox></div><button id="download">Download</button></app-dual-pane-modal></ion-modal>
@@ -173,12 +173,13 @@ try{
  const setupOpened=context.waitForEvent('page');
  await appPage.locator('#connect-browser').click();
  const setupPage=await setupOpened;
- await setupPage.waitForURL('chrome-extension://'+extensionId+'/popup.html?setup=1');
+ await setupPage.waitForURL('chrome-extension://'+extensionId+'/popup.html?setup=us-foods-moxe');
  assert.equal(await setupPage.locator('#manual-transfer').isVisible(),false);
  const setupClosed=setupPage.waitForEvent('close');
  await setupPage.locator('#enable-refresh').click();
  await setupClosed;
  await appPage.waitForFunction(()=>window.refreshClient.available());
+ assert.equal(await appPage.evaluate(()=>window.refreshClient.available('different-provider')),false);
  assert.equal(await appPage.evaluate(()=>window.received.length),0,'browser setup grants access without exporting');
  // Existing same-host page navigated into the app without loading its content
  // script: enabling must attach the shipped channel without a page reload.
