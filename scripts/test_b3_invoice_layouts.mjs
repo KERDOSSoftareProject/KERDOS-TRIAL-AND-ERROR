@@ -39,20 +39,22 @@ check('vertically centered prices stay with consecutive wrapped descriptions in 
  const p=parse([{number:1,width:612,height:792,source:'embedded-text',items,text:'Price list'}]);
  assert.deepEqual(p.rows.map(row=>[row.description,row.price]),[['Turkey Breast (Brand Alpha)',41.25],['Chicken Breast (Brand Beta)',51.75],['Beef Tenderloin',71.25],['Lamb Leg',81.75]]);
 });
-check('midway continuation stays source-linked and is not attached to either priced item',()=>{
+check('identical midway continuations keep separate physical lines and stay outside priced items',()=>{
  const items=[word('Product',20,550),word('Price',250,550),
   word('Turkey Breast',20,510),word('41.25',250,510),
-  word('Unclear Detail',20,495),
-  word('Chicken Breast',20,480),word('51.75',250,480)];
+  word('Unclear',20,498),word('Detail',70,498),
+  word('Chicken Breast',20,486),word('51.75',250,486),
+  word('Unclear',20,474),word('Detail',70,474),
+  word('Lamb Leg',20,462),word('81.75',250,462),
+  word('Prices may change',20,432),word('with availability.',145,432)];
  const reading=read([{number:1,width:612,height:792,source:'embedded-text',items,text:'Price list'}]);
  const structured=parseStructuredDocument(reading.text,reading);
- assert.deepEqual(structured.rows.map(row=>[row.description,row.price]),[['Turkey Breast',41.25],['Chicken Breast',51.75]]);
- assert.ok(structured.parts[0].skipped.some(row=>/Unclear Detail/.test(row.line||row.sourceLine||'')));
- const review=structured.parts[0].skipped.find(row=>/Unclear Detail/.test(row.line));
- assert.equal(review.page,1);assert.deepEqual(review.lines,[2]);
- const source=structured.structure.segments[0].rows.find(row=>row.cells[0].text==='Unclear Detail');
- assert.ok(source,'the ambiguous source line remains in the structured result');
- assert.deepEqual(source.lines,[2]);
+ assert.deepEqual(structured.rows.map(row=>[row.description,row.price]),[['Turkey Breast',41.25],['Chicken Breast',51.75],['Lamb Leg',81.75]]);
+ const review=structured.parts[0].skipped.filter(row=>row.line==='Unclear Detail');
+ assert.deepEqual(review.map(row=>[row.page,row.lines]),[[1,[2]],[1,[4]]]);
+ const sources=structured.structure.segments[0].rows.filter(row=>row.cells[0].text==='Unclear Detail');
+ assert.deepEqual(sources.map(row=>row.cells[0].words.map(w=>w.line)),[[2,2],[4,4]]);
+ assert.deepEqual(structured.parts[0].skipped.find(row=>row.line==='Prices may change with availability.')?.lines,[6]);
 });
 check('invoice section skips retain page evidence even without a line property',()=>{
  const p=parse([invoicePage()]);

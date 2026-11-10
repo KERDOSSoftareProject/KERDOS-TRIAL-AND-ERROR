@@ -30,10 +30,10 @@ try{
  const button=label=>tree.root.findAllByType('button').find(n=>text(n)===label);
  await act(async()=>{await button('Prepare connection').props.onClick();});
  assert.deepEqual(writes,[{organizationId:'org-a',vendorId:'vendor-a',adapterKey:'provider'}]);
- assert.match(text(tree.toJSON()),/Account access is not active/);
+ assert.match(text(tree.toJSON()),/Connection prepared · vendor sign-in required for refresh/);
  assert.equal(button('Prepare connection').props.disabled,true);
- await act(async()=>{await button('Cancel setup').props.onClick();});
- assert.match(text(tree.toJSON()),/Setup cancelled/);assert.equal(button('Prepare connection').props.disabled,false);
+ await act(async()=>{await button('Disconnect from KERDOS').props.onClick();});
+ assert.match(text(tree.toJSON()),/Disconnected from KERDOS · prior imports retained/);assert.equal(button('Prepare connection').props.disabled,false);
  await act(async()=>{await button('Prepare connection').props.onClick();});assert.equal(rows.length,1);
  await act(async()=>{tree.update(React.createElement(VendorConnectPage,{...props,organizationId:'org-b',vendors:[{id:'vendor-b',name:'Second client vendor'}]}));});
  assert.ok(!text(tree.toJSON()).includes('Client vendor'));assert.equal(tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.value,'');
@@ -100,6 +100,7 @@ try{
  await act(async()=>{tree=Renderer.create(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;}}));});
  assert.equal(tree.root.findByProps({'aria-label':'Vendor account vendor'}).props.value,'vendor-a','one saved active connection is selected without re-enrollment');
  assert.equal(tree.root.findByProps({'aria-label':'Portal account name'}).props.value,'Sample Client');
+ assert.match(text(tree.toJSON()),/Browser refresh is available. KERDOS checks your vendor sign-in/);
  await act(async()=>button('Refresh prices').props.onClick());assert.equal(refreshCommands,1);assert.equal(refreshReceipts,1);assert.match(text(tree.toJSON()),/Pricing received for automatic ingestion/);assert.equal(button('Cancel browser transfer'),undefined);
  await act(async()=>tree.update(React.createElement(VendorConnectPage,{...props,backend:pilotBackend,onCompanionImport:()=>{refreshReceipts++;},importInProgress:true})));
  assert.equal(button('Refresh prices').props.disabled,true);

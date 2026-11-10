@@ -88,7 +88,12 @@ try{
   const invoiceBrowse=tree.root.findByProps({'aria-label':'Invoice browse controls'});
   assert.equal(invoiceBrowse.findAllByType('select').length,1);
   await act(async()=>{invoiceBrowse.findAllByType('button')[1].props.onClick();});
-  assert.deepEqual(invoiceActions,[['export']],'export retains its existing report callback');
+  assert.deepEqual(invoiceActions,[],'report opens before any CSV download');
+  const reportAction=label=>tree.root.findAllByType('button').find(b=>text({children:b.children})===label);
+  assert.equal(tree.root.findAllByProps({role:'dialog','aria-label':'Price Variance Report'}).length,1);
+  await act(async()=>{reportAction('Download CSV').props.onClick();});
+  assert.deepEqual(invoiceActions,[['export']],'report retains its scoped export callback');
+  await act(async()=>{reportAction('Close').props.onClick();});
   for(const value of ['inv-123','october','supplier a','2026-10-15']){
     await act(async()=>{invoiceSearch().props.onChange({target:{value}});});
     assert.match(pageText(),/October delivery.pdf/);

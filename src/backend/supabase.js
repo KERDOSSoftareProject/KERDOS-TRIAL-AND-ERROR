@@ -25,6 +25,19 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
   const client=clientFactory(url,anonKey,{auth:{storage:window.sessionStorage,storageKey,persistSession:true}});
   return {
     kind:"supabase",
+    organization:{
+      create({name,industry,vendors}){
+        return providerResult(client.rpc("kerdos_create_first_organization",{
+          p_name:name,p_industry:industry,p_vendors:vendors,
+        }),"Could not create the organization");
+      },
+      rememberVendorLayout(organizationId,vendorId,fingerprint,answers){
+        return providerResult(client.rpc("kerdos_remember_vendor_layout",{
+          p_organization_id:organizationId,p_vendor_id:vendorId,
+          p_fingerprint:fingerprint,p_answers:answers,
+        }),"Remember vendor column choice");
+      },
+    },
     session:{
       get:()=>providerResult(client.auth.getSession(),"Load session").then(x=>x?.session||null),
       subscribe(listener){
@@ -44,7 +57,18 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
       },
     },
     inbox:createSupabaseInbox(client),
-    vendorConnect:{verifySelection(input){return providerResult(client.rpc('kerdos_verify_pending_vendor_transfer',{p_organization_id:input.organizationId,p_vendor_id:input.vendorId,p_request_id:input.requestId,p_adapter_key:input.adapterKey,p_transfer_revision:input.revision,p_account_label:input.account,p_list_label:input.list,p_portal_origin:input.portalOrigin}),'Check pending vendor transfer');},request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc("kerdos_request_vendor_connection",{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),"Prepare vendor connection");}},
+    vendorConnect:{
+      verifySelection(input){return providerResult(client.rpc('kerdos_verify_pending_vendor_transfer',{p_organization_id:input.organizationId,p_vendor_id:input.vendorId,p_request_id:input.requestId,p_adapter_key:input.adapterKey,p_transfer_revision:input.revision,p_account_label:input.account,p_list_label:input.list,p_portal_origin:input.portalOrigin}),'Check pending vendor transfer');},
+      request({organizationId,vendorId,adapterKey}){return providerResult(client.rpc('kerdos_request_vendor_connection',{p_organization_id:organizationId,p_vendor_id:vendorId,p_adapter_key:adapterKey}),'Prepare vendor connection');},
+      scheduleHistory(requestId){return providerResult(client.rpc('kerdos_vendor_refresh_history',{p_request_id:requestId}),'Load vendor refresh schedule');},
+      reconcileSchedule(requestId){return providerResult(client.rpc('kerdos_reconcile_scheduled_refresh',{p_request_id:requestId}),'Check saved scheduled refresh evidence');},
+      closeUnknownSchedule(requestId,token){return providerResult(client.rpc('kerdos_close_unknown_scheduled_refresh',{p_request_id:requestId,p_token:token,p_confirmed:true}),'Close unverified scheduled refresh');},
+      setSchedule(input){return providerResult(client.rpc('kerdos_set_vendor_refresh_schedule',{p_request_id:input.requestId,p_expected_version:input.expectedVersion,p_weekdays:input.weekdays,p_local_time:input.localTime,p_timezone:input.timezone,p_enabled:input.enabled,p_grace_minutes:input.graceMinutes}),'Save vendor refresh schedule');},
+      claimSchedule(requestId){return providerResult(client.rpc('kerdos_claim_scheduled_refresh',{p_request_id:requestId}),'Claim scheduled refresh');},
+      verifySchedule(token){return providerResult(client.rpc('kerdos_verify_scheduled_refresh',{p_token:token}),'Check scheduled refresh');},
+      completeSchedule(token,documentId,sha256){return providerResult(client.rpc('kerdos_complete_scheduled_refresh',{p_token:token,p_document_id:documentId,p_sha256:sha256}),'Finish scheduled refresh');},
+      stopSchedule(token,outcome){return providerResult(client.rpc('kerdos_stop_scheduled_refresh',{p_token:token,p_outcome:outcome}),'Stop scheduled refresh');},
+    },
     invoicePaymentCorrections:{
       review(organizationId,invoiceId,approvalId,paymentId,input,reason){return providerResult(client.rpc('kerdos_review_invoice_payment_correction',{p_organization_id:organizationId,p_invoice_id:invoiceId,p_approval_id:approvalId,p_payment_id:paymentId,p_paid_cents:input.amountCents,p_paid_on:input.paidOn,p_method:input.method,p_reason:reason}),'Review payment correction');},
       save(request){return providerResult(client.rpc('kerdos_save_invoice_payment_correction',{p_organization_id:request.review.organizationId,p_request_id:request.requestId,p_review:request.review,p_confirmed:true,p_correction_confirmed:true}),'Record payment correction');},

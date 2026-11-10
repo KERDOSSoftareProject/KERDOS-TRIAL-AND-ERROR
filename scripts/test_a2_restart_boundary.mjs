@@ -13,7 +13,7 @@ function fixture(seed,boundary=null){
    remove:async key=>{check();effects.push('remove:'+key);delete data[key];},
    set:async value=>{check();if(value.transferStatus?.busy&&boundary==='before-commit')await pause();check();Object.assign(data,structuredClone(value));effects.push('write:'+String(value.transferStatus?.busy));if(value.transferStatus?.busy&&boundary==='after-commit')await pause();},
   }},
-  tabs:{get:async id=>{check();if(boundary==='before-busy')await pause();return {id,url:'https://order.usfoods.com/desktop/lists/view/list'};},sendMessage:async(id,message)=>{check();assert.equal(id,1);effects.push(message.type);return message.type==='kerdos-claim'?{ok:true,outcome:'ready_for_export'}:{ok:true,outcome:'received_for_review'};}},
+  tabs:{update:async(id,args)=>{check();assert.equal(id,2);assert.deepEqual(args,{active:true});effects.push('activate-source');},get:async id=>{check();if(boundary==='before-busy')await pause();return {id,url:'https://order.usfoods.com/desktop/lists/view/list'};},sendMessage:async(id,message)=>{check();assert.equal(id,1);effects.push(message.type);return message.type==='kerdos-claim'?{ok:true,outcome:'ready_for_export'}:{ok:true,outcome:'received_for_review'};}},
   scripting:{executeScript:async()=>{check();effects.push('vendor-export');return [{result:{outcome:'export_captured',artifact:{base64:'YQ==',origin:ticket.portalOrigin}}}];}},
  };
  return {runner:createTransferRunner(api),data,effects,reached:()=>reached,terminate(){alive=false;},release:()=>release()};
@@ -39,3 +39,26 @@ for(const boundary of ['before-busy','before-commit','after-commit']){
  assert.deepEqual(restarted.data,beforeLate,'retired worker cannot change restarted state');assert.equal(original.effects.includes('vendor-export'),false);
  console.log('PASS controlled worker interruption '+boundary+': persisted boundary, no automatic claim/export/replay and safe explicit recovery');
 }
+// Explicit app-started export activates only its claimed source, then restores
+// the approved receiver without taking over a user's intervening selection.
+for(const scenario of ['success','capture-throws','other-tab','source-navigation','other-window','unapproved-receiver','activation-denied','started-on-vendor']){
+ const data={pairing:structuredClone(ticket),transferStatus:idle},events=[];
+ let active=scenario==='started-on-vendor',sourceUrl='https://order.usfoods.com/desktop/lists/view/list';
+ const api={storage:{session:{get:async key=>({[key]:structuredClone(data[key])}),set:async value=>Object.assign(data,structuredClone(value)),remove:async key=>{delete data[key];}}},tabs:{
+  get:async id=>id===2?{id,url:sourceUrl,active,windowId:1}:{id,url:scenario==='unapproved-receiver'?'https://kerdossoftareproject.github.io/other/':'https://kerdossoftareproject.github.io/KERDOS-TRIAL-AND-ERROR/',windowId:scenario==='other-window'?2:1},
+  update:async(id,args)=>{assert.deepEqual(args,{active:true});events.push('activate:'+id);if(id===2&&scenario==='activation-denied')throw Error('closed source');active=id===2;},
+  sendMessage:async(id,message)=>{assert.equal(id,1);events.push(message.type);return message.type==='kerdos-claim'?{ok:true,outcome:'ready_for_export'}:{ok:true,outcome:'received_for_review'};},
+ },scripting:{executeScript:async args=>{
+  assert.equal(active,true,'source must be foreground before its rendering/export code runs');assert.equal(args.target.tabId,2);assert.equal(args.world,'MAIN');events.push('export');
+  if(scenario==='capture-throws')throw Error('private vendor exception');
+  if(scenario==='other-tab')active=false;
+  if(scenario==='source-navigation')sourceUrl='https://order.usfoods.com/other';
+  return [{result:{outcome:'export_captured',artifact:{base64:'YQ==',origin:ticket.portalOrigin}}}];
+ }}};
+ const result=await createTransferRunner(api).run('export',2);
+ assert.ok(events.indexOf('kerdos-claim')<events.indexOf('activate:2'),'no activation before admission');
+ assert.equal(events.includes('activate:1'),['success','capture-throws'].includes(scenario),'restore only the still-selected unchanged source in the receiver window');
+ assert.equal(events.includes('kerdos-deliver'),!['capture-throws','activation-denied'].includes(scenario));
+ assert.equal(events.filter(x=>x==='export').length,scenario==='activation-denied'?0:1);assert.equal(data.pairing,undefined);assert.equal(result.busy,false);assert.equal(JSON.stringify(result).includes('private vendor exception'),false);
+}
+console.log('PASS foreground export: claim before activation, foreground rendering, safe receiver restoration, user tab/navigation/window changes, denied activation and capture failure; controlled host only.');

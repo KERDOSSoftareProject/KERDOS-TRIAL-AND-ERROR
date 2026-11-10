@@ -1,0 +1,171 @@
+body {
+  font-family: "DM Sans", Inter, -apple-system, sans-serif;
+}
+
+button, input, select, textarea, pre, code {
+  font-family: inherit;
+}
+
+/* Keep the document still during sideways swipes. This also covers sign-in
+   and dialogs rendered outside the workspace. Nested scrollers can still
+   handle their own gestures. */
+@media (max-width: 960px), (hover: none) and (pointer: coarse) {
+  html {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  body {
+    position: relative;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+  }
+
+  #root {
+    overflow-x: clip;
+  }
+}
+
+@media (max-width: 720px), (hover: none) and (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]), select, textarea {
+    max-width: 100%;
+    font-size: 16px !important;
+  }
+}
+
+.mobile-detail-window { position:fixed; inset:0; margin:auto; width:min(calc(100% - 24px),720px); max-height:min(85dvh,720px); box-sizing:border-box; padding:0; overflow:hidden; border:2px solid #003584; border-radius:12px; background:#E8F1FF; color:#17243A; }
+.mobile-detail-window[open] { display:flex; flex-direction:column; }
+.mobile-detail-window::backdrop { background:#17243A99; }
+.mobile-detail-window-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; background:#003584; color:white; }
+.mobile-detail-window-heading h3 { margin:0; font-size:16px; }
+.mobile-detail-window-heading span { font-size:13px; overflow-wrap:anywhere; }
+.mobile-detail-window-heading button { min-height:44px; flex-shrink:0; padding:0 12px; border:1px solid #B8C8DC; border-radius:8px; background:white; color:#003584; font:inherit; cursor:pointer; }
+.mobile-detail-window-scroll { min-height:0; overflow:auto; overscroll-behavior:none; }
+.mobile-detail-window input:not([type=checkbox]):not([type=radio]),.mobile-detail-window select { font-size:16px!important; min-height:44px; max-width:100%; }
+body.mobile-detail-page-locked { position:fixed; inset-inline:0; top:var(--mobile-detail-page-top); }
+html:has(body.mobile-detail-page-locked) { overflow:hidden; overscroll-behavior:none; }
+
+@media (min-width: 721px) {
+  .mobile-detail-window--vendor td { overflow-wrap:anywhere; }
+  .mobile-detail-window--vendor td[data-field-label="Vendor"] button { max-width:112px; overflow-wrap:anywhere; }
+  .mobile-detail-window--vendor td[data-field-label="Product"] { min-width:140px!important; }
+  .mobile-detail-window--vendor td[data-field-label="Pack"] { min-width:80px!important; }
+  .mobile-detail-window--vendor input[aria-label^="Price"] { width:76px!important; }
+}
+
+.mobile-catalog-item {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  text-align: left;
+  background: #DCEBFC;
+  color: #003584;
+  border: 1px solid #6B9BCD;
+  border-bottom-width: 2px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.catalog-product-summary[data-mobile-detail] {
+  grid-template-columns: 24px 20px repeat(2, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  padding: 10px !important;
+  background: #DCEBFC;
+  border: 1px solid #6B9BCD !important;
+  border-bottom-width: 2px !important;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.catalog-product-summary[data-mobile-detail] > :nth-child(3) { grid-column: 3 / -1; }
+.catalog-product-summary[data-mobile-detail] > :nth-child(4) { grid-column: 1 / -1; }
+.catalog-product-summary[data-mobile-detail] > :nth-child(4) div { white-space: normal !important; }
+.catalog-product-details[data-mobile-detail] { min-width: 0 !important; }
+.catalog-product-details[data-mobile-detail] .catalog-product-columns { display: none !important; }
+
+.mobile-detail-window--catalog { background: #ECF4FF; }
+.mobile-detail-window--catalog .catalog-product-expanded { padding: 12px !important; border: 0 !important; overflow-wrap: anywhere; }
+.mobile-detail-window--catalog .catalog-product-expanded > div:first-child,
+.mobile-detail-window--catalog .catalog-product-expanded > div:first-child > div { flex-wrap: wrap; }
+.mobile-detail-window--catalog .catalog-product-columns { display: none !important; }
+.mobile-detail-window--catalog .catalog-product-preferences > div { min-width: 0; max-width: 100%; }
+.mobile-detail-window--catalog .catalog-vendor-detail { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.mobile-detail-window--catalog .catalog-vendor-detail > :nth-child(-n+2),
+.mobile-detail-window--catalog .catalog-vendor-detail > button { grid-column: 1 / -1; }
+
+.mobile-detail-window--catalog .mobile-edit-table,
+.mobile-detail-window--catalog .mobile-edit-table > tbody { display: block; width: 100%; min-width: 0 !important; }
+.mobile-detail-window--catalog .mobile-edit-table > thead { display: none; }
+.mobile-detail-window--catalog .mobile-edit-table > tbody > tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px; border-top: 1px solid #DEE7F0; }
+.mobile-detail-window--catalog .mobile-edit-table > tbody > tr > td { display: block; min-width: 0 !important; overflow-wrap: anywhere; }
+.mobile-detail-window--catalog .mobile-edit-table td[colspan],
+.mobile-detail-window--catalog .mobile-edit-table td[data-mobile-wide] { grid-column: 1 / -1; }
+.mobile-detail-window--catalog .mobile-edit-table td[data-field-label]::before { display: block; content: attr(data-field-label); margin-bottom: 4px; font-weight: 700; color: #52647A; }
+.mobile-detail-window--catalog .mobile-edit-table input,
+.mobile-detail-window--catalog .mobile-edit-table select { width: 100% !important; min-width: 0 !important; }
+
+.kerdos-full-logo {
+  width: min(100%, 440px);
+  aspect-ratio: 1614 / 486;
+  margin: 0 auto 18px;
+}
+
+.kerdos-full-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.kerdos-drachma {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  perspective: 600px;
+}
+
+.kerdos-coin-faces {
+  display: inline-grid;
+  transform-style: preserve-3d;
+}
+
+.kerdos-coin-faces img {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+}
+
+.kerdos-coin-back {
+  transform: rotateY(180deg);
+}
+
+.kerdos-drachma-turn {
+  animation: kerdos-drachma-spin 2s linear infinite;
+}
+
+.kerdos-header-coin {
+  display: flex;
+  perspective: 600px;
+}
+
+.kerdos-header-coin-turn {
+  animation: kerdos-header-coin-spin 27s linear infinite;
+}
+
+/* Each short flip ends at the 12- and 27-second marks. */
+@keyframes kerdos-header-coin-spin {
+  0%, 43% { transform: rotateY(0deg); }
+  44.4444%, 98.5556% { transform: rotateY(180deg); }
+  100% { transform: rotateY(360deg); }
+}
+
+@keyframes kerdos-drachma-spin {
+  0% { transform: rotateY(0deg); }
+  40%, 60% { transform: rotateY(180deg); }
+  100% { transform: rotateY(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kerdos-drachma-turn, .kerdos-header-coin-turn { animation: none; }
+}

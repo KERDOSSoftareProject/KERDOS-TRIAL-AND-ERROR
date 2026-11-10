@@ -7,7 +7,8 @@ import {fileToText} from "../document-reader.js";
 import {parseStructuredDocument} from "../core/document-structuring.js";
 import {findDate,findInvoiceNumber,parseDocument} from "../ingestion.js";
 import {findUncodedVendorListing,vendorListingLabel} from "../core/vendor-listing.js";
-import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY,parsePackSize,priceBasisFor,quotePriceOnBasis,brandsMatch} from "../procurement.js";
+import {lookupQuoteComparison} from "../core/quote-provenance.js";
+import {bestInvoiceMatch,compareProductIdentity,comparePurchasingPack,MATCH_POLICY,parsePackSize,priceBasisFor,brandsMatch} from "../procurement.js";
 import {createCatalogService} from "../services/catalog.js";
 import {createCategoryService} from "../services/categories.js";
 import {createDocumentService} from "../services/documents.js";
@@ -17,7 +18,7 @@ import {rememberedLayout,withRememberedLayout,COLUMN_ROLE_LABELS,COLUMN_ROLES_FO
 import {formatMoney} from "../localization.js";
 import {explainImportRow} from "../core/import-evidence.js";
 import {importResolutions,unitChoices} from "../core/catalog-fields.js";
-import {importPriceRow} from "../core/import-price-row.js";
+import {importPriceRow,MISSING_DESCRIPTION} from "../core/import-price-row.js";
 import {verifyResumeRows,createSourceRowSnapshot} from "../core/import-resume.js";
 import {ImportSaveProgress} from "../ui/ImportSaveProgress.jsx";
 import {checkInboxGroupGuard} from "../core/inbox-group-guard.js";
@@ -274,8 +275,10 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       }
       if(changed){
         try{
-          await organizationService.update(orgId,{settings:next});
-          layoutSettings.current.value=next;
+          for(const [fingerprint,answers] of toRemember){
+            const saved=await organizationService.rememberVendorLayout(orgId,vendorId,fingerprint,answers);
+            layoutSettings.current.value=saved;
+          }
           setLayoutMemoryWarning("");
         }catch{
           setLayoutMemoryWarning("These column choices apply to this import, but could not be remembered. You may be asked again next time.");
@@ -414,6 +417,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
     if(mode==="pricelist"&&invoiceLoad==="loading"){setSaveReview("Checking existing invoices. Try again in a moment.");return;}
     if(missingInvoiceDates.length){setSaveReview("Confirm the invoice date for each document before recording invoice charges.");return;}
     if(unsafeDocuments.length&&!automaticImport){setSaveReview("This file identifies itself as an invoice and/or a price update inconsistent with the selected import mode. Split mixed documents, or select the correct mode before saving.");return;}
+    if(mode==="invoice"&&allRows.some(row=>!row.description?.trim())){setSaveReview("Enter a product description for each invoice line before saving.");return;}
     if(mode==="invoice"&&needsReview.length){setSaveReview(`${needsReview.length} ambiguous row(s) still need a deliberate correction or approval. No unreviewed amount will change a current vendor quote.`);return;}
     // Inbox preview does not reserve the attachment. The same row lock used by
     // the worker is acquired here, immediately before any save-side effects.
@@ -575,6 +579,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         const rowIssues=[...(sourceRow.issues||[]),...(!acceptedInvoiceConflicts.has(rowKey)?(invoiceClues.get(rowKey)?.conflicts||[]):[])];
         const rowNeedsReview=!!rowIssues.length&&!acceptedIssues.has(rowKey);
         try{
+        if(!row.description?.trim())throw new Error(MISSING_DESCRIPTION);
         if(!rowNeedsReview&&!row.priceUnavailable&&(!Number.isFinite(Number(row.price))||Number(row.price)<=0)) throw new Error("No confirmed positive unit price");
         const stagedReceipt=existingDoc?.staged_row_receipts?.[completedKey]||null;
         let ex=row.code?currentVendorByCode.get(row.code)||null:null;
@@ -585,9 +590,9 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         if(row.selectedVendorItemId){
           const selected=await importService.vendorItemById(orgId,vendorId,row.selectedVendorItemId);
           if(!selected||selected.vendor_item_code&&selected.vendor_item_code!==row.code)
-            throw new Error("The selected NVIM belongs to a different vendor item code. Choose its actual listing.");
+            throw new Error("The selected NVIN belongs to a different vendor item code. Choose its actual listing.");
           const checked=findUncodedVendorListing(row,[selected]);
-          if(checked.item!==selected)throw new Error("The selected NVIM does not agree on product, pack and brand. Correct the row before linking it.");
+          if(checked.item!==selected)throw new Error("The selected NVIN does not agree on product, pack and brand. Correct the row before linking it.");
           if(ex&&ex.id!==selected.id)throw new Error("The vendor's printed code already belongs to another listing. Review both listings.");
           ex=selected;
         }
@@ -599,7 +604,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           if(ex&&row.code){
             const {error}=await backend.records.query("vendor_items").update({vendor_item_code:row.code})
               .eq("id",ex.id).eq("organization_id",orgId).eq("vendor_id",vendorId);
-            if(error)throw new Error(`Could not attach the vendor's new printed code to ${ex.nvim_number?`NVIM-${ex.nvim_number}`:"the saved listing"}: ${error.message}`);
+            if(error)throw new Error(`Could not attach the vendor's new printed code to ${ex.nvim_number?`NVIN-${ex.nvim_number}`:"the saved listing"}: ${error.message}`);
             ex={...ex,vendor_item_code:row.code};
           }
         }
@@ -736,7 +741,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             else matched=null;
           }
           if(!matched&&!codeConflict&&row.description&&viList.length){
-            const fuzzy=bestInvoiceMatch(row.description,viList.filter(vi=>comparePurchasingPack(row.packSize,vi.pack_size).status==="same"),MATCH_POLICY.autoLink);
+            const fuzzy=bestInvoiceMatch(row.description,viList.filter(vi=>comparePurchasingPack(row.packSize,vi.pack_size).status==="same"),MATCH_POLICY.invoiceMatchFloor);
             if(fuzzy){ matched=fuzzy.vendorItem; confidence=Math.round(fuzzy.score*100); method="fuzzy"; }
           }
           // Nothing matched at all - rather than leave this line
@@ -770,38 +775,27 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             }catch(error){saveError=(saveError?saveError+" ":"")+`"${row.description}": catalog link needs review (${error.message||String(error)}).`;}
           }
           if(codeConflict)saveError=(saveError?saveError+" ":"")+`Invoice line ${row.description}: ${method?.startsWith("ambiguous")?"multiple vendor products could match":"item code conflicts with the previously identified product"}; the original invoice line was recorded without a product link.`;
-          let quotedPrice=null,quote=null;
-          if(matched?.id&&method!=="created_from_invoice"){
-            const invoiceDate=group.invoiceDate;
-            try{quote=await importService.historicalQuote({organizationId:orgId,vendorItemId:matched.id,invoiceDate});}
-            catch(err){saveError=(saveError?saveError+" ":"")+`${row.description}: ${err.message}`;}
-            const withinVendorTerm=!quote?.quote_valid_until||quote.quote_valid_until>=invoiceDate;
-            const refreshDays=Number(orgSettings?.price_refresh_days);
-            const mode=orgSettings?.price_refresh_mode==="automatic"?"automatic":"manual";
-            const withinClientWindow=mode!=="automatic"||!refreshDays||
-              ((new Date(`${invoiceDate}T12:00:00Z`)-new Date(quote?.effective_date||0))/86400000)<=refreshDays;
-            if(quote&&withinVendorTerm&&withinClientWindow&&["price_list","manual_edit"].includes(quote.source))quotedPrice=Number(quote.price);
-          }
-          // Compare the quote on the basis the invoice bills in. A quote
-          // that cannot be expressed on that basis produces no variance
-          // rather than a false overcharge or undercharge.
-          let comparableQuote=null;
-          const billedBasis=priceBasisFor(row.sellingUnit);
-          if(quotedPrice!=null&&String(row.sellingUnit||"").trim()&&!billedBasis)
+          const {variance,quoteProvenance,comparisonNote,lookupError}=await lookupQuoteComparison({
+            importService,organizationId:orgId,
+            vendorItemId:matched?.id&&method!=="created_from_invoice"?matched.id:null,
+            invoiceDate:group.invoiceDate,billedUnit:row.sellingUnit,
+            packSize:matched?.pack_size||row.packSize||null,unitPrice:row.price,
+            // Preserve the existing interactive refresh preference. Automatic imports
+            // retain their existing eligibility policy until that requirement is resolved.
+            clientSettings:orgSettings,
+          });
+          if(lookupError)saveError=(saveError?saveError+" ":"")+`${row.description}: ${lookupError}`;
+          if(comparisonNote==='unknown_billed_unit')
             saveError=(saveError?saveError+" ":"")+`${row.description}: invoice selling unit "${row.sellingUnit}" is unknown; no variance calculated.`;
-          if(quotedPrice!=null&&(!String(row.sellingUnit||"").trim()||billedBasis)){
-            comparableQuote=quotePriceOnBasis(
-              {price:quotedPrice,basis:quote?.price_basis||null,unit:quote?.price_basis==="measure"?quote?.selling_unit:null,packSize:matched?.pack_size||row.packSize||null},
-              billedBasis||{basis:"case"});
-            if(comparableQuote==null)saveError=(saveError?saveError+" ":"")+`${row.description}: billed per ${row.sellingUnit||"unit"} but the quote could not be expressed that way; no variance recorded.`;
-          }
-          const variance=comparableQuote!=null?r2(row.price-comparableQuote):null;
+          if(comparisonNote==='basis_incompatible')
+            saveError=(saveError?saveError+" ":"")+`${row.description}: billed per ${row.sellingUnit||"unit"} but the quote could not be expressed that way; no variance recorded.`;
           linesToInsert.push({
             vendor_item_id:matched?.id||null, vendor_item_code:row.code, description:row.description,
             quantity:row.qty??null,selling_unit:row.sellingUnit||null,
             source_line:row.sourceLine??null,billing_unit_evidence:billingUnitEvidence(row),quantity_source:row.quantitySource??null,billed_quantity_evidence:invoiceBilledQuantityEvidence(row),
             unit_price:row.price, line_total:(row.amount!=null?row.amount:row.price),
             price_variance:variance, match_confidence:confidence, match_method:method,
+            ...quoteProvenance,quoted_comparison_note:comparisonNote,
             create_vendor_item:!matched&&!codeConflict&&method==="created_from_invoice",
             pack_size:row.packSize||null,catalog_item_id:pendingCatalog?.catalogItemId||null,
             catalog_confidence:pendingCatalog?Math.round((pendingCatalog.score??0)*100):null,
@@ -835,6 +829,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
       await onDone();assertActive();
       if(cleanFinish&&automaticImport)onFinished?.({message:(unchangedDocuments===parsedGroups.length?`Pricing already up to date for ${vendor?.name||'vendor'} — no duplicate rows saved.`:`Pricing received automatically — ${allRows.length} rows retained for ${vendor?.name||'vendor'}${basisReview?`; ${basisReview} flagged in Item Catalog`:''}`)+(verifiedOriginals===parsedGroups.length?' Stored original verified.':''),importDocumentId:lastSourceDocumentId||null});
       else if(cleanFinish)onFinished?.({message:`Upload successful — ${allRows.length} row${allRows.length===1?"":"s"} from ${vendor?.name||"vendor"} saved${basisReview?`; ${basisReview} to finish in Item Catalog`:""}`,importDocumentId:lastSourceDocumentId||null});
+      else if(automaticImport&&companionEvidence?.attempt_token&&lastSourceDocumentId)onIssue?.({message:`Pricing received with details to review for ${vendor?.name||'vendor'}. ${saveError||''}`.trim(),status:'needs_attention',importDocumentId:lastSourceDocumentId});
     }catch(error){
       setResult(previous=>({...previous,error:[previous.error,`Saved, but the catalog could not refresh: ${error.message||String(error)}. Reload the app to see the saved items.`].filter(Boolean).join(" ")}));
       setStep(3);
@@ -916,7 +911,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           {!companionEvidence&&<div style={{marginBottom:14}}>
             <div style={{fontSize:12,fontWeight:600,color:"#666",marginBottom:4}}>Or paste text directly</div>
             <textarea
-              style={{...inp,height:120,resize:"vertical",fontFamily:"monospace",fontSize:12}}
+              style={{...inp,height:120,resize:"vertical",fontSize:12}}
               value={pastedText} onChange={e=>setPastedText(e.target.value)}
               onPaste={e=>{const pasted=e.clipboardData.getData("text");if(pasted.trim().length>=10){e.preventDefault();setPastedText(pasted);void parseSources(fileGroups,pasted);}}}
               placeholder="Copy from Excel, email, PDF — paste here..." />
@@ -940,11 +935,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               </div>}
               {pending.unknownHeaders.map(h=>(
                 <div key={h.index} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,flexWrap:"wrap"}}>
-                  <span style={{fontFamily:"monospace",background:"#EBEBEB",padding:"2px 8px",borderRadius:4,fontSize:12,minWidth:120,flexShrink:0}}>
+                  <span style={{background:"#EBEBEB",padding:"2px 8px",borderRadius:4,fontSize:12,minWidth:120,flexShrink:0}}>
                     {h.label}
                   </span>
                   <span style={{fontSize:12,color:"#666",flexShrink:0}}>is the</span>
                   <select
+                    aria-label={`Role for ${h.label}`}
                     value={pendingUnknowns[pi].confirmedAnswers[h.index]||"ignore"}
                     onChange={e=>{
                       const role=e.target.value;
@@ -1034,7 +1030,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             {parsedGroups.flatMap(g=>g.rows.map((row,i)=>mode==="pricelist"&&!row.issues?.length?null:(
               <div key={`${g.id}:${i}`} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #F0F0F0",fontSize:13}}>
                 <div>
-                  {row.code&&<span style={{color:"#888",marginRight:8,fontFamily:"monospace",fontSize:11}}>{row.code}</span>}
+                  {row.code&&<span style={{color:"#888",marginRight:8,fontSize:11}}>{row.code}</span>}
                   <span>{row.description}</span>
                   {mode==="invoice"&&<input aria-label="Verify or correct product description" value={row.description} onChange={e=>updateParsedRow(g.id,i,{description:e.target.value})}
                     style={{...inp,fontSize:11,padding:"4px 6px",marginTop:5}} />}
@@ -1065,8 +1061,12 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
               <div style={{fontWeight:700,color:"#E65100",marginBottom:6}}>{allSkipped.length} line{allSkipped.length>1?"s":""} weren't interpreted as product lines — retained in the original source</div>
               <div style={{maxHeight:120,overflowY:"auto"}}>
                 {allSkipped.map((s,i)=>(
-                  <div key={i} style={{color:"#999",marginBottom:3,fontFamily:"monospace",fontSize:11}}>
-                    "{String(s.line??s.text??'').slice(0,60)}" — {s.reason}{s.page!=null?` · page ${s.page}`:''}{s.worksheet?` · ${s.worksheet}`:''}{s.lines?.length?` · source line ${s.lines.map(line=>line+1).join(', ')}`:s.lineNumber!=null?` · source line ${s.lineNumber+1}`:''}{showSourceTags?` (${s._source})`:""}
+                  <div key={i} style={{color:"#999",marginBottom:3,fontSize:11}}>
+                    "{String(s.line??s.text??"").slice(0,60)}" — {s.reason}
+                    {s.page!=null?` · page ${s.page}`:""}
+                    {s.worksheet?` · ${s.worksheet}`:""}
+                    {s.lines?.length?` · source line ${s.lines.map(line=>line+1).join(', ')}`:s.lineNumber!=null?` · source line ${s.lineNumber+1}`:""}
+                    {showSourceTags?` (${s._source})`:""}
                   </div>
                 ))}
               </div>

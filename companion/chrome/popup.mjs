@@ -1,4 +1,5 @@
 import {providers} from './providers.mjs';
+import {approvedKerdosTab} from './bridge.mjs';
 // This view can close without owning or cancelling the companion's transfer.
 const button=document.getElementById('export'),pair=document.getElementById('pair'),status=document.getElementById('status');
 let revision=0;
@@ -27,6 +28,14 @@ if(enableRefresh&&providerSelect){
   const provider=providers.find(p=>p.key===providerSelect.value);if(!provider)return;
   // Request synchronously within this explicit extension-page click, once per provider.
   const request=chrome.permissions.request({origins:['https://kerdossoftareproject.github.io/*',provider.origin+'/*']});
-  request.then(granted=>render({busy:false,message:granted?'Refresh access enabled. Return to KERDOS and click Refresh prices.':'Refresh access was not granted. The manual transfer remains available.'}),()=>render({busy:false,message:'Could not enable refresh access. Manual transfer remains available.'}));
+  request.then(async granted=>{
+   if(!granted){render({busy:false,message:'Refresh access was not granted. The manual transfer remains available.'});return;}
+   try{
+    const tabs=await chrome.tabs.query({url:'https://kerdossoftareproject.github.io/*'});
+    const results=await Promise.allSettled(tabs.filter(tab=>Number.isInteger(tab.id)&&approvedKerdosTab(tab.url)).map(tab=>chrome.scripting.executeScript({target:{tabId:tab.id,frameIds:[0]},files:['app-channel.js']})));
+    const failed=results.some(result=>result.status==='rejected');
+    render({busy:false,message:failed?'Refresh access enabled. Reload KERDOS to reconnect, then click Refresh prices.':'Refresh access enabled. Return to KERDOS and click Refresh prices.'});
+   }catch{render({busy:false,message:'Refresh access enabled. Reload KERDOS to reconnect, then click Refresh prices.'});}
+  },()=>render({busy:false,message:'Could not enable refresh access. Manual transfer remains available.'}));
  });
 }

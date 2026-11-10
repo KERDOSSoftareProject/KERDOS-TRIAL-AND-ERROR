@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {parseDocument} from '../src/ingestion.js';
 import {verifyResumeRows} from '../src/core/import-resume.js';
+import {retainedUnlinkedRows} from '../src/core/retained-import-rows.js';
 import { createRecords } from '../src/backend/records.js';
 import { processAttachmentInBackground } from '../supabase/functions/process-attachment/background-import.mjs';
 
@@ -198,7 +199,7 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
         if (fpFilter && importDocs[fpFilter.value]) {
           const doc = importDocs[fpFilter.value];
           return Promise.resolve({
-            data: { id: doc.id, status: doc.status, completed_keys: doc.completed_keys },
+            data: { id: doc.id, status: doc.status, completed_keys: doc.completed_keys, source_rows: doc.source_rows },
             error: null,
           });
         }
@@ -283,6 +284,44 @@ function savedSources(state){return [
   ...state.vendorItems.filter(v=>v.import_row).map(v=>({key:v.import_row.rowKey,sourceLine:v.import_row.row.sourceLine})),
 ];}
 const run=state=>processAttachmentInBackground(state.backend,state.attachment,state.options);
+const blankDescriptionCsv='Code,Description,Brand,Pack,Price Unit,Price\nB4-BLANK,,Brand Only Text,20 LB,CASE,42.50\nB4-VALID,Chicken Breast Boneless Skinless,Other Brand,20 LB,CASE,53.20';
+await check('blank description is held as source evidence while adjacent prices save and retry safely',async()=>{
+ const state=makeBackend({csv:blankDescriptionCsv});
+ for(let i=0;i<2;i++){
+  const result=await run(state);
+  assert.equal(result.outcome,'needs_review');
+  assert.deepEqual(result.heldKeys,['row:0']);
+  assert.match(result.heldRows[0].reasons[0],/Product description is missing/);
+  const doc=docFor(state);
+  assert.equal(doc.status,'partial');
+  assert.deepEqual(doc.completed_keys,['row:1']);
+  const rows=retainedUnlinkedRows([doc]);
+  assert.deepEqual(rows.map(({key,code,description,brand,price})=>({key,code,description,brand,price})),
+    [{key:'row:0',code:'B4-BLANK',description:'',brand:'Brand Only Text',price:42.5}]);
+  assert.equal(rows[0].sourceLine,'B4-BLANK\t\tBrand Only Text\t20 LB\tCASE\t42.50');
+  assert.deepEqual(state.calls.applyQuote.map(row=>row.vendorItemCode),['B4-VALID']);
+  assert.equal(state.calls.insertImportDoc.length,1);
+  assert.equal(state.mappingsArr.length,1);
+ }
+ docFor(state).source_rows.rows[0].values[5]=99;
+ const mismatch=await run(state);
+ assert.equal(mismatch.outcome,'needs_review');
+ assert.match(mismatch.reason,/positions or values differ/);
+ assert.equal(state.calls.setStatus.at(-1).importDocId,DOC_ID);
+ assert.equal(state.calls.applyQuote.length,1);
+ assert.deepEqual(docFor(state).completed_keys,['row:1']);
+});
+await check('legacy blank-description retry keeps unverified saved row positions intact',async()=>{
+ const state=makeBackend({csv:blankDescriptionCsv,preSeededKeys:['row:0']});
+ const result=await run(state);
+ assert.equal(result.outcome,'needs_review');
+ assert.match(result.reason,/no retained row snapshot to verify saved row positions/);
+ assert.equal(state.calls.setStatus.at(-1).importDocId,DOC_ID);
+ assert.deepEqual(docFor(state).completed_keys,['row:0']);
+ for(const writes of [state.calls.applyQuote,state.calls.vendorItemUpdate,state.calls.insertImportDoc,state.calls.updateImportDoc,state.mappingsArr,state.catalogItems]){
+   assert.equal(writes.length,0);
+ }
+});
 for(const [name,uncertain] of [['uncertain-first',[0]],['uncertain-middle',[1]],['all-uncertain',[0,1,2]]]){
   const csv=buildCsv(CODES.map((code,i)=>({code,priceUnit:uncertain.includes(i)?'':'CASE'})));
   const state=makeBackend({uncertainIndexes:uncertain,csv});let result;

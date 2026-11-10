@@ -3,6 +3,8 @@
 (()=>{
  const valid=url=>{try{const u=new URL(url);return u.origin==='https://kerdossoftareproject.github.io'&&(u.pathname==='/KERDOS-TRIAL-AND-ERROR'||u.pathname.startsWith('/KERDOS-TRIAL-AND-ERROR/'));}catch{return false;}};
  if(window.top!==window||!valid(location.href))return;
+ if(window.__kerdosRefreshChannelInstalled)return;
+ window.__kerdosRefreshChannelInstalled=true;
  const channel='kerdos-refresh-v1';let pending=false;
  window.addEventListener('message',async event=>{
   const m=event.data;

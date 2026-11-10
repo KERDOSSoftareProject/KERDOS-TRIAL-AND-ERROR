@@ -129,6 +129,9 @@ assert.ok(calls.find(c=>c.table==="catalog_categories"&&c.update?.industry==="Ca
   assert.equal(hpc3.id,"hp","holdingPenCurrent must reference the holding-pen row");
   assert.ok(!c.find(cat=>cat.id==="hp"),"holding pen must still be excluded from industryCategories even when it is the current value");
 
+  const clientMenu=buildCategoryDropdown({categories:allCategories,industry:"Catering",currentCategory:allCategories.find(c=>c.id==="old"),clientCategories:true});
+  assert.equal(clientMenu.industryCategories.length,2,"the client catalog menu includes every established client category regardless of an old industry tag");
+  assert.equal(clientMenu.legacyCurrent,null);assert.ok(!clientMenu.industryCategories.some(c=>c.is_holding_pen));
   // No industry set → all non-holding-pen categories shown; both legacy entries null.
   const {industryCategories:d,legacyCurrent:legacy4,holdingPenCurrent:hpc4}=buildCategoryDropdown({
     categories:allCategories, industry:null,
