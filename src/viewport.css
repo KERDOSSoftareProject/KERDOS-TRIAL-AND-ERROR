@@ -129,7 +129,7 @@ html:has(body.mobile-detail-page-locked) { overflow:hidden; overscroll-behavior:
 .kerdos-drachma-turn {
   display: inline-grid;
   transform-style: preserve-3d;
-  animation: kerdos-drachma-spin 6s linear infinite;
+  animation: kerdos-drachma-spin 2s linear infinite;
 }
 
 .kerdos-drachma-turn img {
@@ -142,8 +142,8 @@ html:has(body.mobile-detail-page-locked) { overflow:hidden; overscroll-behavior:
 }
 
 @keyframes kerdos-drachma-spin {
-  0%, 20% { transform: rotateY(0deg); }
-  50%, 70% { transform: rotateY(180deg); }
+  0% { transform: rotateY(0deg); }
+  40%, 60% { transform: rotateY(180deg); }
   100% { transform: rotateY(360deg); }
 }
 
