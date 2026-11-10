@@ -685,19 +685,24 @@ function findQuoteValidity(text){
 function reviewUncertainRows(rows,documentKind){
   return rows.map(row=>{
     const issues=[...(row.issues||[])];
-    const amountWithoutUnitPrice=!!row.fieldIdentification?.bindings?.amount&&
-      parseMoneyLenient(row.fieldIdentification.bindings.price?.rawValue)===null&&row.amount!=null;
-    const extendedAmountOnly=amountWithoutUnitPrice&&row.qty!=null;
-    if(documentKind==="invoice"){
-      // An extended amount is not a stated unit price. Keep the amount and
-      // original row, but do not manufacture a billed unit price from it.
-      if(amountWithoutUnitPrice){
-        issues.push("Invoice unit price is missing; the extended amount cannot be used as a unit price");
-        row={...row,price:null,requiresReview:true,fieldValidation:row.fieldValidation?{
-          ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
-            price:{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
-        }:row.fieldValidation};
-      }
+    const bindings=row.fieldIdentification?.bindings;
+    const amountField=bindings?.amount;
+    const priceField=bindings?.price;
+    const amountIsPriceCell=amountField?.columnIndex===priceField?.columnIndex;
+    const explicitTotal=/^(?:total\b|ext(?:ended)?\b|line\s+(?:total|amount)\b)/i.test(amountField?.header?.trim()||"");
+    const amountWithoutUnitPrice=amountField&&row.amount!=null&&
+      (amountIsPriceCell||parseMoneyLenient(priceField?.rawValue)===null);
+    const isInvoice=documentKind==="invoice";
+    if(amountWithoutUnitPrice&&(isInvoice||explicitTotal||bindings.qty||priceField)){
+      issues.push(isInvoice?"Invoice unit price is missing; the extended amount cannot be used as a unit price":
+        "The row's extended amount is not a stated unit price; verify the quoted price");
+      const validation=row.fieldValidation;
+      row={...row,price:null,priceUnavailable:isInvoice?row.priceUnavailable:true,requiresReview:true,fieldValidation:{
+        ...validation,priceStatus:'missing-unit-price',fields:{...validation.fields,
+          price:validation.fields.price??{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
+      }};
+    }
+    if(isInvoice){
       // An invoice line must be fully understood before it can touch a
       // quote; unlabeled cells on it still need a person.
       if(row.details?.length)issues.push(`Unlabeled invoice details need identification: ${row.details.join(" | ").slice(0,100)}`);
@@ -705,12 +710,6 @@ function reviewUncertainRows(rows,documentKind){
       if(!row.code&&/^\d+[\s\-]/.test(row.description||""))issues.push("Vendor item code may have been included in the product description");
       if(row.qty!=null&&row.amount!=null&&row.price!=null&&Math.abs(row.qty*row.price-row.amount)>0.02)
         issues.push("Invoice quantity, unit price and extended total do not reconcile");
-    }else if(extendedAmountOnly){
-      issues.push("The row's extended amount is not a stated unit price; verify the quoted price");
-      row={...row,price:null,priceUnavailable:true,requiresReview:true,fieldValidation:row.fieldValidation?{
-        ...row.fieldValidation,priceStatus:'missing-unit-price',fields:{...row.fieldValidation.fields,
-          price:{status:'missing',columnIndex:null,evidence:'missing',accuracy:0}},
-      }:row.fieldValidation};
     }else if(documentKind==="pricelist"&&row.amount!=null&&row.price!=null&&row.amount!==row.price){
       issues.push("Two different prices were read from one line; verify that adjacent columns were not combined");
     }

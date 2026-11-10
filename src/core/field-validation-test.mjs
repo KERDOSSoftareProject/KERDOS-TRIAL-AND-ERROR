@@ -71,6 +71,16 @@ assert.ok(extendedSheet.issues.some(issue=>String(issue).includes('not a stated 
 assert.equal(parseDocument('Price Sheet\nDescription,Qty,Amount\nMilk,2,40.00').rows[0].price,null,'an explicit price sheet has the same safe treatment');
 assert.equal(parseDocument('Description,Qty,Price,Amount\nMilk,2,20.00,40.00').rows[0].price,20,'a stated unit price remains authoritative');
 assert.equal(parseDocument('Description,Amount\nMilk,40.00').rows[0].price,40,'a sole amount column retains its existing quote interpretation');
+for(const source of ['Description,Line Total\nMilk,40.00','Description,Extended Price\nMilk,40.00','Description,Qty,Amount\nMilk,,40.00']){
+ const held=parseDocument(source).rows[0];
+ assert.equal(held.amount,40,'the source total remains available with no quantity value');
+ assert.equal(held.price,null,'an explicit total or a total beside an assigned quantity cannot become the quote');
+ assert.equal(held.requiresReview,true);
+}
+const invalidPrice=parseDocument('Description,Qty,Price,Amount\nMilk,2,bad,40.00').rows[0];
+assert.equal(invalidPrice.price,null,'a malformed unit price is held even with a readable total');
+assert.equal(invalidPrice.fieldIdentification.bindings.price.rawValue,'bad');
+assert.deepEqual([invalidPrice.fieldValidation.fields.price.status,invalidPrice.fieldValidation.fields.price.columnIndex],['invalid',2]);
 const heldExtended=preparePriceImport({...extendedSheet,packSize:'12/1 QT',sellingUnit:'CASE'},null,null,extendedSheet.issues);
 assert.equal(heldExtended.requiresReview,true,'the import boundary retains the source as a review item');
 assert.equal(heldExtended.row.price,null,'the import boundary does not recreate a quote from the total');
@@ -124,11 +134,12 @@ assert.equal(invalidRow.fieldValidation.fields.amount.status,'invalid');
 assert.equal(invalidRow.price,20,'the stated price is retained even when neighboring numeric fields are unreadable');
 assert.ok(invalidRow.issues.some(issue=>issue.field==='qty'),'an invalid assigned quantity is visible in review');
 assert.ok(invalidRow.issues.some(issue=>issue.field==='amount'),'an invalid assigned total is visible in review');
-for(const heading of ['Description,Qty,Amount\nMilk,2,40.00','Description,Qty,Unit Price,Amount\nMilk,2,,40.00']){
+for(const [heading,priceColumn] of [['Description,Qty,Amount\nMilk,2,40.00',null],['Description,Qty,Unit Price,Amount\nMilk,2,,40.00',2]]){
  const invoice=parseDocument(`Invoice Date: 2026-11-03\nInvoice # 123\n${heading}`).rows[0];
  assert.equal(invoice.amount,40,'the invoice keeps its stated extended amount');
  assert.equal(invoice.price,null,'the extended amount is never copied to the unit-price field');
- assert.equal(invoice.fieldValidation.fields.price.status,'missing');
+ assert.equal(invoice.fieldValidation.priceStatus,'missing-unit-price');
+ assert.equal(invoice.fieldValidation.fields.price.columnIndex,priceColumn,'retain the original price column when assigned');
  assert.equal(invoice.requiresReview,true);
  assert.ok(invoice.issues.some(issue=>String(issue).includes('unit price is missing')));
  const prepared=await prepareAutomaticInvoice({text:'Invoice Date: 2026-11-03',rows:[invoice],organizationId:'org',vendorId:'vendor'});
