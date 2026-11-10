@@ -890,10 +890,12 @@ export default function App() {
   const metadata = account.user_metadata;
   const savedInitials = metadata?.kerdos_initials;
   const accountName = [metadata?.full_name, metadata?.name, account.full_name, account.name]
-    .find(name => typeof name === "string" && name.trim());
+    .find(name => typeof name === "string" && name.trim())?.trim();
   const accountInitials = typeof savedInitials === "string" && /^\p{L}{1,3}$/u.test(savedInitials)
     ? savedInitials.toUpperCase()
     : accountName ? userInitials(accountName) : initialsFor({email:account.email}) || "?";
+  const welcomeName = org.settings?.welcome_name;
+  const clientName = (typeof welcomeName === "string" && welcomeName.trim()) || org.name;
 
   return (
     <div className="workspace-shell" style={{minHeight:"100vh",background:"#003584"}}>
@@ -939,7 +941,8 @@ export default function App() {
         <div style={{position:"relative"}}>
           <button type="button" aria-label="Account menu" aria-expanded={accountMenuOpen} onClick={()=>setAccountMenuOpen(open=>!open)} style={{width:36,height:36,borderRadius:"50%",border:0,background:tab==="home"?"rgba(255,255,255,0.12)":"#E6EEF9",color:tab==="home"?"#69F0AE":"#1A4FA8",fontWeight:700,cursor:"pointer"}}>{accountInitials}</button>
           {accountMenuOpen&&<div style={{position:"absolute",right:0,top:42,minWidth:180,maxWidth:"calc(100vw - 76px)",overflowWrap:"anywhere",background:"white",boxShadow:"0 4px 16px #0003",borderRadius:8,padding:12,zIndex:210,color:"#0F1C2E",fontSize:12}}>
-            {organizations.length>1?<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>:<div style={{marginBottom:10,fontWeight:700}}>{org.name}</div>}
+            <div style={{marginBottom:10,fontWeight:700}}>{accountName||account.email||"Your account"}</div>
+            {organizations.length>1&&<select aria-label="Active organization" value={org.id} onChange={e=>{setAccountMenuOpen(false);switchOrganization(e.target.value);}} style={{width:"100%",marginBottom:10}}>{organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select>}
             <button type="button" onClick={()=>{setAccountMenuOpen(false);try{sessionStorage.removeItem("kerdos.activeTab.v2");}catch{} backend.session.signOut().catch(err=>alert(err.message));}} style={{background:"none",border:0,color:"#1A4FA8",cursor:"pointer",padding:0}}>Sign out</button>
           </div>}
         </div>
@@ -954,7 +957,7 @@ export default function App() {
 
       <TabHeading title={pageName(tab)} onHome={()=>setTab("home")} activeTab={tab} role={org.role} sticky onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />
 
-      {tab==="home"&&<WelcomeScreen userName={accountName?.trim()} role={org.role}
+      {tab==="home"&&<WelcomeScreen clientName={clientName} userName={accountName} role={org.role}
         attentionCount={needsAttentionCount} invoiceReviewCount={invoiceReviewCount}
         inboxCount={inboxAttentionCount} onNavigate={id=>id==="order"?openOrderGuide():setTab(id)} />}
 

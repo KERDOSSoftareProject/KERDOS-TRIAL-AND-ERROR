@@ -20,10 +20,10 @@ try{
     assert.match(welcomeDate(new Date(2026,9,31,9,42)),/^Saturday · October 31 · /);
     assert.equal(userInitials("Hornet's Nest"),'HN');
     let destination=null,tree;
-    await act(async()=>{tree=Renderer.create(React.createElement(WelcomeScreen,{userName:'Casey Rivera',role:'owner',onNavigate:id=>destination=id,attentionCount:7,invoiceReviewCount:2,inboxCount:3}));});
+    await act(async()=>{tree=Renderer.create(React.createElement(WelcomeScreen,{clientName:'Hornets Nest',userName:'Casey Rivera',role:'owner',onNavigate:id=>destination=id,attentionCount:7,invoiceReviewCount:2,inboxCount:3}));});
     const buttons=tree.root.findAllByType('button');
     assert.deepEqual(buttons.map(text).map(s=>s.match(/Order Guide|Item Catalog|Price Sheets|Invoices|Inbox|Vendor Connect|Admin/)?.[0]),['Order Guide','Item Catalog','Price Sheets','Invoices','Inbox','Vendor Connect','Admin']);
-    assert.match(text(tree.toJSON()),/Welcome backGood (morning|afternoon|evening), Casey Rivera!/);
+    assert.match(text(tree.toJSON()),/Welcome Hornets Nest!Good (morning|afternoon|evening), Casey Rivera!/);
     assert.ok(!text(tree.toJSON()).includes("October"),"welcome screen does not show the date");
     assert.match(text(tree.toJSON()),/3 attachments need attention/);
     assert.equal(buttons[4].findAll(n=>n.props.className==='welcome-badge').length,1);
@@ -31,7 +31,7 @@ try{
     await act(async()=>{buttons[5].props.onClick();});assert.equal(destination,'vendorConnect');
     tree.unmount();
     await act(async()=>{tree=Renderer.create(React.createElement(WelcomeScreen,{role:'employee',onNavigate:id=>destination=id}));});
-    assert.match(text(tree.toJSON()),/Welcome backGood (morning|afternoon|evening)!/);
+    assert.match(text(tree.toJSON()),/Welcome!Good (morning|afternoon|evening)!/);
     assert.equal(tree.root.findAllByType('button').length,4,'restricted sections must not be offered to employees');
     assert.ok(!text(tree.toJSON()).includes('unread'),'no invented unread count');
     tree.unmount();
