@@ -24,8 +24,10 @@ import { readAttachment, FileReadError } from "./portable-file-reader.mjs";
 import { createImportService } from "../../../src/services/imports.js";
 import { createCatalogService } from "../../../src/services/catalog.js";
 import { importPriceRow, MISSING_DESCRIPTION } from "../../../src/core/import-price-row.js";
-import { createSourceRowSnapshot, verifyResumeRows } from "../../../src/core/import-resume.js";
+import { createSourceRowSnapshot, hasWorksheetSnapshot, LEGACY_WORKBOOK_REVIEW, verifyResumeRows } from "../../../src/core/import-resume.js";
 import { findUncodedVendorListing } from "../../../src/core/vendor-listing.js";
+import { nonemptyWorkbookSheets, parseStructuredDocument } from "../../../src/core/document-structuring.js";
+import { isSourceMetadataHeader } from "../../../src/core/source-metadata.js";
 
 // Portable ingestion: zero browser APIs (confirmed by audit).
 import { prepareAutomaticInvoice } from "../../../src/core/automatic-invoice.js";
@@ -57,6 +59,13 @@ function iso(date) {
  */
 function makeFingerprint(attachment) {
   return `${attachment.storage_path}:${attachment.file_size_bytes}`;
+}
+
+function workbookSheetText(rows) {
+  return rows.map(row=>row.map(cell=>{
+    const text=String(cell??"");
+    return /[,"\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;
+  }).join(",")).join("\n");
 }
 
 // ── Document classification ──────────────────────────────────────────────────
@@ -163,34 +172,29 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // It does NOT return { groups, invoiceRows } — those are ImportModal constructs.
   //
   // For "lines" (PDF/text): join the lines array into a single string.
-  // For "sheets" (CSV/XLSX): convert the first sheet's string[][] back to CSV text.
+  // Workbooks with multiple nonempty worksheets use the shared document
+  // structurer. Keep the existing single-sheet ordinals for older receipts.
 
   let parsed;
   let rawText;
+  let structuredWorkbook=false;
   try {
     if (readResult.kind === "lines") {
       rawText = readResult.lines.join("\n");
       parsed = parseDocument(rawText);
     } else {
-      // kind === "sheets": use the first non-empty sheet
-      const firstSheet = readResult.sheets.find(s => s.rows.length > 0);
-      if (!firstSheet) {
+      const worksheets=readResult.sheets.map(sheet=>({...sheet,text:workbookSheetText(sheet.rows)}));
+      const reading={kind:"workbook",filename,worksheets};
+      const activeSheets=nonemptyWorkbookSheets(reading);
+      const [firstSheet]=activeSheets;
+      if(!firstSheet){
         await backend.attachments.setStatus(attachmentId, "needs_review",
           "Spreadsheet contained no data rows");
         return { outcome: "needs_review", reason: "Empty spreadsheet" };
       }
-      // Convert string[][] → CSV text so parseDocument receives a string.
-      const csvText = firstSheet.rows.map(row =>
-        row.map(cell => {
-          const s = String(cell ?? "");
-          if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
-            return '"' + s.replace(/"/g, '""') + '"';
-          }
-          return s;
-        }).join(",")
-      ).join("\n");
-      rawText = csvText;
-      parsed = parseDocument(rawText);
+      structuredWorkbook=activeSheets.length>1;
+      rawText=activeSheets.map(sheet=>sheet.text).join("\n");
+      parsed=structuredWorkbook?parseStructuredDocument(rawText,reading):parseDocument(rawText);
     }
   } catch (err) {
     await backend.attachments.setStatus(attachmentId, "needs_review",
@@ -236,6 +240,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // Invoice header, lines, original link and terminal status commit together.
   // A worker crash before commit writes nothing; after commit replay is idempotent.
   if (isInvoice) {
+    if(structuredWorkbook){
+      const reason="This invoice workbook contains multiple worksheets. Review the source to confirm which rows belong to each invoice.";
+      await backend.attachments.setStatus(attachmentId,"needs_review",reason);
+      return {outcome:"needs_review",reason};
+    }
     const lowImageEvidence=parsedRows.some(row=>ocrIssues(row).length)||readResult.ocr?.lines.some(line=>line.confidence<90);
     if(lowImageEvidence){const reason='Invoice image text needs source clarification';await backend.attachments.setStatus(attachmentId,'needs_review',reason);return {outcome:'needs_review',reason};}
     const service = createImportService(backend);
@@ -272,7 +281,18 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     throw new Error(`Could not check for duplicate import: ${err.message}`);
   }
 
+  if(structuredWorkbook&&existingDoc&&!hasWorksheetSnapshot(existingDoc.source_rows)){
+    await backend.attachments.setStatus(attachmentId,"needs_review",LEGACY_WORKBOOK_REVIEW,existingDoc.id);
+    return {outcome:"needs_review",reason:LEGACY_WORKBOOK_REVIEW};
+  }
   if (existingDoc?.status === "complete") {
+    if(structuredWorkbook){
+      try{verifyResumeRows(parsedRows,existingDoc.completed_keys||[],[],existingDoc.source_rows);}
+      catch(error){
+        await backend.attachments.setStatus(attachmentId,"needs_review",error.message,existingDoc.id);
+        return {outcome:"needs_review",reason:error.message};
+      }
+    }
     // Duplicate delivery — already fully processed.
     await backend.attachments.setStatus(
       attachmentId, "auto_imported", null, existingDoc.id
@@ -280,6 +300,12 @@ export async function processAttachmentInBackground(backend, attachment, { organ
     return { outcome: "auto_imported" };
   }
 
+  if(structuredWorkbook&&parsed.parts.some(part=>(part.rows.length>0&&!part.headerFound)||
+    part.layout?.headers?.some(header=>header.how==="unknown"&&!isSourceMetadataHeader(header.label)))){
+    const reason="This workbook has worksheet columns that need confirmation before importing prices.";
+    await backend.attachments.setStatus(attachmentId,"needs_review",reason,existingDoc?.id??null);
+    return {outcome:"needs_review",reason};
+  }
   const hasMissingDescription = parsedRows.some(row=>!row.description?.trim());
   let documentId;
   if (existingDoc) {
@@ -290,9 +316,11 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       await backend.attachments.setStatus(attachmentId, "needs_review", reason, existingDoc.id);
       return { outcome: "needs_review", reason };
     }
-    if (existingDoc.source_rows) {
+    if(existingDoc.source_rows||readResult.kind==="sheets"){
+      const keys=[...new Set([...(existingDoc.completed_keys||[]),...Object.keys(existingDoc.staged_row_receipts||{})])];
+      const saved=readResult.kind==="sheets"?await importService.resumeSources(organizationId,vendorId,existingDoc.id):[];
       try {
-        verifyResumeRows(parsedRows, existingDoc.completed_keys || [], [], existingDoc.source_rows);
+        verifyResumeRows(parsedRows,keys,saved,existingDoc.source_rows??null);
       } catch (error) {
         await backend.attachments.setStatus(attachmentId, "needs_review", error.message, existingDoc.id);
         return { outcome: "needs_review", reason: error.message };
@@ -308,7 +336,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       file_name:        filename,
       file_path:        storagePath,
       original_text:    rawText,
-      ...(hasMissingDescription?{source_rows:createSourceRowSnapshot(parsedRows)}:{}),
+      ...(hasMissingDescription||structuredWorkbook?{source_rows:createSourceRowSnapshot(parsedRows)}:{}),
       status:           "processing",
     });
     documentId = newDoc.id;
@@ -390,6 +418,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       // preparePriceImport (via importPriceRow) decides requiresReview.
       // We pass rowNeedsReview=false; the engine returns {needsBasis:true}
       // when the pricing basis cannot be confirmed automatically.
+      const rowIssues=[...ocrIssues(sourceRow),...(structuredWorkbook?sourceRow.issues||[]:[])];
       try {
         const result = await importPriceRow({
           backend,
@@ -399,8 +428,8 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           row: sourceRow,
           ex,
           priorMapping,
-          rowIssues: ocrIssues(sourceRow),
-          rowNeedsReview: ocrIssues(sourceRow).length>0,
+          rowIssues,
+          rowNeedsReview: rowIssues.length>0,
           invoiceSources,
           orgId: organizationId,
           vendorId,

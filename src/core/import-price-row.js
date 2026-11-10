@@ -120,7 +120,7 @@ export async function importPriceRow({
       price: row.price,
       priceUnavailable: !!row.priceUnavailable || needsBasis,
       effectiveDate: importBatchTime,
-      quoteValidUntil: group.quoteValidUntil || null,
+      quoteValidUntil: sourceRow.sourceProvenance?.quoteValidUntil ?? group.quoteValidUntil ?? null,
       sourceFilePath: sourceFilePath || null,
       sourceFileName: group.name,
       sourceLine: row.sourceLine || null,

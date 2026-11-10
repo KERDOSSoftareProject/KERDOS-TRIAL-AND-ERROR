@@ -24,7 +24,11 @@
  */
 
 import assert from "node:assert/strict";
+import * as XLSX from "xlsx";
 import { createRecords } from "../../../src/backend/records.js";
+import { readWorkbook } from "../../../src/core/document-reading.js";
+import { parseStructuredDocument } from "../../../src/core/document-structuring.js";
+import { createSourceRowSnapshot } from "../../../src/core/import-resume.js";
 
 // ── In-memory backend ────────────────────────────────────────────────────────
 // Matches the interface required by background-import.mjs and service-backend.mjs.
@@ -40,6 +44,7 @@ function createInMemoryBackend({
   catalogItems = [],
   categories = [],
   mappings = [],
+  priceHistory = [],
   applyQuoteShouldThrow = false,
 } = {}) {
   const statusLog = [];
@@ -71,7 +76,7 @@ function createInMemoryBackend({
       else if (table === "catalog_categories") rows = categories;
       else if (table === "item_mappings")  rows = mappings;
       else if (table === "invoices")       rows = [];
-      else if (table === "price_history")  rows = [];
+      else if (table === "price_history")  rows = priceHistory;
       else if (table === "import_documents") {
         rows = existingDoc ? [existingDoc] : [];
       }
@@ -903,6 +908,82 @@ await test("compressed XLSX (deflate method 8) — portable-file-reader decodes 
 });
 
 // ── Test 11: inbound-email handoff — fireProcessAttachment invoked ────────────
+
+await test("multi-worksheet email and browser share source rows, pricing, and safe resume", async () => {
+  const book=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([
+    ["PRICE LIST"],["Valid through December 15, 2026"],["Code","Description","Pack","Price Unit","Price"],["SKU-A","Widget A","18 LB","CASE",12.5],
+  ]),"First");
+  XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([]),"Blank");
+  XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([
+    ["Price","Price Unit","Pack","Description","Code"],[20,"CASE","18 LB","Widget B","SKU-B"],
+  ],{origin:"C4"}),"Second & Final");
+  const bytes=XLSX.write(book,{type:"buffer",bookType:"xlsx",compression:true});
+  const attachment={...ATTACHMENT_BASE,filename:"two-sheets.xlsx",content_type:"application/octet-stream",file_size_bytes:bytes.length};
+  const options={organizationId:"org-1",vendorId:"vendor-1",documentType:"pricelist"};
+  const vendorItems=["A","B"].map(code=>({id:"vi-"+code,organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:"SKU-"+code,
+    description:"Widget "+code,pack_size:"18 LB",selling_unit:"CASE",price_basis:"case",price_source:"price_list"}));
+  const mappings=vendorItems.map(item=>({id:"map-"+item.id,organization_id:"org-1",vendor_item_id:item.id,catalog_item_id:"cat-"+item.id,comparison_track:"exact",confidence_score:100}));
+  const backend=createInMemoryBackend({bytes,vendorItems,mappings});
+  const outcome=await processAttachmentInBackground(backend,attachment,options);
+  assert.equal(outcome.outcome,"auto_imported",outcome.reason);
+  assert.deepEqual(backend._appliedQuotes.map(q=>[q.importRow.rowKey,q.description,q.price,q.quoteValidUntil]),[
+    ["row:0","Widget A",12.5,"2026-12-15"],["row:1","Widget B",20,null],
+  ]);
+  assert.deepEqual(backend._appliedQuotes.map(q=>q.importRow.row.sourceProvenance.cells.flatMap(cell=>cell.cells.map(value=>value.address))),[
+    ["A4","B4","C4","D4","E4"],["C5","D5","E5","F5","G5"],
+  ]);
+  const saved=backend._createdDocs[0];
+  const browser=readWorkbook(XLSX.read(bytes),XLSX,attachment.filename);
+  assert.deepEqual(saved.source_rows,createSourceRowSnapshot(parseStructuredDocument(browser.text,browser).rows));
+  assert.equal(saved.file_path,attachment.storage_path);
+
+  const previous={...saved,status:"partial",completed_keys:["row:0"]};
+  const priceHistory=[{organization_id:"org-1",source_document_id:saved.id,source_row_key:"row:0",source_line:backend._appliedQuotes[0].sourceLine}];
+  const resume=createInMemoryBackend({bytes,vendorItems,mappings,existingDoc:previous,priceHistory});
+  assert.equal((await processAttachmentInBackground(resume,attachment,options)).outcome,"auto_imported");
+  assert.deepEqual(resume._appliedQuotes.map(q=>q.importRow.rowKey),["row:1"]);
+  assert.equal(resume._createdDocs.length,0);
+  for(const {doc,history} of [
+    {doc:{...previous,source_rows:null},history:priceHistory},
+    {doc:{...previous,status:"complete",source_rows:null},history:priceHistory},
+    {doc:previous,history:[{...priceHistory[0],source_line:"changed"}]},
+  ]){
+    const held=createInMemoryBackend({bytes,vendorItems,mappings,existingDoc:doc,priceHistory:history});
+    const result=await processAttachmentInBackground(held,attachment,options);
+    assert.equal(result.outcome,"needs_review");
+    assert.equal(held._statusLog.at(-1).docId,saved.id);
+    assert.equal(held._appliedQuotes.length,0);
+    assert.equal(held._createdDocs.length,0);
+  }
+  const replay=createInMemoryBackend({bytes,vendorItems,mappings,existingDoc:{...saved,status:"complete",completed_keys:["row:0","row:1"]}});
+  assert.equal((await processAttachmentInBackground(replay,attachment,options)).outcome,"auto_imported");
+  assert.equal(replay._appliedQuotes.length,0);
+
+  book.Sheets["Second & Final"].D4.v="Unrecognized column";
+  const unknownBytes=XLSX.write(book,{type:"buffer",bookType:"xlsx"});
+  const unknown=createInMemoryBackend({bytes:unknownBytes,vendorItems,mappings});
+  assert.match((await processAttachmentInBackground(unknown,{...attachment,file_size_bytes:unknownBytes.length},options)).reason,/need confirmation/);
+  assert.equal(unknown._appliedQuotes.length,0);
+  assert.equal(unknown._createdDocs.length,0);
+});
+
+await test("multi-worksheet invoices are held before any price or invoice write", async () => {
+  const book=XLSX.utils.book_new();
+  for(const number of [101,102]){
+    XLSX.utils.book_append_sheet(book,XLSX.utils.aoa_to_sheet([
+      ["Invoice "+number],["Description","Qty","Unit Price","Line Total"],["Widget A",2,12.5,25],
+    ]),"Invoice "+number);
+  }
+  const bytes=XLSX.write(book,{type:"buffer",bookType:"xlsx"});
+  const backend=createInMemoryBackend({bytes});
+  const attachment={...ATTACHMENT_BASE,filename:"invoices.xlsx",content_type:"application/octet-stream",file_size_bytes:bytes.length};
+  const result=await processAttachmentInBackground(backend,attachment,{organizationId:"org-1",vendorId:"vendor-1",documentType:"invoice"});
+  assert.equal(result.outcome,"needs_review");
+  assert.match(result.reason,/confirm which rows belong to each invoice/);
+  assert.equal(backend._appliedQuotes.length,0);
+  assert.equal(backend._createdDocs.length,0);
+});
 //
 // After attachment-processor.mjs inserts a DB row, it awaits
 // backend.functions.invoke("process-attachment", { body: { attachmentId, organizationId } }).

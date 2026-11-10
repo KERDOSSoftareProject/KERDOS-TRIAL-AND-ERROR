@@ -7,6 +7,12 @@ function sourceProof(row,index){
   return {key:`row:${index}`,sourceLine:row.sourceLine??null,values:snapshotFields.map(field=>row[field]??null),billingUnitEvidence:stable(row.billingUnitEvidence??null),position:{page:provenance.page??null,worksheet:provenance.worksheet??null,table:provenance.table??null,lines:provenance.lines??[],cells:(provenance.cells||[]).map(cell=>cell.text)}};
 }
 export function createSourceRowSnapshot(rows){return {version:1,rows:rows.map(sourceProof)};}
+export function hasWorksheetSnapshot(snapshot){
+  return snapshot?.version===1&&Array.isArray(snapshot.rows)&&snapshot.rows.length>0&&
+    snapshot.rows.every(row=>typeof row?.position?.worksheet==='string'&&row.position.worksheet.length>0);
+}
+export const LEGACY_WORKBOOK_REVIEW="This workbook was previously read without a complete worksheet snapshot. Existing rows were kept. Review the saved import and original workbook before re-importing.";
+
 export function verifyResumeRows(rows,completedKeys,savedRows,snapshot=null){
   if(snapshot!==null){
     if(snapshot.version!==1||!Array.isArray(snapshot.rows)||snapshot.rows.length!==rows.length)
