@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {configureProcurement,createProcurementContext} from '../procurement.js';
 import {explainImportRow} from './import-evidence.js';
 import {preparePriceImport} from './price-import-review.js';
+import {quoteBasisAlternatives} from './quote-basis.js';
 
 // Neither a plausible amount nor nearby rows establish a quoted unit.
 // Exercise industry and literal contexts, as well as generic non-food wording.
@@ -26,9 +27,22 @@ for(const industry of ['restaurant','construction']){
     assert.equal(preview.priceBasis.value,null);
     assert.equal(preview.unitCost.value,null);
     assert.equal(preview.unitSuggestion,undefined);
+    assert.deepEqual(preview.quoteBasisReview,prepared.row.quoteBasisReview);
+    assert.deepEqual(prepared.row.quoteBasisReview.alternatives,quoteBasisAlternatives({...row,price:123456},context));
+    assert.equal(prepared.row.quoteBasisReview.status,'unresolved');
+    assert.deepEqual(prepared.row.statedPriceQuotes||[],[],'possibilities do not become vendor offers');
     assert.deepEqual(row,original,'interpretation must preserve the source');
     const stated=preparePriceImport({...row,sellingUnit:'CASE'},null,null,[],[],null,context);
     assert.equal(stated.resolved.sellingUnit,'CASE','source evidence wins regardless of amount');
+    assert.equal(stated.row.quoteBasisReview,null,'resolved evidence clears obsolete clarification');
   }
 }
-console.log('KERDOS quoted-per evidence: 30 industry/product/amount cases passed');
+
+const context=createProcurementContext({industry:'restaurant'});
+assert.deepEqual(quoteBasisAlternatives({packSize:'4/10 LB'},context).map(option=>option.sellingUnit),['CASE','EACH','LB']);
+assert.deepEqual(quoteBasisAlternatives({packSize:'4/1 GAL'},context).map(option=>option.sellingUnit),['CASE','EACH','GAL']);
+for(const packSize of [null,'unreadable','6/10 CN'])assert.deepEqual(quoteBasisAlternatives({packSize},context),[],'unresolved packs do not produce misleading examples');
+const changed=preparePriceImport({description:'STEEL WASHERS',price:20,packSize:'4/1 GAL',quoteBasisReview:{alternatives:[{sellingUnit:'LB'}]}});
+assert.deepEqual(changed.row.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','GAL'],'pack change replaces old examples');
+
+console.log('KERDOS quoted-per evidence: 30 context/product/amount cases, pack changes, source preservation and unranked alternatives passed');

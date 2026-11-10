@@ -1,6 +1,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
+import {unitLabel} from "./unit-labels.js";
 import {unitInPrice,unitInPriceHeader} from "./source-units.js";
 
 // Interpret only bound source prices. Each amount keeps its own header
@@ -19,6 +20,21 @@ export function interpretStatedQuotePair(bindings, procurement=getProcurementCon
   });
 }
 
+
+// Pack contents describe possible price bases, not a vendor's actual offer.
+// These unranked examples support clarification; no amount or product prior
+// participates, and none may become a resolved unit without further evidence.
+export function quoteBasisAlternatives(row, procurement=getProcurementContext()){
+  const pack=procurement.parsePackSize(row.packSize);
+  if(!pack?.parsed||pack.dimension==='unknown'||!(pack.caseQty>0)||!(pack.unitQty>0))return [];
+  const choices=[
+    {sellingUnit:'CASE',label:`the full pack (${pack.caseStr})`},
+    {sellingUnit:'EACH',label:`one package (${pack.eachStr})`},
+  ];
+  if(procurement.priceBasisFor(pack.unit)?.basis==='measure')
+    choices.push({sellingUnit:pack.unit,label:`by ${unitLabel(pack.unit).toLowerCase()}`});
+  return choices;
+}
 
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that

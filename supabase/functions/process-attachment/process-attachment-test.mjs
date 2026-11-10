@@ -288,6 +288,7 @@ async function runPriceRowParityFixture(path, missingBasis=false) {
       sourceDescription: quote.importRow.evidence.sourceDescription,
       packInference: quote.importRow.evidence.fieldInference?.packSize ?? null,
       packPlacement: quote.importRow.evidence.fieldValidation.fields.packSize,
+      quoteBasisReview:quote.importRow.evidence.quoteBasisReview,
       basis: quote.priceBasis, basisEvidence: quote.importRow.evidence.quoteBasisEvidence ?? null,
       priceUnavailable: quote.priceUnavailable,
       reviewRequired: quote.importRow.reviewRequired, reviewFields: quote.importRow.reviewFields,
@@ -480,10 +481,12 @@ await test("missing quoted-per stays blank in fresh upload and email processes",
   const run=path=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),path,'missing-basis'],{encoding:'utf8'}));
   const manual=run('manual'),email=run('email');
   assert.deepEqual(email,manual);
+  assert.equal(email.length,4,'interpretation possibilities must not create extra price offers');
   const held=email.find(row=>row.description==='STEEL WASHERS');
   assert.ok(held);
   assert.equal(held.sellingUnit,null);
   assert.equal(held.basis,null);
+  assert.deepEqual(held.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','LB']);
   assert.equal(held.price,2.06);
   assert.equal(held.priceUnavailable,true);
   assert.equal(held.reviewRequired,true);

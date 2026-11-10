@@ -268,6 +268,21 @@ await check('partial result appears before refresh and a refresh error stays sep
  await act(async()=>{reject(Error('Controlled refresh failure'));await new Promise(r=>setTimeout(r,10));});
  assert.ok(text(p.tree.toJSON()).includes('Controlled refresh failure'));assert.ok(text(p.tree.toJSON()).includes('Controlled row write failure'));assert.equal(f.uploads.length,1);p.tree.unmount();
 });
+await check('quoted-per review explains possibilities without choosing or writing a basis',async()=>{
+ const f=fixture(),p=await open(vendor,'pricelist',{onBeforeSave:async()=>true});
+ await upload(p,'picker',file('uncertain.csv','Code,Description,Pack,Price\nX-1,STEEL WASHERS,4/10 LB,2.06\n'));
+ const selector=()=>p.tree.root.find(n=>n.type==='select'&&n.props['aria-label']==='Quoted price per unit for STEEL WASHERS');
+ assert.equal(selector().props.value,'');
+ await act(async()=>{button(p,'Details').props.onClick();});
+ assert.match(text(p.tree.toJSON()),/What does this price cover/);
+ assert.match(text(p.tree.toJSON()),/full pack.*one package.*by pounds/);
+ assert.equal(writes(f),0,'interpretation examples must not write records');
+ await act(async()=>{selector().props.onChange({target:{value:'CASE'}});});
+ assert.equal(selector().props.value,'CASE');
+ assert.doesNotMatch(text(p.tree.toJSON()),/What does this price cover/);
+ assert.equal(writes(f),0,'confirmation remains in preview until the existing save action');
+ p.tree.unmount();
+});
 await check('review listing choices open for one row only and unrelated UI changes reuse evidence',async()=>{
  fixture();const entries=Array.from({length:322},(_,i)=>({id:'old-'+i,vendor_id:vendor,description:'Stored product '+i,vendor_item_code:null,pack_size:'1LB'}));
  const p=await open(vendor,'pricelist',{vendorItems:entries,onBeforeSave:async()=>true});globalThis.__evidenceCalls=0;
@@ -431,7 +446,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/44 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/45 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{

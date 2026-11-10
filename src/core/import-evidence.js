@@ -49,6 +49,6 @@ export function explainImportRow(source,{vendor=null,categories=[],catalogItems=
     evidence.itemNumber={value:possible?.catalogItem?.master_item_number??null,accuracy:possible?70:null,
       reason:possible?"Possible existing item; association is checked when saved":"New KERDOS item number will be assigned on import"};
   }
-  return {...evidence,statedPriceQuotes:row.statedPriceQuotes||[],qualification:orderGuideAssessment(input),knownItem:!!row.knownVendorItem,conflicts,
+  return {...evidence,quoteBasisReview:row.quoteBasisReview,statedPriceQuotes:row.statedPriceQuotes||[],qualification:orderGuideAssessment(input),knownItem:!!row.knownVendorItem,conflicts,
     changes:row.changes||[],terminology:productKnowledge(row.description),source:source.sourceLine||source.description};
 }

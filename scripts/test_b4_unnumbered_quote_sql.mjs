@@ -85,6 +85,7 @@ try{
   assert.ok(missing.import_row.reviewFields.includes('selling_unit'));
   assert.equal(missing.import_row.row.sellingUnit,null);
   assert.notEqual(missing.import_row.evidence.sellingUnitSource,'inferred');
+  assert.deepEqual(missing.import_row.evidence.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','LB']);
   const heldHistory=(await db.query('select selling_unit,price_basis from price_history where vendor_item_id=$1',[held.vendorItemId])).rows;
   assert.ok(heldHistory.every(row=>row.selling_unit===null&&row.price_basis===null));
   console.log('PASS C1.5 SQL: amount retained, quoted-per and basis null, review required, no guessed history.');

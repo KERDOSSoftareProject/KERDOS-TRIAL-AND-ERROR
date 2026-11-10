@@ -1,7 +1,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {knownItemChanges} from "./catalog-fields.js";
 import {prepareImportRow} from "./import-row.js";
-import {resolveQuoteBasis,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
+import {resolveQuoteBasis,quoteBasisAlternatives,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
 
 const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===String(b||"").trim().toLowerCase().replace(/\s+/g," ");
 
@@ -81,8 +81,13 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   }
   if(row.priceNeedsReview&&!reasons.length)reasons.push("The incoming price basis needs review.");
   const quoteBasisEvidence=resolved?.invoiceArithmetic?{source:resolved.source,unit:resolved.sellingUnit,references:resolved.invoiceReferences}:null;
+  const quoteBasisReview=!resolved&&!row.priceUnavailable&&!invoiceConflict?{
+    status:'unresolved',
+    reason:'Confirm what the quoted price covers. Pack contents alone do not establish the quoted unit.',
+    alternatives:quoteBasisAlternatives(row,procurement),
+  }:null;
   const statedPriceQuotes=interpretStatedQuotePair(source.fieldIdentification?.bindings, procurement);
-  return {row:{...row,changes,...(quoteBasisEvidence?{quoteBasisEvidence}:{}),
+  return {row:{...row,changes,quoteBasisReview,...(quoteBasisEvidence?{quoteBasisEvidence}:{}),
     ...(statedPriceQuotes.length?{statedPriceQuotes}:{})},resolved,requiresReview:reasons.length>0,reasons:[...new Set(reasons)],reviewFields:priceReviewFields({reasons,changes,row,prior})};
 }
 
