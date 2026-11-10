@@ -6,6 +6,15 @@ export function BrandCoin({size = 24, className, reverse = false}) {
   return <img src={reverse ? reverseCoinUrl : coinUrl} alt="" width={size} height={size} className={className} />;
 }
 
+export function BrandCoinFaces({size, className}) {
+  return (
+    <span className={`kerdos-coin-faces ${className}`} aria-hidden="true">
+      <BrandCoin size={size} />
+      <BrandCoin size={size} className="kerdos-coin-back" reverse />
+    </span>
+  );
+}
+
 export function BrandLogo() {
   return (
     <div className="kerdos-full-logo">
