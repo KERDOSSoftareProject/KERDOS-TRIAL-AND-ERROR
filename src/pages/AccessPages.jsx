@@ -65,15 +65,15 @@ export function LandingGate() {
 
       <div style={{background:"white",borderRadius:12,padding:28,boxSizing:"border-box",width:"100%",maxWidth:436,margin:"0 auto",boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
         <div style={{display:"flex",background:"#F0F2F5",borderRadius:8,padding:3,marginBottom:20}}>
-          <button onClick={()=>{setMode("login");setError("");setNotice("");}}
+          <button aria-pressed={mode==="login"} onClick={()=>{setMode("login");setError("");setNotice("");}}
             style={{flex:1,padding:"9px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-              background:mode==="login"?"white":"transparent",color:mode==="login"?"#003584":"#888",
+              background:mode==="login"?"#B3D4FF":"transparent",color:"#003584",
               boxShadow:mode==="login"?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
             Sign In
           </button>
-          <button onClick={()=>{setMode("signup");setError("");setNotice("");}}
+          <button aria-pressed={mode==="signup"} onClick={()=>{setMode("signup");setError("");setNotice("");}}
             style={{flex:1,padding:"9px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,
-              background:mode==="signup"?"white":"transparent",color:mode==="signup"?"#003584":"#888",
+              background:mode==="signup"?"#B3D4FF":"transparent",color:"#003584",
               boxShadow:mode==="signup"?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
             Sign Up
           </button>
