@@ -232,7 +232,7 @@ export function parseStructuredDocument(text,reading,parse=(input,options)=>pars
     const fallback=segment.kind==='freeform'||(segment.kind==='positioned-unlabelled'&&!inferredColumns);
     const sourceRows=segment.rows.filter(row=>!row.unresolvedContinuation);
     const input=fallback?(segment.text??sourceRows.map(row=>row.cells.map(cell=>clean(cell.text)).join(' ')).join('\n')):sourceRows.map(lineText).join('\n');
-    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{})});
+    const parsed=parse(input,{includeSourceIndex:true,...(!fallback?{delimiter:'tab'}:{}),...(inferredColumns?{inferredColumns}:{}),...(segment.kind==='native'?{nativeWorksheet:true}:{})});
     const claimed=new Map();
     const rows=parsed.rows.map(row=>{
       // A parser index is only a hint. Side-by-side products can share a

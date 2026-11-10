@@ -58,6 +58,21 @@ await check('repeated product/price blocks retain separate source cells and row 
   assert.deepEqual(p.rows.map(row=>row.sourceProvenance.lines),[[2],[2]]);
   assert.notEqual(p.rows[0].sourceLine,p.rows[1].sourceLine);
 });
+await check('native worksheet repeats with equivalent headings retain both prices and their original columns',async()=>{
+  const csv='Product,Price,Description,Unit Price\nSynthetic Apple,12.50,Synthetic Pear,20.00\n,,Synthetic Lime,17.25';
+  const r=await reader(file('paired-aliases.csv',new TextEncoder().encode(csv))),p=parseStructuredDocument(r.text,r);
+  assert.deepEqual(p.rows.map(row=>[row.description,row.price]),[['Synthetic Apple',12.5],['Synthetic Pear',20],['Synthetic Lime',17.25]]);
+  assert.deepEqual(p.rows.map(row=>row.sourceProvenance.cells.flatMap(cell=>cell.cells).map(cell=>cell.address)),[['A2','B2'],['C2','D2'],['C3','D3']]);
+  assert.deepEqual(p.layout.headers.map(header=>header.role),['description','price','description','price']);
+  assert.equal(p.layout.unknown.length,0);
+  assert.equal(parseDocument(csv).rows.length,2,'retained Inbox row ordinals use the existing flat parser');
+
+  const tiered='Product,Price,Description,List Price\nSynthetic Apple,12.50,Fresh Orchard Apple,20.00';
+  const tieredReading=await reader(file('tiered.csv',new TextEncoder().encode(tiered)));
+  const tieredRows=parseStructuredDocument(tieredReading.text,tieredReading).rows;
+  assert.equal(tieredRows.length,1,'a separately labeled list price does not establish a second listing');
+  assert.equal(tieredRows[0].price,12.5);
+});
 await check('priced rows with separate header-like words stay data, including zero and price/unit amounts',async()=>{
   const source=[['Code','Description','Brand','Price'],['A1','Description of Sample Product','Price Brand','41.25'],['A2','Description of Sample Product','Price Brand','0.00'],['A3','Description of Sample Product','Price Brand','45.00/cs']];
   const csv=source.map(row=>row.join(',')).join('\n');
