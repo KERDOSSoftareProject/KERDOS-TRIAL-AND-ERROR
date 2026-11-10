@@ -269,6 +269,53 @@ assert.match(text(aside()),/Second Vendor.*2 eachs? × \$4\.00.*8\.00/,'explicit
 await act(async()=>tree.unmount());
 console.log('PASS C1.5 Each offers compare at a shared measurement and order at their own quoted amount.');
 
+store.delete('kerdos.basket.org');
+Object.assign(third,{pack_size:'1 GAL',selling_unit:'EACH',price_basis:'each',price:1,price_unavailable:false});
+third.field_resolutions=structuredClone(expiring.field_resolutions);
+snapshot.mappings.push({...snapshot.mappings.find(mapping=>mapping.vendor_item_id===expiring.id),id:'each-incompatible-peer',vendor_item_id:third.id});
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.match(text(priceButton()),/Sample Vendor.*16\.75/,'an approved but incomparable $1 volume pack cannot enter the weight ranking');
+assert.equal(priceButton().props['aria-description'],'2 vendors quote this item');
+await selectHoney('Third Vendor');
+assert.equal(honeyPlus().props.disabled,true,'the incompatible offer remains visible with a comparison hold');
+assert.match(priceButton().props.title,/comparison measurement/);
+await selectHoney('Sample Vendor');
+await act(async()=>honeyPlus().props.onClick());
+assert.match(text(aside()),/Sample Vendor.*1 each × \$16\.75/,'the comparable weight offer remains orderable');
+await act(async()=>tree.unmount());
+console.log('PASS C2.5 approved product links keep incomparable purchasing packs visible without affecting ranking.');
+
+store.delete('kerdos.basket.org');
+snapshot.mappings.splice(snapshot.mappings.findIndex(mapping=>mapping.vendor_item_id===incompletePeer.id),1);
+queryRecords=table=>table==='catalog_items'?{
+ update:patch=>({eq:async(field,id)=>{
+  assert.equal(field,'id');
+  assert.equal(id,'ci1');
+  Object.assign(catalogItems.find(item=>item.id===id),patch);
+  return {data:[],error:null};
+ }})
+}:emptyQuery();
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(honeyPlus().props.disabled,true,'equal competing dimensions hold automatic purchasing');
+const goTo=async label=>await act(async()=>tree.root.findByProps({'aria-label':'Workspace tabs'}).findAllByType('button').find(button=>text(button)===label).props.onClick());
+await goTo('Item Catalog');
+const productDetails=tree.root.findAllByType('button').find(button=>text(button)==='Product details');
+await act(async()=>productDetails.props.onClick());
+const details=tree.root.findAllByProps({className:'catalog-product-summary'}).find(row=>text(row).includes('Honey Mustard'));
+await act(async()=>details.props.onClick());
+const comparisonUnit=tree.root.findByProps({'aria-label':'Compare per for Honey Mustard'});
+const units=comparisonUnit.findAllByType('option').map(option=>option.props.value);
+assert.ok(units.includes('LB')&&units.includes('GAL'),'both quoted pack dimensions can be chosen');
+await act(async()=>comparisonUnit.props.onChange({target:{value:'LB'}}));
+assert.equal(catalogItems.find(item=>item.id==='ci1').canonical_unit,'LB');
+await goTo('Order Guide');
+assert.equal(honeyPlus().props.disabled,false,'the saved comparison preference resolves the tie');
+assert.match(text(priceButton()),/Sample Vendor.*16\.75/);
+await act(async()=>tree.unmount());
+console.log('PASS C2.5 a comparison tie can be resolved through the existing Item Catalog preference.');
+
+
+
 
 console.log('PASS G actual App: three-offer normalized winner, incomplete cheap peer held, whole-pack basket charge and locked supplier minimum shortfall');
 console.log('PASS rendered complete Order Guide: existing item numbers, canonical A–Z names, held group rows, vendor choices and disabled ordering without manufactured approvals.');

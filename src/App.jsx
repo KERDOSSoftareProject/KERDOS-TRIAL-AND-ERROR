@@ -5,7 +5,6 @@ import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
 import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
 import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {automaticAlternativeVerified} from "./core/alternative-groups.js";
-import {defaultComparisonUnit} from "./core/quote-controls.js";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
@@ -17,8 +16,8 @@ import { createVendorService } from "./services/vendors.js";
 import { createCatalogService } from "./services/catalog.js";
 import { createOperationsService } from "./services/operations.js";
 import { loadSnapshot, saveSnapshot } from "./offline-store.js";
-import { configureProcurement, priceBasisFor, pricePerUnit, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
-import { blockReason, orderable, priceForOffer, rankVendorOffers, solveOrder, supportsOrderUnit } from "./core/ordering.js";
+import { configureProcurement, priceBasisFor, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
+import { blockReason, compareOrderOffers, orderable, priceForOffer, rankVendorOffers, solveOrder, supportsOrderUnit } from "./core/ordering.js";
 import {orderGuideGroups,orderGuideCategories} from './core/order-guide-groups.js';
 import {associationProfile,productAssociationIdentity,productGroupApproved} from './core/product-associations.js';
 import {clientProductName} from './core/client-product-name.js';
@@ -491,19 +490,22 @@ export default function App() {
         }
       }
 
-      // Per-unit price for the honest cross-vendor comparison. Shown in
-      // the unit the client chose for this item (canonical_unit), or,
-      // until they choose one, the unit of the first readable pack.
-      const firstPack=options.map(o=>parsePackSize(o.packSize)).find(p=>p?.parsed);
-      const displayUnit=ci.canonical_unit||defaultComparisonUnit(options.find(o=>parsePackSize(o.packSize)?.parsed)?.packSize,org?.industry)||options.find(o=>o.costOverride)?.costOverride.unit||null;
-      for(const o of options){
-        o.perUnit=o.costOverride?{price:Number(o.costOverride.price),unit:o.costOverride.unit}:(orderable(o)&&displayUnit)?pricePerUnit(o.casePrice,o.packSize,displayUnit):null;
-        // Never represent unlike dimensions as competing per-unit offers.
-        if(o.perUnit && o.perUnit.unit!==displayUnit) o.perUnit=null;
-        if(orderable(o)&&options.filter(orderable).length>1&&!o.perUnit&&!o.automaticAlternative){
-          o.unverified=true;o.qualificationReason="Choose a shared comparison measurement or correct the pack before ranking alternatives";
+      // Case and Each are independent purchasing choices. A linked offer
+      // contributes comparison evidence only after its own quote is ready.
+      let orderComparisonUnit=null;
+      for(const orderUnit of ["case","each"]){
+        const unitOffers=options.filter(option=>supportsOrderUnit(option,orderUnit));
+        const comparison=compareOrderOffers(unitOffers,{orderUnit,preferredUnit:ci.canonical_unit,industry:org?.industry});
+        orderComparisonUnit||=comparison.unit;
+        for(const option of unitOffers){
+          option.perUnit=comparison.rates.get(option)||null;
+          if(orderable(option)&&!comparison.comparable.has(option)){
+            option.unverified=true;
+            option.qualificationReason="Choose a shared comparison measurement or correct the pack before ranking alternatives";
+          }
         }
       }
+      const displayUnit=ci.canonical_unit||orderComparisonUnit;
 
       return {
         catalogItemId:ci.id,
@@ -519,7 +521,6 @@ export default function App() {
         matchingBehavior:ci.matching_behavior||"flexible",
         canonicalUnit:ci.canonical_unit||null,
         displayUnit,
-        unitDimension:firstPack?.dimension||null,
         options,
         // All distinct vendor IDs linked to this KERDOS item, regardless of
         // whether they are currently orderable. Used by the multi-vendor badge

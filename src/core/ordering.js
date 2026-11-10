@@ -1,4 +1,5 @@
-import {parsePackSize,measurement} from "../procurement.js";
+import {comparePurchasingPack,parsePackSize,measurement,pricePerUnit} from "../procurement.js";
+import {defaultComparisonUnit} from "./quote-controls.js";
 // Industry-neutral ordering rules. UI and persistence adapters supply plain
 // items/vendors; this module decides eligibility and allocation.
 const money=value=>Math.round(Number(value)*100)/100;
@@ -30,6 +31,40 @@ export function supportsOrderUnit(option,unit){
   return unit===(option.quoteBasis==="each"?"each":"case");
 }
 
+const purchasingPack=(option,unit=option.orderUnit)=>unit==="each"?option.eachSize||option.packSize:option.packSize;
+
+// Build one comparison for a single order unit using ready listings.
+export function compareOrderOffers(options,{orderUnit,preferredUnit,industry}={}){
+  const ready=options.filter(orderable);
+  const units=new Set([preferredUnit,...ready.map(option=>
+    option.costOverride?.unit||defaultComparisonUnit(option.packSize,industry))].filter(Boolean));
+  const groups=[];
+  for(const unit of units){
+    const rates=new Map();
+    for(const option of ready){
+      const rate=option.costOverride?{price:Number(option.costOverride.price),unit:option.costOverride.unit}:
+        pricePerUnit(option.casePrice,option.packSize,unit);
+      if(rate?.unit===unit&&Number.isFinite(rate.price)&&rate.price>0)rates.set(option,rate);
+    }
+    if(rates.size)groups.push({unit,rates,vendors:new Set([...rates.keys()].map(option=>option.vendorId)).size});
+  }
+  const preferred=groups.find(group=>group.unit===preferredUnit);
+  if(preferred)return {unit:preferred.unit,rates:preferred.rates,comparable:new Set(preferred.rates.keys())};
+
+  // Without a preferred unit, choose the largest comparable set of vendors.
+  // Multiple units may describe the same set, such as pounds and ounces.
+  const maxVendors=Math.max(0,...groups.map(group=>group.vendors));
+  const largest=groups.filter(group=>group.vendors===maxVendors);
+  const [leader]=largest;
+  const sameSet=leader&&largest.every(group=>group.rates.size===leader.rates.size&&
+    [...group.rates.keys()].every(option=>leader.rates.has(option)));
+  if(sameSet)return {unit:leader.unit,rates:leader.rates,comparable:new Set(leader.rates.keys())};
+
+  const comparable=ready.length<=1||ready.every(option=>
+    comparePurchasingPack(purchasingPack(option,orderUnit),purchasingPack(ready[0],orderUnit)).status==="same");
+  return {unit:null,rates:new Map(),comparable:new Set(comparable?ready:[])};
+}
+
 // An agreed price belongs to one vendor and one purchasing unit. It
 // participates in the ranking like a current quote; vendor choice is a
 // separate explicit override.
@@ -47,8 +82,7 @@ export function priceForOffer(option,negotiation,unit="case"){
 export function offerDollarDifference(option,best){
   if(!option||!best||!orderable(option)||!orderable(best))return null;
   if(!best.comparisonUnit)return money(Math.max(0,option.unitPrice-best.unitPrice));
-  const pack=parsePackSize(option.orderUnit==="each"?option.eachSize||option.packSize:option.packSize);
-  const reference=parsePackSize(best.orderUnit==="each"?best.eachSize||best.packSize:best.packSize);
+  const pack=parsePackSize(purchasingPack(option)),reference=parsePackSize(purchasingPack(best));
   const dimension=measurement(1,best.comparisonUnit)?.dimension;
   if(!option.costOverride&&!best.costOverride&&pack?.parsed&&reference?.parsed&&pack.dimension===dimension&&reference.dimension===dimension&&pack.baseTotal>0){
     return money(Math.max(0,option.unitPrice*reference.baseTotal/pack.baseTotal-best.unitPrice));

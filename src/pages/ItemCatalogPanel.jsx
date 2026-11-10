@@ -769,7 +769,8 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                       // Brands come from this item's own vendor options - a lock can
                       // only ever name a brand some vendor actually lists.
                       const brands=[...new Set(item.options.map(o=>String(o.brand||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-                      const units=item.unitDimension?unitsForDimension(item.unitDimension):[];
+                      const units=[...new Set([item.canonicalUnit,...item.options.flatMap(option=>
+                        option.costOverride?[option.costOverride.unit]:unitsForDimension(parsePackSize(option.packSize)?.dimension))].filter(Boolean))];
                       const sel={...inp,fontSize:11,padding:"4px 6px",width:"auto"};
                       const lbl={fontSize:10,fontWeight:700,color:"#AAA",letterSpacing:"0.06em",textTransform:"uppercase"};
                       return (
@@ -806,7 +807,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                           <div>
                             <div style={lbl}>Compare per</div>
                             {units.length?(
-                              <select style={sel} value={item.canonicalUnit||""}
+                              <select aria-label={`Compare per for ${item.name}`} style={sel} value={item.canonicalUnit||""}
                                 onChange={e=>handleItemSetting(item.catalogItemId,{canonical_unit:e.target.value||null})}>
                                 <option value="">Auto ({item.displayUnit||"—"})</option>
                                 {units.map(u=><option key={u} value={u}>{u}</option>)}

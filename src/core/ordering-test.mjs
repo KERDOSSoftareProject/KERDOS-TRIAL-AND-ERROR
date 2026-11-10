@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {blockReason,orderable,priceForOffer,rankVendorOffers,offerDollarDifference,solveOrder} from "./ordering.js";
+import {blockReason,compareOrderOffers,orderable,priceForOffer,rankVendorOffers,offerDollarDifference,solveOrder} from "./ordering.js";
 const option=(vendorId,price,extra={})=>({vendorId,vendorName:vendorId,vendorItemId:`${vendorId}-item`,price,packSize:"1 CT",matchTrack:"exact",matchConfidence:100,...extra});
 assert.equal(orderable(option("a",10)),true);
 assert.equal(orderable(option("a",10,{matchTrack:"new"})),false);
@@ -112,6 +112,22 @@ const sameVendorEach=pricedEach.map(o=>({...o,vendorId:"shared"}));
 const sameVendorOrder=solveOrder([{catalogItemId:"shared",quantity:2,orderUnit:"each",options:sameVendorEach}],[])[0];
 assert.equal(sameVendorOrder.vendorItemId,"large-item","same-vendor rates remain scoped to the individual listing");
 assert.equal(sameVendorOrder.lineTotal,33.50);
+
+const byVolume=option("volume",1,{quoteBasis:"each",eachSize:"1 GAL",packSize:"1 GAL",eachPrice:1,casePrice:1});
+const incompatible=[byVolume,...pricedEach];
+for(const options of [incompatible,[...incompatible].reverse()]){
+  const comparison=compareOrderOffers(options,{orderUnit:"each"});
+  assert.deepEqual(new Set(comparison.comparable),new Set(pricedEach),"the two weight vendors keep their comparison in either input order");
+  assert.equal(comparison.rates.has(byVolume),false);
+}
+const tied=[byVolume,pricedEach[0]];
+assert.equal(compareOrderOffers(tied,{orderUnit:"each"}).comparable.size,0,"a tie between unrelated measurements needs a choice");
+const preferred=compareOrderOffers(tied,{orderUnit:"each",preferredUnit:"GAL"});
+assert.equal(preferred.unit,"GAL");
+assert.deepEqual([...preferred.comparable],[byVolume],"the catalog's supported comparison unit takes precedence");
+const expiredVolume={...byVolume,expired:true};
+assert.deepEqual([...compareOrderOffers([expiredVolume,pricedEach[0]],{orderUnit:"each"}).comparable],[pricedEach[0]]);
+
 
 
 // [4a] Dollar-minimum fill — path A success.
