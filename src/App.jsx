@@ -39,7 +39,7 @@ import {pageName} from "./ui/workspace-pages.js";
 import VendorConnectPage from "./pages/VendorConnectPage.jsx";
 import {settleScheduledImport} from "./services/scheduled-refresh-result.js";
 import {listMessages} from "./services/email-routing.js";
-import {PALETTE,btn,inp} from "./ui/styles.js";
+import {PALETTE,btn,fieldHighlight,inp} from "./ui/styles.js";
 
 const documents=createDocumentService(backend);
 const organizationService=createOrganizationService(backend);
@@ -1080,9 +1080,9 @@ export default function App() {
                             </div>
                             <div style={{fontSize:10,color:'#52647A',marginTop:4}}>KERDOS #{item.masterItemNumber}</div>
                           </div>,
-                          <div className="order-item-unit" key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?"#E0F2F1":"#FAFBFC"}}>
+                          <div className="order-item-unit" key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?fieldHighlight.fill:"#FAFBFC"}}>
                             <select aria-label={`Order unit for ${item.name}`} value={selectedUnit} onChange={e=>setUnitSelection(prev=>({...prev,[item.catalogItemId]:e.target.value}))}
-                              style={{width:"100%",fontSize:11,padding:"4px 2px",borderRadius:6,border:hasEach?"2px solid #008577":"1px solid #DDD",background:"white",color:hasEach?"#00695C":"#444",fontWeight:hasEach?800:400}}>
+                              style={{width:"100%",fontSize:11,padding:"4px 2px",borderRadius:6,border:hasEach?`2px solid ${fieldHighlight.accent}`:"1px solid #DDD",background:"white",color:hasEach?fieldHighlight.accent:"#444",fontWeight:hasEach?800:400}}>
                               <option value="case" disabled={!canSelectCase}>Case {!hasCase?"(unavailable)":""}</option>
                               <option value="each" disabled={!canSelectEach}>Each {!hasEach?"(unavailable)":""}</option>
                             </select>
@@ -1100,7 +1100,7 @@ export default function App() {
                               <div className="order-price-card" data-price-menu style={{border:"1px solid #CBD5E1",position:"relative"}}>
                               <button onClick={()=>setOpenPriceMenu(menuOpen?null:activeKey)} aria-label={`Price choices for ${item.name}`} aria-haspopup={mobileDetails?"dialog":"true"} aria-expanded={menuOpen}
                                 aria-description={multipleVendors?`${vendorCount} vendors quote this item`:undefined}
-                                title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?'2px solid #008577':'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?'#E0F2F1':'white',cursor:'pointer',fontSize:12}}>
+                                title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?`2px solid ${fieldHighlight.accent}`:'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?fieldHighlight.fill:'white',cursor:'pointer',fontSize:12}}>
                                 {activeVendorName||'Select listing'} · {activePrice==null?'Price unavailable':formatMoney(activePrice)} <span style={{float:'right'}}>{menuOpen?'▴':'▾'}</span>
                               </button>
                               {vendorOverride[activeKey]&&<div style={{display:'flex',justifyContent:'space-between',gap:6,alignItems:'baseline',marginTop:4}}>

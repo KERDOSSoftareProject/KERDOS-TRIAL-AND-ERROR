@@ -60,7 +60,8 @@ await act(async()=>{tree=Renderer.create(React.createElement(App));});
 const priceButton=()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});
 assert.match(text(priceButton()),/Sample Vendor/);
 assert.equal(priceButton().props['aria-description'],'2 vendors quote this item');
-assert.equal(priceButton().props.style.border,'2px solid #008577');
+assert.equal(priceButton().props.style.border,'2px solid #1565C0');
+assert.equal(priceButton().props.style.background,'#E3F2FD');
 const orderUnitOption=(value)=>tree.root.findByProps({'aria-label':'Order unit for Honey Mustard'}).findAllByType('option').find(option=>option.props.value===value);
 assert.equal(orderUnitOption('each').props.disabled,true,'a quoted case does not authorize ordering an inner unit');
 
@@ -248,6 +249,7 @@ for(const id of [incompletePeer.id,third.id,alternate.id]){
 }
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 assert.equal(honeyUnit().props.value,'each','one five-pound package quoted each defaults to Each');
+assert.equal(honeyUnit().props.style.border,'2px solid #1565C0');
 assert.equal(orderUnitOption('case').props.disabled,true,'the comparison equivalent cannot become a case offer');
 assert.match(text(priceButton()),/Sample Vendor.*16\.75/);
 await act(async()=>honeyPlus().props.onClick());

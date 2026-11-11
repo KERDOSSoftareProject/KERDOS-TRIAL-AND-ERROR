@@ -80,9 +80,8 @@ assert.deepEqual(tierRows.map(n=>text(n.find(c=>c.type==='td'&&c.props['data-fie
   ['', 'Tier 2 · Inferred Migration','Tier 3 · No Unit Migration','Tier 4 · Client Required Migration']);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));
 
-assert.deepEqual(tierRows.map(n=>n.props.style['--catalog-field-fill']),[undefined,'#EEF6FF','#DCEBFF','#C6DFFF']);
-assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],[],[],['Quoted price']]);
-assert.match(tree.root.findByType('style').children.join(''),/\[data-catalog-review-field\] :is\(input, select\):enabled/,'only writable controls in the flagged field receive the fill');
+assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],['Unit cost'],['Unit cost'],['Quoted price']]);
+assert.match(tree.root.findByType('style').children.join(''),/\[data-catalog-review-field\] :is\(input, select\):enabled \{ background-color: #E3F2FD; box-shadow: inset 0 0 0 2px #1565C0; \}/,'flagged writable controls use one blue fill and border');
 for(const n of tierRows)assert.ok(n.findAllByType('td').every(cell=>!cell.props.style.backgroundColor),'surrounding cells stay neutral');
 await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');

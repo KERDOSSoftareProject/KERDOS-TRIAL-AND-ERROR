@@ -7,5 +7,6 @@ export const PALETTE=[
   {bg:"#E0F2F1",accent:"#00695C",light:"#B2DFDB"},
 ];
 export const inp={width:"100%",padding:"10px 12px",border:"1px solid #E0E0E0",borderRadius:8,fontSize:14,outline:"none",boxSizing:"border-box"};
+export const fieldHighlight={fill:"#E3F2FD",accent:"#1565C0"};
 export const btn=(bg,color="white",extra={})=>({padding:"10px 18px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:14,background:bg,color,...extra});
 export const chipStyle=(isSelected,size="md")=>({fontSize:size==="sm"?11:12,fontWeight:700,cursor:"pointer",padding:size==="sm"?"5px 12px":"6px 14px",borderRadius:size==="sm"?16:20,background:isSelected?"white":"rgba(255,255,255,0.14)",color:isSelected?"#003584":"white",border:isSelected?"2px solid white":"2px solid rgba(255,255,255,0.3)"});

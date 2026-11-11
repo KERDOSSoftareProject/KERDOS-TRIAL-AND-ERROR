@@ -17,7 +17,7 @@ import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOC
 import {catalogMigrationAssessment} from "../core/catalog-migration-tier.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost} from "../procurement.js";
 import {formatMoney} from "../localization.js";
-import {btn,inp} from "../ui/styles.js";
+import {btn,fieldHighlight,inp} from "../ui/styles.js";
 
 const service=createCatalogRowsService(backend);
 const variableWeightService=createVariableWeightService(backend);
@@ -25,7 +25,6 @@ const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"}
 const visibleColumns=CATALOG_COLUMNS.filter(([key])=>key!=="sellingUnit");
 const BASE_COLUMNS=new Set(['itemNumber','vendor','vendorItemNumber','category','itemName','product','price']);
 const BASE_EDIT_FIELDS=new Set(['description','price','category_id']);
-const tierFills={2:"#EEF6FF",3:"#DCEBFF",4:"#C6DFFF"};
 const tierNames={2:"Inferred Migration",3:"No Unit Migration",4:"Client Required Migration"};
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
 // Source and editor notes remain available without confidence/origin badges.
@@ -133,7 +132,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const saveStatus=autoSave?<small role={error?'alert':'status'} style={{display:'block',marginTop:4,color:error?'#A32B20':'#276742'}}>{busy?'Saving…':error?error:dirty?'Waiting to save…':saved?'Saved':''}{error&&dirty&&<><button onClick={()=>setError('')} style={{border:0,background:'none',color:'#003584'}}>Retry</button><button onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setOverrideCost('');setError('');}} style={{border:0,background:'none'}}>Discard unsaved edits</button></>}</small>:null;
   const fields={product:"description",brand:"brand",price:"price"};
   return <>
-    <tr role="row" data-migration-tier={tier} style={{background:"white","--catalog-field-fill":tierFills[tier]}}>
+    <tr role="row" data-migration-tier={tier} style={{background:"white"}}>
       {visibleColumns.map(([key,label])=>{
         if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
         const f=key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];let content;
@@ -174,7 +173,8 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </>;
         const sourceKey={product:"description",pack:"packSize"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&tierFields.has(key)?true:undefined} style={cellStyle}>
+        const reviewField=key==="unitCost"?"sellingUnit":key;
+        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&tierFields.has(reviewField)?true:undefined} style={cellStyle}>
           {content}
           {key==="itemName"&&tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
@@ -269,7 +269,7 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
   const browseById=new Map(items.map(item=>[item.catalogItemId,item]));
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div data-catalog-base-trial={baseFieldsOnly} style={{borderRadius:10,background:"white",marginBottom:16}}>
-    <style>{'td[data-catalog-review-field] :is(input, select):enabled { background-color: var(--catalog-field-fill); }'}</style>
+    <style>{`td[data-catalog-review-field] :is(input, select):enabled { background-color: ${fieldHighlight.fill}; box-shadow: inset 0 0 0 2px ${fieldHighlight.accent}; }`}</style>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     {orderedGroups.map(group=>{
       const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;
