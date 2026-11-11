@@ -91,8 +91,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   }
   const rememberedWithoutStatedUnit=resolved?.source==='confirmed vendor item'&&!invoiceConfirmsUnit&&!printedQuoteEvidence(rawSource,procurement).present;
   if((!resolved||rememberedWithoutStatedUnit)&&!invoiceConflict&&!reasons.length){
-    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement,{currentUnit:resolved?.sellingUnit});
-    if(inference){
+    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement,{currentUnit:resolved?.sellingUnit,reviewOutlier:true});
+    if(inference?.kind==='unresolved')reasons.push(`Quoted unit needs review. ${inference.reason}`);
+    else if(inference){
       row={...row,sellingUnit:inference.value,sellingUnitSource:'inferred',
         fieldInference:{...row.fieldInference,sellingUnit:inference}};
       resolved={basis:procurement.priceBasisFor(inference.value),sellingUnit:inference.value,source:'inferred'};

@@ -77,9 +77,17 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
   const category=categories.find(c=>c.id===categoryId);
   const evidenceItem={...displayItem,category_id:categoryId,category_review:'category_id' in draft?!!category?.is_holding_pen:displayItem.category_review};
   const previewMapping=linkDirty?{...mapping,catalog_item_id:displayItem.id,comparison_track:"review",confidence_score:null}:mapping;
-  const inference=!linkDirty&&original.row_revision===vendorItem.row_revision&&
-    !["description","brand","price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key))?quoteBasisInference:null;
-  const projected=inference?.value?{...current,price:inference.price??current.price,pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:{...current,quoteBasisInference:inference};
+  const quoteEdited=["description","brand","price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key));
+  const quoteContext={item:evidenceItem,mapping:previewMapping,
+    groupMappings:allMappings.filter(link=>link.catalog_item_id===displayItem.id),settings,
+    checkEditedAmount:Object.hasOwn(draft,"price")};
+  const refreshed=quoteEdited||linkDirty;
+  const draftProjection=refreshed?normalizeCatalogQuote(current,displayPeers,quoteContext):null;
+  const inference=refreshed?draftProjection.quoteBasisInference:
+    original.row_revision===vendorItem.row_revision?quoteBasisInference:null;
+  const projected=draftProjection||(inference?.value?{...current,price:inference.price??current.price,
+    pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,
+    price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:{...current,quoteBasisInference:inference});
   const evidence=catalogRowEvidence({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,industry,editors});
   const assessment=orderGuideAssessment({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,settings});
   const packUnits=unitChoices(vocabulary,true,industry);
@@ -94,9 +102,10 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const hasSupportedInference=key=>key==='selling_unit'&&listingSourceForField(current,'selling_unit').evidence.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
   const displayed=key=>inference?.value&&["selling_unit","pack_size","price"].includes(key)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
+  const inputValue=key=>Object.hasOwn(draft,key)?current[key]??"":displayed(key);
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
-  const shownPack=packParts||editablePack(displayed("pack_size"));
+  const shownPack=packParts||editablePack(inputValue("pack_size"));
   function confirmReview(){
     const pack=displayed("pack_size"),price=Number(displayed("price"));
     const description=displayed("description"),brand=displayed("brand");
@@ -120,8 +129,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
       return;
     }
     const proposed={...current,description,brand,pack_size:pack,selling_unit:unit,price,price_basis:basis.basis};
-    const checked=normalizeCatalogQuote(proposed,displayPeers,{item:evidenceItem,mapping:previewMapping,
-      groupMappings:allMappings.filter(link=>link.catalog_item_id===displayItem.id),settings});
+    const checked=normalizeCatalogQuote(proposed,displayPeers,quoteContext);
     if(checked.quoteBasisInference){
       if(checked.quoteBasisInference.value){
         if(checked.pack_size!==pack)edit("pack_size",checked.pack_size);
@@ -207,7 +215,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
           {!baseFieldsOnly&&!parsedPack?.parsed&&current.pack_size&&!/^(CASE|EACH):/.test(current.pack_size)&&<small style={{display:"block"}}>From sheet: {current.pack_size}</small>}
         </>;
         else if(key==="itemName")content=<><input list={baseFieldsOnly?`client-items-${vendorItem.id}`:undefined} aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);const target=allCatalogItems.find(candidate=>!candidate.merged_into_id&&candidate.name===e.target.value);if(baseFieldsOnly&&target){setNumberDraft(String(target.master_item_number));setNameDraft(null);if(autoSave)setDraft(prior=>Object.fromEntries(Object.entries(prior).filter(([key])=>key!=="category_id")));}else{setNumberDraft(null);setNameDraft(e.target.value);}setSaved(false);setError("");}} />{baseFieldsOnly&&<datalist id={`client-items-${vendorItem.id}`}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id).map(candidate=><option key={candidate.id} value={candidate.name}/>)}</datalist>}</>;
-        else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
+        else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={inputValue(fields[key])} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
@@ -220,7 +228,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
         const sourceKey={product:"description",pack:"packSize"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
         const reviewField=key==="unitCost"?"sellingUnit":key;
-        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&tierFields.has(reviewField)?true:undefined} style={cellStyle}>
+        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&(tierFields.has(reviewField)||reviewField==="sellingUnit"&&!!inference||key==="pack"&&!!inference?.packSize)?true:undefined} style={cellStyle}>
           {content}
           {key==="brand"&&onPreferBrand&&displayed("brand").trim()&&<label style={{display:"block",marginTop:4,fontSize:11}}>
             <input type="checkbox" checked={brandsMatch(preferredBrand,displayed("brand"))}
@@ -228,11 +236,11 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
           </label>}
           {key==="itemName"&&<>
             {tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
-            {autoSave&&canManage&&tier===1&&!showUnitChooser&&<button type="button"
+            {autoSave&&canManage&&tier===1&&!inference&&!showUnitChooser&&<button type="button"
               style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4})}
               aria-label={`Correct quoted unit for ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
               disabled={busy||linkDirty} onClick={()=>setChoosingQuotedUnit(true)}>Correct</button>}
-            {autoSave&&canManage&&tierNames[tier]&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
+            {autoSave&&canManage&&(tierNames[tier]||inference)&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
               aria-label={inference?.packSize?"Confirm pack and quoted unit":inference?.value?"Confirm quoted unit":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
               disabled={busy||linkDirty||showUnitChooser} onClick={confirmReview}>Confirm</button>}
             {showUnitChooser&&<select autoFocus aria-label="Quoted unit" style={{...inputStyle,marginTop:4}}

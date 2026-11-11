@@ -60,6 +60,15 @@ try{
  assert.equal(confirmButton.props.style.border,'1px solid #1565C0');
  assert.equal(confirmButton.props.style.padding,'4px 8px');
  assert.equal(confirmButton.parent.props['data-field-label'],'Item name');
+ const priceInput=()=>tree.root.findByProps({'aria-label':'price for AC0'});
+ const beforeEdit=calls.length;
+ await act(async()=>priceInput().props.onChange({target:{value:'17'}}));
+ assert.equal(priceInput().props.value,'17','the editor keeps the amount being typed');
+ assert.equal(text(tree.root.findByProps({'aria-label':'Calculated unit cost for AC0'})),'$3.40',
+   'editing one field reruns the comparison without discarding the normalized pack');
+ assert.equal(calls.length,beforeEdit,'recalculation does not persist the proposal');
+ await act(async()=>priceInput().props.onChange({target:{value:'16.75'}}));
+
  await act(async()=>tree.update(React.createElement(CatalogRows,{...cheeseProps,vendorItems:cheeseListings.map((row,index)=>index===1?{...row,price:100}:row)})));
  assert.equal(tree.root.findByProps({'aria-label':'Pack for AC0'}).props.value,'','a changed group price removes the unsupported inference');
  await act(async()=>tree.unmount());

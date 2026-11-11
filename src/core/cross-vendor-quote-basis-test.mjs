@@ -56,6 +56,22 @@ for(const industry of ['restaurant','construction']){
  assert.equal(normalized.price,16.75);
  assert.equal(normalized.quoteBasisInference.evidence.inferredCasePrice,67);
  assert.equal(calculatedUnitCost(normalized,{procurement:context}).price,3.35);
+ const mixedPacks=[
+   {...comparables[0],pack_size:'2/5 LB',price:27.45},
+   {...comparables[1],pack_size:'2/20 LB',price:131.28},
+ ];
+ const groupMappings=mixedPacks.map(peer=>({...mapping,vendor_item_id:peer.id}));
+ const mixed=normalizeCatalogQuote(saved,mixedPacks,{item,mapping,groupMappings,procurement:context});
+ assert.equal(mixed.selling_unit,'EACH','verified mixed packs use comparable physical quantities');
+ assert.deepEqual(mixed.quoteBasisInference.evidence.references.map(peer=>peer.comparableCharge),[54.9,65.64]);
+ assert.equal(normalizeCatalogQuote(saved,mixedPacks,{item,mapping,procurement:context}),saved,
+   'different packs require verified catalog links');
+ const revisedAmount={...saved,price:17};
+ assert.equal(normalizeCatalogQuote(revisedAmount,mixedPacks,{item,mapping,groupMappings,procurement:context,checkEditedAmount:true}).selling_unit,'EACH');
+ assert.equal(normalizeCatalogQuote({...revisedAmount,field_resolutions:{...saved.field_resolutions,
+   price:{value:17,confirmedBy:'reviewer'}}},mixedPacks,{item,mapping,groupMappings,procurement:context}).selling_unit,'EACH',
+   'saving an edit does not bypass the same comparison');
+
  assert.equal(catalogMigrationAssessment({item,listing:normalized,mapping,procurement:context}).tier,2);
  assert.ok(orderGuideAssessment({item,vendorItem:normalized,mapping,procurement:context}).blockers.includes('sellingUnit'));
  assert.deepEqual(saved,original,'the calculation must preserve the saved quote and the original document');
