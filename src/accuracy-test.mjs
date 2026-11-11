@@ -27,10 +27,12 @@ await test("a pack read from the description is 90; a sheet-wide unit is 90; a g
   const e=ev({...base,import_row:{row:{packSource:"description",sellingUnitSource:"sheet"}}},{item:{...item,category_review:true,category_reason:"Best guess from existing items"}});
   assert.equal(e.pack.accuracy,90);assert.equal(e.sellingUnit.accuracy,90);assert.equal(e.category.accuracy,70);
 });
-await test("a value the client typed reads 100% with their initials; a contradiction stays as a note",()=>{
-  const e=catalogRowEvidence({item,vendorItem:{...base,pack_size:"1/160 CT",field_resolutions:{pack_size:{confirmedBy:"u1"}}},mapping,vendor,category,peers:[],editors:{u1:{email:"dino.maniatis@example.com"}}});
-  assert.equal(e.pack.accuracy,100);assert.equal(e.pack.by,"DM");assert.match(e.pack.reason,/^Set by DM/);assert.match(e.pack.reason,/doesn't fit a price quoted per/);
+await test("a value the client typed reads 100% with their name; a contradiction stays as a note",()=>{
+  const input={item,vendorItem:{...base,pack_size:"1/160 CT",field_resolutions:{pack_size:{confirmedBy:"u1"}}},mapping,vendor,category,peers:[]};
+  const e=catalogRowEvidence({...input,editors:{u1:{name:"Kai Morgan",email:"orders@example.com"}}});
+  assert.equal(e.pack.accuracy,100);assert.equal(e.pack.by,"Kai Morgan");assert.match(e.pack.reason,/^Set by Kai Morgan/);assert.match(e.pack.reason,/doesn't fit a price quoted per/);
   assert.equal(e.unitCost.value,null);
+  assert.equal(catalogRowEvidence({...input,editors:{u1:{email:"orders@example.com"}}}).pack.by,"");
 });
 await test("initials come from a name when there is one, else the email",()=>{
   assert.equal(initialsFor({name:"Spiro Maniatis"}),"SM");
