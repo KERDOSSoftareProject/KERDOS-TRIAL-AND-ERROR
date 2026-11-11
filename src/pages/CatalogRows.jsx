@@ -90,9 +90,9 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const hasSupportedInference=key=>key==='selling_unit'&&listingSourceForField(current,'selling_unit').evidence.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
-  const displayed=key=>inference&&(key==="selling_unit"||key==="pack_size"&&inference.packSize)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
+  const displayed=key=>inference&&["selling_unit","pack_size","price"].includes(key)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
-  const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!trialVisible.pack_size,industry}):null;
+  const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(displayed("pack_size"));
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
@@ -171,6 +171,10 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
           {inference&&<small style={{display:"block"}} title={inference.reason}>Inferred price per {inferredBasisLabel}</small>}
+          {inference&&autoSave&&canManage&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11})} disabled={busy||dirty} onClick={()=>{
+            if(inference.packSize)edit("pack_size",inference.packSize);
+            edit("selling_unit",inference.value);
+          }}>Confirm {inference.packSize?"pack and quoted unit":"quoted unit"}</button>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
             {current.unit_cost_unit&&!comparisonUnits(calculationPack).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}

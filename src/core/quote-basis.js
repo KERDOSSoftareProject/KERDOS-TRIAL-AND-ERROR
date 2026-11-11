@@ -45,10 +45,12 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
   if(!scope?.organizationId||!scope.vendorId||(!currentUnit&&String(row.sellingUnit||'').trim())||row.priceUnavailable||!(Number(row.price)>0))return null;
   const pack=procurement.parsePackSize(row.packSize);
   if(!pack?.parsed||pack.catchWeight||pack.dimension==='unknown')return null;
-  const references=[];
-  for(const peer of listings){
+  const byVendor=new Map();
+  const newestFirst=[...listings].sort((a,b)=>String(b.last_updated||'').localeCompare(String(a.last_updated||''))||
+    String(a.id||'').localeCompare(String(b.id||'')));
+  for(const peer of newestFirst){
     if(!peer.id||peer.organization_id!==scope.organizationId||!peer.vendor_id||peer.vendor_id===scope.vendorId)continue;
-    if(procurement.quoteStatus(peer,settings,now)!=='current'||peer.import_row?.reviewRequired)continue;
+    if(byVendor.has(peer.vendor_id)||procurement.quoteStatus(peer,settings,now)!=='current'||peer.import_row?.reviewRequired)continue;
     const origin=quotedUnitOrigin(peer,procurement);
     if(origin.status!=='confirmed')continue;
     const confirmation=origin.confirmation?.value;
@@ -64,11 +66,11 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
     }
     const casePrice=procurement.casePriceFromQuote(peer.price,basis.basis,basis.unit||peer.selling_unit,peer.pack_size);
     if(!(casePrice>0))continue;
-    references.push({vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:origin.sourceDocumentId||null,
+    byVendor.set(peer.vendor_id,{vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:origin.sourceDocumentId||null,
       description:peer.description,packSize:peer.pack_size,price:Number(peer.price),sellingUnit:peer.selling_unit,casePrice,confirmationSource:confirmation?'client confirmation':'document',confirmedBy:origin.confirmation?.confirmedBy||null,confirmedAt:origin.confirmation?.confirmedAt||null});
   }
-  if(new Set(references.map(peer=>peer.vendorId)).size<2)return null;
-  references.sort((a,b)=>a.vendorItemId.localeCompare(b.vendorItemId));
+  if(byVendor.size<2)return null;
+  const references=[...byVendor.values()].sort((a,b)=>a.vendorItemId.localeCompare(b.vendorItemId));
   const caseCharge=unit=>{
     const basis=procurement.priceBasisFor(unit);
     return basis?procurement.casePriceFromQuote(row.price,basis.basis,basis.unit||unit,row.packSize):null;
@@ -84,7 +86,7 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
   if(plausible.length!==1)return null;
   const sellingUnit=plausible[0].sellingUnit;
   return {value:sellingUnit,kind:'inferred',source:'cross-vendor comparison',accuracy:70,
-    reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${new Set(references.map(peer=>peer.vendorId)).size} other vendors. Only this basis puts the equivalent case charge within 25% of every reference. Confirm before using it.`,
+    reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${references.length} other vendors. Only this basis puts the equivalent case charge within 25% of every reference. Confirm before using it.`,
     evidence:{packSize:row.packSize,price:Number(row.price),relativeTolerance:0.25,references,
       ...(currentCharge>0&&{previousUnit:currentUnit,previousCasePrice:currentCharge,inferredCasePrice:caseCharge(sellingUnit)})}};
 }
@@ -109,7 +111,9 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
     peerMapping.comparison_track==='exact'&&peerMapping.confidence_score===100).map(peerMapping=>peerMapping.vendor_item_id)):null;
   const row={...amountSource.row,description:listing.description,packSize:listing.pack_size,price:listing.price,
     brand:listing.brand,gtin:listing.gtin,manufacturerCode:listing.manufacturer_code,sellingUnit:listing.selling_unit,
-    priceUnavailable:listing.price_unavailable};
+    // A retained amount may be held because its basis is under review. The
+    // original availability and review fields still govern ordering.
+    priceUnavailable:amountSource.row.priceUnavailable};
   const comparisonPeers=item?.brand_locked?peers.filter(peer=>procurement.brandsMatch(peer.brand,item.locked_brand)):peers;
   const inference=inferCrossVendorQuoteBasis(row,comparisonPeers,{organizationId:listing.organization_id,vendorId:listing.vendor_id},
     procurement,{currentUnit:listing.selling_unit,linkedPeerIds,settings,now});

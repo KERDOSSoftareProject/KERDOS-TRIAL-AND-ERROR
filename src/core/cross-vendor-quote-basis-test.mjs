@@ -73,6 +73,25 @@ for(const industry of ['restaurant','construction']){
  assert.equal(normalizeCatalogQuote(saved,comparables.slice(0,1),{procurement:context}),saved);
  const normal={...saved,price:55,import_row:{...saved.import_row,row:{...saved.import_row.row,price:55}}};
  assert.equal(normalizeCatalogQuote(normal,comparables,{procurement:context}),normal,'leave a comparable case quote alone');
+ const volumePack='4/1 GAL';
+ const volumePeers=peers.map((peer,i)=>({...peer,price:[75.74,89.59][i],pack_size:volumePack,
+  import_row:{...peer.import_row,row:{...peer.import_row.row,packSize:volumePack}}}));
+ for(const [price,expected] of [[76.92,19.23],[79.50,19.875]]){
+  const held={...saved,price,pack_size:volumePack,selling_unit:'GAL',price_basis:'measure',price_unavailable:true,
+   field_resolutions:{},import_row:{sourceDocumentId:'retained',reviewRequired:true,reviewFields:['selling_unit'],
+    conflicts:['Quoted unit is inferred'],row:{description:row.description,price,packSize:volumePack,priceUnavailable:false}}};
+  const duplicate={...volumePeers[0],id:'old-copy',price:1000,last_updated:'2000-01-01'};
+  const independent=[{...volumePeers[0],last_updated:'2020-01-01'},volumePeers[1],duplicate];
+  const after=normalizeCatalogQuote(held,independent,{item,mapping,procurement:context});
+  assert.equal(after.selling_unit,'CASE');
+  assert.equal(after.price_unavailable,true);
+  assert.equal(after.quoteBasisInference.evidence.references.length,2);
+  assert.equal(calculatedUnitCost(after,{procurement:context}).price,expected);
+  assert.equal(catalogMigrationAssessment({item,listing:after,mapping,procurement:context}).tier,2);
+  assert.ok(orderGuideAssessment({item,vendorItem:after,mapping,procurement:context}).blockers.includes('sellingUnit'));
+  const withdrawn={...held,import_row:{...held.import_row,row:{...held.import_row.row,priceUnavailable:true}}};
+  assert.equal(normalizeCatalogQuote(withdrawn,independent,{item,mapping,procurement:context}),withdrawn);
+ }
  const reimport=preparePriceImport({...row,price:16.75},saved,mapping,[],[],scope,context,comparables);
  assert.equal(reimport.row.sellingUnit,'EACH');
  assert.equal(reimport.row.sellingUnitSource,'inferred');

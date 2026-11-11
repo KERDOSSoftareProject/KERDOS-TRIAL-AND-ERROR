@@ -482,7 +482,10 @@ export default function App() {
       for(const option of options){
         const conflicting=options.some(other=>{
           if(other.vendorItemId===option.vendorItemId)return false;
-          return comparePurchasingPack(option.packSize,other.packSize).status!=="same" ||
+          // A provisional pack cannot invalidate the other vendors' saved comparisons.
+          const savedPack=viMap.get(option.vendorItemId)?.pack_size||option.packSize;
+          const otherSavedPack=viMap.get(other.vendorItemId)?.pack_size||other.packSize;
+          return comparePurchasingPack(savedPack,otherSavedPack).status!=="same" ||
             compareProductIdentity(option.description,other.description).status!=="same" ||
             // Brand difference only matters when the client requires a specific brand
           (ci.brand_locked&&!!(option.brand||other.brand)&&!brandsMatch(option.brand,other.brand));
