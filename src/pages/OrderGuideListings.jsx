@@ -99,7 +99,8 @@ export function OrderGuideListings({canManage,offers,selectedId,vendorItems,unit
     const rate=ready?offer.perUnit:offer.displayRate;
     const draft=listingEdits.drafts[id];
     const status=draft?.error||(draft?.phase==='draft'?'Saves when minimized':draft?.phase==='queued'||draft?.phase==='saving'?'Saving…':draft?.phase==='saved'?'Saved':'');
-    const value=field=>draft?.patch?.[field]??row?.[field]??'';
+    const proposed=offer.projectedQuote?{price:offer.quotedPrice,pack_size:offer.packSize}:null;
+    const value=field=>draft?.patch?.[field]??proposed?.[field]??row?.[field]??'';
     const disabled=!canManage||!row||draft?.phase==='queued'||draft?.phase==='saving';
     const input=(field,label,{style,...options}={})=> <input aria-label={`${label} for listing ${id}`} style={{...editorStyle,...style}} disabled={disabled} value={value(field)}
       onChange={event=>listingEdits.edit(id,field,event.target.value)} {...options}/>;
@@ -112,7 +113,7 @@ export function OrderGuideListings({canManage,offers,selectedId,vendorItems,unit
       {unit==='each'&&<small style={{display:'block',color:'#667085'}}>Quoted price · {offer.eachPrice==null?'—':formatMoney(offer.eachPrice)+'/each'}</small>}
      </td>
      <td role="cell" data-field-label="Unit Price" title={rate&&!ready?blockReason(offer)||undefined:undefined} style={{padding:6,whiteSpace:'nowrap'}}>{rate?
-      `${formatMoney(rate.price)} / ${rate.unit==='FLOZ'?'fl oz':rate.unit.toLowerCase()}`:'—'}</td>
+      `${formatMoney(rate.price)} / ${rate.unit==='FLOZ'?'fl oz':rate.unit.toLowerCase()}`:'—'}{rate&&offer.projectedQuote&&<small style={{display:'block',color:'#003584'}}>{offer.projectedQuote.note}</small>}</td>
      <td role="cell" data-mobile-wide style={{padding:6}}>{status&&<small role={draft.error?'alert':'status'} style={{display:'block',color:draft.error?'#B42318':'#276742'}}>{status}</small>}
       {canManage&&draft?.phase==='error'&&<><button type="button" onClick={()=>listingEdits.retry(id)}>Retry</button><button type="button" onClick={()=>listingEdits.discard(id)}>Discard edit</button></>}
      </td>

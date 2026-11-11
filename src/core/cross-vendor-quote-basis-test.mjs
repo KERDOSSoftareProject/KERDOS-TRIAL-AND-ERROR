@@ -112,6 +112,22 @@ for(const industry of ['restaurant','construction']){
   const withdrawn={...held,import_row:{...held.import_row,row:{...held.import_row.row,priceUnavailable:true}}};
   assert.equal(normalizeCatalogQuote(withdrawn,independent,{item,mapping,procurement:context}),withdrawn);
  }
+ const heldAmount={...saved,price:2.41,selling_unit:'LB',price_basis:'measure',price_source:'price_list',
+  field_resolutions:{selling_unit:{value:'LB',confirmedBy:'reviewer'}},
+  import_row:{sourceDocumentId:'next-sheet',rowKey:'row-12',reviewRequired:true,
+   conflicts:['Pricing basis "LB" suggested but not confirmed: $2.39/lb.'],
+   baseline:{price:2.41},row:{code:row.code,description:row.description,packSize:row.packSize,price:2.39}}};
+ const carried=normalizeCatalogQuote(heldAmount,[],{item,mapping,procurement:context});
+ assert.equal(carried.price,2.39);
+ assert.equal(carried.selling_unit,'LB');
+ assert.equal(carried.quoteBasisInference.price,2.39);
+ assert.equal(calculatedUnitCost(carried,{procurement:context}).price,2.39);
+ assert.equal(catalogMigrationAssessment({item,listing:carried,mapping,procurement:context}).tier,2);
+ assert.equal(heldAmount.price,2.41);
+ for(const source of [{packSize:'2/5 LB'},{sellingUnit:'CASE'},{description:'COPPER PIPE'}]){
+  const changed={...heldAmount,import_row:{...heldAmount.import_row,row:{...heldAmount.import_row.row,...source}}};
+  assert.equal(normalizeCatalogQuote(changed,[],{item,mapping,procurement:context}),changed);
+ }
  const reimport=preparePriceImport({...row,price:16.75},saved,mapping,[],[],scope,context,comparables);
  assert.equal(reimport.row.sellingUnit,'EACH');
  assert.equal(reimport.row.sellingUnitSource,'inferred');

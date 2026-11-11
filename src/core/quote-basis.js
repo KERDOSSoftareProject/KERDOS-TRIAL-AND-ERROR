@@ -101,12 +101,35 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
       ...(currentCharge>0&&{previousUnit:currentUnit,previousCasePrice:currentCharge,inferredCasePrice:caseCharge(sellingUnit)})}};
 }
 
+// Legacy imports sometimes held a clean new amount before the listing's
+// quoted unit was confirmed. Fill the proposal from that listing's own basis.
+function projectHeldAmount(listing,settings,now,procurement){
+  const saved=listing.import_row;
+  const source=saved?.row;
+  const price=Number(source?.price);
+  if(!saved?.reviewRequired||!saved.sourceDocumentId||!saved.rowKey||!source?.description||
+    listing.price_source!=='price_list'||!(price>0)||!Number.isFinite(price)||
+    price===Number(listing.price)||Number(saved.baseline?.price)!==Number(listing.price)||
+    !saved.conflicts?.length||saved.conflicts.some(reason=>!/^Pricing basis .* suggested but not confirmed|^Quoted unit is (?:inferred|unresolved)|^The incoming price basis needs review/i.test(reason))||
+    saved.changes?.length||source.priceUnavailable||source.issues?.length||source.cellConflicts?.length||
+    source.requiresReview||source.priceNeedsReview||printedQuoteEvidence(source,procurement).present)return listing;
+  if(procurement.quoteStatus({...listing,price,price_unavailable:false},settings,now)!=='current')return listing;
+  const prior={...listing,import_row:{...saved,reviewRequired:false}};
+  const resolved=resolveQuoteBasis({...source,resolvedVendorItemId:listing.id},prior,procurement,source);
+  if(!resolved||resolved.source!=='confirmed vendor item'||
+    procurement.casePriceFromQuote(price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,listing.pack_size)==null)return listing;
+  return {...listing,price,quoteBasisInference:{kind:'inferred',value:resolved.sellingUnit,price,
+    reason:'Quoted unit carried forward from the confirmed listing.',evidence:{price,sourceDocumentId:saved.sourceDocumentId}}};
+}
+
 // Project a saved quote for comparison and display. The saved quote and its
 // evidence stay available, and an inferred projection never becomes orderable.
 export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,settings,now,procurement=getProcurementContext()}={}){
-  if(peers.length<2||listing.quoteBasisInference||listing.price_source==='invoice'||
+  if(listing.quoteBasisInference||listing.price_source==='invoice'||
     listing.field_resolutions?.unit_cost_override?.value||
     item?.brand_locked&&!procurement.brandsMatch(listing.brand,item.locked_brand))return listing;
+  listing=projectHeldAmount(listing,settings,now,procurement);
+  if(peers.length<2)return listing;
   const origin=quotedUnitOrigin(listing,procurement);
   const amountSource=listingSourceForField(listing,'price');
   if(origin.root?.source==='sheet'||origin.root?.source==='invoice'||origin.confirmation?.documentConfirmation||
@@ -129,6 +152,7 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
     procurement,{currentUnit:listing.selling_unit,linkedPeerIds,settings,now,reviewOutlier:true});
   if(!inference)return listing;
   if(inference.kind==='unresolved')return {...listing,quoteBasisInference:inference};
+  if(listing.quoteBasisInference?.price!=null)inference.price=listing.price;
   const source=amountSource.row;
   const statedPack=source.originalFields?.packSize||source.originalPackRaw||source.packSize;
   const unitPack=statedPack||procurement.packFromDescription(source.description);

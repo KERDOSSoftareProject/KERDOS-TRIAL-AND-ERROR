@@ -79,7 +79,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
   const previewMapping=linkDirty?{...mapping,catalog_item_id:displayItem.id,comparison_track:"review",confidence_score:null}:mapping;
   const inference=!linkDirty&&original.row_revision===vendorItem.row_revision&&
     !["description","brand","price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key))?quoteBasisInference:null;
-  const projected=inference?.value?{...current,pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:{...current,quoteBasisInference:inference};
+  const projected=inference?.value?{...current,price:inference.price??current.price,pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:{...current,quoteBasisInference:inference};
   const evidence=catalogRowEvidence({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,industry,editors});
   const assessment=orderGuideAssessment({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,settings});
   const packUnits=unitChoices(vocabulary,true,industry);
@@ -244,6 +244,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
             </select>}
           </>}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
+          {key==="price"&&inference?.price!=null&&<small style={{display:"block",marginTop:4,color:"#003584"}}>{inference.evidence.references?"Inferred":"Unit carried forward"}</small>}
           {autoSave&&key==="product"&&saveStatus}
           {change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}
         </td>;

@@ -464,6 +464,7 @@ export default function App() {
           casePrice:quote==="unavailable"&&vi.price_basis==null?null:price??(!quoteBasis&&vi.price!=null?parseFloat(vi.price):null),
           quotedPrice:vi.price==null?null:parseFloat(vi.price), quoteBasis, quoteUnit, basisUnconvertible,
           displayRate:displayRate&&!displayRate.estimated&&displayRate.price>0?displayRate:null,
+          projectedQuote:projectedRate?{note:vi.quoteBasisInference.price!=null&&!vi.quoteBasisInference.evidence.references?"Unit carried forward":"Inferred"}:null,
           eachPrice:eachPack?.parsed&&Number(vi.price)>0?Number(vi.price):null, eachSize:eachPack?.eachStr||null,
           mappingId:m.id,
           matchConfidence:m.confidence_score, matchTrack:m.comparison_track, matchMethod:m.match_method,
