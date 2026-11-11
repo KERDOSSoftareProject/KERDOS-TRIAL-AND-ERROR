@@ -2,6 +2,8 @@ import {getProcurementContext} from "../procurement.js";
 import {knownItemChanges} from "./catalog-fields.js";
 import {prepareImportRow} from "./import-row.js";
 import {resolveQuoteBasis,inferCrossVendorQuoteBasis,quoteBasisAlternatives,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
+import {quotedUnitOrigin} from "./listing-provenance.js";
+import {canonicalQuoteUnit,printedQuoteEvidence} from "./source-units.js";
 
 const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===String(b||"").trim().toLowerCase().replace(/\s+/g," ");
 
@@ -9,19 +11,32 @@ const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===S
 // incomplete row is reviewable data, not a failed database write. The caller
 // retains its listing and catalog association, and stages the incoming quote
 // without overwriting the accepted quote when requiresReview is true.
-export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext(),comparisonListings=[]){
+export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext(),comparisonListings=[],rawSource=source){
   let row=source;
-  if(source.sellingUnitSource==='inferred'&&source.fieldInference?.sellingUnit?.source==='cross-vendor comparison'){
-    const {sellingUnit:_oldUnit,...otherInference}=source.fieldInference;
+  const priorRoot=prior?quotedUnitOrigin(prior,procurement).root:null;
+  const document=priorRoot?.confirmation?.documentConfirmation;
+  if(document&&scope&&(document.organizationId!==scope.organizationId||document.vendorId!==scope.vendorId))
+    throw new Error('The confirmed vendor listing is outside the incoming source scope.');
+  const printed=document?printedQuoteEvidence(rawSource,procurement):null;
+  if(source.sellingUnitSource==='inferred'&&
+    (source.fieldInference?.sellingUnit?.source==='cross-vendor comparison'||document&&!printed.present)){
+    const {sellingUnit:_oldUnit,...otherInference}=source.fieldInference||{};
     row={...source,sellingUnit:null,sellingUnitSource:null,fieldInference:otherInference};
   }
   const reasons=[...issues];
+  if(document){
+    const pack=Object.hasOwn(rawSource.originalFields||{},'packSize')?rawSource.originalFields.packSize:rawSource.packSize;
+    if(pack&&procurement.comparePurchasingPack(pack,document.packSize).status!=='same'&&!source.manualFields?.includes('packSize'))
+      reasons.push('The incoming pack differs from the document-confirmed pack or cannot be verified. Confirm the new pack and quoted unit.');
+    if(printed.present&&printed.unit!==canonicalQuoteUnit(priorRoot.value,procurement)&&!source.manualFields?.includes('sellingUnit'))
+      reasons.push('Quoted unit stated on the new sheet conflicts with the document confirmation.');
+  }
   let changes=[];
   if(prior&&(source.code?String(source.code)!==String(prior.vendor_item_code):!!prior.vendor_item_code))
     throw new Error("The incoming vendor item code does not belong to this saved listing.");
   const scopedInvoices=scope?invoices.filter(entry=>
     entry.organizationId===scope.organizationId&&entry.vendorId===scope.vendorId):invoices;
-  try{row=prepareImportRow(row,{prior,mapping,invoices:scopedInvoices}, procurement);}
+  try{row=prepareImportRow(row,{prior,mapping,invoices:scopedInvoices,rawSource}, procurement);}
   catch(error){reasons.push(error.message);changes=prior?knownItemChanges(source,prior, procurement):[];}
   changes=row.changes||changes;
   reasons.push(...(row.conflicts||[]));
@@ -50,7 +65,7 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   }
   if(!procurement.parsePackSize(row.packSize)?.parsed)reasons.push(row.packSize?
     "Pack quantity or unit is unreadable; correct the pack field.":"Pack quantity and unit are missing.");
-  let resolved=resolveQuoteBasis(row,prior, procurement);
+  let resolved=resolveQuoteBasis(row,prior,procurement,rawSource);
   let invoiceConflict=false;
   if((!String(row.sellingUnit||"").trim()||resolved?.source==="confirmed vendor item")&&scopedInvoices.length){
     // Compare invoice evidence against the incoming product and pack wherever
@@ -96,7 +111,7 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   const quoteBasisEvidence=resolved?.invoiceArithmetic?{source:resolved.source,unit:resolved.sellingUnit,references:resolved.invoiceReferences}:null;
   const quoteBasisReview=(!resolved||row.sellingUnitSource==='inferred')&&!row.priceUnavailable&&!invoiceConflict?{
     status:row.sellingUnitSource==='inferred'?'inferred':'unresolved',
-    reason:row.sellingUnitSource==='inferred'?row.fieldInference.sellingUnit.reason:'Confirm what the quoted price covers. Pack contents alone do not establish the quoted unit.',
+    reason:(row.sellingUnitSource==='inferred'&&row.fieldInference?.sellingUnit?.reason)||'Confirm what the quoted price covers. Pack contents alone do not establish the quoted unit.',
     alternatives:quoteBasisAlternatives(row,procurement),
   }:null;
   const statedPriceQuotes=interpretStatedQuotePair(source.fieldIdentification?.bindings, procurement);

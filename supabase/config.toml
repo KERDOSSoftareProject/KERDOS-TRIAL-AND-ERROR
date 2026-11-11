@@ -25,3 +25,7 @@ verify_jwt = true
 # Server-only scheduler or operator; handler validates an exact service/operations bearer.
 [functions.vendor-price-pull]
 verify_jwt = false
+
+# The endpoint validates the actual user session and current workspace role.
+[functions.price-sheet-review]
+verify_jwt = false

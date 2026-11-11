@@ -61,9 +61,22 @@ export function quotedUnitLocation(row){
     table:provenance?.table??null,lines:provenance?.lines||[],addresses:(cells||[]).map(c=>c.address).filter(Boolean)}};
 }
 function clientRoot(listing,confirmation){
+  const document=confirmation.documentConfirmation;
   return {source:'client confirmation',value:listing.selling_unit,...identity(listing),
-    documentIds:[],reference:'Client confirmation',confirmedBy:confirmation.confirmedBy||null,
+    ...(document&&{listingId:document.listingId,packSize:document.packSize}),
+    documentIds:document?[document.documentId]:[],reference:'Client confirmation',confirmedBy:confirmation.confirmedBy||null,
     confirmedAt:confirmation.confirmedAt||null,confirmation:{...confirmation}};
+}
+export function documentUnitConfirmationMatches(confirmation,listing,procurement=getProcurementContext()){
+  const document=confirmation?.documentConfirmation;
+  return !!document?.operationId&&!!document.documentId&&!!document.documentFingerprint&&
+    !!document.rowKey&&/^[a-f0-9]{64}$/.test(document.observationHash||'')&&
+    !!confirmation.confirmedBy&&Number.isFinite(Date.parse(confirmation.confirmedAt))&&
+    !!listing.id&&document.listingId===listing.id&&
+    !!listing.organization_id&&document.organizationId===listing.organization_id&&
+    !!listing.vendor_id&&document.vendorId===listing.vendor_id&&
+    sameUnit(confirmation.value,listing.selling_unit,procurement)&&
+    procurement.comparePurchasingPack(document.packSize,listing.pack_size).status==='same';
 }
 function invoiceRoot(listing,source,procurement){
   const proof=source.evidence.quoteBasisEvidence;
@@ -83,7 +96,14 @@ function rootMatches(root,listing,procurement){
   if(root.packSize!==listing.pack_size&&procurement.comparePurchasingPack(root.packSize,listing.pack_size).status!=='same')return false;
   if(root.brand&&listing.brand&&!procurement.brandsMatch(root.brand,listing.brand))return false;
   if(root.gtin&&listing.gtin&&root.gtin!==listing.gtin||root.manufacturerCode&&listing.manufacturer_code&&root.manufacturerCode!==listing.manufacturer_code)return false;
-  if(root.source==='client confirmation')return sameUnit(root.confirmation?.value,listing.selling_unit,procurement)&&!!(root.confirmedBy||root.confirmedAt);
+  if(root.source==='client confirmation'){
+    const document=root.confirmation?.documentConfirmation;
+    if(document)return documentUnitConfirmationMatches(root.confirmation,listing,procurement)&&
+      root.listingId===document.listingId&&root.packSize===document.packSize&&
+      root.documentIds?.length===1&&root.documentIds[0]===document.documentId&&
+      root.confirmedBy===root.confirmation.confirmedBy&&root.confirmedAt===root.confirmation.confirmedAt;
+    return sameUnit(root.confirmation?.value,listing.selling_unit,procurement)&&!!(root.confirmedBy||root.confirmedAt);
+  }
   if(!root.documentIds?.length||root.documentIds.some(id=>!id))return false;
   if(root.source==='invoice')return !!root.references?.length&&root.references.every(r=>r.documentId&&sameUnit(r.billingUnitEvidence?.unit,listing.selling_unit,procurement))&&root.references.every(r=>root.documentIds.includes(r.documentId));
   if(root.source!=='sheet'||!root.binding&&!root.sourceLine&&!root.statedSource)return false;
@@ -96,9 +116,13 @@ export function quotedUnitOrigin(listing,procurement=getProcurementContext()){
   const stored=source.evidence.fieldEvidence?.sellingUnit;
   const carried=rootMatches(stored,listing,procurement)?stored:null;
   const confirmation=listing.field_resolutions?.selling_unit;
-  if(confirmation&&same(confirmation.value)&&(confirmation.confirmedBy||confirmation.confirmedAt)){
+  const confirmed=confirmation?.documentConfirmation
+    ? documentUnitConfirmationMatches(confirmation,listing,procurement)
+    : confirmation&&same(confirmation.value)&&(confirmation.confirmedBy||confirmation.confirmedAt);
+  if(confirmed){
     const root=carried?.source==='client confirmation'&&
-      carried.confirmedBy===(confirmation.confirmedBy||null)&&carried.confirmedAt===(confirmation.confirmedAt||null)
+      carried.confirmedBy===(confirmation.confirmedBy||null)&&carried.confirmedAt===(confirmation.confirmedAt||null)&&
+      carried.confirmation?.documentConfirmation?.operationId===confirmation.documentConfirmation?.operationId
       ?carried:clientRoot(listing,confirmation);
     return {...source,status:'confirmed',confirmation,source:'client confirmation',root};
   }

@@ -6,6 +6,7 @@ import {createElement} from "react";
 import Renderer,{act} from "react-test-renderer";
 import {renderToStaticMarkup} from "react-dom/server";
 import {build} from "vite";
+import {createSupabaseBackend} from "../backend/supabase.js";
 
 const temporary=mkdtempSync(fileURLToPath(new URL("../../node_modules/.kerdos-document-pages-",import.meta.url)));
 try{
@@ -79,6 +80,121 @@ try{
   tree.unmount();
   assert.equal(data.length,2,'browsing never changes saved documents');
   console.log('PASS Price Sheets browse row, selected-vendor import, filename/vendor/date search, search clearing and no-match state.');
+
+  const requests=[];
+  let refreshes=0,staleApply=false;
+  const reviewPriceSheet=async request=>{
+    requests.push(request);
+    if(request.action.startsWith('preview-')){
+      const confirmation=request.action==='preview-confirmation';
+      const token=confirmation?'confirm-token':request.documentId?'recheck-token':'workspace-token';
+      const rows=[{listingId:'eligible-1',description:'Eligible product',packSize:'12 EA',fileName:file.file_name,
+        ...(confirmation?{sellingUnit:'CASE'}:{previousReviewFields:['selling_unit'],reviewFields:[],reviewRequired:false})},
+        {listingId:'extra-1',description:'Extra eligible product'}];
+      return {
+        token:request.listingIds?`${token}-selected`:token,
+        rows:request.listingIds?rows.filter(row=>request.listingIds.includes(row.listingId)):rows,
+        held:[{listingId:'held-1',description:'Held product',reason:'Verify original pack'}],
+        counts:{ready:170,total:531,projectedReady:confirmation?170:256},
+      };
+    }
+    if(staleApply&&request.action==='apply-recheck')throw new Error('Preview is stale. Review the current sheet again.',{cause:{status:409}});
+    return {counts:{ready:170,total:531,projectedReady:request.action==='confirm'?170:256,
+      readyAfter:request.action==='confirm'?170:256,totalAfter:531}};
+  };
+  const reviewProps={...base,orgId:'org-1',expandedId:file.id,reviewPriceSheet,onReviewSaved:()=>{refreshes++;}};
+  const reviewButton=label=>tree.root.findAllByType('button').find(b=>text({children:b.children})===label);
+  await act(async()=>{tree=Renderer.create(createElement(PriceSheetsPage,reviewProps));});
+  await act(async()=>{reviewButton('Confirm quoted per').props.onClick();});
+  assert.deepEqual(requests,[],'opening confirmation is read only');
+  assert.equal(reviewButton('Preview confirmation').props.disabled,true,'a quoted unit is required');
+  const pick=value=>tree.root.findByProps({'aria-label':'Confirmed quoted unit'}).props.onChange({target:{value}});
+  await act(async()=>{pick('weight');});
+  assert.equal(reviewButton('Preview confirmation').props.disabled,true,'a measurement group alone is not a valid unit');
+  await act(async()=>{pick('case');});
+  await act(async()=>{reviewButton('Preview confirmation').props.onClick();});
+  assert.deepEqual(requests,[{organizationId:'org-1',documentId:file.id,action:'preview-confirmation',unit:'CASE'}]);
+  assert.match(pageText(),/Eligible product.*12 EA/);
+  assert.match(pageText(),/Quoted per Case/);
+  assert.match(pageText(),/Held product.*Verify original pack/);
+  assert.match(pageText(),/Order Guide ready 170 of 531/);
+  await act(async()=>{pick('each');});
+  assert.equal(reviewButton('Confirm verified unit'),undefined,'changing the unit invalidates the exact preview');
+  await act(async()=>{pick('case');});
+  await act(async()=>{reviewButton('Preview confirmation').props.onClick();});
+  const selectRow=label=>tree.root.findByProps({'aria-label':`Include ${label}`}).props.onChange();
+  await act(async()=>{selectRow('Extra eligible product');});
+  assert.equal(reviewButton('Confirm verified unit').props.disabled,true,'changed selection needs a new signed preview');
+  await act(async()=>{selectRow('Eligible product');});
+  assert.equal(reviewButton('Update preview').props.disabled,true,'empty selection cannot be approved');
+  await act(async()=>{selectRow('Eligible product');});
+  await act(async()=>{reviewButton('Update preview').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',documentId:file.id,action:'preview-confirmation',unit:'CASE',listingIds:['eligible-1']});
+  assert.equal(reviewButton('Confirm verified unit').props.disabled,false);
+  assert.doesNotMatch(pageText(),/Extra eligible product/);
+  await act(async()=>{reviewButton('Confirm verified unit').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',documentId:file.id,action:'confirm',token:'confirm-token-selected'});
+  assert.equal(refreshes,1);
+  assert.match(pageText(),/Quoted unit confirmation saved/);
+
+  await act(async()=>{reviewButton('Preview source recheck').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',documentId:file.id,action:'preview-recheck'});
+  assert.match(pageText(),/Projected after approval 256 of 531/);
+  assert.match(pageText(),/Current review fields quoted per.*Source review clears/);
+  staleApply=true;
+  await act(async()=>{reviewButton('Approve source recheck').props.onClick();});
+  assert.match(pageText(),/Preview is stale/);
+  assert.equal(reviewButton('Approve source recheck'),undefined,'a stale preview must be generated again');
+  assert.equal(refreshes,1,'the stale attempt did not save anything');
+  staleApply=false;
+  await act(async()=>{reviewButton('Preview source recheck').props.onClick();});
+  await act(async()=>{reviewButton('Approve source recheck').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',documentId:file.id,action:'apply-recheck',token:'recheck-token'});
+  assert.equal(refreshes,2);
+  assert.match(pageText(),/Order Guide ready before save 170 of 531 · Ready after save 256 of 531/);
+
+  await act(async()=>{reviewButton('Preview workspace recheck').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',action:'preview-recheck'});
+  assert.match(pageText(),/Eligible product.*12 EA.*Vendor prices\.xlsx/);
+  await act(async()=>{selectRow('Extra eligible product');});
+  assert.equal(reviewButton('Approve workspace recheck').props.disabled,true);
+  await act(async()=>{reviewButton('Update preview').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',action:'preview-recheck',listingIds:['eligible-1']});
+  await act(async()=>{reviewButton('Approve workspace recheck').props.onClick();});
+  assert.deepEqual(requests.at(-1),{organizationId:'org-1',action:'apply-recheck',token:'workspace-token-selected'});
+  assert.equal(refreshes,3);
+
+  await act(async()=>{tree.update(createElement(PriceSheetsPage,{...reviewProps,role:'manager'}));});
+  assert.ok(reviewButton('Confirm quoted per'));
+  assert.equal(reviewButton('Preview source recheck'),undefined,'approval is available only to owners');
+  assert.equal(reviewButton('Preview workspace recheck'),undefined,'workspace approval is available only to owners');
+  await act(async()=>{tree.update(createElement(PriceSheetsPage,{...reviewProps,role:'employee'}));});
+  assert.equal(reviewButton('Confirm quoted per'),undefined,'employees cannot confirm pricing');
+  await act(async()=>{tree.unmount();});
+  console.log('PASS price sheet review shows exact eligible and held listings, sends scoped tokens, and refreshes readiness after each explicit action.');
+
+  const originalWindow=globalThis.window;
+  globalThis.window={localStorage:{removeItem(){}},sessionStorage:{}};
+  try{
+    const invoked=[];
+    let fail=false;
+    const adapter=createSupabaseBackend({url:'https://example.invalid',anonKey:'test-public-key'},()=>({functions:{invoke:async(name,request)=>{
+      invoked.push({name,...request});
+      if(fail)return {data:null,error:{context:new Response(JSON.stringify({error:'Preview is stale.'}),{status:409})}};
+      return {data:{token:'server-token'},error:null};
+    }}}));
+    const input={organizationId:'org-1',documentId:file.id,action:'confirm',token:'confirm-token'};
+    assert.deepEqual(await adapter.documents.reviewPriceSheet({...input,actor:'forged',time:'forged',patch:{},unit:'EACH',listingIds:['other']}),{token:'server-token'});
+    assert.deepEqual(invoked,[{name:'price-sheet-review',body:input}],'browser adapter sends scope and token only');
+    await adapter.documents.reviewPriceSheet({organizationId:'org-1',action:'preview-recheck',listingIds:['eligible-1']});
+    assert.deepEqual(invoked.at(-1),{name:'price-sheet-review',body:{organizationId:'org-1',action:'preview-recheck',listingIds:['eligible-1']}});
+    fail=true;
+    await assert.rejects(adapter.documents.reviewPriceSheet(input),err=>err.cause?.status===409&&err.message.includes('Preview is stale.'));
+  }finally{
+    if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow;
+  }
+  console.log('PASS price sheet review adapter uses authenticated Edge invocation and preserves stale-preview errors.');
+
   const invoiceActions=[];
   const invoiceProps={...base,vendorFilter:null,formatMoney:value=>String(value),attentionCount:1,
     invoices:[{id:'i1',vendor_id:'v1',invoice_number:'INV-123',file_name:'October delivery.pdf',invoice_date:'2026-10-15',file_path:'original.pdf',invoice_lines:[{price_variance:2}]},{id:'i2',vendor_id:'v2',invoice_number:'INV-456',file_name:'November delivery.pdf',invoice_date:'2026-11-01',invoice_lines:[]}],

@@ -1,4 +1,4 @@
-import {parsePackSize} from '../procurement.js';
+import {parsePackSize,getProcurementContext} from '../procurement.js';
 
 // Conservative, industry-neutral identity for alternatives, not exact trade
 // items. Brand and the separately recorded purchasing pack may differ. All
@@ -11,12 +11,12 @@ export function alternativeKey(row){
   const brand=new Set(words(row.brand));
   return words(text).filter(w=>!brand.has(w)&&!['and','the','of'].includes(w)).sort().join(' ');
 }
-export function automaticAlternativeVerified(row,item,peers=[]){
+export function automaticAlternativeVerified(row,item,peers=[],procurement=getProcurementContext()){
   const record=row.field_resolutions?.automatic_group;
-  const key=alternativeKey(row),pack=parsePackSize(row.pack_size);
+  const key=alternativeKey(row),pack=procurement.parsePackSize(row.pack_size);
   return !!record&&record.catalogItemId===item.id&&item.comparison_mode!=='exact'&&!item.brand_locked&&
     key===record.key&&pack?.parsed&&pack.dimension===record.dimension&&peers.every(peer=>
-      alternativeKey(peer)===key&&parsePackSize(peer.pack_size)?.parsed&&parsePackSize(peer.pack_size)?.dimension===pack.dimension);
+      alternativeKey(peer)===key&&procurement.parsePackSize(peer.pack_size)?.parsed&&procurement.parsePackSize(peer.pack_size)?.dimension===pack.dimension);
 }
 export function alternativeGroups({vendorItems=[],catalogItems=[],mappings=[]}){
   const items=new Map(catalogItems.map(i=>[i.id,i])),rows=new Map(vendorItems.map(v=>[v.id,v]));

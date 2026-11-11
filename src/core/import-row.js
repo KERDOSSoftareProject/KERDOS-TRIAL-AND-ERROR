@@ -5,11 +5,11 @@ import {resolveQuoteBasis} from "./quote-basis.js";
 
 // Preview and persistence take the same path, retaining the unmodified
 // input separately in import_row.row for later source comparisons.
-export function prepareImportRow(source,{prior=null,mapping=null,invoices=[]}={}, procurement=getProcurementContext()){
+export function prepareImportRow(source,{prior=null,mapping=null,invoices=[],rawSource=source}={}, procurement=getProcurementContext()){
   let row=enrichFromInvoices(source,invoices, procurement);
   if(prior)row={...row,resolvedVendorItemId:prior.id};
   row=rememberImportRow(row,prior,mapping, procurement);
-  const resolved=resolveQuoteBasis(row,prior, procurement);
+  const resolved=resolveQuoteBasis(row,prior,procurement,rawSource);
   if(resolved)row={...row,sellingUnit:resolved.sellingUnit,
     sellingUnitSource:resolved.source==="confirmed vendor item"?"remembered":row.sellingUnitSource||"document",
     ...(resolved.unitRoot?{fieldEvidence:{...row.fieldEvidence,sellingUnit:resolved.unitRoot}}:{})};

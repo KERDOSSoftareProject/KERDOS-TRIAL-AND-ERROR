@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import PriceVarianceReport from "./PriceVarianceReport.jsx";
 import {InvoiceReconciliation} from './InvoiceReconciliation.jsx';
+import {PriceSheetReview} from './PriceSheetReview.jsx';
 import {createPortal} from "react-dom";
 
 const navy="#073B83",ink="#17243A",muted="#6D7A8B",line="#E4EAF1",surface="#F5F8FC";
@@ -101,7 +102,7 @@ export function InvoicesPage({orgId,vendors,invoices,vendorFilter,setVendorFilte
 
 export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setVendorFilter,vendorColors,
   formatDate,role,onImport,onExpireVendor,onDelete,onClear,onViewOriginal,onViewSource,
-  expandedId,setExpandedId,hasMore,loadingMore,onLoadMore}){
+  expandedId,setExpandedId,hasMore,loadingMore,onLoadMore,industry,vocabulary,reviewPriceSheet,onReviewSaved}){
   const [search,setSearch]=useState("");
   const query=search.trim().toLocaleLowerCase();
   // Only a saved import is a document. Price changes and catalog corrections
@@ -116,6 +117,7 @@ export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setV
         <VendorFilter vendors={vendors} value={vendorFilter} onChange={setVendorFilter} label="Vendors"/>
         {role!=="employee"&&<button type="button" onClick={()=>onImport(vendorFilter)} style={button("#003584")}>📋 Import Price Sheet</button>}
       </div>
+      {role==="owner"&&<PriceSheetReview key={orgId} organizationId={orgId} role={role} reviewPriceSheet={reviewPriceSheet} onSaved={onReviewSaved}/>}
       <input type="search" aria-label="Search price sheets" value={search} onChange={event=>setSearch(event.target.value)} placeholder={`${hasMore?"Search loaded price sheets":"Search price sheets"} by vendor, filename, or date...`} style={{boxSizing:"border-box",width:"100%",padding:"12px 14px",border:`1px solid ${line}`,borderRadius:8,fontFamily:"inherit",fontSize:14,background:"white",color:ink}}/>
     </div>
     {!visible.length?<div style={{...card,padding:34,textAlign:"center",color:"#888"}}>
@@ -126,6 +128,7 @@ export function PriceSheetsPage({orgId,vendors,importDocuments,vendorFilter,setV
     </div>:visible.map(group=>{const color=vendorColors.get(group.vendorId)||{accent:"#003584"};return <VendorSection key={`${group.vendorId}:${Boolean(query)}`} name={group.vendorName} count={`${group.documents.length} source file${group.documents.length===1?"":"s"}`} accent={color.accent} defaultOpen={Boolean(vendorFilter)||Boolean(query)} actions={role!=="employee"&&<MoreMenu><MenuButton onClick={()=>onImport(group.vendorId)}>Import price sheet</MenuButton><MenuButton danger onClick={()=>onExpireVendor(group.vendorId)}>Remove current prices from Order Guide</MenuButton></MoreMenu>}>
       {group.documents.map(doc=>{const key=String(doc.id),open=expandedId===key;const importState=doc.status==="partial"?" · Import marked incomplete":doc.status==="processing"?" · Import in progress":"";const savedCount=doc.completedCount===null?"":` · ${doc.completedCount} row${doc.completedCount===1?"":"s"} checkpointed`;return <DocumentRow key={key} title={doc.fileName} meta={`${formatDate(doc.date)}${importState}${savedCount} · Click to open`} open={open} onToggle={()=>setExpandedId(open?null:key)} controls={role!=="employee"&&<MoreMenu label={`Actions for ${doc.fileName}`}><MenuButton onClick={()=>onClear(doc)}>Clear current prices</MenuButton><MenuButton danger onClick={()=>onDelete(doc,true)}>Delete &amp; re-import</MenuButton><MenuButton danger onClick={()=>onDelete(doc,false)}>Delete source</MenuButton></MoreMenu>}>
         <button onClick={()=>doc.filePath?onViewOriginal(doc.filePath):onViewSource(doc.id)} style={button("#003584")}>{doc.filePath?"Open original file":"Open original source"}</button>
+        <PriceSheetReview key={`${orgId}:${doc.id}:${role}`} organizationId={orgId} documentId={doc.id} role={role} industry={industry} vocabulary={vocabulary} reviewPriceSheet={reviewPriceSheet} onSaved={onReviewSaved}/>
       </DocumentRow>;})}
     </VendorSection>;})}
     {hasMore&&<button onClick={onLoadMore} disabled={loadingMore} style={button("white","#003584")}>{loadingMore?"Loading…":"Load earlier imported documents"}</button>}

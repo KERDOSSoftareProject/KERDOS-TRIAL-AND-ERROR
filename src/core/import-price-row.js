@@ -23,7 +23,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {preparePriceImport} from './price-import-review.js';
 import {importResolutions} from './catalog-fields.js';
-import {captureRetainedSource,retainQuotedUnitRoot} from './listing-provenance.js';
+import {captureRetainedSource,documentUnitConfirmationMatches,retainQuotedUnitRoot} from './listing-provenance.js';
 import {engineVerifiable} from '../services/catalog.js';
 
 export const MISSING_DESCRIPTION = 'Product description is missing. Source row retained for review.';
@@ -71,7 +71,7 @@ export async function importPriceRow({
   // explicit Inbox review may still resolve a current held row deliberately.
   const prepared = stagedReceipt&&replayStagedObservation
     ? {row,requiresReview:true,resolved:null,reviewFields:[],reasons:[]}
-    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement, workingVendorItems);
+    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement, workingVendorItems,sourceRow);
   row = prepared.row;
   const resolved = prepared.resolved;
   const needsBasis = prepared.requiresReview;
@@ -111,13 +111,18 @@ export async function importPriceRow({
   } else {
     assertActive();
     const fieldResolutions=importResolutions(sourceRow,ex||{},importBatchTime);
-    row=retainQuotedUnitRoot(row,{
+    const candidate={
+      id:ex?.id,
       organization_id:orgId,vendor_id:vendorId,vendor_item_code:row.code||null,
       description:row.description,brand:row.brand||null,pack_size:row.packSize||ex?.pack_size||null,
       selling_unit:resolved?.sellingUnit||null,gtin:row.gtin||null,manufacturer_code:row.manufacturerCode||null,
       field_resolutions:fieldResolutions,
       import_row:{row:{...sourceRow,...(sourceRow.originalFields||{})},evidence:row,sourceDocumentId,sourceFileName:group.name},
-    },procurement);
+    };
+    const unitConfirmation=fieldResolutions.selling_unit;
+    if(unitConfirmation?.documentConfirmation&&!documentUnitConfirmationMatches(unitConfirmation,candidate,procurement))
+      delete fieldResolutions.selling_unit;
+    row=retainQuotedUnitRoot(row,candidate,procurement);
     vendorItemId = await backend.pricing.applyQuote({
       vendorItemId: ex?.id || null, organizationId: orgId, vendorId,
       vendorItemCode: row.code,

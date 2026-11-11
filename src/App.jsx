@@ -1351,6 +1351,7 @@ export default function App() {
             onExpireVendor={expireVendorQuotes}
             onDelete={deletePriceSheet} onClear={clearPriceSheet}
             onViewOriginal={viewStoredFile} onViewSource={viewSourceDocument}
+            industry={org.industry} vocabulary={vocabulary} reviewPriceSheet={backend.documents.reviewPriceSheet} onReviewSaved={loadData}
             expandedId={expandedPricePeriod} setExpandedId={setExpandedPricePeriod}
             hasMore={importDocumentsHasMore} loadingMore={loadingOlderDocuments} onLoadMore={loadOlderDocuments}
           />

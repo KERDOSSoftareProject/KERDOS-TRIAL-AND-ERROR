@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {configureProcurement,createProcurementContext} from '../procurement.js';
 import {parseDocument} from '../ingestion.js';
 import {importPriceRow} from './import-price-row.js';
+import {preparePriceImport} from './price-import-review.js';
 import {catalogRowEvidence,orderGuideAssessment} from './catalog-fields.js';
 import {quotedUnitOrigin} from './listing-provenance.js';
 
@@ -24,9 +25,9 @@ const parsed=(price=35,unit='CASE',pack='4/5 LB')=>{
 };
 const unitRoot=listing=>listing.import_row?.evidence?.fieldEvidence?.sellingUnit;
 
-function fixture(initial=null){
+function fixture(initial=null,existingMapping=initialMapping){
   let listing=initial?structuredClone(initial):null;
-  let mapping=initial?structuredClone(initialMapping):null;
+  let mapping=initial?structuredClone(existingMapping):null;
   const calls={quotes:[],holds:[]};
   const backend={pricing:{async applyQuote(quote){
     calls.quotes.push(structuredClone(quote));
@@ -254,6 +255,74 @@ await test('a changed incoming pack stays pending while the retained unit keeps 
   assert.equal(saved.import_row.sourceDocumentId,'changed-pack-document');
   assert.deepEqual(f.origin().root,root);
   assert.equal(f.assessment().ready,false);
+});
+
+function confirmedDocumentSeed(){
+  const seed=rememberedSeed();
+  seed.field_resolutions.selling_unit={value:'CS',sourceValue:null,confirmedBy:'editor',confirmedAt:'2026-11-10T10:15:00Z',
+    documentConfirmation:{operationId:'confirmation',organizationId,vendorId,documentId:seed.import_row.sourceDocumentId,
+      documentFingerprint:'original-file',listingId,rowKey:'row:0',packSize:seed.pack_size,observationHash:'a'.repeat(64)}};
+  return seed;
+}
+
+await test('the original document confirmation remains traceable through later blank and inferred units on the verified listing',async()=>{
+  const seed=confirmedDocumentSeed(),f=fixture(seed);
+  const root=structuredClone(f.origin().root);
+  assert.equal(root.listingId,listingId);
+  assert.deepEqual(root.documentIds,[seed.import_row.sourceDocumentId]);
+  assert.equal((await f.import(parsed(36,''),{documentId:'next-week'})).needsBasis,false);
+  assert.deepEqual(unitRoot(f.read()),root);
+  const raw=parsed(38,'');
+  const interpretedRow={...raw,sellingUnit:'LB',sellingUnitSource:'inferred',
+    fieldInference:{sellingUnit:{value:'LB',kind:'inferred',reason:'Unconfirmed alternative'}}};
+  assert.equal((await f.import(raw,{documentId:'following-week',interpretedRow})).needsBasis,false);
+  const after=f.read();
+  assert.equal(after.price,38);
+  assert.equal(after.selling_unit,'CS');
+  assert.equal(after.import_row.row.sellingUnit,null);
+  assert.equal(after.import_row.sourceDocumentId,'following-week');
+  assert.deepEqual(unitRoot(after),root);
+  assert.deepEqual(after.field_resolutions.selling_unit,seed.field_resolutions.selling_unit);
+  assert.equal(f.assessment().ready,true);
+});
+
+await test('a document confirmation holds a changed pack or conflicting printed unit even with a review mapping',async()=>{
+  const reviewMapping={...initialMapping,comparison_track:'review',confidence_score:80};
+  for(const source of [parsed(38,'','8/2.5 LB'),parsed(38,'EA'),parsed(38,'P'),parsed(38,'','')]){
+    const f=fixture(confirmedDocumentSeed(),reviewMapping);
+    assert.equal((await f.import(source,{documentId:'incoming-change'})).needsBasis,true);
+    assert.equal(f.calls.quotes.length,0);
+    assert.equal(f.read().price,35);
+    assert.equal(f.read().selling_unit,'CS');
+    assert.equal(f.read().import_row.reviewRequired,true);
+  }
+});
+
+await test('same verified listing reuses its confirmation with unchanged ambiguous source wording',async()=>{
+  const profile=createProcurementContext({industry:'restaurant'});
+  const description='FF POTATO PATTIES';
+  const seed=confirmedDocumentSeed();
+  seed.description=description;
+  seed.import_row.row.description=description;
+  const source={...parsed(36,''),description};
+  const scope={organizationId,vendorId};
+  assert.equal(profile.compareProductIdentity(description,description).status,'review');
+  const unchanged=preparePriceImport(source,seed,initialMapping,[],[],scope,profile);
+  assert.equal(unchanged.requiresReview,false);
+  assert.deepEqual(unchanged.resolved.unitRoot.confirmation,seed.field_resolutions.selling_unit);
+  const changed=preparePriceImport({...source,description:'FF POTATO FRIES'},seed,initialMapping,[],[],scope,profile);
+  assert.equal(changed.requiresReview,true);
+});
+
+await test('document confirmation requires the original actor, time, company, vendor, and listing',async()=>{
+  const seed=confirmedDocumentSeed();
+  for(const changed of [
+    {...seed,organization_id:'other-client'},
+    {...seed,vendor_id:'other-vendor'},
+    {...seed,id:'other-listing'},
+    {...seed,field_resolutions:{selling_unit:{...seed.field_resolutions.selling_unit,confirmedBy:null}}},
+    {...seed,field_resolutions:{selling_unit:{...seed.field_resolutions.selling_unit,confirmedAt:null}}},
+  ])assert.equal(quotedUnitOrigin(changed,procurement).root,null);
 });
 
 console.log(`${passed} quoted-unit root regression cases passed (actual importer, synthetic in-memory save sink; no hosted writes).`);

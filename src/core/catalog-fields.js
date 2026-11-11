@@ -3,7 +3,7 @@ import {automaticAlternativeVerified} from "./alternative-groups.js";
 import {productGroupApproved} from './product-associations.js';
 import {vendorListingLabel} from "./vendor-listing.js";
 import {calculatedUnitCost} from "./quote-controls.js";
-import {casePriceFromQuote,parsePackSize,priceBasisFor,compareProductIdentity,comparePurchasingPack,suggestCategory,quoteStatus,brandsMatch,measuredQuoteRate,getProcurementContext} from "../procurement.js";
+import {priceBasisFor,getProcurementContext} from "../procurement.js";
 import {mappingVerification,mappingGap} from "../services/catalog.js";
 
 export const CATALOG_COLUMNS=[
@@ -57,22 +57,22 @@ export function initialsFor(person){
   return parts.slice(0,3).map(part=>part[0].toUpperCase()).join("");
 }
 
-export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peers=[],categories=[],industry="",editors={}}){
-  const vi=vendorItem,pack=parsePackSize(vi.pack_size),basis=priceBasisFor(vi.selling_unit);
+export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peers=[],categories=[],industry="",editors={},procurement=getProcurementContext()}){
+  const vi=vendorItem,pack=procurement.parsePackSize(vi.pack_size),basis=procurement.priceBasisFor(vi.selling_unit);
   const amount=vi.price==null||vi.price===""?null:Number(vi.price);
   const hasPrice=Number.isFinite(amount)&&amount>0;
   const fieldSource=key=>listingSourceForField(vi,key);
   const packProvenance=fieldSource('pack_size').evidence;
   const brandProvenance=fieldSource('brand').evidence;
-  const unitOrigin=quotedUnitOrigin(vi);
+  const unitOrigin=quotedUnitOrigin(vi,procurement);
   const provenance=unitOrigin.evidence;
   const changes=vi.import_row?.reviewRequired?(vi.import_row?.changes||[]).map(c=>c.field):[];
-  const casePrice=hasPrice&&basis?casePriceFromQuote(amount,basis.basis,basis.unit||vi.selling_unit,vi.pack_size):null;
-  const per=calculatedUnitCost(vi,{industry});
+  const casePrice=hasPrice&&basis?procurement.casePriceFromQuote(amount,basis.basis,basis.unit||vi.selling_unit,vi.pack_size):null;
+  const per=calculatedUnitCost(vi,{industry,procurement});
   const manual=vi.field_resolutions||{};
   const byClient=(key)=>key==='selling_unit'?!!unitOrigin.confirmation:Object.hasOwn(manual,key);
   const otherVendors=peers.filter(p=>p.vendor_id&&p.vendor_id!==vi.vendor_id);
-  const comparableAlternatives=automaticAlternativeVerified(vi,item,peers)||(item.comparison_mode!=='exact'&&productGroupApproved(vi,item,mapping));
+  const comparableAlternatives=automaticAlternativeVerified(vi,item,peers,procurement)||(item.comparison_mode!=='exact'&&productGroupApproved(vi,item,mapping));
   const source=(key,rawKey)=>manual[key]?.sourceValue??fieldSource(key).row[rawKey];
   // A second vendor on the same catalog item is not automatically an
   // independent witness. Require a matching trade identifier first.
@@ -98,14 +98,14 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
         const isNamedCanSize=/^#\d/.test(pack.unit||"");
         if(!isNamedCanSize){packAcc=Math.min(packAcc,DOUBTFUL);packWhy+="; unit '"+pack.unit+"' is not a recognised dimension — confirm whether this is a can size code, a count abbreviation, or something else";}
       }else if(basis?.basis==="measure"&&casePrice==null){packAcc=Math.min(packAcc,DOUBTFUL);packWhy+=pack.catchWeight?"; average/ranged weight does not establish an exact case charge":"; doesn't fit a price quoted per "+(basis.unit||vi.selling_unit);}
-      const disagree=!comparableAlternatives&&otherVendors.find(p=>p.pack_size&&parsePackSize(p.pack_size)?.parsed&&comparePurchasingPack(vi.pack_size,p.pack_size).status!=="same");
+      const disagree=!comparableAlternatives&&otherVendors.find(p=>p.pack_size&&procurement.parsePackSize(p.pack_size)?.parsed&&procurement.comparePurchasingPack(vi.pack_size,p.pack_size).status!=="same");
       if(disagree){packAcc=Math.min(packAcc,GUESSED);packWhy+=`; another vendor lists ${disagree.pack_size}`;}
-      else if(provenPeers.length&&provenPeers.every(p=>comparePurchasingPack(vi.pack_size,p.pack_size).status==="same")){
+      else if(provenPeers.length&&provenPeers.every(p=>procurement.comparePurchasingPack(vi.pack_size,p.pack_size).status==="same")){
         packAcc=100;packWhy+="; corroborated by another vendor";
       }
       if(comparableAlternatives)packWhy+="; alternatives may use different purchasing packs";
       const sourcePack=source("pack_size","packSize");
-      if(byClient("pack_size")&&sourcePack&&comparePurchasingPack(vi.pack_size,sourcePack).status!=="same"){
+      if(byClient("pack_size")&&sourcePack&&procurement.comparePurchasingPack(vi.pack_size,sourcePack).status!=="same"){
         packAcc=Math.min(packAcc,GUESSED);packWhy+="; differs from the original source";
       }
       if(changes.includes("packSize")){packAcc=Math.min(packAcc,GUESSED);packWhy+="; changed on the newest sheet";}
@@ -127,12 +127,12 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
         unitWhy+='; the retained source or saved confirmation belongs to a different quoted unit';
       }
       if(basis.basis==="measure"&&pack?.parsed&&casePrice==null){
-        if(pack.catchWeight&&measuredQuoteRate(amount,basis.unit||vi.selling_unit,pack.unit))unitWhy+="; measured rate retained independently of variable case weight";
+        if(pack.catchWeight&&procurement.measuredQuoteRate(amount,basis.unit||vi.selling_unit,pack.unit))unitWhy+="; measured rate retained independently of variable case weight";
         else{unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; the pack isn't measured in "+(basis.unit||vi.selling_unit);}
       }
       if(vi.price_basis&&vi.price_basis!==basis.basis){unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; saved price basis conflicts with quoted unit";}
       const sourceUnit=source("selling_unit","sellingUnit");
-      if(byClient("selling_unit")&&sourceUnit&&JSON.stringify(priceBasisFor(sourceUnit))!==JSON.stringify(basis)){
+      if(byClient("selling_unit")&&sourceUnit&&JSON.stringify(procurement.priceBasisFor(sourceUnit))!==JSON.stringify(basis)){
         unitAcc=Math.min(unitAcc,GUESSED);unitWhy+="; differs from the original source";
       }
     }
@@ -161,7 +161,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     // category is authoritative. Do not reclassify each supplier's wording.
     const grouped=productGroupApproved(vi,item,mapping);
     if(grouped&&!item.category_review)catWhy='Category defined by the confirmed KERDOS item';
-    const independent=!grouped&&categories.length?suggestCategory(vi.description,categories,[]):null;
+    const independent=!grouped&&categories.length?procurement.suggestCategory(vi.description,categories,[]):null;
     if(item.category_review&&independent?.confidence==="confident"&&independent.category?.id===category.id){
       catAcc=DERIVED;catWhy=independent.reason;
     }
@@ -199,9 +199,9 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   }
 
   // Description: the vendor's own words are the vendor's own words.
-  const descriptionCorroborated=provenPeers.length>0&&provenPeers.every(p=>p.description&&compareProductIdentity(vi.description,p.description).status==="same");
+  const descriptionCorroborated=provenPeers.length>0&&provenPeers.every(p=>p.description&&procurement.compareProductIdentity(vi.description,p.description).status==="same");
   const originalDescription=source("description","description");
-  const descriptionConflict=byClient("description")&&originalDescription&&compareProductIdentity(vi.description,originalDescription).status!=="same";
+  const descriptionConflict=byClient("description")&&originalDescription&&procurement.compareProductIdentity(vi.description,originalDescription).status!=="same";
   const descAcc=empty(vi.description)?null:descriptionConflict?GUESSED:descriptionCorroborated?100:STATED;
   const descWhy=descriptionConflict?"Edited description differs from original source; verify the product":descriptionCorroborated?"Product identity corroborated by a matching trade identifier":byClient("description")?"Cleaned up by you; verify against source":"As the vendor wrote it";
 
@@ -276,9 +276,9 @@ export const BLOCKER_LABELS={category:"Category needs evidence",product:"Descrip
   association:"Product association needs verification",quote:"No current quotation",expired:"Quote expired",
   source:"Source conflict needs review",brand:"Locked brand does not match",link:"Catalog link missing"};
 export function orderGuideAssessment(input){
-  const {item,vendorItem,mapping,vendor,category,peers=[],categories=[],settings={},now}=input;
+  const {item,vendorItem,mapping,vendor,category,peers=[],categories=[],settings={},now,procurement=getProcurementContext()}=input;
   if(!item||!vendorItem||!mapping)return {ready:false,fieldsReady:false,blockers:["link"],evidence:null,verification:null};
-  const evidence=catalogRowEvidence({item,vendorItem,mapping,vendor,category,peers,categories});
+  const evidence=catalogRowEvidence({item,vendorItem,mapping,vendor,category,peers,categories,procurement});
   // A category only has to be a real one; a best-guess placement is still a
   // placement and the price is no less right for it. The other required
   // cells must be worked out from strong evidence or better.
@@ -288,10 +288,10 @@ export function orderGuideAssessment(input){
   if(override){for(const key of ["pack","sellingUnit"])if(blockers.includes(key))blockers.splice(blockers.indexOf(key),1);}
   if(evidence.unitCost.value==null&&!blockers.includes("pack")&&!blockers.includes("sellingUnit")&&!blockers.includes("price"))blockers.push("unitCost");
   if(evidence.unitCost.estimated&&!blockers.includes("unitCost"))blockers.push("unitCost");
-  const status=quoteStatus(vendorItem,settings,now);
+  const status=procurement.quoteStatus(vendorItem,settings,now);
   if(status!=="current")blockers.push(status==="expired"?"expired":"quote");
   if(vendorItem.import_row?.reviewRequired)blockers.push("source");
-  if(item.brand_locked&&!brandsMatch(vendorItem.brand,item.locked_brand))blockers.push("brand");
+  if(item.brand_locked&&!procurement.brandsMatch(vendorItem.brand,item.locked_brand))blockers.push("brand");
   const fieldsReady=blockers.length===0;
   const approved=mapping.comparison_track==="exact"&&mapping.confidence_score===100;
   // A first-import item with no other vendor listing yet qualifies on field quality alone.
@@ -304,16 +304,16 @@ export function orderGuideAssessment(input){
   // it is not required for ordering. The gap check ensures the description and
   // catalog item name share at least some product identity — a chicken row matched
   // to a tomato catalog item ("No shared defining product terms") does not qualify.
-  const gap=!peers.length&&fieldsReady?mappingGap(vendorItem,item,[]):null;
+  const gap=!peers.length&&fieldsReady?mappingGap(vendorItem,item,[],procurement):null;
   const standaloneQualified=!!gap&&gap.code==="single-vendor-ready";
   const identityApproved=productGroupApproved(vendorItem,item,mapping)&&item.comparison_mode!=="exact";
-  const verification=approved&&(identityApproved||(clientApproved&&item.comparison_mode!=="exact")||automaticAlternativeVerified(vendorItem,item,peers)||!peers.length)?mapping:mappingVerification(vendorItem,item,peers);
+  const verification=approved&&(identityApproved||(clientApproved&&item.comparison_mode!=="exact")||automaticAlternativeVerified(vendorItem,item,peers,procurement)||!peers.length)?mapping:mappingVerification(vendorItem,item,peers,procurement);
   if(!standaloneQualified&&verification.comparison_track!=="exact")blockers.push("association");
   return {ready:blockers.length===0,fieldsReady,blockers,evidence,verification};
 }
 export function orderGuideReady(input){return orderGuideAssessment(input).ready;}
 
-export function qualificationSummary({catalogItems=[],vendorItems=[],mappings=[],vendors=[],categories=[],settings={},now}={}){
+export function qualificationSummary({catalogItems=[],vendorItems=[],mappings=[],vendors=[],categories=[],settings={},now,procurement=getProcurementContext()}={}){
   const ci=new Map(catalogItems.map(row=>[row.id,row])),vi=new Map(vendorItems.map(row=>[row.id,row]));
   const vendorById=new Map(vendors.map(row=>[row.id,row])),categoryById=new Map(categories.map(row=>[row.id,row]));
   const rows=mappings.flatMap(mapping=>{
@@ -321,7 +321,7 @@ export function qualificationSummary({catalogItems=[],vendorItems=[],mappings=[]
     if(!item||!vendorItem)return [];
     const peers=mappings.filter(other=>other.catalog_item_id===item.id&&other.id!==mapping.id).map(other=>vi.get(other.vendor_item_id)).filter(Boolean);
     return [{mappingId:mapping.id,vendorItemId:vendorItem.id,...orderGuideAssessment({item,vendorItem,mapping,
-      vendor:vendorById.get(vendorItem.vendor_id),category:categoryById.get(item.category_id),peers,categories,settings,now})}];
+      vendor:vendorById.get(vendorItem.vendor_id),category:categoryById.get(item.category_id),peers,categories,settings,now,procurement})}];
   });
   const linked=new Set(rows.map(row=>row.vendorItemId));
   for(const vendorItem of vendorItems)if(!linked.has(vendorItem.id))rows.push({vendorItemId:vendorItem.id,ready:false,blockers:["link"]});

@@ -122,6 +122,21 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
     },
     orders:{submit(row){return providerResult(client.rpc("kerdos_submit_order",row),"Record order");}},
     documents:{
+      async reviewPriceSheet({organizationId,documentId,action,unit,token,listingIds}){
+        const body={organizationId,action};
+        if(documentId!==undefined)body.documentId=documentId;
+        if(action==="preview-confirmation"||action==="preview-recheck"){
+          if(action==="preview-confirmation"&&unit!==undefined)body.unit=unit;
+          if(listingIds!==undefined)body.listingIds=listingIds;
+        }else body.token=token;
+        const result=await client.functions.invoke("price-sheet-review",{body});
+        const response=result.error?.context;
+        if(typeof response?.json==="function"){
+          const body=await response.json().catch(()=>null);
+          if(typeof body?.error==="string")throw new BackendError("Review price sheet",{message:body.error,status:response.status});
+        }
+        return providerResult(result,"Review price sheet");
+      },
       download(path){return providerResult(client.storage.from("documents").download(path,{}, {cache:"no-store"}),"Verify original document");},
       upload(path,file,options){return providerResult(client.storage.from("documents").upload(path,file,options),"Upload document");},
       signedUrl(path,seconds=3600){return providerResult(client.storage.from("documents").createSignedUrl(path,seconds),"Open document");},

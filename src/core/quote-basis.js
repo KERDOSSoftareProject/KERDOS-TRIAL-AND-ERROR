@@ -3,7 +3,7 @@ import {getProcurementContext} from "../procurement.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
 import {unitLabel} from "./unit-labels.js";
-import {unitInPrice,unitInPriceHeader} from "./source-units.js";
+import {hasPrintedQuoteUnit,unitInPrice,unitInPriceHeader} from "./source-units.js";
 
 // Interpret only bound source prices. Each amount keeps its own header
 // and coordinates, independent of calculations or later client edits.
@@ -82,13 +82,13 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that
 // a new document with an omitted unit also quotes cases.
-export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext()){
+export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext(),source=row){
   if(row.sellingUnitSource==='inferred')return null;
   const explicit=procurement.priceBasisFor(row.sellingUnit);
   if(explicit&&row.sellingUnitSource==='remembered'){
     const origin=quotedUnitOrigin({...prior,description:row.description,pack_size:row.packSize,
       selling_unit:row.sellingUnit,import_row:{row:{},evidence:row}},procurement);
-    return origin.status==='confirmed'&&origin.root?{basis:explicit,sellingUnit:row.sellingUnit,
+    return origin.status==='confirmed'&&origin.root&&canReuseDocumentUnit(origin.root,source,procurement)?{basis:explicit,sellingUnit:row.sellingUnit,
       source:'confirmed vendor item',unitRoot:origin.root}:null;
   }
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
@@ -102,10 +102,25 @@ export function resolveQuoteBasis(row,prior=null, procurement=getProcurementCont
   if(row.brand&&prior.brand&&!procurement.brandsMatch(row.brand,prior.brand))return null;
   if(row.gtin&&prior.gtin&&row.gtin!==prior.gtin)return null;
   if(row.manufacturerCode&&prior.manufacturer_code&&row.manufacturerCode!==prior.manufacturer_code)return null;
-  if(procurement.compareProductIdentity(row.description,prior.description).status!=="same"||
+  const normalizedDescription=value=>String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
+  const sourceDescription=normalizedDescription(source.description);
+  // A verified listing can repeat the exact source wording even when the
+  // industry dictionary still considers one of its abbreviations ambiguous.
+  const sameConfirmedWording=origin.root.confirmation?.documentConfirmation&&
+    sourceDescription&&sourceDescription===normalizedDescription(prior.description);
+  if((!sameConfirmedWording&&procurement.compareProductIdentity(row.description,prior.description).status!=="same")||
      procurement.comparePurchasingPack(row.packSize,prior.pack_size).status!=="same")return null;
+  if(!canReuseDocumentUnit(origin.root,source,procurement))return null;
   const learned=procurement.priceBasisFor(prior.selling_unit);
   return learned?.basis===prior.price_basis?{basis:learned,sellingUnit:prior.selling_unit,source:"confirmed vendor item",unitRoot:origin.root}:null;
+}
+
+function canReuseDocumentUnit(root,source,procurement){
+  const document=root.confirmation?.documentConfirmation;
+  if(!document)return true;
+  const printedPack=Object.hasOwn(source.originalFields||{},'packSize')?source.originalFields.packSize:source.packSize;
+  return !source.cellConflicts?.length&&!source.issues?.length&&!source.requiresReview&&!hasPrintedQuoteUnit(source,procurement)&&
+    procurement.comparePurchasingPack(printedPack,document.packSize).status==='same';
 }
 
 // Invoice billing evidence is reusable only for a consistent vendor listing.
