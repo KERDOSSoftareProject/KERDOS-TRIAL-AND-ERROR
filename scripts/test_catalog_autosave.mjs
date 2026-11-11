@@ -51,11 +51,19 @@ await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)]});asser
 cache.clear();current={...structuredClone(row),description:'STEEL WASHERS',pack_size:'4/10 LB',selling_unit:'CASE',price_basis:'case',price:81,
  import_row:{row:{sellingUnit:null},reviewRequired:true,evidence:{sellingUnitSource:'inferred',fieldInference:{sellingUnit:{source:'cross-vendor comparison',value:'CASE',accuracy:70,reason:'Compared with two confirmed vendor quotes'}}},baseFieldCompletion:{fields:{pack_size:{value:'4/10 LB',status:'stated',caseCountKnown:true},selling_unit:{value:null,status:'not-stated'}}}}};
 await mount({vendorItems:[structuredClone(current)]});assert.equal(input('Quoted per for 000012').props.value,'case','supported inference fills the field in the source trial');
-let unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');assert.equal(unitCell.props.style.background,'#FFF3E0');assert.match(text(unitCell),/Inferred/);
+let unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');
+assert.equal(unitCell.props.style.background,undefined,'inference does not shade the cell');
+assert.equal(input('Quoted per for 000012').props.style.background,'#FFF8EA','only the editable quote control is highlighted');
+assert.match(text(unitCell),/Inferred/);
 assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
 const confirm=tree.root.findAllByType('button').find(b=>text(b)==='Confirm inferred unit');assert.ok(confirm);await act(async()=>confirm.props.onClick());await settle();
 assert.equal(calls.at(-1).patch.selling_unit,'CASE');assert.equal(current.import_row.row.sellingUnit,null,'confirmation preserves the vendor original');
-unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');assert.equal(unitCell.props.style.background,'#E7F5EC');assert.match(text(unitCell),/Confirmed/);await act(async()=>tree.unmount());
+unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');
+assert.equal(unitCell.props.style.background,undefined,'a confirmed value uses the standard cell background');
+assert.doesNotMatch(text(unitCell),/Confirmed|Inferred/,'a confirmed value displays without a status label');
+assert.equal(input('Quoted per for 000012').props.value,'case');
+assert.notEqual(input('Quoted per for 000012').props.style.background,'#FFF8EA','confirmation clears the control highlight');
+await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
 `,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});
  process.stdout.write(execFileSync(process.execPath,[join(dir,'test.mjs')],{encoding:'utf8',timeout:60000}));
