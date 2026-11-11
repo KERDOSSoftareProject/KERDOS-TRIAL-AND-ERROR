@@ -54,7 +54,8 @@ try{
  assert.equal(tree.root.findByProps({'aria-label':'Amount in each for AC0'}).props.value,5);
  assert.equal(text(tree.root.findByProps({'aria-label':'Calculated unit cost for AC0'})),'$3.35');
  assert.equal(rowFor('Pack for AC0').findByProps({'data-field-label':'Pack'}).props['data-catalog-review-field'],true);
- assert.match(text(rowFor('Pack for AC0')),/Inferred pack/);
+ assert.doesNotMatch(text(rowFor('Pack for AC0')),/Inferred (?:pack|price per)/);
+ assert.equal(text(rowFor('Pack for AC0').findByProps({'aria-label':'Confirm pack and quoted unit'})),'Confirm');
  await act(async()=>tree.update(React.createElement(CatalogRows,{...cheeseProps,vendorItems:cheeseListings.map((row,index)=>index===1?{...row,price:100}:row)})));
  assert.equal(tree.root.findByProps({'aria-label':'Pack for AC0'}).props.value,'','a changed group price removes the unsupported inference');
  await act(async()=>tree.unmount());
