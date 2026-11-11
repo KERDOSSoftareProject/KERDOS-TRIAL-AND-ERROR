@@ -15,7 +15,7 @@ import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {createVariableWeightService} from '../services/variable-weight.js';
 import {VariableWeightConfirmation} from './VariableWeightConfirmation.jsx';
 import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOCKER_LABELS} from "../core/catalog-fields.js";
-import {catalogMigrationTier} from "../core/catalog-migration-tier.js";
+import {catalogMigrationAssessment} from "../core/catalog-migration-tier.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost} from "../procurement.js";
 import {formatMoney} from "../localization.js";
 import {btn,inp} from "../ui/styles.js";
@@ -33,7 +33,7 @@ function Evidence({field}){
   if(field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
   return field.by?<small style={{display:"block",marginTop:4,color:"#003584"}}>{field.by}</small>:null;
 }
-function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged,tier}){
+function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged,tier,tierFields}){
   const storageKey=autoSave&&userId?`kerdos-catalog-draft:${orgId}:${userId}:${vendorItem.id}`:null;
   const [recovery]=useState(()=>{try{return storageKey?JSON.parse(window.localStorage.getItem(storageKey)||'null'):null;}catch{return null;}});
   const [trialVisible,setTrialVisible]=useState(recovery?.visible||{});
@@ -176,7 +176,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </>;
         const sourceKey={product:"description",pack:"packSize",sellingUnit:"sellingUnit"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} style={cellStyle}>
+        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={tierFields.has(key)?true:undefined} style={cellStyle}>
           {content}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
           {autoSave&&key==="product"&&saveStatus}
@@ -246,8 +246,8 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
     // The other vendors' rows on this item, for cross-vendor checks.
     const peers=mappings.filter(o=>o.catalog_item_id===mapping.catalog_item_id&&o.id!==mapping.id).map(o=>viById.get(o.vendor_item_id)).filter(Boolean);
     const clientName=clientProductName(item,[vendorItem,...peers],industry)||'Product name needed';
-    const tier=catalogMigrationTier({item,listing:vendorItem,mapping,settings,now});
-    return [{mapping,item,vendorItem,vendor,peers,clientName,tier,evidence:catalogRowEvidence({item,vendorItem,vendor,mapping,category,peers,categories})}];
+    const {tier,fields:tierFields}=catalogMigrationAssessment({item,listing:vendorItem,mapping,settings,now});
+    return [{mapping,item,vendorItem,vendor,peers,clientName,tier,tierFields,evidence:catalogRowEvidence({item,vendorItem,vendor,mapping,category,peers,categories})}];
   }).sort((a,b)=>{
     if(a.tier!==b.tier)return a.tier-b.tier;
     const av=sort.key==='itemName'?a.clientName:a.evidence[sort.key].value,bv=sort.key==='itemName'?b.clientName:b.evidence[sort.key].value;
@@ -270,7 +270,7 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
   const browseById=new Map(items.map(item=>[item.catalogItemId,item]));
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div data-catalog-base-trial={baseFieldsOnly} style={{borderRadius:10,background:"white",marginBottom:16}}>
-    <style>{'tr[data-migration-tier]:not([data-migration-tier="1"]) > td :is(input, select):enabled { background-color: var(--catalog-field-fill); }'}</style>
+    <style>{'td[data-catalog-review-field] :is(input, select):enabled { background-color: var(--catalog-field-fill); }'}</style>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     {orderedGroups.map(group=>{
       const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;

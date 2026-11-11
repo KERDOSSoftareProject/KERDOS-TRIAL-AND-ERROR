@@ -74,14 +74,15 @@ const tierBase={...row,pack_size:'4/1 GAL',price:20,price_unavailable:false,pric
 const tierListings=[
  {...tierBase,id:'held',vendor_item_code:'A',price:null},
  {...tierBase,id:'no-unit',vendor_item_code:'B',selling_unit:null,import_row:{rowKey:'B',sourceDocumentId:'doc',row:{price:20}}},
- {...tierBase,id:'inferred',vendor_item_code:'C',import_row:{reviewRequired:true,conflicts:['Pricing basis "CASE" suggested but not confirmed'],evidence:{sellingUnitSource:'inferred'}}},
+ {...tierBase,id:'inferred',vendor_item_code:'C',price_unavailable:true,import_row:{reviewRequired:true,reviewFields:['description','brand','pack_size','selling_unit','price'],conflicts:['Pricing basis "CASE" suggested but not confirmed'],evidence:{sellingUnitSource:'inferred'}}},
  {...tierBase,id:'full',vendor_item_code:'D',field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}},
 ];
 await mount({baseFieldsOnly:false,vendorItems:tierListings,mappings:tierListings.map(v=>({...mapping,id:v.id,vendor_item_id:v.id}))});
 const tierRows=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null);
 assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
 assert.deepEqual(tierRows.map(n=>n.props.style['--catalog-field-fill']),[undefined,'#EEF6FF','#DCEBFF','#C6DFFF']);
-assert.match(tree.root.findByType('style').children.join(''),/:is\(input, select\):enabled/,'only writable inputs and dropdowns receive the tier fill');
+assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],['Quoted per'],['Quoted per'],['Quoted price']]);
+assert.match(tree.root.findByType('style').children.join(''),/\[data-catalog-review-field\] :is\(input, select\):enabled/,'only writable controls in the flagged field receive the fill');
 for(const n of tierRows)assert.ok(n.findAllByType('td').every(cell=>!cell.props.style.backgroundColor),'surrounding cells stay neutral');
 await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
