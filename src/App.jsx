@@ -143,7 +143,8 @@ export default function App() {
   const [unitSelection,setUnitSelection]=useState({});
   const [vendorOverride,setVendorOverride]=useState({});
   const [negotiatedPrices,setNegotiatedPrices]=useState({}); // unit key -> vendor ID -> agreed price
-  const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,
+  const [openPriceMenu,setOpenPriceMenu]=useState(null);
+  const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,editorKey:tab==="order"?openPriceMenu:null,
     canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping,patch)=>{
       // A legacy device-only price must not conceal a freshly saved quote.
       if(['price','pack_size','selling_unit'].some(field=>Object.hasOwn(patch,field)))setNegotiatedPrices(previous=>{
@@ -159,7 +160,7 @@ export default function App() {
       await loadData();
     }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
-  const [openPriceMenu,setOpenPriceMenu]=useState(null);
+  useEffect(()=>{if(tab!=="order")setOpenPriceMenu(null);},[tab]);
   const mobileOrder=useLayoutQuery(mobileOrderQuery);
   const mobileDetails=useLayoutQuery(`${mobileOrderQuery}, (hover: none) and (pointer: coarse)`);
   useEffect(()=>{
@@ -1064,7 +1065,7 @@ export default function App() {
                         const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
                         const activeBlockReason=activeBlocked?(wrongUnit?"This listing has no quote for the selected unit":displayOption?blockReason(displayOption):"No quote for the selected unit"):null;
                         const allListings=[...allUnitListings,...item.linkedOptions.filter(o=>!supportsOrderUnit(o,selectedUnit))];
-                        const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
+                        const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='queued'||edit?.phase==='saving');
                         const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
                         const multipleVendors=vendorCount>1;
                         const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}

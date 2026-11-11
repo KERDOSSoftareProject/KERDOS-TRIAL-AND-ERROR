@@ -337,7 +337,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
   // Per-item rules (brand lock, strict matching, per-unit display unit).
   // A small write, then the same reload every other edit uses.
   async function handleItemSetting(catalogItemId,patch){
-    await act(()=>catalogService.updateItemSettings(catalogItemId,patch));
+    return act(()=>catalogService.updateItemSettings(catalogItemId,patch));
   }
 
   async function handleAssignCategory(catalogItemId,newCategoryId){
@@ -628,7 +628,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onPreferBrand={(id,brand)=>handleItemSetting(id,{preferred_brand:brand})} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"
@@ -778,11 +778,6 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                           <div>
                             <label style={{display:"block",fontSize:12}}><input type="checkbox" checked={item.comparisonMode!=="exact"} onChange={e=>handleItemSetting(item.catalogItemId,{comparison_mode:e.target.checked?"alternatives":"exact"})}/> Accept client-approved alternatives across brands</label>
                             <small>To add an alternative, set its KERDOS number to this item's number in Edit catalog rows, then Apply. Each vendor keeps its description, brand and pack.</small>
-                          </div>
-                          <div>
-                            <label style={{display:"block",fontSize:12}}><input type="checkbox" checked={!!item.preferredBrand} disabled={!brands.length} onChange={e=>handleItemSetting(item.catalogItemId,{preferred_brand:e.target.checked?brands[0]:null})}/> Prefer a brand</label>
-                            {item.preferredBrand&&<select aria-label={`Preferred brand for ${item.name}`} style={sel} value={item.preferredBrand} onChange={e=>handleItemSetting(item.catalogItemId,{preferred_brand:e.target.value})}>{[...new Set([item.preferredBrand,...brands])].map(b=><option key={b} value={b}>{b}</option>)}</select>}
-                            <small style={{display:"block"}}>Alternatives remain available.</small>
                           </div>
                           <div>
                             <div style={lbl}>Require this brand</div>

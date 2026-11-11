@@ -70,23 +70,26 @@ assert.equal(orderUnitOption('each').props.disabled,true,'a quoted case does not
 
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'10.00'}}));
-const settlePrice=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,750));});
+const settlePrice=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,25));});
+await act(async()=>{await new Promise(resolve=>setTimeout(resolve,800));});
+assert.equal(savedRequest,undefined,'typing pauses do not save the open dropdown');
+await act(async()=>priceButton().props.onClick());
 await settlePrice();
 assert.equal(savedRequest.vendorItemId,'honey-second');assert.deepEqual(savedRequest.patch,{price:10});assert.match(text(priceButton()),/Second Vendor/);assert.match(text(priceButton()),/10.00/,'saved cheaper listing becomes displayed choice');
+await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Sample Vendor')).props.onClick());
 assert.match(text(priceButton()),/Sample Vendor/);assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0);
 assert.doesNotMatch(text(tree.toJSON()),/Use lowest price/);
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'9.00'}}));
 await act(async()=>priceButton().props.onClick());
-assert.match(text(tree.toJSON()),/Saving listing changes/);
 await settlePrice();
 assert.equal(savedRequest.patch.price,9,'closing the menu does not discard a price edit');
 assert.match(text(priceButton()),/Sample Vendor.*20\.00/,'saving another listing preserves the explicit vendor selection');
 await act(async()=>priceButton().props.onClick());
 const selectedPrice=()=>tree.root.findByProps({'aria-label':'Price for listing vi1'});
 await act(async()=>selectedPrice().props.onChange({target:{value:'21.00'}}));
-await act(async()=>selectedPrice().props.onBlur());
+await act(async()=>priceButton().props.onClick());
 await act(async()=>{await new Promise(resolve=>setTimeout(resolve,25));});
 assert.match(text(priceButton()),/Sample Vendor.*21\.00/,'saving the selected listing keeps the vendor and updates the price');
 await act(async()=>priceButton().props.onClick());
@@ -151,6 +154,7 @@ await act(async()=>priceButton().props.onClick());
 for(const [label,value] of [['Pack','6/1 GAL'],['Price','16.25']]){
  await act(async()=>tree.root.findByProps({'aria-label':label+' for listing honey-second'}).props.onChange({target:{value}}));
 }
+await act(async()=>priceButton().props.onClick());
 await settlePrice();
 assert.deepEqual(savedRequest.patch,{pack_size:'6/1 GAL',price:16.25});
 assert.equal(incompleteMapping.comparison_track,'exact','the save and placement refresh restore the existing product-group approval');

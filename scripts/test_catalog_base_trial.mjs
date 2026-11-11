@@ -67,22 +67,30 @@ try{
   import_row:{sourceDocumentId:'blank-source',rowKey:'row-1',row:{price:16.75,packSize:'4/5 LB'}}};
  const noPrice={...cheeseListings[1],id:'no-price',vendor_id:'held',vendor_item_code:'AC4',price:null};
  const confirmListings=[cheeseListings[0],blankUnit,noPrice];
- let openedDetails;fail=false;
- await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,{...cheeseProps,vendorItems:confirmListings,
+ blankUnit.import_row.baseFieldCompletion={fields:{pack_size:{value:'4/5 LB'}}};
+ noPrice.import_row={...noPrice.import_row,baseFieldCompletion:{fields:{pack_size:{value:'4/5 LB'}}}};
+ fail=false;
+ const confirmProps={...cheeseProps,vendorItems:confirmListings,
   vendors:confirmListings.map(row=>({id:row.vendor_id,name:row.vendor_id})),
   mappings:confirmListings.map(row=>({id:'map-'+row.id,organization_id:org,vendor_item_id:row.id,catalog_item_id:cheese.id,comparison_track:'exact',confidence_score:100})),
-  onDetails:id=>{openedDetails=id;}}));});
+  onDetails:()=>assert.fail('Confirm must stay in the editor')};
+ await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,confirmProps));});
  const confirmFor=code=>rowFor('Pack for '+code).findByProps({'aria-label':'Confirm listing '+code});
  assert.equal(rowFor('Pack for AC3').props['data-migration-tier'],3);
  const beforeChoice=calls.length;
  await act(async()=>confirmFor('AC3').props.onClick());
- assert.equal(calls.length,beforeChoice);
  await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Quoted unit'}).props.onChange({target:{value:'CASE'}}));
- await act(async()=>new Promise(resolve=>setTimeout(resolve,750)));
- assert.deepEqual(calls.at(-1).patch,{selling_unit:'CASE'});
+ assert.equal(calls.length,beforeChoice,'choosing a value stages the edit');
+ await act(async()=>confirmFor('AC3').props.onClick());
+ assert.deepEqual(calls.at(-1).patch,{description:'AMERICAN CHEESE',brand:'',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,approve_row:true});
+ const accepted={...blankUnit,selling_unit:'CASE',price_basis:'case',row_revision:1,
+  field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}};
+ await act(async()=>tree.update(React.createElement(CatalogRows,{...confirmProps,vendorItems:[cheeseListings[0],accepted,noPrice]})));
+ assert.equal(rowFor('Pack for AC3').props['data-migration-tier'],1);
  assert.equal(rowFor('Pack for AC4').props['data-migration-tier'],4);
  await act(async()=>confirmFor('AC4').props.onClick());
- assert.equal(openedDetails,cheese.id);
+ assert.match(text(rowFor('Pack for AC4')),/Enter the product description and quoted price/);
+ assert.equal(calls.length,beforeChoice+1,'incomplete rows stay in review without a write');
  await act(async()=>tree.unmount());
  console.log('PASS base catalog trial: visible switch; blank later columns; vendor code/NVIN; editable source fields; dollar-only save without units or blanket approval; reassignment follows group number/category; hidden drafts/full view retained; errors/roles; unchanged source snapshots.');
  `,resolveDir:process.cwd(),sourcefile:'catalog-base-test.mjs',loader:'js'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'base-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'base'}));b.onLoad({filter:/.*/,namespace:'base'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__catalogBaseBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__catalogBaseBackend.catalog.saveRow(...args)}};'}));}}]});
