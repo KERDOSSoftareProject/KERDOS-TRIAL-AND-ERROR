@@ -106,26 +106,31 @@ try{
       removeEventListener:(name,listener)=>{assert.equal(name,'keydown');assert.equal(listener,keydown);keydown=null;},
     };
     const inputs=()=>tree.root.findAllByType('input');
-    const locked=()=>inputs().map(input=>input.props.readOnly);
+    let clearedFocus=0;
+    const focusField=()=>tree.root.findByType('form').props.onFocusCapture({target:{tagName:'INPUT',blur:()=>clearedFocus++}});
     await act(async()=>{tree=Renderer.create(React.createElement(LandingGate));});
-    assert.deepEqual(locked(),[true,true]);
-    assert.ok(inputs().every(input=>!input.props.autoFocus));
+    assert.ok(inputs().every(input=>!input.props.autoFocus&&!input.props.readOnly));
     assert.deepEqual(inputs().map(input=>input.props.autoComplete),['username','current-password']);
+    focusField();
+    assert.equal(clearedFocus,1);
     const form=tree.root.findByType('form');
     await act(async()=>form.props.onPointerDownCapture({nativeEvent:{isTrusted:false}}));
-    assert.deepEqual(locked(),[true,true]);
+    focusField();
+    assert.equal(clearedFocus,2);
     await act(async()=>form.props.onPointerDownCapture({nativeEvent:{isTrusted:true}}));
-    assert.deepEqual(locked(),[false,false]);
+    focusField();
+    assert.equal(clearedFocus,2);
     await click('Sign Up');
     assert.equal(inputs()[1].props.autoComplete,'new-password');
     await act(async()=>tree.unmount());
     await act(async()=>{tree=Renderer.create(React.createElement(LandingGate));});
     await act(async()=>keydown({key:'Tab',isTrusted:true}));
-    assert.deepEqual(locked(),[false,false]);
+    focusField();
+    assert.equal(clearedFocus,2);
     await act(async()=>tree.unmount());
     assert.equal(keydown,null);
     delete globalThis.document;
-    console.log('PASS credentials wait for user input and then support standard autofill');
+    console.log('PASS sign-in clears early focus while keeping editable, autofill-ready fields');
 
 
   `,resolveDir:process.cwd(),sourcefile:'welcome-test.jsx',loader:'jsx'},bundle:true,platform:'node',format:'esm',jsx:'automatic',packages:'external',outfile,
