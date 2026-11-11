@@ -48,8 +48,8 @@ for(const changed of [{organizationId:'other-client'},{vendorId:'other-vendor'}]
 assert.equal(resolveFromInvoiceArithmetic(sheet,[entry({...billed,billingUnitEvidence:null,priceBasis:'measure'})],scope).conflict,true,'priceBasis alone is not provenance');
 assert.equal(preparePriceImport(sheet,null,null,[],[],scope).requiresReview,true,'Fresh sheets without evidence stay reviewable');
 
-const savedCase={id:'listing-a',vendor_item_code:sheet.code,description:sheet.description,pack_size:sheet.packSize,selling_unit:'CS',price_basis:'case',price:80};
-const savedMeasure={...savedCase,selling_unit:'LB',price_basis:'measure'};
+const savedCase={id:'listing-a',vendor_item_code:sheet.code,description:sheet.description,pack_size:sheet.packSize,selling_unit:'CS',price_basis:'case',price:80,import_row:{row:{sellingUnit:'CS'},evidence:{sellingUnit:'CS',sellingUnitSource:'price header'}}};
+const savedMeasure={...savedCase,selling_unit:'LB',price_basis:'measure',import_row:{row:{sellingUnit:'LB'},evidence:{sellingUnit:'LB',sellingUnitSource:'price header'}}};
 const knownMapping={vendor_item_id:savedCase.id,comparison_track:'exact',confidence_score:100};
 const disagreement=preparePriceImport(sheet,savedCase,knownMapping,[],[entry(billed)],scope);
 assert.equal(disagreement.resolved,null,'an unstated quote cannot choose between remembered case and verified invoice weight');

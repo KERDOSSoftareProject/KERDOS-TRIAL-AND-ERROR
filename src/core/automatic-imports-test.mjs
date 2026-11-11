@@ -38,7 +38,7 @@ assert.equal(comparePurchasingPack("10 LB FRESH","10 LB FROZEN").status,"review"
 assert.equal(suggestCategory("SWISS CHARD",categories).category.id,"produce");
 assert.equal(suggestCategory("PLASTIC WRAP",categories).category.id,"paper");
 
-const prior={id:"vi",vendor_id:"v",description:"Beef",brand:null,pack_size:"10 LB",selling_unit:"LB",price_basis:"measure",price:3.5};
+const prior={id:"vi",vendor_id:"v",description:"Beef",brand:null,pack_size:"10 LB",selling_unit:"LB",price_basis:"measure",price:3.5,import_row:{row:{sellingUnit:"LB"},evidence:{sellingUnit:"LB",sellingUnitSource:"price header"}}};
 const item={id:"ci",name:"Beef",category_id:"meat",master_item_number:20001};
 const mapping={id:"map",vendor_item_id:"vi",catalog_item_id:"ci",comparison_track:"review",confidence_score:70};
 const source={description:"Beef",brand:null,packSize:"10 LB",price:3.6};

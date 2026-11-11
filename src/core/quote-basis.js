@@ -1,3 +1,4 @@
+import {quotedUnitOrigin} from './listing-provenance.js';
 import {getProcurementContext} from "../procurement.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
@@ -48,10 +49,10 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
   for(const peer of listings){
     if(!peer.id||peer.organization_id!==scope.organizationId||!peer.vendor_id||peer.vendor_id===scope.vendorId)continue;
     if(procurement.quoteStatus(peer)!=='current'||peer.import_row?.reviewRequired)continue;
-    const evidence=peer.import_row?.evidence,original=peer.import_row?.row;
-    const confirmation=peer.field_resolutions?.selling_unit?.value;
-    if(evidence?.sellingUnitSource==='inferred'&&!confirmation)continue;
-    const confirmedUnit=confirmation||original?.sellingUnit;
+    const origin=quotedUnitOrigin(peer,procurement);
+    if(origin.status!=='confirmed')continue;
+    const confirmation=origin.confirmation?.value;
+    const confirmedUnit=confirmation||origin.row.sellingUnit||origin.evidence.sellingUnit;
     if(!confirmedUnit)continue;
     const stated=procurement.priceBasisFor(confirmedUnit),basis=procurement.priceBasisFor(peer.selling_unit);
     if(!stated||!basis||JSON.stringify(stated)!==JSON.stringify(basis)||peer.price_basis!==basis.basis)continue;
@@ -60,8 +61,8 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
     if(row.gtin&&peer.gtin&&row.gtin!==peer.gtin||row.manufacturerCode&&peer.manufacturer_code&&row.manufacturerCode!==peer.manufacturer_code)continue;
     const casePrice=procurement.casePriceFromQuote(peer.price,basis.basis,basis.unit||peer.selling_unit,peer.pack_size);
     if(!(casePrice>0))continue;
-    references.push({vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:peer.import_row.sourceDocumentId||null,
-      description:peer.description,packSize:peer.pack_size,price:Number(peer.price),sellingUnit:peer.selling_unit,casePrice,confirmationSource:confirmation?'client confirmation':'document'});
+    references.push({vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:origin.sourceDocumentId||null,
+      description:peer.description,packSize:peer.pack_size,price:Number(peer.price),sellingUnit:peer.selling_unit,casePrice,confirmationSource:confirmation?'client confirmation':'document',confirmedBy:origin.confirmation?.confirmedBy||null,confirmedAt:origin.confirmation?.confirmedAt||null});
   }
   if(new Set(references.map(peer=>peer.vendorId)).size<2)return null;
   references.sort((a,b)=>a.vendorItemId.localeCompare(b.vendorItemId));
@@ -86,7 +87,7 @@ export function resolveQuoteBasis(row,prior=null, procurement=getProcurementCont
   const explicit=procurement.priceBasisFor(row.sellingUnit);
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
   if(String(row.sellingUnit||"").trim()||row.changes?.length)return null;
-  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||prior.import_row?.evidence?.sellingUnitSource==="inferred")return null;
+  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||quotedUnitOrigin(prior,procurement).status!=="confirmed")return null;
   const coded=row.code&&String(prior.vendor_item_code)===String(row.code);
   // The caller must resolve one unique NVIN first, within this vendor.
   const uncoded=!row.code&&!prior.vendor_item_code&&!!prior.id&&row.resolvedVendorItemId===prior.id;

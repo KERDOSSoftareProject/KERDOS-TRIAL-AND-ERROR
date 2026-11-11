@@ -23,6 +23,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {preparePriceImport} from './price-import-review.js';
 import {importResolutions} from './catalog-fields.js';
+import {captureRetainedSource} from './listing-provenance.js';
 import {engineVerifiable} from '../services/catalog.js';
 
 export const MISSING_DESCRIPTION = 'Product description is missing. Source row retained for review.';
@@ -89,6 +90,7 @@ export async function importPriceRow({
       assertActive();
       const {error} = await backend.records.query('vendor_items')
         .update({import_row: {
+          retainedSource:captureRetainedSource(ex),
           row: {...sourceRow, ...(sourceRow.originalFields||{})},
           evidence: row,
           rowKey: completedKey,

@@ -1,3 +1,4 @@
+import {listingSourceForField} from '../core/listing-provenance.js';
 import {MobileDetailWindow} from '../ui/MobileDetailWindow.jsx';
 import {MovableDialog} from "../ui/MovableDialog.jsx";
 import {clientProductName} from '../core/client-product-name.js';
@@ -81,7 +82,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const parsedPack=parsePackSize(current.pack_size);
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
-  const hasSupportedInference=key=>key==='selling_unit'&&current.import_row?.evidence?.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
+  const hasSupportedInference=key=>key==='selling_unit'&&listingSourceForField(current,'selling_unit').evidence.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
   const displayed=key=>hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):current.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...current,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!trialVisible.pack_size,industry}):null;
