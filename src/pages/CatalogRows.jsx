@@ -168,7 +168,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
-          {inference&&autoSave&&canManage&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11})} aria-label={inference.packSize?"Confirm pack and quoted unit":"Confirm quoted unit"} disabled={busy||dirty} onClick={()=>{
+          {inference&&autoSave&&canManage&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,border:`1px solid ${fieldHighlight.accent}`})} aria-label={inference.packSize?"Confirm pack and quoted unit":"Confirm quoted unit"} disabled={busy||dirty} onClick={()=>{
             if(inference.packSize)edit("pack_size",inference.packSize);
             edit("selling_unit",inference.value);
           }}>Confirm</button>}
