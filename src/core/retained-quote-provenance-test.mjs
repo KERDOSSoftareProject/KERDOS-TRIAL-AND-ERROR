@@ -161,12 +161,12 @@ await test('matching client confirmation can confirm the value, including equiva
   const f=fixture(listing),evidence=f.evidence();
   assert.equal(evidence.sellingUnit.status,'confirmed');
   assert.equal(evidence.sellingUnit.accuracy,100);
-  assert.equal(evidence.sellingUnit.by,'KM');
-  assert.match(evidence.sellingUnit.reason,/KM/);
+  assert.equal(evidence.sellingUnit.by,'Kai Morgan');
+  assert.match(evidence.sellingUnit.reason,/Kai Morgan/);
   await f.import({...original,packSize:'8/5 LB'},{documentId:'client-confirmed-held-document'});
   assert.equal(f.read().field_resolutions.selling_unit.confirmedBy,'editor');
   assert.equal(f.evidence().sellingUnit.status,'confirmed');
-  assert.equal(f.evidence().sellingUnit.by,'KM');
+  assert.equal(f.evidence().sellingUnit.by,'Kai Morgan');
 });
 
 await test('absent proof cannot turn a saved unit into a Confirmed label',async()=>{

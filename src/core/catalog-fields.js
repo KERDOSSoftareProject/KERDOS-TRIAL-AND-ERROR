@@ -222,22 +222,17 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   // sure as the least sure of the three.
 
   // A value the client typed is theirs: it reads 100% and carries their
-  // initials. A later contradiction (another vendor's pack, the sheet's
+  // name when available. A later contradiction (another vendor's pack, the sheet's
   // original value) stays visible as a note on the cell, and nothing
   // about the row is held back because of it.
   const CLIENT=100;
-  const byPerson=(key)=>{
-    const entry=manual[key];
-    if(!entry)return null;
-    const who=entry.confirmedBy?editors[entry.confirmedBy]:null;
-    return {initials:initialsFor(who)||"",at:entry.confirmedAt||null};
-  };
   const clientField=(key,value,accuracy,reason)=>{
     const f=field(value,accuracy,reason);
     if(!byClient(key)||empty(value))return f;
-    const person=byPerson(key);
+    const editor=editors[manual[key]?.confirmedBy];
+    const editorName=[editor?.name,editor?.full_name].find(name=>typeof name==="string"&&name.trim())?.trim()||"";
     const notes=String(reason||"").split("; ").filter(part=>part&&!/^Set by you$/i.test(part)).join("; ");
-    return {...f,accuracy:CLIENT,by:person?.initials||"",reason:`Set by ${person?.initials||"you"}${notes?"; "+notes:""}`};
+    return {...f,accuracy:CLIENT,by:editorName,reason:`Set by ${editorName||"you"}${notes?"; "+notes:""}`};
   };
 
   const packField=clientField("pack_size",vi.pack_size||"",packAcc,packWhy||"No pack yet");

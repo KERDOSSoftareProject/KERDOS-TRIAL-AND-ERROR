@@ -853,6 +853,9 @@ export default function App() {
   const savedInitials = metadata?.kerdos_initials;
   const accountName = [metadata?.full_name, metadata?.name, account.full_name, account.name]
     .find(name => typeof name === "string" && name.trim())?.trim();
+  const catalogEditors = accountName
+    ? {...editors,[account.id]:{...editors[account.id],name:accountName}}
+    : editors;
   const accountInitials = typeof savedInitials === "string" && /^\p{L}{1,3}$/u.test(savedInitials)
     ? savedInitials.toUpperCase()
     : accountName ? userInitials(accountName) : initialsFor({email:account.email}) || "?";
@@ -1398,7 +1401,7 @@ export default function App() {
               {autoPlaceError} <button disabled={autoPlacing} onClick={()=>setAutoPlaceRetry(n=>n+1)} style={btn("#003584")}>Retry</button>
             </div>}
             <ItemCatalogPanel mobileDetails={mobileDetails} industry={org.industry} settings={org.settings} orgId={org.id} role={org.role} userId={session.user.id} productList={productList} vendors={vendors} catalogItems={catalogItems} mappings={mappings}
-              vendorItems={vendorItems} categories={categories} vocabulary={vocabulary} editors={editors}
+              vendorItems={vendorItems} categories={categories} vocabulary={vocabulary} editors={catalogEditors}
               onUpdated={loadData} />
           </>
         )}

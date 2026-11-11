@@ -127,7 +127,7 @@ await test('a recorded matching client confirmation retains the actual actor and
     if(root)assert.deepEqual(current,root,'a later price cannot recreate the client action with a new date');
     root=structuredClone(current);
     assert.equal(f.evidence().sellingUnit.status,'confirmed');assert.equal(f.evidence().sellingUnit.accuracy,100);
-    assert.equal(f.evidence().sellingUnit.by,'KM');
+    assert.equal(f.evidence().sellingUnit.by,'Kai Morgan');
   }
 });
 
