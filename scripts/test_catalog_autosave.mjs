@@ -48,13 +48,12 @@ cache.clear();current={...structuredClone(row),pack_size:'5 LB',selling_unit:'CA
 cache.clear();current={...structuredClone(row),vendor_item_code:'THYME',description:'1LB (COL)',price:99,import_row:{baseFieldCompletion:{trialIdentifier:{label:'NVIM-332'},fields:{description:{value:'THYME 1LB (COL)'},price:{value:11.5},pack_size:{value:'1 LB',caseCountKnown:false},selling_unit:{value:'EACH'}}}}};const sourceSnapshot=JSON.stringify(current),sourceCalls=calls.length;
 await mount({vendorItems:[structuredClone(current)]});assert.match(JSON.stringify(tree.toJSON()),/NVIN-332/);assert.equal(input('product for THYME').props.value,'THYME 1LB (COL)');assert.equal(Number(input('price for THYME').props.value),11.5);assert.equal(text(input('Calculated unit cost for THYME')),'$11.50');await act(async()=>tree.unmount());
 await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)]});assert.equal(input('product for THYME').props.value,'1LB (COL)');assert.equal(Number(input('price for THYME').props.value),99);assert.ok(!JSON.stringify(tree.toJSON()).includes('NVIN-332'),'trial identifier does not leak into full catalog');await act(async()=>tree.unmount());assert.equal(calls.length,sourceCalls);assert.equal(JSON.stringify(current),sourceSnapshot,'reading the trial never rewrites the full listing');
-cache.clear();current={...structuredClone(row),description:'STEEL WASHERS',pack_size:'4/10 LB',selling_unit:'CASE',price_basis:'case',price:81,
+cache.clear();current={...structuredClone(row),description:'STEEL WASHERS',pack_size:'4/10 LB',selling_unit:'CASE',price_basis:'case',price:81,price_unavailable:false,
  import_row:{row:{sellingUnit:null},reviewRequired:true,evidence:{sellingUnitSource:'inferred',fieldInference:{sellingUnit:{source:'cross-vendor comparison',value:'CASE',accuracy:70,reason:'Compared with two confirmed vendor quotes'}}},baseFieldCompletion:{fields:{pack_size:{value:'4/10 LB',status:'stated',caseCountKnown:true},selling_unit:{value:null,status:'not-stated'}}}}};
 await mount({vendorItems:[structuredClone(current)]});assert.equal(input('Quoted per for 000012').props.value,'case','supported inference fills the field in the source trial');
 let unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');
-assert.equal(unitCell.props.style.background,undefined,'inference does not shade the cell');
+assert.equal(unitCell.props.style.backgroundColor,'#FFE0B2','tier color fills the writable quote cell');
 assert.equal(input('Quoted per for 000012').props.style.background,undefined,'the quote control has no tinted fill');
-assert.equal(input('Quoted per for 000012').props.style.border,'1px solid #B87500','only the editable quote control gets the amber border');
 assert.doesNotMatch(text(unitCell),/Confirmed|Inferred/,'the suggestion displays without a status label');
 assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
 assert.equal(unitCell.findAllByType('button').length,0,'the dropdown is the only quote control');
@@ -64,13 +63,25 @@ unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted 
 assert.equal(unitCell.props.style.background,undefined,'a confirmed value uses the standard cell background');
 assert.doesNotMatch(text(unitCell),/Confirmed|Inferred/,'a confirmed value displays without a status label');
 assert.equal(input('Quoted per for 000012').props.value,'each');
-assert.notEqual(input('Quoted per for 000012').props.style.border,'1px solid #B87500','confirmation clears the control highlight');
 await act(async()=>tree.unmount());
 await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)],editors:{owner:{name:'Kai Morgan',email:'orders@example.com'}}});
 unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');
 assert.match(text(unitCell),/Kai Morgan/,'the catalog credits the person by name');
 const costCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Unit cost');
 assert.doesNotMatch(text(costCell),/per pounds/i,'the measurement selector provides the unit once');
+await act(async()=>tree.unmount());
+const tierBase={...row,pack_size:'4/1 GAL',price:20,price_unavailable:false,price_basis:'case',selling_unit:'CASE'};
+const tierListings=[
+ {...tierBase,id:'held',vendor_item_code:'A',price:null},
+ {...tierBase,id:'no-unit',vendor_item_code:'B',selling_unit:null,import_row:{rowKey:'B',sourceDocumentId:'doc',row:{price:20}}},
+ {...tierBase,id:'inferred',vendor_item_code:'C',import_row:{reviewRequired:true,conflicts:['Pricing basis "CASE" suggested but not confirmed'],evidence:{sellingUnitSource:'inferred'}}},
+ {...tierBase,id:'full',vendor_item_code:'D',field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}},
+];
+await mount({baseFieldsOnly:false,vendorItems:tierListings,mappings:tierListings.map(v=>({...mapping,id:v.id,vendor_item_id:v.id}))});
+const tierRows=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null);
+assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
+assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-tier-fill']).length),[0,8,8,8]);
+for(const n of tierRows)assert.equal(n.findAllByType('td')[0].props.style.backgroundColor,undefined,'the KERDOS number stays neutral');
 await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
 `,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});

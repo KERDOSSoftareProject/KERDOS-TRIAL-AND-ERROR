@@ -15,15 +15,18 @@ import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {createVariableWeightService} from '../services/variable-weight.js';
 import {VariableWeightConfirmation} from './VariableWeightConfirmation.jsx';
 import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOCKER_LABELS} from "../core/catalog-fields.js";
+import {catalogMigrationTier} from "../core/catalog-migration-tier.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost} from "../procurement.js";
 import {formatMoney} from "../localization.js";
-import {btn,inp} from "../ui/styles.js";
+import {btn,inp,PALETTE} from "../ui/styles.js";
 
 const service=createCatalogRowsService(backend);
 const variableWeightService=createVariableWeightService(backend);
 const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"};
 const BASE_COLUMNS=new Set(['itemNumber','vendor','vendorItemNumber','category','itemName','product','price']);
 const BASE_EDIT_FIELDS=new Set(['description','price','category_id']);
+const writableColumns=new Set(['category','itemName','product','brand','pack','price','sellingUnit','unitCost']);
+const tierFills={2:PALETTE[2].light,3:PALETTE[0].bg,4:"#FDE8E7"};
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
 // Source and editor notes remain available without confidence/origin badges.
 function Evidence({field}){
@@ -31,7 +34,7 @@ function Evidence({field}){
   if(field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
   return field.by?<small style={{display:"block",marginTop:4,color:"#003584"}}>{field.by}</small>:null;
 }
-function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged}){
+function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},editors={},variableApproval,onVariableApprovalChanged,tier}){
   const storageKey=autoSave&&userId?`kerdos-catalog-draft:${orgId}:${userId}:${vendorItem.id}`:null;
   const [recovery]=useState(()=>{try{return storageKey?JSON.parse(window.localStorage.getItem(storageKey)||'null'):null;}catch{return null;}});
   const [trialVisible,setTrialVisible]=useState(recovery?.visible||{});
@@ -130,11 +133,10 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const saveStatus=autoSave?<small role={error?'alert':'status'} style={{display:'block',marginTop:4,color:error?'#A32B20':'#276742'}}>{busy?'Saving…':error?error:dirty?'Waiting to save…':saved?'Saved':''}{error&&dirty&&<><button onClick={()=>setError('')} style={{border:0,background:'none',color:'#003584'}}>Retry</button><button onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setOverrideCost('');setError('');}} style={{border:0,background:'none'}}>Discard unsaved edits</button></>}</small>:null;
   const fields={product:"description",brand:"brand",price:"price"};
   return <>
-    <tr role="row" style={{background:"white"}}>
+    <tr role="row" data-migration-tier={tier} style={{background:"white"}}>
       {CATALOG_COLUMNS.map(([key,label])=>{
         if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
-        const f=key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];const status=f.value==null||f.value===''||key==='sellingUnit'&&!displayed('selling_unit')?null:f.status;let content;
-        const inferred=status==="inferred";
+        const f=key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{baseFieldsOnly?trialListingLabel(current,f.value):f.value||"NVIN pending"}</span>;
@@ -162,7 +164,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         else if(key==="itemName")content=<><input list={baseFieldsOnly?`client-items-${vendorItem.id}`:undefined} aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);const target=allCatalogItems.find(candidate=>!candidate.merged_into_id&&candidate.name===e.target.value);if(baseFieldsOnly&&target){setNumberDraft(String(target.master_item_number));setNameDraft(null);if(autoSave)setDraft(prior=>Object.fromEntries(Object.entries(prior).filter(([key])=>key!=="category_id")));}else{setNumberDraft(null);setNameDraft(e.target.value);}setSaved(false);setError("");}} />{baseFieldsOnly&&<datalist id={`client-items-${vendorItem.id}`}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id).map(candidate=><option key={candidate.id} value={candidate.name}/>)}</datalist>}</>;
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else if(key==="sellingUnit")content=<>
-          <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130,...(inferred&&canManage?{border:"1px solid #B87500"}:{})}} disabled={!canManage||busy} value={displayed("selling_unit")} onChange={value=>edit("selling_unit",value)}/>
+          <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={displayed("selling_unit")} onChange={value=>edit("selling_unit",value)}/>
           {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
         </>;
         else content=<>
@@ -175,7 +177,8 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </>;
         const sourceKey={product:"description",pack:"packSize",sellingUnit:"sellingUnit"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} style={cellStyle}>
+        const fill=writableColumns.has(key)?tierFills[tier]:undefined;
+        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-tier-fill={fill?true:undefined} style={fill?{...cellStyle,backgroundColor:fill}:cellStyle}>
           {content}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
           {autoSave&&key==="product"&&saveStatus}
@@ -238,14 +241,17 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
   },[orgId,variableIds]);
   const catalog=new Map(catalogItems.map(i=>[i.id,i])),viById=new Map(vendorItems.map(v=>[v.id,v])),vendorById=new Map(vendors.map(v=>[v.id,v]));
   const visible=new Set(items.map(i=>i.catalogItemId));
+  const now=new Date();
   const rows=mappings.filter(m=>visible.has(m.catalog_item_id)).flatMap(mapping=>{
     const item=catalog.get(mapping.catalog_item_id),vendorItem=viById.get(mapping.vendor_item_id);if(!item||!vendorItem)return [];
     const vendor=vendorById.get(vendorItem.vendor_id),category=categories.find(c=>c.id===item.category_id);
     // The other vendors' rows on this item, for cross-vendor checks.
     const peers=mappings.filter(o=>o.catalog_item_id===mapping.catalog_item_id&&o.id!==mapping.id).map(o=>viById.get(o.vendor_item_id)).filter(Boolean);
     const clientName=clientProductName(item,[vendorItem,...peers],industry)||'Product name needed';
-    return [{mapping,item,vendorItem,vendor,peers,clientName,evidence:catalogRowEvidence({item,vendorItem,vendor,mapping,category,peers,categories})}];
+    const tier=catalogMigrationTier({item,listing:vendorItem,mapping,settings,now});
+    return [{mapping,item,vendorItem,vendor,peers,clientName,tier,evidence:catalogRowEvidence({item,vendorItem,vendor,mapping,category,peers,categories})}];
   }).sort((a,b)=>{
+    if(a.tier!==b.tier)return a.tier-b.tier;
     const av=sort.key==='itemName'?a.clientName:a.evidence[sort.key].value,bv=sort.key==='itemName'?b.clientName:b.evidence[sort.key].value;
     if(av==null)return bv==null?0:1;if(bv==null)return -1;
     const compared=typeof av==="number"&&typeof bv==="number"?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'});
@@ -266,6 +272,7 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
   const browseById=new Map(items.map(item=>[item.catalogItemId,item]));
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div data-catalog-base-trial={baseFieldsOnly} style={{borderRadius:10,background:"white",marginBottom:16}}>
+    <style>{'td[data-catalog-tier-fill] input, td[data-catalog-tier-fill] select { background-color: transparent; }'}</style>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     {orderedGroups.map(group=>{
       const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;
