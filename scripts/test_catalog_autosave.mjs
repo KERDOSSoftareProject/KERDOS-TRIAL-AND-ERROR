@@ -52,7 +52,7 @@ cache.clear();current={...structuredClone(row),description:'STEEL WASHERS',pack_
  import_row:{row:{sellingUnit:null},reviewRequired:true,evidence:{sellingUnitSource:'inferred',fieldInference:{sellingUnit:{source:'cross-vendor comparison',value:'CASE',accuracy:70,reason:'Compared with two confirmed vendor quotes'}}},baseFieldCompletion:{fields:{pack_size:{value:'4/10 LB',status:'stated',caseCountKnown:true},selling_unit:{value:null,status:'not-stated'}}}}};
 await mount({vendorItems:[structuredClone(current)]});assert.equal(input('Quoted per for 000012').props.value,'case','supported inference fills the field in the source trial');
 let unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');
-assert.equal(unitCell.props.style.backgroundColor,'#FFE0B2','tier color fills the writable quote cell');
+assert.equal(unitCell.props.style.backgroundColor,undefined,'the quote cell stays neutral');
 assert.equal(input('Quoted per for 000012').props.style.background,undefined,'the quote control has no tinted fill');
 assert.doesNotMatch(text(unitCell),/Confirmed|Inferred/,'the suggestion displays without a status label');
 assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
@@ -80,8 +80,9 @@ const tierListings=[
 await mount({baseFieldsOnly:false,vendorItems:tierListings,mappings:tierListings.map(v=>({...mapping,id:v.id,vendor_item_id:v.id}))});
 const tierRows=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null);
 assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
-assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-tier-fill']).length),[0,8,8,8]);
-for(const n of tierRows)assert.equal(n.findAllByType('td')[0].props.style.backgroundColor,undefined,'the KERDOS number stays neutral');
+assert.deepEqual(tierRows.map(n=>n.props.style['--catalog-field-fill']),[undefined,'#EEF6FF','#DCEBFF','#C6DFFF']);
+assert.match(tree.root.findByType('style').children.join(''),/:is\(input, select\):enabled/,'only writable inputs and dropdowns receive the tier fill');
+for(const n of tierRows)assert.ok(n.findAllByType('td').every(cell=>!cell.props.style.backgroundColor),'surrounding cells stay neutral');
 await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
 `,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});
