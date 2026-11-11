@@ -76,8 +76,10 @@ const tierListings=[
 await mount({baseFieldsOnly:false,vendorItems:tierListings,mappings:tierListings.map(v=>({...mapping,id:v.id,vendor_item_id:v.id}))});
 const tierRows=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null);
 assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
-assert.deepEqual(tierRows.map(n=>text(n.find(c=>c.type==='td'&&c.props['data-field-label']==='Item name'))),
+const tierCells=tierRows.map(row=>row.findByProps({'data-field-label':'Item name'}));
+assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').map(text).join('')),
   ['', 'Tier 2 · Inferred Migration','Tier 3 · No Unit Migration','Tier 4 · Client Required Migration']);
+assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[[],['Confirm'],['Confirm'],['Confirm']]);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));
 
 assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],['Unit cost'],['Unit cost'],['Quoted price']]);

@@ -51,6 +51,9 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const [overridePackPrice,setOverridePackPrice]=useState("");
   const [details,setDetails]=useState(false);
   const [packParts,setPackParts]=useState(null);
+  const [choosingQuotedUnit,setChoosingQuotedUnit]=useState(false);
+  const packControl=useRef(null);
+  const showUnitChooser=choosingQuotedUnit&&tierFields.has("sellingUnit");
   const mounted=useRef(true);
   useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
   const original=base||vendorItem;
@@ -93,6 +96,21 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(displayed("pack_size"));
+  function confirmReview(){
+    const pack=displayed("pack_size");
+    const unit=displayed("selling_unit");
+    const basis=priceBasisFor(unit);
+    const confirmPack=tierFields.has("pack")&&parsePackSize(pack)?.parsed;
+    const reviewUnit=tierFields.has("sellingUnit");
+    const confirmUnit=reviewUnit&&basis&&casePriceFromQuote(1,basis.basis,basis.unit||unit,pack)!=null;
+    if(confirmPack)edit("pack_size",pack);
+    if(confirmUnit)edit("selling_unit",unit);
+    if(reviewUnit&&!confirmUnit)setChoosingQuotedUnit(true);
+    else if(!confirmPack&&!confirmUnit){
+      if(tierFields.has("pack"))packControl.current?.focus();
+      else onDetails();
+    }
+  }
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
     if(key==="type"&&value==="each")parts.count=1;
@@ -145,7 +163,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         else if(key==="vendorItemNumber")content=<span>{baseFieldsOnly?trialListingLabel(current,f.value):f.value||"NVIN pending"}</span>;
         else if(key==="category"){const {industryCategories,legacyCurrent,holdingPenCurrent}=buildCategoryDropdown({categories,industry,currentCategory:category,clientCategories:autoSave});content=<select aria-label={`Category for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy||linkDirty} value={categoryId||""} onChange={e=>edit("category_id",e.target.value)}><option value="" disabled>Choose category</option>{holdingPenCurrent&&<option key={holdingPenCurrent.id} value={holdingPenCurrent.id} disabled>Unclassified — assign a category</option>}{legacyCurrent&&<option key={legacyCurrent.id} value={legacyCurrent.id}>{legacyCurrent.name}</option>}{industryCategories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>;}
         else if(key==="pack")content=<>
-          <select aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
+          <select ref={packControl} aria-label={`Pack for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:100}} disabled={!canManage||busy} value={shownPack.type} onChange={e=>changePack("type",e.target.value)}>
             <option value="" disabled>Select</option><option value="case">Case</option><option value="each">Each</option>
           </select>
           {shownPack.type&&<>
@@ -168,10 +186,6 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
-          {inference&&autoSave&&canManage&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,border:`1px solid ${fieldHighlight.accent}`})} aria-label={inference.packSize?"Confirm pack and quoted unit":"Confirm quoted unit"} disabled={busy||dirty} onClick={()=>{
-            if(inference.packSize)edit("pack_size",inference.packSize);
-            edit("selling_unit",inference.value);
-          }}>Confirm</button>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
             {current.unit_cost_unit&&!comparisonUnits(calculationPack).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}
@@ -184,7 +198,18 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         const reviewField=key==="unitCost"?"sellingUnit":key;
         return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&tierFields.has(reviewField)?true:undefined} style={cellStyle}>
           {content}
-          {key==="itemName"&&tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
+          {key==="itemName"&&tierNames[tier]&&<>
+            <small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>
+            {autoSave&&canManage&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
+              aria-label={inference?.packSize?"Confirm pack and quoted unit":inference?"Confirm quoted unit":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
+              disabled={busy||dirty||showUnitChooser} onClick={confirmReview}>Confirm</button>}
+            {showUnitChooser&&<select autoFocus aria-label="Quoted unit" style={{...inputStyle,marginTop:4}}
+              value="" disabled={busy} onChange={event=>{edit("selling_unit",event.target.value);setChoosingQuotedUnit(false);}}
+              onKeyDown={event=>{if(event.key==="Escape")setChoosingQuotedUnit(false);}}>
+              <option value="" disabled>Select quoted unit</option>
+              {unitChoices(vocabulary,false,industry).map(unit=><option key={unit.value} value={unit.value}>{unit.label}</option>)}
+            </select>}
+          </>}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
           {autoSave&&key==="product"&&saveStatus}
           {change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}
