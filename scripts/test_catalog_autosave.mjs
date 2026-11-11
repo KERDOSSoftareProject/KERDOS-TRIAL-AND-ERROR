@@ -57,12 +57,13 @@ assert.equal(input('Quoted per for 000012').props.style.background,undefined,'th
 assert.equal(input('Quoted per for 000012').props.style.border,'1px solid #B87500','only the editable quote control gets the amber border');
 assert.doesNotMatch(text(unitCell),/Confirmed|Inferred/,'the suggestion displays without a status label');
 assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
-const confirm=tree.root.findAllByType('button').find(b=>text(b)==='Use this unit');assert.ok(confirm);await act(async()=>confirm.props.onClick());await settle();
-assert.equal(calls.at(-1).patch.selling_unit,'CASE');assert.equal(current.import_row.row.sellingUnit,null,'confirmation preserves the vendor original');
+assert.equal(unitCell.findAllByType('button').length,0,'the dropdown is the only quote control');
+await change('Quoted per for 000012','each');await settle();
+assert.equal(calls.at(-1).patch.selling_unit,'EACH');assert.equal(current.import_row.row.sellingUnit,null,'editing preserves the vendor original');
 unitCell=tree.root.find(n=>n.type==='td'&&n.props['data-field-label']==='Quoted per');
 assert.equal(unitCell.props.style.background,undefined,'a confirmed value uses the standard cell background');
 assert.doesNotMatch(text(unitCell),/Confirmed|Inferred/,'a confirmed value displays without a status label');
-assert.equal(input('Quoted per for 000012').props.value,'case');
+assert.equal(input('Quoted per for 000012').props.value,'each');
 assert.notEqual(input('Quoted per for 000012').props.style.border,'1px solid #B87500','confirmation clears the control highlight');
 await act(async()=>tree.unmount());
 await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)],editors:{owner:{name:'Kai Morgan',email:'orders@example.com'}}});
