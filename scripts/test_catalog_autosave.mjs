@@ -68,7 +68,7 @@ assert.doesNotMatch(text(costCell),/per pounds/i,'the measurement selector provi
 await act(async()=>tree.unmount());
 const tierBase={...row,pack_size:'4/1 GAL',price:20,price_unavailable:false,price_basis:'case',selling_unit:'CASE'};
 const tierListings=[
- {...tierBase,id:'held',vendor_item_code:'A',price:null},
+ {...tierBase,id:'held',vendor_item_code:'A',price:null,import_row:{reviewRequired:true,changes:[{field:'description',before:'HONEY MUSTARD',after:'STEEL WASHERS'}]}},
  {...tierBase,id:'no-unit',vendor_item_code:'B',selling_unit:null,import_row:{rowKey:'B',sourceDocumentId:'doc',row:{price:20}}},
  {...tierBase,id:'inferred',vendor_item_code:'C',price_unavailable:true,import_row:{reviewRequired:true,reviewFields:['description','brand','pack_size','selling_unit','price'],conflicts:['Pricing basis "CASE" suggested but not confirmed'],evidence:{sellingUnitSource:'inferred'}}},
  {...tierBase,id:'full',vendor_item_code:'D',field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}},

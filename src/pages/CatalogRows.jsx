@@ -174,7 +174,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </>;
         const sourceKey={product:"description",pack:"packSize"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={tierFields.has(key)?true:undefined} style={cellStyle}>
+        return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&tierFields.has(key)?true:undefined} style={cellStyle}>
           {content}
           {key==="itemName"&&tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
@@ -207,7 +207,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
     </td></tr>}
     {!baseFieldsOnly&&details&&<tr><td colSpan={visibleColumns.length+(!autoSave?1:0)} style={{...cellStyle,background:"#F2F6FA"}}>
       <div style={{fontWeight:700,marginBottom:10}}>{assessment.ready?"Meets Order Guide field requirements":"Waiting on: "+assessment.blockers.map(code=>BLOCKER_LABELS[code]).join("; ")}{dirty?" (unsaved preview)":""}</div>
-      <small style={{display:"block",marginBottom:10}}>Case count is the number of eaches inside. Each always has count 1. Weight or volume is separate; Quoted per tells us how the vendor charges.</small>
+      <small style={{display:"block",marginBottom:10}}>Case count is the number of eaches inside. Each always has count 1. Weight or volume is separate.</small>
       {vendorItem.import_row?.reviewRequired&&<div style={{background:"#FFF3E0",padding:10,fontSize:12,marginBottom:10}}>
         <b>Incoming quote: {formatMoney(vendorItem.import_row.row?.price)} · pack {vendorItem.import_row.row?.packSize||"not stated"} · per {vendorItem.import_row.row?.sellingUnit||"not stated"}</b>
         <div>{(vendorItem.import_row.conflicts||[]).join(" ")}</div>
