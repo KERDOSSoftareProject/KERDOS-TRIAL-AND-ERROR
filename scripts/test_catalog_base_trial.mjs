@@ -21,7 +21,7 @@ try{
  let tree;await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,props));});
  await act(async()=>tree.root.findByProps({'aria-label':'brand for HM1'}).props.onChange({target:{value:'Unapplied brand draft'}}));
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true})));
- assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'brand'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'pack'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'sellingUnit'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'unitCost'}).length,2);
+ assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'brand'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'pack'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'sellingUnit'}).length,0);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'unitCost'}).length,2);
  assert.equal(tree.root.findAllByProps({'aria-label':'brand for HM1'}).length,0);assert.ok(!JSON.stringify(tree.toJSON()).includes('70%'));assert.ok(!JSON.stringify(tree.toJSON()).includes('90%'));
  assert.match(JSON.stringify(tree.toJSON()),/NVIN-69/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Confirmed group|Provisional group/);assert.equal(calls.length,0);
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');

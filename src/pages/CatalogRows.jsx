@@ -6,7 +6,6 @@ import {trialSourceValue,sourceTrialUnitCost,trialListingLabel} from '../core/so
 import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
-import {QuotedPerControl} from "./QuotedPerControl.jsx";
 import {calculatedUnitCost,comparisonUnits,defaultComparisonUnit} from "../core/quote-controls.js";
 import {buildCategoryDropdown} from "../services/categories.js";
 import {useState,useEffect,useRef} from "react";
@@ -23,9 +22,11 @@ import {btn,inp} from "../ui/styles.js";
 const service=createCatalogRowsService(backend);
 const variableWeightService=createVariableWeightService(backend);
 const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"};
+const visibleColumns=CATALOG_COLUMNS.filter(([key])=>key!=="sellingUnit");
 const BASE_COLUMNS=new Set(['itemNumber','vendor','vendorItemNumber','category','itemName','product','price']);
 const BASE_EDIT_FIELDS=new Set(['description','price','category_id']);
 const tierFills={2:"#EEF6FF",3:"#DCEBFF",4:"#C6DFFF"};
+const tierNames={2:"Inferred Migration",3:"No Unit Migration",4:"Client Required Migration"};
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
 // Source and editor notes remain available without confidence/origin badges.
 function Evidence({field}){
@@ -133,7 +134,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
   const fields={product:"description",brand:"brand",price:"price"};
   return <>
     <tr role="row" data-migration-tier={tier} style={{background:"white","--catalog-field-fill":tierFills[tier]}}>
-      {CATALOG_COLUMNS.map(([key,label])=>{
+      {visibleColumns.map(([key,label])=>{
         if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
         const f=key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
@@ -162,10 +163,6 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </>;
         else if(key==="itemName")content=<><input list={baseFieldsOnly?`client-items-${vendorItem.id}`:undefined} aria-label={`Item name for ${item.master_item_number}`} style={{...inputStyle,minWidth:180,fontWeight:400}} disabled={!canManage||busy} value={linkDirty?displayItem.name:nameDraft??clientName??item.name??""} placeholder="Your name for this product" onChange={e=>{setBase(b=>b||vendorItem);const target=allCatalogItems.find(candidate=>!candidate.merged_into_id&&candidate.name===e.target.value);if(baseFieldsOnly&&target){setNumberDraft(String(target.master_item_number));setNameDraft(null);if(autoSave)setDraft(prior=>Object.fromEntries(Object.entries(prior).filter(([key])=>key!=="category_id")));}else{setNumberDraft(null);setNameDraft(e.target.value);}setSaved(false);setError("");}} />{baseFieldsOnly&&<datalist id={`client-items-${vendorItem.id}`}>{allCatalogItems.filter(candidate=>!candidate.merged_into_id).map(candidate=><option key={candidate.id} value={candidate.name}/>)}</datalist>}</>;
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={key==="brand"||baseFieldsOnly?displayed(fields[key]):current[fields[key]]??""} placeholder={key==="brand"?"No brand":""} onChange={e=>edit(fields[key],e.target.value)} />;
-        else if(key==="sellingUnit")content=<>
-          <QuotedPerControl industry={industry} vocabulary={vocabulary} label={`Quoted per for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:130}} disabled={!canManage||busy} value={displayed("selling_unit")} onChange={value=>edit("selling_unit",value)}/>
-          {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
-        </>;
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
@@ -173,11 +170,13 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
             {current.unit_cost_unit&&!comparisonUnits(calculationPack).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}
             {comparisonUnits(calculationPack).map(unit=><option key={unit} value={unit}>{unitLabel(unit)}</option>)}
           </select>
+          {!baseFieldsOnly&&caseEstimate&&<small style={{display:"block",marginTop:4}}>Case estimate: {caseEstimate.amount!=null?formatMoney(caseEstimate.amount):`${formatMoney(caseEstimate.minimum)}–${formatMoney(caseEstimate.maximum)}`}. Final charge depends on delivered weight.</small>}
         </>;
-        const sourceKey={product:"description",pack:"packSize",sellingUnit:"sellingUnit"}[key]||key;
+        const sourceKey={product:"description",pack:"packSize"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
         return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={tierFields.has(key)?true:undefined} style={cellStyle}>
           {content}
+          {key==="itemName"&&tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
           {!baseFieldsOnly&&!(key==="brand"&&!String(displayed("brand")).trim())&&<Evidence field={f}/>}
           {autoSave&&key==="product"&&saveStatus}
           {change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}
@@ -193,7 +192,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         {error&&<div role="alert" style={{fontSize:11,color:"#A32B20",whiteSpace:"normal"}}>{error}</div>}
       </td>}
     </tr>
-    {!autoSave&&!baseFieldsOnly&&overrideOpen&&<tr><td colSpan={CATALOG_COLUMNS.length+(!autoSave?1:0)}>
+    {!autoSave&&!baseFieldsOnly&&overrideOpen&&<tr><td colSpan={visibleColumns.length+(!autoSave?1:0)}>
       <MovableDialog label="Unit cost override" maxWidth={428} zIndex={1000}>
         <div style={{background:"white",padding:24,borderRadius:10,width:380,maxWidth:"90vw"}}>
           <div>KERDOS cannot calculate unit cost from this pack and quoted unit. Enter your approved values to continue.</div>
@@ -206,7 +205,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
         </div>
       </MovableDialog>
     </td></tr>}
-    {!baseFieldsOnly&&details&&<tr><td colSpan={CATALOG_COLUMNS.length+(!autoSave?1:0)} style={{...cellStyle,background:"#F2F6FA"}}>
+    {!baseFieldsOnly&&details&&<tr><td colSpan={visibleColumns.length+(!autoSave?1:0)} style={{...cellStyle,background:"#F2F6FA"}}>
       <div style={{fontWeight:700,marginBottom:10}}>{assessment.ready?"Meets Order Guide field requirements":"Waiting on: "+assessment.blockers.map(code=>BLOCKER_LABELS[code]).join("; ")}{dirty?" (unsaved preview)":""}</div>
       <small style={{display:"block",marginBottom:10}}>Case count is the number of eaches inside. Each always has count 1. Weight or volume is separate; Quoted per tells us how the vendor charges.</small>
       {vendorItem.import_row?.reviewRequired&&<div style={{background:"#FFF3E0",padding:10,fontSize:12,marginBottom:10}}>
@@ -217,7 +216,7 @@ function EditableRow({autoSave=false,userId,baseFieldsOnly=false,clientName,indu
       </div>}
       <div style={{fontSize:12,marginBottom:6}}>To associate this vendor item with another catalog item, enter its existing KERDOS number and Apply changes. Apply approves this association. You can edit it again at any time.</div>
       <div style={{fontSize:12}}>Source: {vendorItem.import_row?.row?.sourceLine||"Original source is available under Price Sheets."}</div>
-      <ul style={{fontSize:12}}>{CATALOG_COLUMNS.map(([key,label])=><li key={key}><b>{label}:</b> {evidence[key].reason.replace(/Manual association/g,"Client-selected association").replace(/Automated association/g,"Catalog association")}</li>)}</ul>
+      <ul style={{fontSize:12}}>{visibleColumns.map(([key,label])=><li key={key}><b>{label}:</b> {evidence[key].reason.replace(/Manual association/g,"Client-selected association").replace(/Automated association/g,"Catalog association")}</li>)}</ul>
       <button disabled={dirty||busy} onClick={onDetails} style={{...btn("#E8F1FB","#003584",{fontSize:11})}}>Vendor comparison and association details</button>
     </td></tr>}
   </>;
@@ -274,9 +273,9 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
     {orderedGroups.map(group=>{
       const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;
-      const listings=<div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr>{CATALOG_COLUMNS.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>
+      const listings=<div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr>{visibleColumns.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>
         <tbody role="rowgroup">{group.rows.map(row=><EditableRow autoSave={autoSave} userId={userId} baseFieldsOnly={baseFieldsOnly} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} editors={editors} key={`${orgId}:${userId||""}:${row.vendorItem.id}`} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
-        {!group.rows.length&&<tr><td colSpan={CATALOG_COLUMNS.length+(!autoSave?1:0)} style={cellStyle}>No vendor listing linked yet. <button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
+        {!group.rows.length&&<tr><td colSpan={visibleColumns.length+(!autoSave?1:0)} style={cellStyle}>No vendor listing linked yet. <button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
         </tbody>
       </table></div>;
       if(mobileDetails)return <div key={group.id} data-catalog-group={group.id}>

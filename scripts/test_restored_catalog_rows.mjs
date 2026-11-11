@@ -21,11 +21,11 @@ try{
  const initialText=JSON.stringify(tree.toJSON());assert.ok(!initialText.includes('Correct any cell'));assert.ok(!initialText.includes('vendor rows meet Order Guide requirements'));assert.equal(tree.root.findAllByType('button').filter(b=>(b.children||[]).join('').includes('suggested associations')).length,0,'maintenance tools do not occupy the main catalog header');
  await act(async()=>groups()[1].props.onToggle({currentTarget:{open:true}}));assert.equal(groups()[1].props.open,true);assert.equal(groups()[0].props.open,false,'groups open independently');
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
- const headers=table.findAllByType('thead')[0].findAllByType('th').map(text);for(const [,label] of CATALOG_COLUMNS)assert.ok(headers.some(h=>h.startsWith(label)),label+' column retained');assert.ok(headers.includes('Actions'));assert.ok(!headers.includes('Select'));
+ const headers=table.findAllByType('thead')[0].findAllByType('th').map(text);for(const [,label] of CATALOG_COLUMNS.filter(([key])=>key!=='sellingUnit'))assert.ok(headers.some(h=>h.startsWith(label)),label+' column retained');assert.ok(headers.includes('Actions'));assert.ok(!headers.includes('Select'));
  const names=table.findAllByType('input').filter(n=>String(n.props['aria-label']||'').startsWith('Item name for '));assert.deepEqual(names.map(n=>n.props.value),['Avocados','Honey Mustard','Honey Mustard']);
  const numbers=table.findAll(n=>n.type==='span'&&String(n.props['aria-label']||'').startsWith('KERDOS item number for ')).map(text);assert.deepEqual(numbers,['#30001','#50013','#50013']);
  assert.equal(table.findAllByType('button').filter(n=>text(n)==='Apply').length,3,'each original row Apply action retained');
- for(const code of ['A1','H1','H2'])for(const field of ['Category','Pack','Quoted per','Unit cost metric'])assert.ok(table.findAll(n=>String(n.props['aria-label']||'').startsWith(field+' for '+code)).length,field+' control retained for '+code);
+ for(const code of ['A1','H1','H2'])for(const field of ['Category','Pack','Unit cost metric'])assert.ok(table.findAll(n=>String(n.props['aria-label']||'').startsWith(field+' for '+code)).length,field+' control retained for '+code);
  const priceInput=()=>tree.root.findByProps({'aria-label':'price for H1'});
  await act(async()=>priceInput().props.onChange({target:{value:'19.50'}}));
  await act(async()=>groups()[1].props.onToggle({currentTarget:{open:false}}));
