@@ -1062,7 +1062,7 @@ export default function App() {
                         const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
                         const multipleVendors=vendorCount>1;
                         const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}
-                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} industry={org.industry} vocabulary={vocabulary} unit={selectedUnit} listingEdits={listingEdits}
+                          offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} unit={selectedUnit} listingEdits={listingEdits}
                           onSelect={offer=>{
                             const nextUnit=supportsOrderUnit(offer,"each")?"each":"case";
                             if(nextUnit!==selectedUnit)setUnitSelection(previous=>({...previous,[item.catalogItemId]:nextUnit}));

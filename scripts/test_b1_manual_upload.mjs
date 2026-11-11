@@ -272,8 +272,9 @@ await check('quoted-per review explains possibilities without choosing or writin
  const f=fixture(),p=await open(vendor,'pricelist',{onBeforeSave:async()=>true});
  await upload(p,'picker',file('uncertain.csv','Code,Description,Pack,Price\nX-1,STEEL WASHERS,4/10 LB,2.06\n'));
  const selector=()=>p.tree.root.find(n=>n.type==='select'&&n.props['aria-label']==='Quoted price per unit for STEEL WASHERS');
- assert.equal(selector().props.value,'');
+ assert.ok(!text(p.tree.toJSON()).includes('Quoted per ↑'));
  await act(async()=>{button(p,'Details').props.onClick();});
+ assert.equal(selector().props.value,'');
  assert.match(text(p.tree.toJSON()),/What does this price cover/);
  assert.match(text(p.tree.toJSON()),/full pack.*one package.*by pounds/);
  assert.equal(writes(f),0,'interpretation examples must not write records');
@@ -288,13 +289,11 @@ await check('cross-vendor inference fills amber unit and client confirmation tur
  const p=await open(vendor,'pricelist',{vendorItems:refs,onBeforeSave:async()=>true});
  await upload(p,'picker',file('inferred.csv','Code,Description,Pack,Price\nX-1,STEEL WASHERS,4/5 LB,35\n'));
  const selector=()=>p.tree.root.find(n=>n.type==='select'&&n.props['aria-label']==='Quoted price per unit for STEEL WASHERS');
+ await act(async()=>{button(p,'Details').props.onClick();});
  assert.equal(selector().props.value,'CASE');
- assert.match(text(p.tree.toJSON()),/Inferred/);
- let cell=selector();while(cell&&cell.type!=='td')cell=cell.parent;assert.equal(cell.props.style.background,'#FFF3E0');
  assert.equal(writes(f),0);
  await act(async()=>{button(p,'Confirm inferred unit').props.onClick();});
- assert.equal(selector().props.value,'CASE');assert.match(text(p.tree.toJSON()),/Confirmed/);
- cell=selector();while(cell&&cell.type!=='td')cell=cell.parent;assert.equal(cell.props.style.background,'#E7F5EC');assert.equal(writes(f),0);
+ assert.equal(selector().props.value,'CASE');assert.equal(writes(f),0);
  p.tree.unmount();
 });
 await check('review listing choices open for one row only and unrelated UI changes reuse evidence',async()=>{

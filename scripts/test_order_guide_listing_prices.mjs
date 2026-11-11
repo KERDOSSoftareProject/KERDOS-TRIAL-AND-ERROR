@@ -16,6 +16,7 @@ const offers=rows.map(row=>({vendorId:row.vendor_id,vendorName:'Same supplier',v
 function Editor(){const listingEdits=useOrderGuideListingAutosave({backend,organizationId:'org',userId:'owner',canManage:true,vendorItems:rows,mappings,onSaved:async()=>{applied++;}});return React.createElement(OrderGuideListings,{canManage:true,offers,selectedId:'one',vendorItems:rows,onSelect:offer=>{selected=offer.vendorItemId;},listingEdits});}
 let tree;await act(async()=>{tree=Renderer.create(React.createElement(Editor));});
 assert.equal(tree.root.findByProps({'aria-label':'Group listings'}).props['data-price-menu'],true,'editor clicks stay inside the open dropdown');
+assert.equal(tree.root.findAllByProps({'data-field-label':'Quoted per'}).length,0);
 const input=()=>tree.root.findByProps({'aria-label':'Price for listing two'});
 const settle=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,750));});
 assert.equal(tree.root.findAllByProps({'aria-label':'Apply price for listing two'}).length,0);
@@ -40,13 +41,13 @@ await act(async()=>input().props.onChange({target:{value:'15.750'}}));
 await act(async()=>input().props.onBlur());
 await settle();
 assert.equal(applied,4,'unchanged prices do not trigger a write');
-for(const [label,value] of [['Product','Honey Mustard Dressing'],['Brand','House'],['Pack','6/1 GAL'],['Quoted per','each']]){
+for(const [label,value] of [['Product','Honey Mustard Dressing'],['Brand','House'],['Pack','6/1 GAL']]){
  await act(async()=>tree.root.findByProps({'aria-label':label+' for listing two'}).props.onChange({target:{value}}));
 }
 await settle();
 assert.equal(applied,5,'listing changes share one debounced save');
-assert.deepEqual(saved.patch,{description:'Honey Mustard Dressing',brand:'House',pack_size:'6/1 GAL',selling_unit:'EACH'});
-assert.equal(saved.priceBasis,'each');assert.equal(saved.priceAvailable,true);
+assert.deepEqual(saved.patch,{description:'Honey Mustard Dressing',brand:'House',pack_size:'6/1 GAL'});
+assert.equal(saved.priceBasis,'case');assert.equal(saved.priceAvailable,true);
 assert.equal(rows[0].description,'Honey Mustard');
 await act(async()=>tree.root.findByProps({'aria-label':'Select Same supplier listing two'}).props.onClick());assert.equal(selected,'two');
 await act(async()=>tree.unmount());console.log('PASS listing price autosave: debounce, Enter and blur, exact listing/revision, same-vendor isolation, validation, retained errors, retry and selection.');

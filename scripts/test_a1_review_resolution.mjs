@@ -69,6 +69,7 @@ assert.equal(finishes,0);assert.equal(calls.length,0);assert.ok(items[1].import_
 console.log('PASS unresolved Save leaves row incomplete and cannot report attachment imported');
 await act(async()=>p.tree.unmount());
 p=await open();
+await act(async()=>p.tree.root.findAllByType('button').filter(b=>b.children.join('')==='Details').at(-1).props.onClick());
 const unit=p.tree.root.findAllByType('select').find(select=>select.props['aria-label']==='Quoted price per unit for Beef Tenderloin Choice Cut');
 assert.ok(unit);assert.ok(!unit.props.disabled,'The uncertain quoted unit must remain editable even with an exact product mapping');
 await act(async()=>unit.props.onChange({target:{value:'CASE'}}));
@@ -103,6 +104,7 @@ document.source_rows=createSourceRowSnapshot(worksheetRows);
 quotes.splice(0,quotes.length,{id:'q0',organization_id:org,vendor_item_id:'vi0',source_document_id:doc,source_row_key:'row:0',source_line:worksheetRows[0].sourceLine});
 items.forEach((item,i)=>Object.assign(item,{price_unavailable:i===1,import_row:{row:worksheetRows[i],rowKey:'row:'+i,sourceDocumentId:doc,reviewRequired:i===1}}));
 p=await open(file);
+await act(async()=>p.tree.root.findAllByType('button').filter(b=>b.children.join('')==='Details').at(-1).props.onClick());
 const worksheetUnit=p.tree.root.findAllByType('select').find(select=>select.props['aria-label']==='Quoted price per unit for Beef Tenderloin Choice Cut');
 await act(async()=>worksheetUnit.props.onChange({target:{value:'CASE'}}));
 await act(async()=>{await p.save().props.onClick();});

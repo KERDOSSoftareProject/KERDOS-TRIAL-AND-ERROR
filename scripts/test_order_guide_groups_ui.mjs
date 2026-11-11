@@ -118,7 +118,7 @@ await act(async()=>tree.unmount());
 // incomplete peer cannot hold the valid approved offer or borrow its fields.
 Object.assign(eachListing,{selling_unit:'CASE',price_basis:'case',price:20});
 store.delete('kerdos.basket.org');const incompletePeer=vendorItems.find(v=>v.id==='honey-second');
-Object.assign(incompletePeer,{pack_size:null,selling_unit:null,price_basis:null,price:null,price_unavailable:true});
+Object.assign(incompletePeer,{pack_size:null,selling_unit:'CASE',price_basis:'case',price:null,price_unavailable:true});
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 const selectHoney=async name=>{await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select '+name)).props.onClick());};
 const honeyPlus=()=>tree.root.findAllByType('button').filter(b=>text(b)==='+')[1];
@@ -140,13 +140,14 @@ queryRecords=table=>table==='item_mappings'?{
  }})})})
 }:emptyQuery();
 delete incompletePeer.field_resolutions.row_approval;
+incompletePeer.field_resolutions.selling_unit={value:'CASE',confirmedBy:'user'};
 await act(async()=>{tree=Renderer.create(React.createElement(App));});await selectHoney('Second Vendor');assert.equal(honeyPlus().props.disabled,true,'incomplete peer remains visible but cannot use the valid offer price or pack');
 await act(async()=>priceButton().props.onClick());
-for(const [label,value] of [['Pack','6/1 GAL'],['Quoted per','case'],['Price','16.25']]){
+for(const [label,value] of [['Pack','6/1 GAL'],['Price','16.25']]){
  await act(async()=>tree.root.findByProps({'aria-label':label+' for listing honey-second'}).props.onChange({target:{value}}));
 }
 await settlePrice();
-assert.deepEqual(savedRequest.patch,{pack_size:'6/1 GAL',selling_unit:'CASE',price:16.25});
+assert.deepEqual(savedRequest.patch,{pack_size:'6/1 GAL',price:16.25});
 assert.equal(incompleteMapping.comparison_track,'exact','the save and placement refresh restore the existing product-group approval');
 assert.equal(incompleteMapping.match_method,'manual');
 assert.equal(honeyPlus().props.disabled,false,'the edited listing becomes orderable despite the peer having a different pack');
@@ -158,6 +159,7 @@ const catalogPrices=tree.root.findAllByType('input').filter(input=>input.props['
 assert.equal(catalogPrices.find(input=>input.props.value===16.25)?.props.value,16.25,'Item Catalog shows the same saved quote');
 await act(async()=>tree.unmount());store.delete('kerdos.basket.org');
 backend.catalog.saveRow=saveCatalogRow;queryRecords=emptyQuery;
+delete incompletePeer.field_resolutions.selling_unit;
 store.set('kerdos.activeTab.v2','order');
 // F1.6: execute the actual one-minute App refresh callback at a controlled
 // new date. The ordering core itself has no independent freshness clock.
