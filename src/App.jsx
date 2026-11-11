@@ -1030,7 +1030,7 @@ export default function App() {
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px",textAlign:"center"}}>Qty</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>PRICE</div>
-                      <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit Cost</div>
+                      <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit Price</div>
                       {group.items.map(item=>{
                         const caseKey=`${item.catalogItemId}_case`;
                         const eachKey=`${item.catalogItemId}_each`;
@@ -1143,8 +1143,8 @@ export default function App() {
                             </div>
                           </div>,
                           <div className="order-item-cost" key={item.catalogItemId+"_cost"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",fontSize:12}}>
-                            <span className="order-unit-cost-label">Unit Cost</span>
-                            <span aria-label={`Unit cost for ${item.name}`}>{activeUnitCost==null?"—":
+                            <span className="order-unit-cost-label">Unit Price</span>
+                            <span aria-label={`Unit price for ${item.name}`}>{activeUnitCost==null?"—":
                               `${formatMoney(activeUnitCost)} / ${comparisonUnit==="FLOZ"?"fl oz":comparisonUnit.toLowerCase()}`}</span>
                           </div>,
                           ...(menuOpen?[mobileDetails

@@ -30,8 +30,8 @@ const plus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equ
 const alternatives=tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});assert.match(text(alternatives),/Sample Vendor/);assert.match(text(alternatives),/20.00/);assert.equal(alternatives.props['aria-expanded'],false);
 assert.equal(alternatives.props['aria-description'],undefined,'held vendors do not count as ready quotes');
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'listings start collapsed');
-assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));assert.ok(guideText.includes('Unit Cost'));
-const honeyCost=()=>tree.root.findByProps({'aria-label':'Unit cost for Honey Mustard'});
+assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));assert.ok(guideText.includes('Unit Price'));
+const honeyCost=()=>tree.root.findByProps({'aria-label':'Unit price for Honey Mustard'});
 assert.equal(text(honeyCost()),'—','held listings show no order-guide comparison cost');
 const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
 await act(async()=>alternatives.props.onClick());
