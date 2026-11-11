@@ -13,7 +13,7 @@ try{
     import assert from 'node:assert/strict';
     import TabHeading from './src/ui/TabHeading.jsx';
     import WelcomeScreen,{welcomeGreeting,welcomeDate,userInitials} from './src/pages/WelcomeScreen.jsx';
-    import {OrgGate} from './src/pages/AccessPages.jsx';
+    import {LandingGate,OrgGate} from './src/pages/AccessPages.jsx';
     import {TeamPanel} from './src/pages/TeamPanel.jsx';
     const text=node=>typeof node==='string'?node:(node.children||[]).map(text).join('');
     assert.equal(welcomeGreeting(new Date(2026,9,31,9,42)),'Good morning');
@@ -99,6 +99,33 @@ try{
     assert.deepEqual(globalThis.__industryUpdates.at(-1),{industry:'Restaurant'});
     await act(async()=>tree.unmount());
     console.log('PASS company settings require a listed industry and keep vocabulary automatic when starter categories are optional');
+
+    let keydown;
+    globalThis.document={
+      addEventListener:(name,listener)=>{assert.equal(name,'keydown');keydown=listener;},
+      removeEventListener:(name,listener)=>{assert.equal(name,'keydown');assert.equal(listener,keydown);keydown=null;},
+    };
+    const inputs=()=>tree.root.findAllByType('input');
+    const locked=()=>inputs().map(input=>input.props.readOnly);
+    await act(async()=>{tree=Renderer.create(React.createElement(LandingGate));});
+    assert.deepEqual(locked(),[true,true]);
+    assert.ok(inputs().every(input=>!input.props.autoFocus));
+    assert.deepEqual(inputs().map(input=>input.props.autoComplete),['username','current-password']);
+    const form=tree.root.findByType('form');
+    await act(async()=>form.props.onPointerDownCapture({nativeEvent:{isTrusted:false}}));
+    assert.deepEqual(locked(),[true,true]);
+    await act(async()=>form.props.onPointerDownCapture({nativeEvent:{isTrusted:true}}));
+    assert.deepEqual(locked(),[false,false]);
+    await click('Sign Up');
+    assert.equal(inputs()[1].props.autoComplete,'new-password');
+    await act(async()=>tree.unmount());
+    await act(async()=>{tree=Renderer.create(React.createElement(LandingGate));});
+    await act(async()=>keydown({key:'Tab',isTrusted:true}));
+    assert.deepEqual(locked(),[false,false]);
+    await act(async()=>tree.unmount());
+    assert.equal(keydown,null);
+    delete globalThis.document;
+    console.log('PASS credentials wait for user input and then support standard autofill');
 
 
   `,resolveDir:process.cwd(),sourcefile:'welcome-test.jsx',loader:'jsx'},bundle:true,platform:'node',format:'esm',jsx:'automatic',packages:'external',outfile,
