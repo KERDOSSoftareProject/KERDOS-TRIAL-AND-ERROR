@@ -1,4 +1,4 @@
-import {quotedUnitOrigin} from './listing-provenance.js';
+import {quotedUnitOrigin,quotedUnitLocation} from './listing-provenance.js';
 import {getProcurementContext} from "../procurement.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
@@ -85,9 +85,16 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
 export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext()){
   if(row.sellingUnitSource==='inferred')return null;
   const explicit=procurement.priceBasisFor(row.sellingUnit);
+  if(explicit&&row.sellingUnitSource==='remembered'){
+    const origin=quotedUnitOrigin({...prior,description:row.description,pack_size:row.packSize,
+      selling_unit:row.sellingUnit,import_row:{row:{},evidence:row}},procurement);
+    return origin.status==='confirmed'&&origin.root?{basis:explicit,sellingUnit:row.sellingUnit,
+      source:'confirmed vendor item',unitRoot:origin.root}:null;
+  }
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
   if(String(row.sellingUnit||"").trim()||row.changes?.length)return null;
-  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||quotedUnitOrigin(prior,procurement).status!=="confirmed")return null;
+  const origin=prior?quotedUnitOrigin(prior,procurement):null;
+  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||origin.status!=="confirmed"||!origin.root)return null;
   const coded=row.code&&String(prior.vendor_item_code)===String(row.code);
   // The caller must resolve one unique NVIN first, within this vendor.
   const uncoded=!row.code&&!prior.vendor_item_code&&!!prior.id&&row.resolvedVendorItemId===prior.id;
@@ -98,7 +105,7 @@ export function resolveQuoteBasis(row,prior=null, procurement=getProcurementCont
   if(procurement.compareProductIdentity(row.description,prior.description).status!=="same"||
      procurement.comparePurchasingPack(row.packSize,prior.pack_size).status!=="same")return null;
   const learned=procurement.priceBasisFor(prior.selling_unit);
-  return learned?.basis===prior.price_basis?{basis:learned,sellingUnit:prior.selling_unit,source:"confirmed vendor item"}:null;
+  return learned?.basis===prior.price_basis?{basis:learned,sellingUnit:prior.selling_unit,source:"confirmed vendor item",unitRoot:origin.root}:null;
 }
 
 // Invoice billing evidence is reusable only for a consistent vendor listing.
@@ -116,7 +123,7 @@ export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null, procure
     const codeMatch=!!code&&code===invoiceCode;
     const uncodedMatch=!code&&!invoiceCode&&!!description&&description===normalize(invoice.description);
     if(!codeMatch&&!uncodedMatch)continue;
-    const reference={documentId:entry.id||null,number:entry.number||null,date:entry.date||null,sourceLine:invoice.sourceLine||null};
+    const reference={documentId:entry.id||null,number:entry.number||null,date:entry.date||null,sourceLine:invoice.sourceLine||null,...quotedUnitLocation(invoice)};
     const label=entry.number||entry.date||'invoice';
     const fail=reason=>conflicts.push(`${label}: ${reason}`);
     if(!description||!normalize(invoice.description)){

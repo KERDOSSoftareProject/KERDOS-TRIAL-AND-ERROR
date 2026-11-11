@@ -357,11 +357,11 @@ await test("auto-import: clean CSV price list → auto_imported with rows saved"
     bytes: csvBytes(csv),
     vendorItems: [
       { id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-2", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-002",
-        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-3", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-003",
-        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
     ],
     mappings: [
       { id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 },
@@ -421,7 +421,7 @@ await test("email CSV uses the same decoding as manual import and blocks invalid
   const backend = createInMemoryBackend({
     bytes,
     vendorItems: [{ id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-      description: "Café Dark Roast", pack_size: "4/1 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} }],
+      description: "Café Dark Roast", pack_size: "4/1 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} }],
     mappings: [{ id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 }],
   });
   const attachment = { ...ATTACHMENT_BASE, content_type: "application/vnd.ms-excel", file_size_bytes: bytes.length };
@@ -585,8 +585,8 @@ await test("unavailable industry or vocabulary retains the original for retry be
 await test("unnumbered products use their own listing, never the first null code", async () => {
   const csv="Product,Pack,Price\nCIDER APPLE,4/1 GAL,26.15\nCHEESE AMERICAN,5 LB,16.75";
   const items=[
-    {id:"cider",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CIDER APPLE",pack_size:"4/1 GAL",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list",import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}},
-    {id:"cheese",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CHEESE AMERICAN",pack_size:"5 LB",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list",import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}},
+    {id:"cider",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CIDER APPLE",pack_size:"4/1 GAL",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list",import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}},
+    {id:"cheese",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CHEESE AMERICAN",pack_size:"5 LB",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list",import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}},
   ];
   const backend=createInMemoryBackend({bytes:csvBytes(csv),vendorItems:items,mappings:items.map((item,index)=>({id:`map-${index}`,organization_id:"org-1",vendor_item_id:item.id,catalog_item_id:`cat-${index}`,comparison_track:"exact",confidence_score:100}))});
   const result=await processAttachmentInBackground(backend,{...ATTACHMENT_BASE},{organizationId:"org-1",vendorId:"vendor-1",documentType:"pricelist"});
@@ -862,11 +862,11 @@ await test("row-save failure: needs_review immediately, no further rows processe
     bytes: csvBytes(csv),
     vendorItems: [
       { id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-2", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-002",
-        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-3", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-003",
-        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
     ],
     mappings: [
       { id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 },
@@ -931,7 +931,7 @@ await test("needs_review status carries import_document id (Fix 4 — document m
     bytes: csvBytes(csv),
     vendorItems: [
       { id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
+        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
     ],
     mappings: [
       { id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 },

@@ -5,7 +5,7 @@ import {explainImportRow} from "./import-evidence.js";
 import {resolveQuoteBasis} from "./quote-basis.js";
 import {configureVocabulary,casePriceFromQuote,priceBasisFor} from "../procurement.js";
 import {orderGuideAssessment} from './catalog-fields.js';
-const prior={id:"vi1",organization_id:"o1",vendor_id:"vendor1",vendor_item_code:"001001",description:"Bacon frozen",brand:"My brand",pack_size:"1/15 LB",selling_unit:"LB",price_basis:"measure",price:3.83,row_revision:2,import_row:{row:{sellingUnit:"LB"},evidence:{sellingUnit:"LB",sellingUnitSource:"price header"}}};
+const prior={id:"vi1",organization_id:"o1",vendor_id:"vendor1",vendor_item_code:"001001",description:"Bacon frozen",brand:"My brand",pack_size:"1/15 LB",selling_unit:"LB",price_basis:"measure",price:3.83,row_revision:2,import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"LB"},evidence:{sellingUnit:"LB",sellingUnitSource:"price header"}}};
 const mapping={id:"m1",vendor_item_id:"vi1",catalog_item_id:"ci1",organization_id:"o1",comparison_track:"exact",confidence_score:100};
 const item={id:"ci1",category_id:"meat",master_item_number:2010,name:"Bacon frozen"};
 const category={id:"meat",name:"Meat"};

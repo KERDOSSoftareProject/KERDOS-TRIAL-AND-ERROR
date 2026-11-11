@@ -11,6 +11,7 @@ export function prepareImportRow(source,{prior=null,mapping=null,invoices=[]}={}
   row=rememberImportRow(row,prior,mapping, procurement);
   const resolved=resolveQuoteBasis(row,prior, procurement);
   if(resolved)row={...row,sellingUnit:resolved.sellingUnit,
-    sellingUnitSource:resolved.source==="confirmed vendor item"?"remembered":row.sellingUnitSource||"document"};
+    sellingUnitSource:resolved.source==="confirmed vendor item"?"remembered":row.sellingUnitSource||"document",
+    ...(resolved.unitRoot?{fieldEvidence:{...row.fieldEvidence,sellingUnit:resolved.unitRoot}}:{})};
   return row;
 }

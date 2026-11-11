@@ -25,7 +25,7 @@ for(const industry of ['restaurant','construction']){
  const confirmed=explainImportRow({...row,sellingUnit:'CASE',sellingUnitSource:'manual'},{organizationId:'org',vendor:{id:'incoming'},vendorItems:peers});
  assert.equal(confirmed.sellingUnit.status,'confirmed');
  assert.deepEqual(row,source,'original source stays blank');
- const accepted=peers.map(peer=>({...peer,field_resolutions:{selling_unit:{value:'CASE'}},import_row:{reviewRequired:false,row:{sellingUnit:null},evidence:{sellingUnitSource:'inferred'}}}));
+ const accepted=peers.map(peer=>({...peer,field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'reviewer',confirmedAt:'2026-11-11T00:00:00Z'}},import_row:{reviewRequired:false,row:{sellingUnit:null},evidence:{sellingUnitSource:'inferred'}}}));
  assert.equal(inferCrossVendorQuoteBasis(row,accepted,scope,context).value,'CASE','client-confirmed values can support later reviews');
  for(const bad of [peers.slice(0,1),peers.map(p=>({...p,vendor_id:'same'})),peers.map(p=>({...p,organization_id:'other-org'})),
    peers.map(p=>({...p,vendor_id:'incoming'})),peers.map(p=>({...p,price_source:'invoice'})),peers.map(p=>({...p,price_expired_at:'2026-01-01'})),

@@ -23,7 +23,7 @@
 import {getProcurementContext} from "../procurement.js";
 import {preparePriceImport} from './price-import-review.js';
 import {importResolutions} from './catalog-fields.js';
-import {captureRetainedSource} from './listing-provenance.js';
+import {captureRetainedSource,retainQuotedUnitRoot} from './listing-provenance.js';
 import {engineVerifiable} from '../services/catalog.js';
 
 export const MISSING_DESCRIPTION = 'Product description is missing. Source row retained for review.';
@@ -110,6 +110,14 @@ export async function importPriceRow({
     }
   } else {
     assertActive();
+    const fieldResolutions=importResolutions(sourceRow,ex||{},importBatchTime);
+    row=retainQuotedUnitRoot(row,{
+      organization_id:orgId,vendor_id:vendorId,vendor_item_code:row.code||null,
+      description:row.description,brand:row.brand||null,pack_size:row.packSize||ex?.pack_size||null,
+      selling_unit:resolved?.sellingUnit||null,gtin:row.gtin||null,manufacturer_code:row.manufacturerCode||null,
+      field_resolutions:fieldResolutions,
+      import_row:{row:{...sourceRow,...(sourceRow.originalFields||{})},evidence:row,sourceDocumentId,sourceFileName:group.name},
+    },procurement);
     vendorItemId = await backend.pricing.applyQuote({
       vendorItemId: ex?.id || null, organizationId: orgId, vendorId,
       vendorItemCode: row.code,
@@ -140,7 +148,7 @@ export async function importPriceRow({
         conflicts: prepared.reasons,
         changes: row.changes || [],
       },
-      fieldResolutions: importResolutions(sourceRow, ex || {}),
+      fieldResolutions,
     });
   }
 

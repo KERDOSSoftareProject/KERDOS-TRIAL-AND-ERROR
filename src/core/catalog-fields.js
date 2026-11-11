@@ -1,4 +1,4 @@
-import {listingSourceForField,quotedUnitOrigin} from './listing-provenance.js';
+import {listingSourceForField,quotedUnitOrigin,quotedUnitRootReason} from './listing-provenance.js';
 import {automaticAlternativeVerified} from "./alternative-groups.js";
 import {productGroupApproved} from './product-associations.js';
 import {vendorListingLabel} from "./vendor-listing.js";
@@ -118,7 +118,8 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     if(!basis){unitAcc=DOUBTFUL;unitWhy=["WEIGHT","VOLUME","MEASURE"].includes(vi.selling_unit)?"Choose the measurement for this quoted price":"Not a unit KERDOS recognises";}
     else{
       unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(unitOrigin.source)?DERIVED:unitOrigin.status==="inferred"?GUESSED:STATED;
-      unitWhy=unitOrigin.source==="remembered"?"Reused from this vendor’s verified product and pack":byClient("selling_unit")?"Set by you":unitOrigin.source==="sheet"?"Applied to the whole sheet at import":unitOrigin.status==="inferred"?provenance.fieldInference?.sellingUnit?.reason||"Suggested—not confirmed":"Stated on the sheet";
+      unitWhy=unitOrigin.source==="remembered"?quotedUnitRootReason(unitOrigin):byClient("selling_unit")?"Set by you":unitOrigin.source==="sheet"?"Applied to the whole sheet at import":unitOrigin.status==="inferred"?provenance.fieldInference?.sellingUnit?.reason||"Suggested—not confirmed":"Stated on the sheet";
+      if(unitOrigin.missingRoot)unitWhy=quotedUnitRootReason(unitOrigin);
       if(!byClient("selling_unit")&&unitOrigin.source==="invoice")unitWhy="Supported by a matched invoice’s billed unit and line total";
       if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(unitOrigin.source))unitWhy=`Stated in the ${unitOrigin.source}`;
       if(!byClient('selling_unit')&&(unitOrigin.bound===false||Object.hasOwn(manual,'selling_unit'))){
