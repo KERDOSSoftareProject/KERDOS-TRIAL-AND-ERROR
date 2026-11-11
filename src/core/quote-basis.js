@@ -41,7 +41,7 @@ export function quoteBasisAlternatives(row, procurement=getProcurementContext())
 // the same product and pack. A single peer or an amount alone is insufficient.
 // The 25% window is a similarity bound for an inferred, non-orderable quote.
 // For a saved basis, require an outlier against every reference before replacing it.
-export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procurement=getProcurementContext(),{currentUnit,linkedPeerIds,settings,now}={}){
+export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procurement=getProcurementContext(),{currentUnit,linkedPeerIds,settings,now,reviewOutlier=false}={}){
   if(!scope?.organizationId||!scope.vendorId||(!currentUnit&&String(row.sellingUnit||'').trim())||row.priceUnavailable||!(Number(row.price)>0))return null;
   const pack=procurement.parsePackSize(row.packSize);
   if(!pack?.parsed||pack.catchWeight||pack.dimension==='unknown')return null;
@@ -75,18 +75,28 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
     const basis=procurement.priceBasisFor(unit);
     return basis?procurement.casePriceFromQuote(row.price,basis.basis,basis.unit||unit,row.packSize):null;
   };
-  const withinRange=(charge,peer)=>Math.abs(charge-peer.casePrice)/peer.casePrice<=0.25;
+  const withinRange=(charge,reference)=>Math.abs(charge-reference)/reference<=0.25;
+  const charges=references.map(peer=>peer.casePrice).sort((a,b)=>a-b);
+  const middle=Math.floor(charges.length/2);
+  const median=(charges[middle]+charges[Math.floor((charges.length-1)/2)])/2;
+  // With three or more catalog vendors, a coherent majority sets the norm.
+  // A single cheaper or dearer quote cannot veto the rest of the group.
+  const groupNorm=reviewOutlier&&charges.length>=3&&charges.filter(charge=>withinRange(charge,median)).length>charges.length/2;
   const currentCharge=caseCharge(currentUnit);
-  if(currentCharge>0&&references.some(peer=>withinRange(currentCharge,peer)))return null;
+  const outlier=currentCharge>0&&(groupNorm?!withinRange(currentCharge,median):!charges.some(charge=>withinRange(currentCharge,charge)));
+  if(currentCharge>0&&!outlier)return null;
   const plausible=quoteBasisAlternatives(row,procurement).filter(option=>{
     const charge=caseCharge(option.sellingUnit);
-    return charge>0&&references.every(peer=>withinRange(charge,peer));
+    return charge>0&&(groupNorm?withinRange(charge,median):charges.every(reference=>withinRange(charge,reference)));
   });
   // When package and case cover the same quantity, do not invent a distinction.
-  if(plausible.length!==1)return null;
+  if(plausible.length!==1)return reviewOutlier&&outlier?{
+    kind:'unresolved',reason:'The quoted unit cost falls outside the group range. Review the pack and quoted unit.',
+    evidence:{packSize:row.packSize,price:Number(row.price),previousUnit:currentUnit,previousCasePrice:currentCharge,median,references},
+  }:null;
   const sellingUnit=plausible[0].sellingUnit;
   return {value:sellingUnit,kind:'inferred',source:'cross-vendor comparison',accuracy:70,
-    reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${references.length} other vendors. Only this basis puts the equivalent case charge within 25% of every reference. Confirm before using it.`,
+    reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${references.length} other vendors. Only this basis puts the equivalent case charge within 25% of ${groupNorm?"the group median":"every reference"}. Confirm before using it.`,
     evidence:{packSize:row.packSize,price:Number(row.price),relativeTolerance:0.25,references,
       ...(currentCharge>0&&{previousUnit:currentUnit,previousCasePrice:currentCharge,inferredCasePrice:caseCharge(sellingUnit)})}};
 }
@@ -97,9 +107,6 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
   if(peers.length<2||listing.quoteBasisInference||listing.price_source==='invoice'||
     listing.field_resolutions?.unit_cost_override?.value||
     item?.brand_locked&&!procurement.brandsMatch(listing.brand,item.locked_brand))return listing;
-  const approval=listing.field_resolutions?.row_approval;
-  if(approval?.catalogItemId===item?.id&&approval?.confirmedAt&&
-    Date.parse(approval.confirmedAt)===Date.parse(listing.last_updated))return listing;
   const origin=quotedUnitOrigin(listing,procurement);
   const amountSource=listingSourceForField(listing,'price');
   if(origin.root?.source==='sheet'||origin.root?.source==='invoice'||origin.confirmation?.documentConfirmation||
@@ -119,8 +126,9 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
     priceUnavailable:amountSource.row.priceUnavailable};
   const comparisonPeers=item?.brand_locked?peers.filter(peer=>procurement.brandsMatch(peer.brand,item.locked_brand)):peers;
   const inference=inferCrossVendorQuoteBasis(row,comparisonPeers,{organizationId:listing.organization_id,vendorId:listing.vendor_id},
-    procurement,{currentUnit:listing.selling_unit,linkedPeerIds,settings,now});
+    procurement,{currentUnit:listing.selling_unit,linkedPeerIds,settings,now,reviewOutlier:true});
   if(!inference)return listing;
+  if(inference.kind==='unresolved')return {...listing,quoteBasisInference:inference};
   const source=amountSource.row;
   const statedPack=source.originalFields?.packSize||source.originalPackRaw||source.packSize;
   const unitPack=statedPack||procurement.packFromDescription(source.description);

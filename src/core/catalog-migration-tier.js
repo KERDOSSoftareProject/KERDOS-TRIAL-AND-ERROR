@@ -50,6 +50,7 @@ export function catalogMigrationAssessment({item, listing, mapping, settings, no
 
   if(listing.quoteBasisInference){
     fields.add('sellingUnit');
+    if(listing.quoteBasisInference.kind==='unresolved')return {tier:4,fields};
     if(listing.quoteBasisInference.packSize)fields.add('pack');
     return {tier:2,fields};
   }

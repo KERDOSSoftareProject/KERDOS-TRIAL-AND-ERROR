@@ -95,7 +95,7 @@ assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
 const tierCells=tierRows.map(row=>row.findByProps({'data-field-label':'Item name'}));
 assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').map(text).join('')),
   ['', 'Tier 2 · Inferred Migration','Tier 3 · No Unit Migration','Tier 4 · Client Required Migration']);
-assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[[],['Confirm'],['Confirm'],['Confirm']]);
+assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Correct'],['Confirm'],['Confirm'],['Confirm']]);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));
 
 assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],['Unit cost'],['Unit cost'],['Quoted price']]);

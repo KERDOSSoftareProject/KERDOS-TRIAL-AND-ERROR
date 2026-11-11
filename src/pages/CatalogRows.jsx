@@ -79,7 +79,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
   const previewMapping=linkDirty?{...mapping,catalog_item_id:displayItem.id,comparison_track:"review",confidence_score:null}:mapping;
   const inference=!linkDirty&&original.row_revision===vendorItem.row_revision&&
     !["description","brand","price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key))?quoteBasisInference:null;
-  const projected=inference?{...current,pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:current;
+  const projected=inference?.value?{...current,pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:{...current,quoteBasisInference:inference};
   const evidence=catalogRowEvidence({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,industry,editors});
   const assessment=orderGuideAssessment({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,settings});
   const packUnits=unitChoices(vocabulary,true,industry);
@@ -93,7 +93,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const hasSupportedInference=key=>key==='selling_unit'&&listingSourceForField(current,'selling_unit').evidence.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
-  const displayed=key=>inference&&["selling_unit","pack_size","price"].includes(key)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
+  const displayed=key=>inference?.value&&["selling_unit","pack_size","price"].includes(key)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(displayed("pack_size"));
@@ -117,6 +117,20 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
     }
     if(displayItem.brand_locked&&!brandsMatch(brand,displayItem.locked_brand)){
       setError("Choose the required brand before confirming.");
+      return;
+    }
+    const proposed={...current,description,brand,pack_size:pack,selling_unit:unit,price,price_basis:basis.basis};
+    const checked=normalizeCatalogQuote(proposed,displayPeers,{item:evidenceItem,mapping:previewMapping,
+      groupMappings:allMappings.filter(link=>link.catalog_item_id===displayItem.id),settings});
+    if(checked.quoteBasisInference){
+      if(checked.quoteBasisInference.value){
+        if(checked.pack_size!==pack)edit("pack_size",checked.pack_size);
+        edit("selling_unit",checked.selling_unit);
+        setError("Review the corrected pack and quoted unit, then confirm.");
+      }else{
+        setError(checked.quoteBasisInference.reason);
+        setChoosingQuotedUnit(true);
+      }
       return;
     }
     void save(null,{description,brand,pack_size:pack,selling_unit:unit,price,approve_row:true});
@@ -167,7 +181,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
     <tr role="row" data-migration-tier={tier} style={{background:"white"}}>
       {visibleColumns.map(([key,label])=>{
         if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
-        const f=key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];let content;
+        const f=key==='unitCost'&&inference?.kind==='unresolved'?{...evidence[key],value:null}:key==='unitCost'&&baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{baseFieldsOnly?trialListingLabel(current,f.value):f.value||"NVIN pending"}</span>;
@@ -212,13 +226,18 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
             <input type="checkbox" checked={brandsMatch(preferredBrand,displayed("brand"))}
               disabled={!canManage||busy||dirty} onChange={event=>onPreferBrand(displayItem.id,event.target.checked?displayed("brand").trim():null)} /> Prefer brand
           </label>}
-          {key==="itemName"&&tierNames[tier]&&<>
-            <small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>
-            {autoSave&&canManage&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
-              aria-label={inference?.packSize?"Confirm pack and quoted unit":inference?"Confirm quoted unit":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
+          {key==="itemName"&&<>
+            {tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
+            {autoSave&&canManage&&tier===1&&!showUnitChooser&&<button type="button"
+              style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4})}
+              aria-label={`Correct quoted unit for ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
+              disabled={busy||linkDirty} onClick={()=>setChoosingQuotedUnit(true)}>Correct</button>}
+            {autoSave&&canManage&&tierNames[tier]&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
+              aria-label={inference?.packSize?"Confirm pack and quoted unit":inference?.value?"Confirm quoted unit":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
               disabled={busy||linkDirty||showUnitChooser} onClick={confirmReview}>Confirm</button>}
             {showUnitChooser&&<select autoFocus aria-label="Quoted unit" style={{...inputStyle,marginTop:4}}
-              value="" disabled={busy} onChange={event=>{edit("selling_unit",event.target.value);setChoosingQuotedUnit(false);}}
+              value={tier===1?(priceBasisFor(current.selling_unit)?.unit||String(current.selling_unit||"").toUpperCase()):""}
+              disabled={busy} onChange={event=>{edit("selling_unit",event.target.value);setChoosingQuotedUnit(false);}}
               onKeyDown={event=>{if(event.key==="Escape")setChoosingQuotedUnit(false);}}>
               <option value="" disabled>Select quoted unit</option>
               {unitChoices(vocabulary,false,industry).map(unit=><option key={unit.value} value={unit.value}>{unit.label}</option>)}

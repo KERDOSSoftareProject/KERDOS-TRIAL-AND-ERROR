@@ -66,6 +66,26 @@ for(const industry of ['restaurant','construction']){
  assert.equal(calculatedUnitCost(projectedPack,{procurement:context}).price,3.35);
  assert.ok(catalogMigrationAssessment({item,listing:projectedPack,mapping,procurement:context}).fields.has('pack'));
  assert.ok(orderGuideAssessment({item,vendorItem:projectedPack,mapping,procurement:context}).blockers.includes('sellingUnit'));
+ const confirmedAt='2026-11-11T18:41:25Z';
+ const wronglyApproved={...singleUnit,last_updated:confirmedAt,field_resolutions:{...singleUnit.field_resolutions,
+  row_approval:{catalogItemId:item.id,confirmedAt,confirmedBy:'reviewer'}}};
+ const threeVendors=[...comparables,{...comparables[0],id:'ref-third',vendor_id:'other-third',price:50.8}];
+ const corrected=normalizeCatalogQuote(wronglyApproved,threeVendors,{item,mapping,procurement:context});
+ assert.equal(calculatedUnitCost(wronglyApproved,{procurement:context}).price,0.8375);
+ assert.equal(corrected.pack_size,'5 lb');
+ assert.equal(calculatedUnitCost(corrected,{procurement:context}).price,3.35);
+ assert.equal(catalogMigrationAssessment({item,listing:corrected,mapping,procurement:context}).tier,2);
+ const acceptedCorrection={...wronglyApproved,pack_size:'5 lb',selling_unit:'EACH',price_basis:'each',
+  field_resolutions:{...wronglyApproved.field_resolutions,pack_size:{value:'5 lb',confirmedBy:'reviewer'},
+   selling_unit:{value:'EACH',confirmedBy:'reviewer'}}};
+ assert.equal(normalizeCatalogQuote(acceptedCorrection,threeVendors,{item,mapping,procurement:context}),acceptedCorrection);
+ assert.equal(catalogMigrationAssessment({item,listing:acceptedCorrection,mapping,procurement:context}).tier,1);
+ const unresolved=normalizeCatalogQuote({...wronglyApproved,price:1,import_row:{...wronglyApproved.import_row,
+  row:{...wronglyApproved.import_row.row,price:1}}},threeVendors,{item,mapping,procurement:context});
+ assert.equal(unresolved.quoteBasisInference.kind,'unresolved');
+ assert.equal(catalogMigrationAssessment({item,listing:unresolved,mapping,procurement:context}).tier,4);
+ assert.ok(orderGuideAssessment({item,vendorItem:unresolved,mapping,procurement:context}).blockers.includes('sellingUnit'));
+
  const statedCase={...singleUnit,import_row:{...singleUnit.import_row,row:{...singleUnit.import_row.row,packSize:'4/5 LB'}}};
  assert.equal(normalizeCatalogQuote(statedCase,comparables,{item,mapping,procurement:context}).pack_size,'4/5 LB');
  const stated={...saved,import_row:{...saved.import_row,row:{...saved.import_row.row,sellingUnit:'CASE'}}};
