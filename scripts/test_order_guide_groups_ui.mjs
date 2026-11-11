@@ -16,6 +16,7 @@ const vendorItems=['Zucchini','Honey Mustard Dressing','Avocado','USA'].map((des
 const catalogItems=vendorItems.map((v,i)=>({id:'ci'+i,name:v.description,master_item_number:500+i,category_id:'cat',catalog_categories:categories[0],comparison_mode:'alternatives'}));
 const snapshot={vendors:[{id:'vendor',name:'Sample Vendor'}],catalogItems,vendorItems,mappings:vendorItems.map((v,i)=>({id:'m'+i,catalog_item_id:'ci'+i,vendor_item_id:v.id,comparison_track:'review',confidence_score:70,match_method:'rule_based'})),categories,vocabulary:[],invoices:[],purchaseOrders:[],priceHistory:[],importDocuments:[]};
 vendorItems.push({...vendorItems[1],id:'honey-second',vendor_id:'second-vendor',description:'HONEY MUSTRD OTHER SUPPLIER',pack_size:'4/3 L',price:30});snapshot.vendors.push({id:'second-vendor',name:'Second Vendor'});snapshot.mappings.push({id:'honey-second-map',catalog_item_id:'ci1',vendor_item_id:'honey-second',comparison_track:'review',confidence_score:70,match_method:'rule_based'});
+vendorItems[1].field_resolutions={selling_unit:{value:'CASE',confirmedBy:'owner'}};
 const noop=async()=>({});
 const emptyQuery=()=>new Proxy({then:resolve=>Promise.resolve({data:[],error:null}).then(resolve)},{get:(target,key)=>key==='then'?target.then:emptyQuery});
 let queryRecords=emptyQuery;
@@ -36,7 +37,8 @@ await act(async()=>alternatives.props.onClick());
 const listingRegion=tree.root.findByProps({'aria-label':'Group listings'});assert.equal(listingRegion.findAllByType('input').filter(input=>input.props.type==='number').length,2,'both source listings remain under one row');
 const unitPrices=region=>region.findAllByProps({'data-field-label':'Unit Price'}).map(text);
 assert.ok(listingRegion.findAllByType('th').some(cell=>text(cell)==='Unit Price'));
-assert.deepEqual(unitPrices(listingRegion),['—','—']);
+assert.deepEqual(unitPrices(listingRegion),['$5.00 / gal','—']);
+assert.ok(listingRegion.findAllByProps({'data-field-label':'Unit Price'})[0].props.title,'a held rate retains its review reason');
 assert.equal(listingRegion.findAllByType('summary').length,0,'held listings do not show a Review control in the price dropdown');
 assert.equal([...listingRegion.findAllByType('input'),...listingRegion.findAllByType('select')].every(input=>input.props.disabled),true,'employee has selection but no listing write permission');
 await act(async()=>listingRegion.findAllByType('button').find(button=>button.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());

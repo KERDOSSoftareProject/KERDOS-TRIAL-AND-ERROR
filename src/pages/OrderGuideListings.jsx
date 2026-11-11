@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {createCatalogRowsService} from '../services/catalog-rows.js';
 import {formatMoney} from '../localization.js';
-import {orderable} from '../core/ordering.js';
+import {blockReason,orderable} from '../core/ordering.js';
 
 // The App owns the draft so closing the listing menu cannot cancel its save.
 export function useOrderGuideListingAutosave({backend,organizationId,userId,canManage,editorKey,vendorItems,mappings,onSaved}){
@@ -95,7 +95,8 @@ export function OrderGuideListings({canManage,offers,selectedId,vendorItems,unit
    <tbody role="rowgroup">{offers.map(offer=>{
     const row=vendorItems.find(value=>value.id===offer.vendorItemId);
     const id=offer.vendorItemId;
-    const rate=orderable(offer)?offer.perUnit:null;
+    const ready=orderable(offer);
+    const rate=ready?offer.perUnit:offer.displayRate;
     const draft=listingEdits.drafts[id];
     const status=draft?.error||(draft?.phase==='draft'?'Saves when minimized':draft?.phase==='queued'||draft?.phase==='saving'?'Saving…':draft?.phase==='saved'?'Saved':'');
     const value=field=>draft?.patch?.[field]??row?.[field]??'';
@@ -110,7 +111,7 @@ export function OrderGuideListings({canManage,offers,selectedId,vendorItems,unit
      <td role="cell" data-field-label="Price" style={{padding:6}}>{input('price','Price',{style:{width:85},type:'number',min:'0.01',step:'any'})}
       {unit==='each'&&<small style={{display:'block',color:'#667085'}}>Quoted price · {offer.eachPrice==null?'—':formatMoney(offer.eachPrice)+'/each'}</small>}
      </td>
-     <td role="cell" data-field-label="Unit Price" style={{padding:6,whiteSpace:'nowrap'}}>{rate?
+     <td role="cell" data-field-label="Unit Price" title={rate&&!ready?blockReason(offer)||undefined:undefined} style={{padding:6,whiteSpace:'nowrap'}}>{rate?
       `${formatMoney(rate.price)} / ${rate.unit==='FLOZ'?'fl oz':rate.unit.toLowerCase()}`:'—'}</td>
      <td role="cell" data-mobile-wide style={{padding:6}}>{status&&<small role={draft.error?'alert':'status'} style={{display:'block',color:draft.error?'#B42318':'#276742'}}>{status}</small>}
       {canManage&&draft?.phase==='error'&&<><button type="button" onClick={()=>listingEdits.retry(id)}>Retry</button><button type="button" onClick={()=>listingEdits.discard(id)}>Discard edit</button></>}

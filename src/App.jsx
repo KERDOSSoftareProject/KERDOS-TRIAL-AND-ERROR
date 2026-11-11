@@ -11,6 +11,8 @@ import { createSessionController } from "./session.js";
 import { createDocumentService } from "./services/documents.js";
 import { autoPlaceable,orderGuideAssessment,BLOCKER_LABELS,initialsFor } from "./core/catalog-fields.js";
 import {normalizeCatalogQuote} from "./core/quote-basis.js";
+import {quotedUnitOrigin} from "./core/listing-provenance.js";
+import {calculatedUnitCost} from "./core/quote-controls.js";
 import { holdingPen } from "./services/categories.js";
 import { createOrganizationService } from "./services/organization.js";
 import { createVendorService } from "./services/vendors.js";
@@ -451,12 +453,17 @@ export default function App() {
         // brand - and one with no brand listed, since "unknown" cannot
         // be verified as the locked brand.
         const brandMismatch=!!lockedBrand&&!brandsMatch(vi.brand,lockedBrand);
+        // Show supported arithmetic for held listings without admitting it to ranking.
+        const projectedRate=vi.quoteBasisInference?.kind==="inferred";
+        const knownRate=vi.quoteBasisInference?.kind!=="unresolved"&&quote==="current"&&quotedUnitOrigin(vi).status==="confirmed";
+        const displayRate=!expired&&!invoiceOnly&&(projectedRate||knownRate)?calculatedUnitCost(vi,{industry:org?.industry}):null;
         return {
           vendorId:v.id, vendorName:v.name,
           vendorItemId:vi.id, vendorItemCode:vi.vendor_item_code,vendorNvim:vi.nvim_number,
           brand:vi.brand, packSize:pack, description:vi.description,clientApproved,costOverride,automaticAlternative:automaticAlternativeVerified(vi,ci,ciMappings.map(other=>viMap.get(other.vendor_item_id)).filter(Boolean))||productGroupApproved(vi,ci,m),
           casePrice:quote==="unavailable"&&vi.price_basis==null?null:price??(!quoteBasis&&vi.price!=null?parseFloat(vi.price):null),
           quotedPrice:vi.price==null?null:parseFloat(vi.price), quoteBasis, quoteUnit, basisUnconvertible,
+          displayRate:displayRate&&!displayRate.estimated&&displayRate.price>0?displayRate:null,
           eachPrice:eachPack?.parsed&&Number(vi.price)>0?Number(vi.price):null, eachSize:eachPack?.eachStr||null,
           mappingId:m.id,
           matchConfidence:m.confidence_score, matchTrack:m.comparison_track, matchMethod:m.match_method,
