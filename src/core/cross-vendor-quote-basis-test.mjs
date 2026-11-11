@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {createProcurementContext,configureProcurement} from '../procurement.js';
-import {inferCrossVendorQuoteBasis} from './quote-basis.js';
+import {inferCrossVendorQuoteBasis,normalizeCatalogQuote} from './quote-basis.js';
 import {preparePriceImport} from './price-import-review.js';
 import {explainImportRow} from './import-evidence.js';
+import {catalogMigrationAssessment} from './catalog-migration-tier.js';
+import {orderGuideAssessment} from './catalog-fields.js';
+import {calculatedUnitCost} from './quote-controls.js';
 const scope={organizationId:'org',vendorId:'incoming'};
 const row={code:'X',description:'STEEL WASHERS',packSize:'4/5 LB',price:35,sellingUnit:null};
 const peers=[34,36].map((price,i)=>({id:'ref-'+i,organization_id:'org',vendor_id:'other-'+i,description:row.description,pack_size:row.packSize,
@@ -39,5 +42,40 @@ for(const industry of ['restaurant','construction']){
  assert.equal(inferCrossVendorQuoteBasis({...row,sellingUnit:'LB'},peers,scope,context),null);
  assert.equal(inferCrossVendorQuoteBasis({...row,price:10000},peers,scope,context),null);
  assert.deepEqual(inferCrossVendorQuoteBasis(row,[...peers].reverse(),scope,context),guess,'reference ordering does not change inference');
+
+ const item={id:'catalog',name:row.description};
+ const mapping={catalog_item_id:item.id,comparison_track:'exact',confidence_score:100};
+ const saved={...peers[0],id:'saved',vendor_id:scope.vendorId,vendor_item_code:row.code,price:16.75,
+  import_row:{sourceDocumentId:'raw',row:{description:row.description,price:16.75,sellingUnit:null}},
+  field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'reviewer'}}};
+ const comparables=peers.map((peer,i)=>({...peer,price:[54.90,65.64][i]}));
+ const original=structuredClone(saved);
+ const normalized=normalizeCatalogQuote(saved,comparables,{item,mapping,procurement:context});
+ assert.equal(normalized.selling_unit,'EACH');
+ assert.equal(normalized.price_basis,'each');
+ assert.equal(normalized.price,16.75);
+ assert.equal(normalized.quoteBasisInference.evidence.inferredCasePrice,67);
+ assert.equal(calculatedUnitCost(normalized,{procurement:context}).price,3.35);
+ assert.equal(catalogMigrationAssessment({item,listing:normalized,mapping,procurement:context}).tier,2);
+ assert.ok(orderGuideAssessment({item,vendorItem:normalized,mapping,procurement:context}).blockers.includes('sellingUnit'));
+ assert.deepEqual(saved,original,'the calculation must preserve the saved quote and the original document');
+ const singleUnit={...saved,import_row:{...saved.import_row,row:{...saved.import_row.row,description:`${row.description} 5 lb.`}}};
+ const projectedPack=normalizeCatalogQuote(singleUnit,comparables,{item,mapping,procurement:context});
+ assert.equal(projectedPack.pack_size,'5 lb');
+ assert.equal(projectedPack.selling_unit,'EACH');
+ assert.equal(calculatedUnitCost(projectedPack,{procurement:context}).price,3.35);
+ assert.ok(catalogMigrationAssessment({item,listing:projectedPack,mapping,procurement:context}).fields.has('pack'));
+ assert.ok(orderGuideAssessment({item,vendorItem:projectedPack,mapping,procurement:context}).blockers.includes('sellingUnit'));
+ const statedCase={...singleUnit,import_row:{...singleUnit.import_row,row:{...singleUnit.import_row.row,packSize:'4/5 LB'}}};
+ assert.equal(normalizeCatalogQuote(statedCase,comparables,{item,mapping,procurement:context}).pack_size,'4/5 LB');
+ const stated={...saved,import_row:{...saved.import_row,row:{...saved.import_row.row,sellingUnit:'CASE'}}};
+ assert.equal(normalizeCatalogQuote(stated,comparables,{procurement:context}),stated,'honor the stated quote unit');
+ assert.equal(normalizeCatalogQuote(saved,comparables.slice(0,1),{procurement:context}),saved);
+ const normal={...saved,price:55,import_row:{...saved.import_row,row:{...saved.import_row.row,price:55}}};
+ assert.equal(normalizeCatalogQuote(normal,comparables,{procurement:context}),normal,'leave a comparable case quote alone');
+ const reimport=preparePriceImport({...row,price:16.75},saved,mapping,[],[],scope,context,comparables);
+ assert.equal(reimport.row.sellingUnit,'EACH');
+ assert.equal(reimport.row.sellingUnitSource,'inferred');
+ assert.equal(reimport.requiresReview,true);
 }
 console.log('PASS cross-vendor inference: scoped confirmed comparisons; case/each/weight suggestions; 70% review; source preservation; ambiguity, contradiction, unsupported data and tenant rejection.');

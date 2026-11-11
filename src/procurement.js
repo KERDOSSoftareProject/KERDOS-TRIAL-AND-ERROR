@@ -39,7 +39,7 @@ const UNIT_DEFINITIONS = {
   FLOZ:{dimension:"volume",base:"ML",factor:29.5735295625,aliases:["fl oz","floz","fluid ounce","fluid ounces"]},
   PT:{dimension:"volume",base:"ML",factor:473.176473,aliases:["pt","pint","pints"]},
   QT:{dimension:"volume",base:"ML",factor:946.352946,aliases:["qt","quart","quarts"]},
-  GAL:{dimension:"volume",base:"ML",factor:3785.411784,aliases:["gal","gallon","gallons","gl","ga"]},
+  GAL:{dimension:"volume",base:"ML",factor:3785.411784,aliases:["gal","gall","gallon","gallons","gl","ga"]},
   // length -> millimeters
   MM:{dimension:"length",base:"MM",factor:1,aliases:["mm","millimeter","millimeters"]},
   CM:{dimension:"length",base:"MM",factor:10,aliases:["cm","centimeter","centimeters"]},

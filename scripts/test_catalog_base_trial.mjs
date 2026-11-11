@@ -39,6 +39,25 @@ try{
  const panelProps={...props,productList:items,role:'owner',userId:'owner',onUpdated:async()=>{}};await act(async()=>{tree=Renderer.create(React.createElement(ItemCatalogPanel,panelProps));});
  const button=label=>tree.root.findAllByType('button').find(b=>text(b)===label);
  assert.ok(button('Base fields trial'));await act(async()=>button('Base fields trial').props.onClick());assert.ok(tree.root.findByProps({'data-catalog-base-trial':true}));assert.ok(button('Full catalog'));await act(async()=>button('Full catalog').props.onClick());assert.ok(tree.root.findByProps({'data-catalog-base-trial':false}));await act(async()=>tree.unmount());
+ const cheese={id:'cheese',name:'American Cheese',master_item_number:30079,category_id:'dairy'};
+ const cheeseListings=[16.75,54.90,65.64].map((price,index)=>({
+   id:'cheese-'+index,organization_id:org,vendor_id:'cheese-vendor-'+index,vendor_item_code:'AC'+index,
+   description:'AMERICAN CHEESE',price,pack_size:'4/5 LB',selling_unit:'CASE',price_basis:'case',
+   import_row:{sourceDocumentId:'cheese-source-'+index,row:index?{price,packSize:'4/5 LB',sellingUnit:'CASE'}:{price,description:'AMERICAN CHEESE 5 lb.'}}
+ }));
+ const cheeseProps={...props,catalogItems:[cheese],items:[{catalogItemId:cheese.id,name:cheese.name,options:[]}],
+   vendorItems:cheeseListings,vendors:cheeseListings.map(row=>({id:row.vendor_id,name:row.vendor_id})),
+   mappings:cheeseListings.map(row=>({id:'map-'+row.id,vendor_item_id:row.id,catalog_item_id:cheese.id,comparison_track:'exact',confidence_score:100})),
+   autoSave:true,baseFieldsOnly:true};
+ await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,cheeseProps));});
+ assert.equal(tree.root.findByProps({'aria-label':'Pack for AC0'}).props.value,'each');
+ assert.equal(tree.root.findByProps({'aria-label':'Amount in each for AC0'}).props.value,5);
+ assert.equal(text(tree.root.findByProps({'aria-label':'Calculated unit cost for AC0'})),'$3.35');
+ assert.equal(rowFor('Pack for AC0').findByProps({'data-field-label':'Pack'}).props['data-catalog-review-field'],true);
+ assert.match(text(rowFor('Pack for AC0')),/Inferred pack/);
+ await act(async()=>tree.update(React.createElement(CatalogRows,{...cheeseProps,vendorItems:cheeseListings.map((row,index)=>index===1?{...row,price:100}:row)})));
+ assert.equal(tree.root.findByProps({'aria-label':'Pack for AC0'}).props.value,'','a changed group price removes the unsupported inference');
+ await act(async()=>tree.unmount());
  console.log('PASS base catalog trial: visible switch; blank later columns; vendor code/NVIN; editable source fields; dollar-only save without units or blanket approval; reassignment follows group number/category; hidden drafts/full view retained; errors/roles; unchanged source snapshots.');
  `,resolveDir:process.cwd(),sourcefile:'catalog-base-test.mjs',loader:'js'},outfile,bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'base-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'base'}));b.onLoad({filter:/.*/,namespace:'base'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__catalogBaseBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__catalogBaseBackend.catalog.saveRow(...args)}};'}));}}]});
  process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',timeout:60000}));

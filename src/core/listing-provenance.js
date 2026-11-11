@@ -113,6 +113,8 @@ function rootMatches(root,listing,procurement){
 export function quotedUnitOrigin(listing,procurement=getProcurementContext()){
   const source=listingSourceForField(listing,'selling_unit');
   const same=value=>sameUnit(value,listing.selling_unit,procurement);
+  if(listing.quoteBasisInference?.kind==='inferred'&&same(listing.quoteBasisInference.value))
+    return {...source,status:'inferred',confirmation:null,source:'inferred',root:null};
   const stored=source.evidence.fieldEvidence?.sellingUnit;
   const carried=rootMatches(stored,listing,procurement)?stored:null;
   const confirmation=listing.field_resolutions?.selling_unit;

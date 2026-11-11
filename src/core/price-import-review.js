@@ -66,12 +66,13 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   if(!procurement.parsePackSize(row.packSize)?.parsed)reasons.push(row.packSize?
     "Pack quantity or unit is unreadable; correct the pack field.":"Pack quantity and unit are missing.");
   let resolved=resolveQuoteBasis(row,prior,procurement,rawSource);
-  let invoiceConflict=false;
+  let invoiceConflict=false,invoiceConfirmsUnit=false;
   if((!String(row.sellingUnit||"").trim()||resolved?.source==="confirmed vendor item")&&scopedInvoices.length){
     // Compare invoice evidence against the incoming product and pack wherever
     // stated, even when the saved catalog display uses the remembered fields.
     const arithmetic=resolveFromInvoiceArithmetic({...row,sellingUnit:"",
       description:source.description||row.description,packSize:source.packSize||row.packSize},scopedInvoices, undefined, procurement);
+    invoiceConfirmsUnit=!!arithmetic&&!arithmetic.conflict;
     if(arithmetic?.conflict){
       reasons.push(`Quoted unit needs review because invoice evidence conflicts. ${arithmetic.reason}.`);
       invoiceConflict=true;
@@ -88,8 +89,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
       row={...row,sellingUnit:"",sellingUnitSource:null};
     }
   }
-  if(!resolved&&!invoiceConflict&&!reasons.length){
-    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement);
+  const rememberedWithoutStatedUnit=resolved?.source==='confirmed vendor item'&&!invoiceConfirmsUnit&&!printedQuoteEvidence(rawSource,procurement).present;
+  if((!resolved||rememberedWithoutStatedUnit)&&!invoiceConflict&&!reasons.length){
+    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement,{currentUnit:resolved?.sellingUnit});
     if(inference){
       row={...row,sellingUnit:inference.value,sellingUnitSource:'inferred',
         fieldInference:{...row.fieldInference,sellingUnit:inference}};

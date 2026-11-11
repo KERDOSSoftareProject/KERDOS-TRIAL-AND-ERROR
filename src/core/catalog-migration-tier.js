@@ -42,7 +42,17 @@ export function catalogMigrationAssessment({item, listing, mapping, settings, no
     }
     if(conflicts.some(reason=>/^Quoted unit .*(?:differs|conflicts|needs review)/i.test(reason)))fields.add('sellingUnit');
   }
-  if(fields.size||sourceHold)return {tier:4,fields};
+  if(fields.size||sourceHold){
+    if(listing.quoteBasisInference)fields.add('sellingUnit');
+    if(listing.quoteBasisInference?.packSize)fields.add('pack');
+    return {tier:4,fields};
+  }
+
+  if(listing.quoteBasisInference){
+    fields.add('sellingUnit');
+    if(listing.quoteBasisInference.packSize)fields.add('pack');
+    return {tier:2,fields};
+  }
 
   if(!basis||!origin.root&&origin.status!=='inferred'){
     const hasSourceRow=source.sourceDocumentId&&saved.rowKey&&Object.keys(source.row).length>0;

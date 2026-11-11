@@ -1,4 +1,5 @@
 import {listingSourceForField,quotedUnitOrigin,quotedUnitRootReason} from './listing-provenance.js';
+import {normalizeCatalogQuote} from './quote-basis.js';
 import {automaticAlternativeVerified} from "./alternative-groups.js";
 import {productGroupApproved} from './product-associations.js';
 import {vendorListingLabel} from "./vendor-listing.js";
@@ -119,6 +120,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     else{
       unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(unitOrigin.source)?DERIVED:unitOrigin.status==="inferred"?GUESSED:STATED;
       unitWhy=unitOrigin.source==="remembered"?quotedUnitRootReason(unitOrigin):byClient("selling_unit")?"Set by you":unitOrigin.source==="sheet"?"Applied to the whole sheet at import":unitOrigin.status==="inferred"?provenance.fieldInference?.sellingUnit?.reason||"Suggested—not confirmed":"Stated on the sheet";
+      if(vi.quoteBasisInference)unitWhy=vi.quoteBasisInference.reason;
       if(unitOrigin.missingRoot)unitWhy=quotedUnitRootReason(unitOrigin);
       if(!byClient("selling_unit")&&unitOrigin.source==="invoice")unitWhy="Supported by a matched invoice’s billed unit and line total";
       if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(unitOrigin.source))unitWhy=`Stated in the ${unitOrigin.source}`;
@@ -285,6 +287,7 @@ export function orderGuideAssessment(input){
   if(evidence.unitCost.estimated&&!blockers.includes("unitCost"))blockers.push("unitCost");
   const status=procurement.quoteStatus(vendorItem,settings,now);
   if(status!=="current")blockers.push(status==="expired"?"expired":"quote");
+  if(vendorItem.quoteBasisInference&&!blockers.includes("sellingUnit"))blockers.push("sellingUnit");
   if(vendorItem.import_row?.reviewRequired)blockers.push("source");
   if(item.brand_locked&&!procurement.brandsMatch(vendorItem.brand,item.locked_brand))blockers.push("brand");
   const fieldsReady=blockers.length===0;
@@ -314,8 +317,10 @@ export function qualificationSummary({catalogItems=[],vendorItems=[],mappings=[]
   const rows=mappings.flatMap(mapping=>{
     const item=ci.get(mapping.catalog_item_id),vendorItem=vi.get(mapping.vendor_item_id);
     if(!item||!vendorItem)return [];
-    const peers=mappings.filter(other=>other.catalog_item_id===item.id&&other.id!==mapping.id).map(other=>vi.get(other.vendor_item_id)).filter(Boolean);
-    return [{mappingId:mapping.id,vendorItemId:vendorItem.id,...orderGuideAssessment({item,vendorItem,mapping,
+    const groupMappings=mappings.filter(other=>other.catalog_item_id===item.id);
+    const peers=groupMappings.filter(other=>other.id!==mapping.id).map(other=>vi.get(other.vendor_item_id)).filter(Boolean);
+    const effective=normalizeCatalogQuote(vendorItem,peers,{item,mapping,groupMappings,settings,now,procurement});
+    return [{mappingId:mapping.id,vendorItemId:vendorItem.id,...orderGuideAssessment({item,vendorItem:effective,mapping,
       vendor:vendorById.get(vendorItem.vendor_id),category:categoryById.get(item.category_id),peers,categories,settings,now,procurement})}];
   });
   const linked=new Set(rows.map(row=>row.vendorItemId));
@@ -349,7 +354,8 @@ export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendor
     const reuseGroupApproval=ci.comparison_mode!=="exact"&&m.comparison_track==="review"&&m.confidence_score===null&&
       !!approval?.confirmedBy&&approval.confirmed!==false&&!!packCorrection?.confirmedBy&&packCorrection.value===vi.pack_size&&
       productGroupApproved(vi,ci,approvedMapping);
-    if(!orderGuideReady({item:ci,vendorItem:vi,mapping:reuseGroupApproval?approvedMapping:m,vendor:vById.get(vi.vendor_id),category,peers,categories,settings,now}))continue;
+    const effective=normalizeCatalogQuote(vi,peers,{item:ci,mapping:m,groupMappings:allOnEntry,settings,now});
+    if(!orderGuideReady({item:ci,vendorItem:effective,mapping:reuseGroupApproval?approvedMapping:m,vendor:vById.get(vi.vendor_id),category,peers,categories,settings,now}))continue;
     const verification=reuseGroupApproval?{comparison_track:"exact",confidence_score:100,match_method:"manual"}:
       {...mappingVerification(vi,ci,peers),match_method:"rule_based"};
     if(verification.comparison_track!=="exact")continue;

@@ -53,6 +53,9 @@ assert.equal(unitChanged.priceAvailable,false,"volume quote cannot turn into a w
 const rowEvidence=vi=>catalogRowEvidence({vendorItem:vi,item,mapping,vendor:{name:"V"},category});
 assert.equal(rowEvidence({...prior,price:40,selling_unit:"CASE",pack_size:"4/1 GAL"}).unitCost.value,10);
 assert.equal(rowEvidence({...prior,price:40,selling_unit:"CASE",pack_size:"4/1 GAL"}).unitCost.unit,"GAL");
+const gallons=rowEvidence({...prior,price:66.95,selling_unit:"CASE",pack_size:"4/1 GALL"});
+assert.equal(gallons.unitCost.unit,"GAL");
+assert.equal(gallons.unitCost.value.toFixed(2),"16.74");
 assert.equal(rowEvidence({...prior,price:3,selling_unit:"EACH",pack_size:"4/10 OZ"}).unitCost.value,.3);
 assert.equal(rowEvidence({...prior,selling_unit:null}).unitCost.value,null);
 assert.equal(rowEvidence({...prior,brand:null}).brand.accuracy,null);

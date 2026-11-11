@@ -10,6 +10,7 @@ import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
 import { createDocumentService } from "./services/documents.js";
 import { autoPlaceable,orderGuideAssessment,BLOCKER_LABELS,initialsFor } from "./core/catalog-fields.js";
+import {normalizeCatalogQuote} from "./core/quote-basis.js";
 import { holdingPen } from "./services/categories.js";
 import { createOrganizationService } from "./services/organization.js";
 import { createVendorService } from "./services/vendors.js";
@@ -423,9 +424,11 @@ export default function App() {
       const ciMappings=mappingsByCatalog.get(ci.id)||[];
       const lockedBrand=ci.brand_locked?(ci.locked_brand||null):null;
       const options=ciMappings.map(m=>{
-        const vi=viMap.get(m.vendor_item_id);
-        const v=vi?vMap.get(vi.vendor_id):null;
-        if(!vi||!v) return null;
+        const saved=viMap.get(m.vendor_item_id);
+        const v=saved?vMap.get(saved.vendor_id):null;
+        if(!saved||!v) return null;
+        const peers=ciMappings.filter(other=>other.id!==m.id).map(other=>viMap.get(other.vendor_item_id)).filter(Boolean);
+        const vi=normalizeCatalogQuote(saved,peers,{item:ci,mapping:m,groupMappings:ciMappings,settings:org?.settings});
         // Preserve the actual quoted price even when expired. Block it from
         // ordering and comparison; never turn a historical quote into $0.
         const quote=quoteStatus(vi,org?.settings||{});
@@ -435,7 +438,7 @@ export default function App() {
         const costOverride=clientApproved?vi.field_resolutions?.unit_cost_override?.value:null;
         const pack=vi.pack_size||(costOverride?"Client-approved purchasing pack":null);
         const assessment=orderGuideAssessment({item:ci,vendorItem:vi,mapping:m,vendor:v,category:categoriesById.get(ci.category_id),
-          peers:ciMappings.filter(other=>other.id!==m.id).map(other=>viMap.get(other.vendor_item_id)).filter(Boolean),categories,settings:org?.settings||{}});
+          peers,categories,settings:org?.settings||{}});
         // A full-pack equivalent supports comparison across pack sizes.
         // An each quote keeps its original amount for purchasing.
         const quoteBasis=vi.price_basis||priceBasisFor(vi.selling_unit)?.basis||null;

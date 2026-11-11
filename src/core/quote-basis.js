@@ -1,9 +1,9 @@
-import {quotedUnitOrigin,quotedUnitLocation} from './listing-provenance.js';
+import {listingSourceForField,quotedUnitOrigin,quotedUnitLocation} from './listing-provenance.js';
 import {getProcurementContext} from "../procurement.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
 import {unitLabel} from "./unit-labels.js";
-import {hasPrintedQuoteUnit,unitInPrice,unitInPriceHeader} from "./source-units.js";
+import {hasPrintedQuoteUnit,printedQuoteEvidence,unitInPrice,unitInPriceHeader} from "./source-units.js";
 
 // Interpret only bound source prices. Each amount keeps its own header
 // and coordinates, independent of calculations or later client edits.
@@ -39,16 +39,16 @@ export function quoteBasisAlternatives(row, procurement=getProcurementContext())
 
 // Deeper inference uses only this client's current, source-backed quotes for
 // the same product and pack. A single peer or an amount alone is insufficient.
-// The 25% window is a similarity bound for a 70%-accuracy review suggestion,
-// never a market-price rule or permission to qualify the quote automatically.
-export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procurement=getProcurementContext()){
-  if(!scope?.organizationId||!scope.vendorId||String(row.sellingUnit||'').trim()||row.priceUnavailable||!(Number(row.price)>0))return null;
+// The 25% window is a similarity bound for an inferred, non-orderable quote.
+// For a saved basis, require an outlier against every reference before replacing it.
+export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procurement=getProcurementContext(),{currentUnit,linkedPeerIds,settings,now}={}){
+  if(!scope?.organizationId||!scope.vendorId||(!currentUnit&&String(row.sellingUnit||'').trim())||row.priceUnavailable||!(Number(row.price)>0))return null;
   const pack=procurement.parsePackSize(row.packSize);
   if(!pack?.parsed||pack.catchWeight||pack.dimension==='unknown')return null;
   const references=[];
   for(const peer of listings){
     if(!peer.id||peer.organization_id!==scope.organizationId||!peer.vendor_id||peer.vendor_id===scope.vendorId)continue;
-    if(procurement.quoteStatus(peer)!=='current'||peer.import_row?.reviewRequired)continue;
+    if(procurement.quoteStatus(peer,settings,now)!=='current'||peer.import_row?.reviewRequired)continue;
     const origin=quotedUnitOrigin(peer,procurement);
     if(origin.status!=='confirmed')continue;
     const confirmation=origin.confirmation?.value;
@@ -56,9 +56,12 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
     if(!confirmedUnit)continue;
     const stated=procurement.priceBasisFor(confirmedUnit),basis=procurement.priceBasisFor(peer.selling_unit);
     if(!stated||!basis||JSON.stringify(stated)!==JSON.stringify(basis)||peer.price_basis!==basis.basis)continue;
-    if(procurement.compareProductIdentity(row.description,peer.description).status!=='same'||procurement.comparePurchasingPack(row.packSize,peer.pack_size).status!=='same')continue;
-    if(row.brand&&peer.brand&&!procurement.brandsMatch(row.brand,peer.brand))continue;
-    if(row.gtin&&peer.gtin&&row.gtin!==peer.gtin||row.manufacturerCode&&peer.manufacturer_code&&row.manufacturerCode!==peer.manufacturer_code)continue;
+    if(procurement.comparePurchasingPack(row.packSize,peer.pack_size).status!=='same')continue;
+    if(!linkedPeerIds?.has(peer.id)){
+      if(procurement.compareProductIdentity(row.description,peer.description).status!=='same')continue;
+      if(row.brand&&peer.brand&&!procurement.brandsMatch(row.brand,peer.brand))continue;
+      if(row.gtin&&peer.gtin&&row.gtin!==peer.gtin||row.manufacturerCode&&peer.manufacturer_code&&row.manufacturerCode!==peer.manufacturer_code)continue;
+    }
     const casePrice=procurement.casePriceFromQuote(peer.price,basis.basis,basis.unit||peer.selling_unit,peer.pack_size);
     if(!(casePrice>0))continue;
     references.push({vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:origin.sourceDocumentId||null,
@@ -66,17 +69,67 @@ export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procuremen
   }
   if(new Set(references.map(peer=>peer.vendorId)).size<2)return null;
   references.sort((a,b)=>a.vendorItemId.localeCompare(b.vendorItemId));
+  const caseCharge=unit=>{
+    const basis=procurement.priceBasisFor(unit);
+    return basis?procurement.casePriceFromQuote(row.price,basis.basis,basis.unit||unit,row.packSize):null;
+  };
+  const withinRange=(charge,peer)=>Math.abs(charge-peer.casePrice)/peer.casePrice<=0.25;
+  const currentCharge=caseCharge(currentUnit);
+  if(currentCharge>0&&references.some(peer=>withinRange(currentCharge,peer)))return null;
   const plausible=quoteBasisAlternatives(row,procurement).filter(option=>{
-    const basis=procurement.priceBasisFor(option.sellingUnit);
-    const charge=procurement.casePriceFromQuote(row.price,basis.basis,basis.unit||option.sellingUnit,row.packSize);
-    return charge>0&&references.every(peer=>Math.abs(charge-peer.casePrice)/peer.casePrice<=0.25);
+    const charge=caseCharge(option.sellingUnit);
+    return charge>0&&references.every(peer=>withinRange(charge,peer));
   });
   // When package and case cover the same quantity, do not invent a distinction.
   if(plausible.length!==1)return null;
   const sellingUnit=plausible[0].sellingUnit;
   return {value:sellingUnit,kind:'inferred',source:'cross-vendor comparison',accuracy:70,
     reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${new Set(references.map(peer=>peer.vendorId)).size} other vendors. Only this basis puts the equivalent case charge within 25% of every reference. Confirm before using it.`,
-    evidence:{packSize:row.packSize,price:Number(row.price),relativeTolerance:0.25,references}};
+    evidence:{packSize:row.packSize,price:Number(row.price),relativeTolerance:0.25,references,
+      ...(currentCharge>0&&{previousUnit:currentUnit,previousCasePrice:currentCharge,inferredCasePrice:caseCharge(sellingUnit)})}};
+}
+
+// Project a saved quote for comparison and display. The saved quote and its
+// evidence stay available, and an inferred projection never becomes orderable.
+export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,settings,now,procurement=getProcurementContext()}={}){
+  if(peers.length<2||listing.quoteBasisInference||listing.price_source==='invoice'||
+    listing.field_resolutions?.unit_cost_override?.value||
+    item?.brand_locked&&!procurement.brandsMatch(listing.brand,item.locked_brand))return listing;
+  const origin=quotedUnitOrigin(listing,procurement);
+  const amountSource=listingSourceForField(listing,'price');
+  if(origin.root?.source==='sheet'||origin.root?.source==='invoice'||origin.confirmation?.documentConfirmation||
+    !amountSource.sourceDocumentId||Number(amountSource.row.price)!==Number(listing.price)||
+    printedQuoteEvidence(amountSource.row,procurement).present)return listing;
+  const group=listing.field_resolutions?.product_group;
+  const sameGroup=item&&mapping?.catalog_item_id===item.id&&
+    (mapping.comparison_track==='exact'&&mapping.confidence_score===100||
+      mapping.match_method==='manual'&&group?.confirmed===true&&group.catalogItemId===item.id&&
+      procurement.compareProductIdentity(group.description,listing.description).status!=='different');
+  const linkedPeerIds=sameGroup?new Set((groupMappings||[]).filter(peerMapping=>peerMapping.catalog_item_id===item.id&&
+    peerMapping.comparison_track==='exact'&&peerMapping.confidence_score===100).map(peerMapping=>peerMapping.vendor_item_id)):null;
+  const row={...amountSource.row,description:listing.description,packSize:listing.pack_size,price:listing.price,
+    brand:listing.brand,gtin:listing.gtin,manufacturerCode:listing.manufacturer_code,sellingUnit:listing.selling_unit,
+    priceUnavailable:listing.price_unavailable};
+  const comparisonPeers=item?.brand_locked?peers.filter(peer=>procurement.brandsMatch(peer.brand,item.locked_brand)):peers;
+  const inference=inferCrossVendorQuoteBasis(row,comparisonPeers,{organizationId:listing.organization_id,vendorId:listing.vendor_id},
+    procurement,{currentUnit:listing.selling_unit,linkedPeerIds,settings,now});
+  if(!inference)return listing;
+  const source=amountSource.row;
+  const statedPack=source.originalFields?.packSize||source.originalPackRaw||source.packSize;
+  const unitPack=statedPack||procurement.packFromDescription(source.description);
+  const unit=procurement.parsePackSize(unitPack);
+  const savedPack=procurement.parsePackSize(listing.pack_size);
+  // A price inferred per inner unit establishes only the unit the vendor
+  // described. A peer's outer case count is not evidence for this vendor.
+  const matchesInnerUnit=inference.value==='EACH'&&unit?.parsed&&unit.caseQty===1&&
+    !unit.catchWeight&&savedPack.caseQty>1&&unit.dimension===savedPack.dimension&&
+    procurement.comparePurchasingPack(unitPack,savedPack.eachStr).status==='same';
+  if(matchesInnerUnit){
+    inference.packSize=unitPack;
+    inference.reason+=` The source describes ${unitPack}. The saved outer case count has no matching source evidence.`;
+  }
+  return {...listing,pack_size:inference.packSize||listing.pack_size,
+    selling_unit:inference.value,price_basis:procurement.priceBasisFor(inference.value).basis,quoteBasisInference:inference};
 }
 
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
