@@ -1,8 +1,6 @@
 -- The Edge function validates the signed-in actor and runs the shared
 -- interpreter. These RPCs own the transactional write and its durable proof.
-create schema if not exists kerdos_private;
-revoke all on schema kerdos_private from public, anon, authenticated;
-create table kerdos_private.quote_unit_operations (
+create table if not exists kerdos_private.quote_unit_operations (
   id uuid primary key,
   organization_id uuid not null references public.organizations(id) on delete cascade,
   actor_id uuid not null,
@@ -13,7 +11,7 @@ create table kerdos_private.quote_unit_operations (
 alter table kerdos_private.quote_unit_operations enable row level security;
 revoke all on kerdos_private.quote_unit_operations from public, anon, authenticated, service_role;
 
-create function kerdos_private.read_quote_unit_operation(
+create or replace function kerdos_private.read_quote_unit_operation(
   p_organization_id uuid, p_actor_id uuid, p_operation_id uuid, p_action text
 ) returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -38,7 +36,7 @@ $$;
 
 -- A manager can edit ordinary listing fields. Only an immutable, server-created
 -- receipt can introduce a document confirmation into either provenance path.
-create function kerdos_private.check_document_quote_unit_proof()
+create or replace function kerdos_private.check_document_quote_unit_proof()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
   proof jsonb;
@@ -68,11 +66,11 @@ begin
   return new;
 end;
 $$;
-create trigger check_document_quote_unit_proof
+create or replace trigger check_document_quote_unit_proof
   before insert or update of field_resolutions, import_row, organization_id, vendor_id, id
   on public.vendor_items for each row execute function kerdos_private.check_document_quote_unit_proof();
 
-create function kerdos_private.apply_quote_unit_operation(
+create or replace function kerdos_private.apply_quote_unit_operation(
   p_organization_id uuid, p_actor_id uuid, p_operation_id uuid, p_action text, p_plan jsonb
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -254,14 +252,16 @@ begin
 end;
 $$;
 
-create function public.kerdos_read_quote_unit_operation(
+-- Only the public wrappers are callable by the server role. The wrappers use
+-- their owner's private-schema access, leaving the shared schema grants intact.
+create or replace function public.kerdos_read_quote_unit_operation(
   p_organization_id uuid, p_actor_id uuid, p_operation_id uuid, p_action text
-) returns jsonb language sql stable security invoker set search_path = '' as $$
+) returns jsonb language sql stable security definer set search_path = '' as $$
   select kerdos_private.read_quote_unit_operation(p_organization_id, p_actor_id, p_operation_id, p_action);
 $$;
-create function public.kerdos_apply_quote_unit_operation(
+create or replace function public.kerdos_apply_quote_unit_operation(
   p_organization_id uuid, p_actor_id uuid, p_operation_id uuid, p_action text, p_plan jsonb
-) returns jsonb language sql security invoker set search_path = '' as $$
+) returns jsonb language sql security definer set search_path = '' as $$
   select kerdos_private.apply_quote_unit_operation(p_organization_id, p_actor_id, p_operation_id, p_action, p_plan);
 $$;
 revoke all on function kerdos_private.read_quote_unit_operation(uuid, uuid, uuid, text),
@@ -270,8 +270,5 @@ revoke all on function kerdos_private.read_quote_unit_operation(uuid, uuid, uuid
   public.kerdos_read_quote_unit_operation(uuid, uuid, uuid, text),
   public.kerdos_apply_quote_unit_operation(uuid, uuid, uuid, text, jsonb)
   from public, anon, authenticated, service_role;
-grant usage on schema kerdos_private to service_role;
-grant execute on function kerdos_private.read_quote_unit_operation(uuid, uuid, uuid, text),
-  kerdos_private.apply_quote_unit_operation(uuid, uuid, uuid, text, jsonb),
-  public.kerdos_read_quote_unit_operation(uuid, uuid, uuid, text),
+grant execute on function public.kerdos_read_quote_unit_operation(uuid, uuid, uuid, text),
   public.kerdos_apply_quote_unit_operation(uuid, uuid, uuid, text, jsonb) to service_role;

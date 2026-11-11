@@ -22,7 +22,14 @@ try {
     alter table import_documents add column file_name text default 'Same sheet.csv';
     alter table import_documents add column status text default 'complete';
   `);
-  await db.exec(readFileSync(new URL('../supabase/migrations/20261111024722_document_quoted_unit_review.sql', import.meta.url), 'utf8'));
+  const migrations = new URL('../supabase/migrations/', import.meta.url);
+  await db.exec(readFileSync(new URL('20261106212606_vendor_schedule_clock.sql', migrations), 'utf8'));
+  await db.exec(`
+    create role unrelated_private_reader;
+    grant usage on schema kerdos_private to unrelated_private_reader;
+    create table kerdos_private.unrelated_fixture(id integer primary key, note text);
+    insert into kerdos_private.unrelated_fixture values (1, 'Keep existing private data');
+  `);
 
   const otherOrg = randomUUID();
   const otherVendor = randomUUID();
@@ -63,6 +70,25 @@ try {
   const first = await seedListing(f.org, f.vendor, document, 'row:0');
   const second = await seedListing(f.org, f.vendor, secondDocument, 'row:0');
   const foreign = await seedListing(otherOrg, otherVendor, foreignDocument, 'row:0');
+  const migration = readFileSync(new URL('20261111024722_document_quoted_unit_review.sql', migrations), 'utf8');
+  const rowsIn = async table => (await db.query(
+    `select to_jsonb(r) as value from ${table} r order by to_jsonb(r)`
+  )).rows.map(row => row.value);
+  const existingTables = [
+    'organizations', 'organization_members', 'org_vocabulary', 'vendors', 'import_documents',
+    'vendor_items', 'item_mappings', 'price_history', 'kerdos_private.unrelated_fixture'
+  ];
+  const existingState = async () => ({
+    tables: await Promise.all(existingTables.map(rowsIn)),
+    sharedSchemaAcl: (await db.query("select nspacl::text from pg_namespace where nspname='kerdos_private'")).rows[0].nspacl
+  });
+  const baseline = await existingState();
+  for (const attempt of [1, 2]) {
+    await db.exec(migration);
+    assert.deepEqual(await existingState(), baseline, `apply ${attempt} preserves the seeded rows and shared schema ACL`);
+    assert.deepEqual(await rowsIn('kerdos_private.quote_unit_operations'), [], 'applying creates no receipts');
+  }
+  console.log('PASS raw document quoted-unit migration applied twice with zero existing row changes and unchanged shared schema grants.');
   const readListing = async id => (await db.query('select to_jsonb(v) as value from vendor_items v where id=$1', [id])).rows[0].value;
   const readMapping = async id => (await db.query('select to_jsonb(m) as value from item_mappings m where vendor_item_id=$1', [id])).rows[0].value;
   const readHistory = async () => (await db.query('select to_jsonb(h) as value from price_history h order by id')).rows.map(row => row.value);
@@ -111,8 +137,11 @@ try {
 
   await f.actor(db, f.manager);
   await assert.rejects(write(f.manager, operation, 'confirm', confirmPlan), /permission denied/i);
+  await assert.rejects(readReceipt(f.manager, operation, 'confirm'), /permission denied/i);
   await db.exec('reset role; set role service_role');
   await assert.rejects(db.query('select * from kerdos_private.quote_unit_operations'), /permission denied/i);
+  await assert.rejects(db.query('select kerdos_private.read_quote_unit_operation($1,$2,$3,$4)',
+    [f.org, f.manager, operation, 'confirm']), /permission denied/i);
   await assert.rejects(write(f.employee, operation, 'confirm', confirmPlan), /approval authority/i);
   await assert.rejects(write(f.manager, operation, 'confirm', foreignConfirmPlan), /price sheet changed/i);
   assert.equal(await readReceipt(f.manager, operation, 'confirm'), null);
@@ -205,6 +234,12 @@ try {
   }
   assert.deepEqual(await readListing(foreign), untouchedForeign);
   assert.deepEqual(await readHistory(), history);
+  const stateAfterOperations = await existingState();
+  const savedReceipts = await rowsIn('kerdos_private.quote_unit_operations');
+  assert.equal(savedReceipts.length, 3);
+  await db.exec(migration);
+  assert.deepEqual(await existingState(), stateAfterOperations, 'reapply preserves rows carrying approved proof');
+  assert.deepEqual(await rowsIn('kerdos_private.quote_unit_operations'), savedReceipts, 'reapply preserves approval receipts');
   const readyListing = await readListing(first);
   const procurement = workspaceProcurement({organization:{id:f.org,industry:'construction'},vocabulary:refreshed.vocabulary});
   const scope = {organizationId:f.org,vendorId:f.vendor};

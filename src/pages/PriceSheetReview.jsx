@@ -7,6 +7,7 @@ import {QuotedPerControl} from "./QuotedPerControl.jsx";
 const primary=btn("#003584","white",{fontSize:12,padding:"8px 12px"});
 const secondary=btn("#E8F1FB","#003584",{fontSize:12,padding:"8px 12px"});
 const buttons={display:"flex",gap:8,flexWrap:"wrap"};
+const workspacePanel={marginBottom:14,fontSize:13,background:"white",color:"#17243A",borderRadius:10,padding:12};
 const reviewFieldLabels=fields=>fields.map(field=>field==="selling_unit"?"quoted per":String(field).replaceAll("_"," ")).join(", ");
 
 function ReviewRows({title,rows,excluded,onToggle,disabled}){
@@ -107,7 +108,7 @@ export function PriceSheetReview({organizationId,documentId,role,industry,vocabu
     const values=confirmation?{unit,listingIds:selectedIds}:{listingIds:selectedIds};
     void run(confirmation?"preview-confirmation":"preview-recheck",values);
   }
-  return <section aria-label={workspace?"Workspace price sheet recheck":"Price sheet review"} style={workspace?{marginBottom:14,fontSize:13}:{marginTop:14,fontSize:13}}>
+  return <section aria-label={workspace?"Workspace price sheet recheck":"Price sheet review"} style={workspace?workspacePanel:{marginTop:14,fontSize:13}}>
     <div style={buttons}>
       {canConfirm&&<button type="button" disabled={pending} onClick={()=>choose("confirmation")} style={secondary}>Confirm quoted per</button>}
       {canRecheck&&<button type="button" disabled={pending} onClick={()=>{choose("recheck");void run("preview-recheck");}} style={secondary}>{workspace?"Preview workspace recheck":"Preview source recheck"}</button>}
