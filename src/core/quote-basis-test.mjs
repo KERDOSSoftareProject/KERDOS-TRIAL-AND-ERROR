@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {resolveQuoteBasis} from "./quote-basis.js";
-const prior={vendor_item_code:"47432",description:"BACON LAYOUT FROZEN",pack_size:"1/15 LB",selling_unit:"LB",price_basis:"measure"};
+const prior={vendor_item_code:"47432",description:"BACON LAYOUT FROZEN",pack_size:"1/15 LB",selling_unit:"LB",price_basis:"measure",import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"LB"},evidence:{sellingUnit:"LB",sellingUnitSource:"price header"}}};
 const row={code:"47432",description:"BACON LAYOUT FROZEN",packSize:"1/15 LB",sellingUnit:null};
 assert.equal(resolveQuoteBasis(row,prior)?.basis.basis,"measure");
 assert.equal(resolveQuoteBasis(row,prior)?.source,"confirmed vendor item");

@@ -9,8 +9,8 @@
  * Case-priced meat must be handled correctly.
  */
 
-import {inferPricingBasis} from './infer-pricing-basis.js';
-import {configureProcurement} from '../procurement.js';
+import {inferPricingBasis} from './legacy-pricing-plausibility.mjs';
+import {configureProcurement} from '../../src/procurement.js';
 
 configureProcurement({industry:'restaurant'});
 

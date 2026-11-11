@@ -2,7 +2,6 @@ import {restaurantUnitCostUnits} from "./restaurant-unit-policy.js";
 import {restaurantCategoryContext} from "./restaurant-category-context.js";
 import {restaurantPackContext} from "./restaurant-pack-context.js";
 import {restaurantPricingPriors} from "./restaurant-pricing-priors.js";
-import {restaurantQuoteContext} from "./restaurant-quote-context.js";
 import {restaurantProductContext} from "./restaurant-product-context.js";
 import {restaurantCellBrands,restaurantDictionaries,restaurantUnitVocabulary,RESTAURANT_DICTIONARY_VERSION} from "./restaurant-dictionaries.js";
 import {restaurantAssociations} from './restaurant-associations.js';
@@ -10,7 +9,7 @@ import {restaurantClientNames} from './restaurant-client-names.js';
 
 // Profiles supply industry-specific interpretation; procurement stays generic.
 const profiles=new Map([["restaurant",{
-  category:restaurantCategoryContext,quote:restaurantQuoteContext,product:restaurantProductContext,pack:restaurantPackContext,pricingPriors:restaurantPricingPriors,
+  category:restaurantCategoryContext,product:restaurantProductContext,pack:restaurantPackContext,pricingPriors:restaurantPricingPriors,
   unitCostUnits:restaurantUnitCostUnits,
   dictionaries:restaurantDictionaries,vocabulary:restaurantUnitVocabulary,version:RESTAURANT_DICTIONARY_VERSION,
   associations:restaurantAssociations,
@@ -30,10 +29,6 @@ export function configureCategoryProfile(industry){
 
 export function getActiveCategoryProfile(){
   return activeProfile;
-}
-
-export function quoteContext(row,rows){
-  return activeProfile?.quote?.(row,rows)||null;
 }
 
 export function associationRules(profile){

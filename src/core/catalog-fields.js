@@ -1,3 +1,4 @@
+import {listingSourceForField,quotedUnitOrigin,quotedUnitRootReason} from './listing-provenance.js';
 import {automaticAlternativeVerified} from "./alternative-groups.js";
 import {productGroupApproved} from './product-associations.js';
 import {vendorListingLabel} from "./vendor-listing.js";
@@ -60,16 +61,19 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const vi=vendorItem,pack=parsePackSize(vi.pack_size),basis=priceBasisFor(vi.selling_unit);
   const amount=vi.price==null||vi.price===""?null:Number(vi.price);
   const hasPrice=Number.isFinite(amount)&&amount>0;
-  const row=vi.import_row?.row||{};
-  const provenance=vi.import_row?.evidence||row;
+  const fieldSource=key=>listingSourceForField(vi,key);
+  const packProvenance=fieldSource('pack_size').evidence;
+  const brandProvenance=fieldSource('brand').evidence;
+  const unitOrigin=quotedUnitOrigin(vi);
+  const provenance=unitOrigin.evidence;
   const changes=vi.import_row?.reviewRequired?(vi.import_row?.changes||[]).map(c=>c.field):[];
   const casePrice=hasPrice&&basis?casePriceFromQuote(amount,basis.basis,basis.unit||vi.selling_unit,vi.pack_size):null;
   const per=calculatedUnitCost(vi,{industry});
   const manual=vi.field_resolutions||{};
-  const byClient=(key)=>Object.hasOwn(manual,key);
+  const byClient=(key)=>key==='selling_unit'?!!unitOrigin.confirmation:Object.hasOwn(manual,key);
   const otherVendors=peers.filter(p=>p.vendor_id&&p.vendor_id!==vi.vendor_id);
   const comparableAlternatives=automaticAlternativeVerified(vi,item,peers)||(item.comparison_mode!=='exact'&&productGroupApproved(vi,item,mapping));
-  const source=(key,rawKey)=>manual[key]?.sourceValue??row[rawKey];
+  const source=(key,rawKey)=>manual[key]?.sourceValue??fieldSource(key).row[rawKey];
   // A second vendor on the same catalog item is not automatically an
   // independent witness. Require a matching trade identifier first.
   const provenPeers=otherVendors.filter(p=>
@@ -82,9 +86,9 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   if(!empty(vi.pack_size)){
     if(!pack?.parsed){packAcc=DOUBTFUL;packWhy="Not a complete pack KERDOS can read";}
     else{
-      const inferredPack=provenance.fieldInference?.packSize;
-      packAcc=byClient("pack_size")?STATED:provenance.packSource==="description"?inferredPack?.accuracy??DERIVED:provenance.packSource==="column"||!provenance.packSource?STATED:DERIVED;
-      packWhy=byClient("pack_size")?"Set by you":provenance.packSource==="description"?"Inferred from the vendor description":provenance.packSource==="invoice"?"Filled from the vendor's invoice":"Read from the sheet";
+      const inferredPack=packProvenance.fieldInference?.packSize;
+      packAcc=byClient("pack_size")?STATED:packProvenance.packSource==="description"?inferredPack?.accuracy??DERIVED:packProvenance.packSource==="column"||!packProvenance.packSource?STATED:DERIVED;
+      packWhy=byClient("pack_size")?"Set by you":packProvenance.packSource==="description"?"Inferred from the vendor description":packProvenance.packSource==="invoice"?"Filled from the vendor's invoice":"Read from the sheet";
       if(pack.dimension==="unknown"){
         // Named can sizes (#10 CAN) are a known container identity: the count
         // is certain, only the inner volume is unspecified. These are priceable
@@ -113,10 +117,15 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   if(!empty(vi.selling_unit)){
     if(!basis){unitAcc=DOUBTFUL;unitWhy=["WEIGHT","VOLUME","MEASURE"].includes(vi.selling_unit)?"Choose the measurement for this quoted price":"Not a unit KERDOS recognises";}
     else{
-      unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(provenance.sellingUnitSource)?DERIVED:provenance.sellingUnitSource==="inferred"?GUESSED:STATED;
-      unitWhy=provenance.sellingUnitSource==="remembered"?"Reused from this vendor’s verified product and pack":byClient("selling_unit")?"Set by you":provenance.sellingUnitSource==="sheet"?"Applied to the whole sheet at import":provenance.sellingUnitSource==="inferred"?"Suggested—not confirmed":"Stated on the sheet";
-      if(!byClient("selling_unit")&&provenance.sellingUnitSource==="invoice")unitWhy="Supported by a matched invoice’s billed unit and line total";
-      if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(provenance.sellingUnitSource))unitWhy=`Stated in the ${provenance.sellingUnitSource}`;
+      unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(unitOrigin.source)?DERIVED:unitOrigin.status==="inferred"?GUESSED:STATED;
+      unitWhy=unitOrigin.source==="remembered"?quotedUnitRootReason(unitOrigin):byClient("selling_unit")?"Set by you":unitOrigin.source==="sheet"?"Applied to the whole sheet at import":unitOrigin.status==="inferred"?provenance.fieldInference?.sellingUnit?.reason||"Suggested—not confirmed":"Stated on the sheet";
+      if(unitOrigin.missingRoot)unitWhy=quotedUnitRootReason(unitOrigin);
+      if(!byClient("selling_unit")&&unitOrigin.source==="invoice")unitWhy="Supported by a matched invoice’s billed unit and line total";
+      if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(unitOrigin.source))unitWhy=`Stated in the ${unitOrigin.source}`;
+      if(!byClient('selling_unit')&&(unitOrigin.bound===false||Object.hasOwn(manual,'selling_unit'))){
+        unitAcc=Math.min(unitAcc,GUESSED);
+        unitWhy+='; the retained source or saved confirmation belongs to a different quoted unit';
+      }
       if(basis.basis==="measure"&&pack?.parsed&&casePrice==null){
         if(pack.catchWeight&&measuredQuoteRate(amount,basis.unit||vi.selling_unit,pack.unit))unitWhy+="; measured rate retained independently of variable case weight";
         else{unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; the pack isn't measured in "+(basis.unit||vi.selling_unit);}
@@ -176,8 +185,8 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   // Brand: printed in a labeled column, pulled from an unlabeled cell, or typed.
   let brandAcc=null,brandWhy="";
   if(!empty(vi.brand)){
-    brandAcc=byClient("brand")?STATED:provenance.brandSource==="details"?provenance.fieldInference?.brand?.accuracy??GUESSED:STATED;
-    brandWhy=byClient("brand")?"Set by you":provenance.brandSource==="details"?"Taken from an unlabeled cell; it matched a brand you already carry":"Printed on the sheet";
+    brandAcc=byClient("brand")?STATED:brandProvenance.brandSource==="details"?brandProvenance.fieldInference?.brand?.accuracy??GUESSED:STATED;
+    brandWhy=byClient("brand")?"Set by you":brandProvenance.brandSource==="details"?"Taken from an unlabeled cell; it matched a brand you already carry":"Printed on the sheet";
     const clash=otherVendors.find(p=>p.brand&&p.brand.trim().toLowerCase()!==vi.brand.trim().toLowerCase());
     if(clash){brandAcc=Math.min(brandAcc,GUESSED);brandWhy+=`; another vendor lists ${clash.brand}`;}
     else if(provenPeers.length&&provenPeers.every(p=>p.brand&&p.brand.trim().toLowerCase()===vi.brand.trim().toLowerCase())){
@@ -234,6 +243,8 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const packField=clientField("pack_size",vi.pack_size||"",packAcc,packWhy||"No pack yet");
   const priceField=clientField("price",hasPrice?amount:null,priceAcc,priceWhy||"No price");
   const unitField=clientField("selling_unit",vi.selling_unit||"",unitAcc,unitWhy||"Choose what the quoted price is per");
+  unitField.status=unitField.value?unitOrigin.status:null;
+  if(unitField.value&&!unitOrigin.status&&!byClient('selling_unit'))unitField.reason='Confirmation source is not recorded for this quoted unit';
   // Unit cost is as sure as the least sure of the three it comes from.
   const directMeasuredRate=basis?.basis==="measure"&&per&&!per.estimated&&per.unit!=="EA";
   const costAccuracy=per?.manual?100:per?Math.min(per.estimated?GUESSED:100,directMeasuredRate?100:packField.accuracy??0,unitField.accuracy??0,priceField.accuracy??0):null;
@@ -249,7 +260,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     pack:packField,
     price:priceField,
     sellingUnit:unitField,
-    unitCost:{...field(per?.price??null,costAccuracy,per?.manual?`Client-approved unit cost per ${per.unit}`:per?`${per.estimated?"Estimated":"Calculated"} per ${per.unit}${pack?.catchWeight?"; final case charge depends on delivered weight":""}`:"Needs a readable pack and a compatible quoted unit"),unit:per?.unit||null,estimated:!!per?.estimated},
+    unitCost:{status:per&&unitField.status==='inferred'?'inferred':null,...field(per?.price??null,costAccuracy,per?.manual?`Client-approved unit cost per ${per.unit}`:per?`${unitField.status==='inferred'?"Provisional — quoted unit inferred; ":""}${per.estimated?"Estimated":"Calculated"} per ${per.unit}${pack?.catchWeight?"; final case charge depends on delivered weight":""}`:"Needs a readable pack and a compatible quoted unit"),unit:per?.unit||null,estimated:!!per?.estimated},
   };
 }
 

@@ -24,7 +24,7 @@ for(const industry of [null,"Restaurant","Building Supply"]){
 configureProcurement();
 const source=parseDocument('Item#,Pack & Size:,Type:,Brand:,Description:,Sell\nA-001,18-LBS,CSE,Example,Material Alpha,36').rows[0];
 assert.ok(source,"exercise the document parser as well as the row review decision");
-const prior={id:"listing",vendor_item_code:"A-001",description:"Material Alpha",pack_size:"18 LB",brand:"Example",selling_unit:"CASE",price_basis:"case",price:30};
+const prior={id:"listing",vendor_item_code:"A-001",description:"Material Alpha",pack_size:"18 LB",brand:"Example",selling_unit:"CASE",price_basis:"case",price:30,import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}};
 const exact={vendor_item_id:"listing",catalog_item_id:"catalog",comparison_track:"exact",confidence_score:100};
 const pending={...exact,comparison_track:"review",confidence_score:70};
 for(const mapping of [null,pending,exact]){

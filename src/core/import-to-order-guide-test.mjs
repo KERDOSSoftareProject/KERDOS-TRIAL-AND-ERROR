@@ -170,7 +170,7 @@ const chickenCatalogItem = {
   ok('invoice resolves: no blocking reasons', prepared.reasons.length === 0, JSON.stringify(prepared.reasons));
 }
 
-// ── TEST 2: Inference without invoice — still suggested, requiresReview true ──
+// TEST 2: No invoice or source unit — unresolved and requires review.
 {
   const sheetRow = {
     code: '49200',
@@ -181,10 +181,10 @@ const chickenCatalogItem = {
     sellingUnitSource: '',
   };
   const prepared = preparePriceImport(sheetRow, null, null, [], []);
-  t('inference only: resolved is not null', prepared.resolved !== null, true);
+  t('missing evidence: basis unresolved', prepared.resolved, null);
   t('inference only: requiresReview is true', !!prepared.requiresReview, true);
-  ok('inference only: reason mentions suggested', 
-    prepared.reasons.some(r => /suggested|basis/i.test(r)));
+  ok('missing evidence: reason explains unresolved unit',
+    prepared.reasons.includes('Quoted unit is unresolved.'));
 }
 
 // ── TEST 3: Explicit unit on sheet — resolves immediately, no review ───────────
@@ -310,10 +310,7 @@ const chickenCatalogItem = {
   t('inferred row: not ready', assessment.ready, false);
 }
 
-// ── TEST 7: Inferred unit → sellingUnitSource="inferred" written by preparePriceImport ──
-// Verifies the provenance fix in price-import-review.js.
-// The row has no explicit unit, no invoice, no prior. inferQuoteBasis runs at
-// "suggested" level and must write sellingUnitSource="inferred" into row.
+// TEST 7: An amount without quoted-per evidence remains unresolved.
 {
   const sheetRow = {
     code: '49200',
@@ -324,9 +321,9 @@ const chickenCatalogItem = {
     sellingUnitSource: '',
   };
   const prepared = preparePriceImport(sheetRow, null, null, [], []);
-  t('inferred provenance: sellingUnitSource written', prepared.row.sellingUnitSource, 'inferred');
-  t('inferred provenance: resolved.sellingUnitSource written', prepared.resolved?.sellingUnitSource, 'inferred');
-  t('inferred provenance: requiresReview true', !!prepared.requiresReview, true);
+  t('missing basis: source unit unchanged', prepared.row.sellingUnitSource, '');
+  t('missing basis: no guessed resolution', prepared.resolved, null);
+  t('missing basis: requiresReview true', !!prepared.requiresReview, true);
 }
 
 // Shared row context for workflow tests 8–11
@@ -336,10 +333,7 @@ const TEST_CATALOG_ITEM = {id:'ci-chicken', name:'Chicken Breast Boneless', cate
 const TEST_CATEGORY = {id:'cat-meat', name:'Meat & Poultry', is_holding_pen:false, range_start:5000, range_end:5999, keywords:['chicken','beef','pork','turkey','meat','poultry']};
 const GROUP = {name:'horn.txt', quoteValidUntil:null};
 
-// ── TEST 8: Inferred unit → importPriceRow saves record → catalogRowEvidence gives GUESSED(70) ──
-// Exercises the full orchestration path: importPriceRow calls applyQuote (returns ID),
-// matchOrCreate, createMapping. The saved record is loaded back and checked for
-// sellingUnitSource="inferred" → accuracy=70. Production import contract is verified.
+// TEST 8: Persist the amount and original row without inventing its basis.
 {
   const {provider, importService, catalogService} = createInMemoryBackend();
   // Seed a catalog item for matchOrCreate to find
@@ -362,35 +356,35 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
     workingCatalogItems, workingCategories, workingVendorItems, workingMappings,
     applySelectedCategory: null,
   });
-  ok('inferred accuracy: importPriceRow succeeded', !!result.vendorItemId, 'vendorItemId: '+result.vendorItemId);
-  ok('inferred accuracy: needsBasis=true (no explicit unit)', result.needsBasis, 'needsBasis='+result.needsBasis);
+  ok('missing basis: importPriceRow succeeded', !!result.vendorItemId, 'vendorItemId: '+result.vendorItemId);
+  ok('missing basis: needsBasis=true (no explicit unit)', result.needsBasis, 'needsBasis='+result.needsBasis);
 
   // Read back the saved record through importService
   const vendorItem = await importService.findVendorItem({organizationId:TEST_ORG, vendorId:TEST_VENDOR, code:sourceRow.code});
-  ok('inferred accuracy: saved record found', !!vendorItem, 'findVendorItem returned null');
-  ok('inferred accuracy: sellingUnitSource="inferred" in saved import_row',
-    vendorItem?.import_row?.evidence?.sellingUnitSource === 'inferred',
-    'got: '+vendorItem?.import_row?.evidence?.sellingUnitSource);
+  ok('missing basis: saved record found', !!vendorItem, 'findVendorItem returned null');
+  t('missing basis: saved unit stays blank', vendorItem.selling_unit, null);
+  t('missing basis: source remains unstated', vendorItem.import_row.evidence.sellingUnitSource, '');
+  t('missing basis: original amount retained', vendorItem.price, 2.06);
 
   // mapping was created by matchOrCreate + createMapping through the actual services
   const mapping = await importService.mapping(TEST_ORG, result.vendorItemId);
-  ok('inferred accuracy: mapping created', !!mapping, 'mapping: '+JSON.stringify(mapping));
+  ok('missing basis: mapping created', !!mapping, 'mapping: '+JSON.stringify(mapping));
 
   // Load the catalog item the mapping actually points to — not the seeded constant.
   // matchOrCreate creates a new catalog item when no existing item matches the vendor description.
   // The test verifies the mapping points to the item that was actually saved, whatever it is.
   const {data:actualCatalogItem} = await provider.records.query('catalog_items').select().eq('id', mapping.catalog_item_id).maybeSingle();
-  ok('inferred accuracy: catalog item loaded from mapping', !!actualCatalogItem, 'catalog_item_id: '+mapping?.catalog_item_id);
-  ok('inferred accuracy: mapping points to a real catalog item', !!actualCatalogItem?.id, 'got: '+JSON.stringify(actualCatalogItem?.id));
+  ok('missing basis: catalog item loaded from mapping', !!actualCatalogItem, 'catalog_item_id: '+mapping?.catalog_item_id);
+  ok('missing basis: mapping points to a real catalog item', !!actualCatalogItem?.id, 'got: '+JSON.stringify(actualCatalogItem?.id));
 
   const evidence = catalogRowEvidence({item:actualCatalogItem, vendorItem, mapping, vendor:{id:TEST_VENDOR,name:'Test Vendor'}, category:TEST_CATEGORY, peers:[], categories:[TEST_CATEGORY]});
-  t('inferred accuracy: sellingUnit accuracy is 70 (GUESSED)', evidence?.sellingUnit?.accuracy, 70);
-  ok('inferred accuracy: reason says Suggested', /suggested/i.test(evidence?.sellingUnit?.reason||''), 'reason: '+JSON.stringify(evidence?.sellingUnit?.reason));
+  t('missing basis: no sellingUnit value', evidence.sellingUnit.value || null, null);
+  t('missing basis: no derived unit cost', evidence.unitCost.value, null);
   const qs = quoteStatus(vendorItem, {}, new Date());
-  t('inferred accuracy: quoteStatus unavailable', qs, 'unavailable');
+  t('missing basis: quoteStatus unavailable', qs, 'unavailable');
 }
 
-// ── TEST 9: Inferred unit → sellingUnit is an independent blocker ─────────────
+// TEST 9: Missing quoted-per is an independent blocker.
 // importPriceRow → load saved record → orderGuideAssessment must include sellingUnit
 // even with comparison_track="exact" and a clean association.
 {
@@ -414,11 +408,11 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   const vendorItem = await importService.findVendorItem({organizationId:TEST_ORG, vendorId:TEST_VENDOR, code:sourceRow.code});
   const mapping = await importService.mapping(TEST_ORG, vendorItem?.id);
   const {data:actualCatalogItem9} = await provider.records.query('catalog_items').select().eq('id', mapping.catalog_item_id).maybeSingle();
-  ok('inferred blocker: catalog item loaded from mapping', !!actualCatalogItem9);
+  ok('missing basis: catalog item loaded from mapping', !!actualCatalogItem9);
   const assessment = orderGuideAssessment({item:actualCatalogItem9, vendorItem, mapping, vendor:{id:TEST_VENDOR,name:'Test Vendor'}, category:TEST_CATEGORY, peers:[], categories:[TEST_CATEGORY], settings:{}, now:new Date()});
-  ok('inferred blocker: sellingUnit is a blocker', assessment.blockers.includes('sellingUnit'),
+  ok('missing basis: sellingUnit is a blocker', assessment.blockers.includes('sellingUnit'),
     'blockers: '+JSON.stringify(assessment.blockers));
-  t('inferred blocker: not ready', assessment.ready, false);
+  t('missing basis: not ready', assessment.ready, false);
 }
 
 // ── TEST 10: Confirmed unit (explicit on sheet) clears sellingUnit gate ────────

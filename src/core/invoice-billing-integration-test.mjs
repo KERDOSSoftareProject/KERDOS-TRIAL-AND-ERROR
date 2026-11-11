@@ -48,8 +48,8 @@ for(const changed of [{organizationId:'other-client'},{vendorId:'other-vendor'}]
 assert.equal(resolveFromInvoiceArithmetic(sheet,[entry({...billed,billingUnitEvidence:null,priceBasis:'measure'})],scope).conflict,true,'priceBasis alone is not provenance');
 assert.equal(preparePriceImport(sheet,null,null,[],[],scope).requiresReview,true,'Fresh sheets without evidence stay reviewable');
 
-const savedCase={id:'listing-a',vendor_item_code:sheet.code,description:sheet.description,pack_size:sheet.packSize,selling_unit:'CS',price_basis:'case',price:80};
-const savedMeasure={...savedCase,selling_unit:'LB',price_basis:'measure'};
+const savedCase={id:'listing-a',vendor_item_code:sheet.code,description:sheet.description,pack_size:sheet.packSize,selling_unit:'CS',price_basis:'case',price:80,import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:'CS'},evidence:{sellingUnit:'CS',sellingUnitSource:'price header'}}};
+const savedMeasure={...savedCase,selling_unit:'LB',price_basis:'measure',import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:'LB'},evidence:{sellingUnit:'LB',sellingUnitSource:'price header'}}};
 const knownMapping={vendor_item_id:savedCase.id,comparison_track:'exact',confidence_score:100};
 const disagreement=preparePriceImport(sheet,savedCase,knownMapping,[],[entry(billed)],scope);
 assert.equal(disagreement.resolved,null,'an unstated quote cannot choose between remembered case and verified invoice weight');
@@ -65,5 +65,5 @@ assert.equal(preparePriceImport(sheet,null,null,[],[entry(ordering)],scope).reso
 // Keep the actual import orchestrator connected; isolated resolver tests cannot catch this omission.
 // The call now lives in the shared import-price-row.js, not directly in ImportModal.jsx.
 const importPriceRowSrc=fs.readFileSync(new URL('./import-price-row.js',import.meta.url),'utf8');
-assert.match(importPriceRowSrc,/preparePriceImport\(row,\s*ex,\s*priorMapping,\s*rowNeedsReview\s*\?\s*rowIssues\s*:\s*\[\],\s*invoiceSources,\s*\{organizationId:\s*orgId,\s*vendorId\},\s*procurement\)/);
+assert.match(importPriceRowSrc,/preparePriceImport\(row,\s*ex,\s*priorMapping,\s*rowNeedsReview\s*\?\s*rowIssues\s*:\s*\[\],\s*invoiceSources,\s*\{organizationId:\s*orgId,\s*vendorId\},\s*procurement,\s*workingVendorItems\)/);
 console.log('Invoice billing integration passed: real CSV and goods invoices, original header, source reference, ordering-unit rejection, incomplete evidence and client/vendor isolation.');

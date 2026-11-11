@@ -1,7 +1,8 @@
+import {quotedUnitOrigin,quotedUnitLocation} from './listing-provenance.js';
 import {getProcurementContext} from "../procurement.js";
-import {inferPricingBasis} from "./infer-pricing-basis.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
+import {unitLabel} from "./unit-labels.js";
 import {unitInPrice,unitInPriceHeader} from "./source-units.js";
 
 // Interpret only bound source prices. Each amount keeps its own header
@@ -21,14 +22,79 @@ export function interpretStatedQuotePair(bindings, procurement=getProcurementCon
 }
 
 
+// Pack contents describe possible price bases, not a vendor's actual offer.
+// These unranked examples support clarification; no amount or product prior
+// participates, and none may become a resolved unit without further evidence.
+export function quoteBasisAlternatives(row, procurement=getProcurementContext()){
+  const pack=procurement.parsePackSize(row.packSize);
+  if(!pack?.parsed||pack.dimension==='unknown'||!(pack.caseQty>0)||!(pack.unitQty>0))return [];
+  const choices=[
+    {sellingUnit:'CASE',label:`the full pack (${pack.caseStr})`},
+    {sellingUnit:'EACH',label:`one package (${pack.eachStr})`},
+  ];
+  if(procurement.priceBasisFor(pack.unit)?.basis==='measure')
+    choices.push({sellingUnit:pack.unit,label:`by ${unitLabel(pack.unit).toLowerCase()}`});
+  return choices;
+}
+
+// Deeper inference uses only this client's current, source-backed quotes for
+// the same product and pack. A single peer or an amount alone is insufficient.
+// The 25% window is a similarity bound for a 70%-accuracy review suggestion,
+// never a market-price rule or permission to qualify the quote automatically.
+export function inferCrossVendorQuoteBasis(row,listings=[],scope=null,procurement=getProcurementContext()){
+  if(!scope?.organizationId||!scope.vendorId||String(row.sellingUnit||'').trim()||row.priceUnavailable||!(Number(row.price)>0))return null;
+  const pack=procurement.parsePackSize(row.packSize);
+  if(!pack?.parsed||pack.catchWeight||pack.dimension==='unknown')return null;
+  const references=[];
+  for(const peer of listings){
+    if(!peer.id||peer.organization_id!==scope.organizationId||!peer.vendor_id||peer.vendor_id===scope.vendorId)continue;
+    if(procurement.quoteStatus(peer)!=='current'||peer.import_row?.reviewRequired)continue;
+    const origin=quotedUnitOrigin(peer,procurement);
+    if(origin.status!=='confirmed')continue;
+    const confirmation=origin.confirmation?.value;
+    const confirmedUnit=confirmation||origin.row.sellingUnit||origin.evidence.sellingUnit;
+    if(!confirmedUnit)continue;
+    const stated=procurement.priceBasisFor(confirmedUnit),basis=procurement.priceBasisFor(peer.selling_unit);
+    if(!stated||!basis||JSON.stringify(stated)!==JSON.stringify(basis)||peer.price_basis!==basis.basis)continue;
+    if(procurement.compareProductIdentity(row.description,peer.description).status!=='same'||procurement.comparePurchasingPack(row.packSize,peer.pack_size).status!=='same')continue;
+    if(row.brand&&peer.brand&&!procurement.brandsMatch(row.brand,peer.brand))continue;
+    if(row.gtin&&peer.gtin&&row.gtin!==peer.gtin||row.manufacturerCode&&peer.manufacturer_code&&row.manufacturerCode!==peer.manufacturer_code)continue;
+    const casePrice=procurement.casePriceFromQuote(peer.price,basis.basis,basis.unit||peer.selling_unit,peer.pack_size);
+    if(!(casePrice>0))continue;
+    references.push({vendorItemId:peer.id,vendorId:peer.vendor_id,sourceDocumentId:origin.sourceDocumentId||null,
+      description:peer.description,packSize:peer.pack_size,price:Number(peer.price),sellingUnit:peer.selling_unit,casePrice,confirmationSource:confirmation?'client confirmation':'document',confirmedBy:origin.confirmation?.confirmedBy||null,confirmedAt:origin.confirmation?.confirmedAt||null});
+  }
+  if(new Set(references.map(peer=>peer.vendorId)).size<2)return null;
+  references.sort((a,b)=>a.vendorItemId.localeCompare(b.vendorItemId));
+  const plausible=quoteBasisAlternatives(row,procurement).filter(option=>{
+    const basis=procurement.priceBasisFor(option.sellingUnit);
+    const charge=procurement.casePriceFromQuote(row.price,basis.basis,basis.unit||option.sellingUnit,row.packSize);
+    return charge>0&&references.every(peer=>Math.abs(charge-peer.casePrice)/peer.casePrice<=0.25);
+  });
+  // When package and case cover the same quantity, do not invent a distinction.
+  if(plausible.length!==1)return null;
+  const sellingUnit=plausible[0].sellingUnit;
+  return {value:sellingUnit,kind:'inferred',source:'cross-vendor comparison',accuracy:70,
+    reason:`Likely ${sellingUnit}: the same product and pack has source-backed quotes from ${new Set(references.map(peer=>peer.vendorId)).size} other vendors. Only this basis puts the equivalent case charge within 25% of every reference. Confirm before using it.`,
+    evidence:{packSize:row.packSize,price:Number(row.price),relativeTolerance:0.25,references}};
+}
+
 // Reuse a confirmed vendor-specific quote basis for a repeat import only.
 // A null basis on an old record is legacy "case" and is not evidence that
 // a new document with an omitted unit also quotes cases.
 export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext()){
+  if(row.sellingUnitSource==='inferred')return null;
   const explicit=procurement.priceBasisFor(row.sellingUnit);
+  if(explicit&&row.sellingUnitSource==='remembered'){
+    const origin=quotedUnitOrigin({...prior,description:row.description,pack_size:row.packSize,
+      selling_unit:row.sellingUnit,import_row:{row:{},evidence:row}},procurement);
+    return origin.status==='confirmed'&&origin.root?{basis:explicit,sellingUnit:row.sellingUnit,
+      source:'confirmed vendor item',unitRoot:origin.root}:null;
+  }
   if(explicit)return {basis:explicit,sellingUnit:row.sellingUnit,source:row.sellingUnitSource==="remembered"?"confirmed vendor item":row.sellingUnitSource==="manual"?"manual selection":row.sellingUnitSource==="invoice"?"invoice evidence":"document"};
   if(String(row.sellingUnit||"").trim()||row.changes?.length)return null;
-  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||prior.import_row?.evidence?.sellingUnitSource==="inferred")return null;
+  const origin=prior?quotedUnitOrigin(prior,procurement):null;
+  if(!prior?.price_basis||!prior.selling_unit||prior.price_source==="invoice"||prior.import_row?.reviewRequired||origin.status!=="confirmed"||!origin.root)return null;
   const coded=row.code&&String(prior.vendor_item_code)===String(row.code);
   // The caller must resolve one unique NVIN first, within this vendor.
   const uncoded=!row.code&&!prior.vendor_item_code&&!!prior.id&&row.resolvedVendorItemId===prior.id;
@@ -39,7 +105,7 @@ export function resolveQuoteBasis(row,prior=null, procurement=getProcurementCont
   if(procurement.compareProductIdentity(row.description,prior.description).status!=="same"||
      procurement.comparePurchasingPack(row.packSize,prior.pack_size).status!=="same")return null;
   const learned=procurement.priceBasisFor(prior.selling_unit);
-  return learned?.basis===prior.price_basis?{basis:learned,sellingUnit:prior.selling_unit,source:"confirmed vendor item"}:null;
+  return learned?.basis===prior.price_basis?{basis:learned,sellingUnit:prior.selling_unit,source:"confirmed vendor item",unitRoot:origin.root}:null;
 }
 
 // Invoice billing evidence is reusable only for a consistent vendor listing.
@@ -57,7 +123,7 @@ export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null, procure
     const codeMatch=!!code&&code===invoiceCode;
     const uncodedMatch=!code&&!invoiceCode&&!!description&&description===normalize(invoice.description);
     if(!codeMatch&&!uncodedMatch)continue;
-    const reference={documentId:entry.id||null,number:entry.number||null,date:entry.date||null,sourceLine:invoice.sourceLine||null};
+    const reference={documentId:entry.id||null,number:entry.number||null,date:entry.date||null,sourceLine:invoice.sourceLine||null,...quotedUnitLocation(invoice)};
     const label=entry.number||entry.date||'invoice';
     const fail=reason=>conflicts.push(`${label}: ${reason}`);
     if(!description||!normalize(invoice.description)){
@@ -94,19 +160,4 @@ export function resolveFromInvoiceArithmetic(row,invoices=[],scope=null, procure
   return {basis:first.basis,sellingUnit:first.unit,source:'invoice billing unit',invoiceArithmetic:true,
     invoiceReference:usable.map(value=>value.reference.number||value.reference.date||'invoice').join(', '),
     invoiceReferences:usable.map(value=>({...value.reference,billingUnitEvidence:value.evidence}))};
-}
-
-export function inferQuoteBasis(row, procurement=getProcurementContext()) {
-  if (String(row.sellingUnit||'').trim()) return null; // explicit unit already present
-  const result = inferPricingBasis(row, procurement);
-  if (!result.basis) return null;
-  return {
-    basis: result.basis,
-    sellingUnit: result.sellingUnit,
-    source: 'inferred',
-    inferenceLevel: result.level,   // 'supported'|'suggested'|'conflicting'
-    inferenceReason: result.reason,
-    inferenceEvidence: result.evidence,
-    inferenceConflicts: result.conflicts,
-  };
 }

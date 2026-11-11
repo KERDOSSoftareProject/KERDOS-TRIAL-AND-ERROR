@@ -364,6 +364,7 @@ for(const [name,uncertain] of [['uncertain-first',[0]],['uncertain-middle',[1]],
     // No inferred value is silently approved by the importer.
     for(const i of uncertain){const item=state.vendorItems.find(v=>v.vendor_item_code===CODES[i]);
       item.price_basis='case';item.selling_unit='CASE';item.price_source='price_list';
+      item.field_resolutions={...item.field_resolutions,selling_unit:{value:'CASE',confirmedBy:'reviewer',confirmedAt:'2026-11-11T00:00:00Z'}};
       item.import_row={...item.import_row,reviewRequired:false,evidence:{...item.import_row.evidence,sellingUnit:'CASE',sellingUnitSource:'manual'}};
     }
     const done=await run(state);assert.equal(done.outcome,'auto_imported');

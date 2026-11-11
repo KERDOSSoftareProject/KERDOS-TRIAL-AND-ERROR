@@ -223,7 +223,7 @@ import { processAttachmentInBackground } from "./background-import.mjs";
 
 // Both fresh processes consume the same bytes and initial catalog. Compare
 // the stored business outcome rather than UI labels or transport metadata.
-async function runPriceRowParityFixture(path) {
+async function runPriceRowParityFixture(path, missingBasis=false, crossVendor=false) {
   const organizationId = "org-1";
   const vendorId = "vendor-1";
   const industry = "restaurant";
@@ -243,6 +243,11 @@ async function runPriceRowParityFixture(path) {
     id: "prior-breast", organization_id: organizationId, vendor_id: "vendor-2", description, pack_size: "4 OZ",
     field_resolutions: { product_group: { catalogItemId: "breast", description, brand: null, confirmed: true } },
   }];
+  if(crossVendor)for(const [index,price] of [80,82].entries())vendorItems.push({
+    id:'reference-'+index,organization_id:organizationId,vendor_id:'other-'+index,description:'STEEL WASHERS',pack_size:'4/10 LB',
+    price,selling_unit:'CASE',price_basis:'case',price_source:'pricelist',
+    import_row:{sourceDocumentId:'reference-doc-'+index,reviewRequired:false,row:{sellingUnit:'CASE'},evidence:{sellingUnitSource:'price header'}},
+  });
   const mappings = [{
     id: "prior-mapping", organization_id: organizationId, vendor_item_id: "prior-breast", catalog_item_id: "breast",
     comparison_track: "exact", confidence_score: 100, match_method: "manual",
@@ -251,14 +256,14 @@ async function runPriceRowParityFixture(path) {
     id: "invoice", organization_id: organizationId, vendor_id: vendorId, invoice_number: "INV-A", invoice_date: "2026-11-09",
     raw_text: "Item,Description,Pack,Price Unit,Qty,Unit Price,Extended Price\n49200,CHIC BRST RAW BNLS RNDM CVP,4/10 LB,LB,40,2.06,82.40",
   }];
-  const bytes = csvBytes(text);
+  const bytes = csvBytes(missingBasis ? text+"\nX-1,STEEL WASHERS,4/10 LB,,2.06" : text);
   const backend = createInMemoryBackend({
     bytes, organizations: [{ id: organizationId, industry }], catalogItems, categories, vendorItems, mappings, invoices,
   });
   if (path === "email") {
     const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
     const result = await processAttachmentInBackground(backend, attachment, { organizationId, vendorId, documentType: "pricelist" });
-    assert.equal(result.outcome, "auto_imported", result.reason);
+    assert.equal(result.outcome, missingBasis ? "needs_review" : "auto_imported", result.reason);
   } else {
     const procurement = createProcurementContext({ industry });
     const importService = createImportService(backend);
@@ -266,7 +271,7 @@ async function runPriceRowParityFixture(path) {
     const workingCatalogItems = [...catalogItems];
     const workingVendorItems = [...vendorItems];
     const workingMappings = [...mappings];
-    const { rows } = parseStructuredDocument(text, null, undefined, procurement);
+    const { rows } = parseStructuredDocument(missingBasis ? text+"\nX-1,STEEL WASHERS,4/10 LB,,2.06" : text, null, undefined, procurement);
     const invoiceSources = readInvoiceEvidence(await importService.invoiceSources(organizationId, vendorId), organizationId, vendorId, procurement);
     for (const [index, sourceRow] of rows.entries()) {
       const row = enrichFromInvoices(sourceRow, invoiceSources, procurement);
@@ -285,9 +290,12 @@ async function runPriceRowParityFixture(path) {
     const catalogItem = savedCatalog.find(row => row.id === mapping.catalog_item_id);
     return {
       description: quote.description, price: quote.price, pack: quote.packSize, sellingUnit: quote.sellingUnit,
+      unitInference:quote.importRow.evidence.fieldInference?.sellingUnit??null,
+      sourceUnit:quote.importRow.row.sellingUnit,
       sourceDescription: quote.importRow.evidence.sourceDescription,
       packInference: quote.importRow.evidence.fieldInference?.packSize ?? null,
       packPlacement: quote.importRow.evidence.fieldValidation.fields.packSize,
+      quoteBasisReview:quote.importRow.evidence.quoteBasisReview,
       basis: quote.priceBasis, basisEvidence: quote.importRow.evidence.quoteBasisEvidence ?? null,
       priceUnavailable: quote.priceUnavailable,
       reviewRequired: quote.importRow.reviewRequired, reviewFields: quote.importRow.reviewFields,
@@ -299,7 +307,7 @@ async function runPriceRowParityFixture(path) {
 
 const parityPath = process.argv[2];
 if (parityPath === "manual" || parityPath === "email") {
-  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath)));
+  console.log(JSON.stringify(await runPriceRowParityFixture(parityPath,["missing-basis","cross-vendor"].includes(process.argv[3]),process.argv[3]==="cross-vendor")));
   process.exit(0);
 }
 
@@ -349,11 +357,11 @@ await test("auto-import: clean CSV price list → auto_imported with rows saved"
     bytes: csvBytes(csv),
     vendorItems: [
       { id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-2", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-002",
-        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-3", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-003",
-        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
     ],
     mappings: [
       { id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 },
@@ -413,7 +421,7 @@ await test("email CSV uses the same decoding as manual import and blocks invalid
   const backend = createInMemoryBackend({
     bytes,
     vendorItems: [{ id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-      description: "Café Dark Roast", pack_size: "4/1 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" }],
+      description: "Café Dark Roast", pack_size: "4/1 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} }],
     mappings: [{ id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 }],
   });
   const attachment = { ...ATTACHMENT_BASE, content_type: "application/vnd.ms-excel", file_size_bytes: bytes.length };
@@ -474,6 +482,31 @@ await test("email import uses current cross-vendor group approval without reusin
       [expected, expected === "oil" ? "review" : "new"],
     ], `${industry} / ${incoming||"POMACE OIL 100%"}`);
   }
+});
+
+await test('cross-vendor inferred fields have identical held outcomes in fresh upload and email processes',()=>{
+ const run=path=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),path,'cross-vendor'],{encoding:'utf8'}));
+ const email=run('email');assert.deepEqual(email,run('manual'));
+ const held=email.find(row=>row.description==='STEEL WASHERS');
+ assert.equal(email.length,4);assert.equal(held.sellingUnit,'LB');assert.equal(held.unitInference.accuracy,70);
+ assert.equal(held.sourceUnit,null);assert.equal(held.priceUnavailable,true);assert.equal(held.reviewRequired,true);
+ assert.equal(held.unitInference.evidence.references.length,2);
+});
+
+await test("missing quoted-per stays blank in fresh upload and email processes", () => {
+  const run=path=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),path,'missing-basis'],{encoding:'utf8'}));
+  const manual=run('manual'),email=run('email');
+  assert.deepEqual(email,manual);
+  assert.equal(email.length,4,'interpretation possibilities must not create extra price offers');
+  const held=email.find(row=>row.description==='STEEL WASHERS');
+  assert.ok(held);
+  assert.equal(held.sellingUnit,null);
+  assert.equal(held.basis,null);
+  assert.deepEqual(held.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','LB']);
+  assert.equal(held.price,2.06);
+  assert.equal(held.priceUnavailable,true);
+  assert.equal(held.reviewRequired,true);
+  assert.ok(held.reviewFields.includes('selling_unit'));
 });
 
 await test("abbreviated price rows have identical stored outcomes in fresh manual and email processes", () => {
@@ -552,8 +585,8 @@ await test("unavailable industry or vocabulary retains the original for retry be
 await test("unnumbered products use their own listing, never the first null code", async () => {
   const csv="Product,Pack,Price\nCIDER APPLE,4/1 GAL,26.15\nCHEESE AMERICAN,5 LB,16.75";
   const items=[
-    {id:"cider",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CIDER APPLE",pack_size:"4/1 GAL",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list"},
-    {id:"cheese",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CHEESE AMERICAN",pack_size:"5 LB",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list"},
+    {id:"cider",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CIDER APPLE",pack_size:"4/1 GAL",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list",import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}},
+    {id:"cheese",organization_id:"org-1",vendor_id:"vendor-1",vendor_item_code:null,description:"CHEESE AMERICAN",pack_size:"5 LB",brand:null,selling_unit:"CASE",price_basis:"case",price_source:"price_list",import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}},
   ];
   const backend=createInMemoryBackend({bytes:csvBytes(csv),vendorItems:items,mappings:items.map((item,index)=>({id:`map-${index}`,organization_id:"org-1",vendor_item_id:item.id,catalog_item_id:`cat-${index}`,comparison_track:"exact",confidence_score:100}))});
   const result=await processAttachmentInBackground(backend,{...ATTACHMENT_BASE},{organizationId:"org-1",vendorId:"vendor-1",documentType:"pricelist"});
@@ -829,11 +862,11 @@ await test("row-save failure: needs_review immediately, no further rows processe
     bytes: csvBytes(csv),
     vendorItems: [
       { id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-2", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-002",
-        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget B", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
       { id: "vi-3", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-003",
-        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget C", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
     ],
     mappings: [
       { id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 },
@@ -898,7 +931,7 @@ await test("needs_review status carries import_document id (Fix 4 — document m
     bytes: csvBytes(csv),
     vendorItems: [
       { id: "vi-1", organization_id: "org-1", vendor_id: "vendor-1", vendor_item_code: "SKU-001",
-        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list" },
+        description: "Widget A", pack_size: "18 LB", selling_unit: "CASE", price_basis: "case", price_source: "price_list", import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}} },
     ],
     mappings: [
       { id: "map-1", organization_id: "org-1", vendor_item_id: "vi-1", catalog_item_id: "cat-1", comparison_track: "exact", confidence_score: 100 },
