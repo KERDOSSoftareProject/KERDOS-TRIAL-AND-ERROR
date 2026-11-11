@@ -947,19 +947,17 @@ export default function App() {
               .order-price-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
               .order-price-card { min-width:0; border-radius:8px; padding:6px 8px; background:white; text-align:left; }
               .order-item-listings { border-top:1px solid #E3E7ED; }
-              .order-item-grid { display:grid; grid-template-columns:minmax(165px,1fr) 88px 104px minmax(220px,360px) 92px; gap:2px 10px; align-items:center; padding:8px 12px; }
+              .order-item-grid { display:grid; grid-template-columns:minmax(220px,1fr) 88px 104px minmax(370px,420px); gap:2px 10px; align-items:center; padding:8px 12px; }
               .order-item { display:contents; }
-              .order-unit-cost-label { display:none; }
               @media (max-width:1240px) {
-                .order-item-grid { grid-template-columns:minmax(110px,1fr) 64px 90px minmax(150px,1.35fr) 78px; gap:2px 8px; }
+                .order-item-grid { grid-template-columns:minmax(120px,1fr) 80px 104px minmax(190px,1.35fr); }
               }
               @media ${mobileOrderQuery} {
                 .order-layout { display:block; }
                 .order-item-grid { display:block; }
                 .order-column-head { display:none; }
                 .order-item { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,1fr); border:1px solid #6B9BCD; border-bottom-width:2px; border-radius:10px; background:#DCEBFC; padding:8px; margin-bottom:10px; }
-                .order-item-name,.order-item-price,.order-item-cost,.order-item-listings { grid-column:1 / -1; }
-                .order-unit-cost-label { display:inline; margin-right:8px; }
+                .order-item-name,.order-item-price,.order-item-listings { grid-column:1 / -1; }
                 .order-item-name,.order-item-price { border:0!important; }
                 .order-item-name { color:#003584; }
                 .order-item-price { background:transparent!important; padding:6px 0 0!important; }
@@ -1030,7 +1028,6 @@ export default function App() {
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px",textAlign:"center"}}>Qty</div>
                       <div className="order-column-head" style={{padding:"2px 6px 7px"}}>PRICE</div>
-                      <div className="order-column-head" style={{padding:"2px 6px 7px"}}>Unit Price</div>
                       {group.items.map(item=>{
                         const caseKey=`${item.catalogItemId}_case`;
                         const eachKey=`${item.catalogItemId}_each`;
@@ -1065,9 +1062,6 @@ export default function App() {
                         const vc=vendorColors.get(activeVendorId)||PALETTE[0];
                         const menuOpen=openPriceMenu===activeKey;
                         const activeBlocked=!!selectedHeldOption||!displayOption||!orderable(displayOption)||(!!assignment?.unorderable&&!selectedReadyOption);
-                        const comparisonUnit=!activeBlocked?displayOption.comparisonUnit:null;
-                        const activeUnitCost=comparisonUnit&&activePrice>0&&displayOption.unitPrice>0?
-                          displayOption.comparisonPrice*(activePrice/displayOption.unitPrice):null;
                         const activeBlockReason=activeBlocked?(wrongUnit?"This listing has no quote for the selected unit":displayOption?blockReason(displayOption):"No quote for the selected unit"):null;
                         const allListings=[...allUnitListings,...item.linkedOptions.filter(o=>!supportsOrderUnit(o,selectedUnit))];
                         const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='waiting'||edit?.phase==='saving');
@@ -1141,11 +1135,6 @@ export default function App() {
                                 </details>
                               )}
                             </div>
-                          </div>,
-                          <div className="order-item-cost" key={item.catalogItemId+"_cost"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",fontSize:12}}>
-                            <span className="order-unit-cost-label">Unit Price</span>
-                            <span aria-label={`Unit price for ${item.name}`}>{activeUnitCost==null?"—":
-                              `${formatMoney(activeUnitCost)} / ${comparisonUnit==="FLOZ"?"fl oz":comparisonUnit.toLowerCase()}`}</span>
                           </div>,
                           ...(menuOpen?[mobileDetails
                             ?<MobileDetailWindow title="Vendor options" kind="vendor" key={item.catalogItemId+'_listings'} itemName={item.name} onMinimize={()=>setOpenPriceMenu(null)}>{alternativesMenu}</MobileDetailWindow>

@@ -1,5 +1,6 @@
 import {BrandCoin,BrandLogo} from "../ui/Brand.jsx";
-import {useEffect,useRef,useState} from "react";
+import {useEffect,useState} from "react";
+import {flushSync} from "react-dom";
 import {backend} from "../backend/index.js";
 import {createOrganizationService} from "../services/organization.js";
 import {currencyCode} from "../localization.js";
@@ -8,27 +9,24 @@ import {btn,inp} from "../ui/styles.js";
 const organizationService=createOrganizationService(backend);
 export function LandingGate() {
   const [mode,setMode]=useState("login");
-  const credentialsActive=useRef(false);
+  const [credentialsActive,setCredentialsActive]=useState(false);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
 
-  // Leave the fields editable so password managers can discover them.
-  // Only restored or programmatic focus before interaction is cleared.
+  // Keep restored focus out of the native inputs until a credential label
+  // is clicked or keyboard navigation begins. Their autofill hints stay intact.
   useEffect(()=>{
+    if(credentialsActive)return;
     function enableForTab(event) {
-      if(event.isTrusted&&event.key==="Tab") credentialsActive.current=true;
+      if(event.isTrusted&&event.key==="Tab")flushSync(()=>setCredentialsActive(true));
     }
     document.addEventListener("keydown",enableForTab,true);
     return ()=>document.removeEventListener("keydown",enableForTab,true);
-  },[]);
+  },[credentialsActive]);
 
   function activateCredentials(event) {
-    if(event.nativeEvent.isTrusted) credentialsActive.current=true;
-  }
-
-  function preventEarlyFocus(event) {
-    if(!credentialsActive.current&&event.target.tagName==="INPUT") event.target.blur();
+    if(!credentialsActive&&event.nativeEvent.isTrusted)flushSync(()=>setCredentialsActive(true));
   }
 
   async function submit(e) {
@@ -102,13 +100,13 @@ export function LandingGate() {
             Sign Up
           </button>
         </div>
-        <form onSubmit={submit} onPointerDownCapture={activateCredentials} onFocusCapture={preventEarlyFocus}>
-          <div style={{marginBottom:12}}>
-            <input style={inp} type="email" name="email" autoComplete="username" placeholder="Email" required />
-          </div>
-          <div style={{marginBottom:16}}>
-            <input style={inp} type="password" name="password" autoComplete={mode==="login"?"current-password":"new-password"} placeholder="Password" required />
-          </div>
+        <form onSubmit={submit}>
+          <label style={{display:"block",marginBottom:12}} onClickCapture={activateCredentials}>
+            <input inert={credentialsActive?undefined:""} style={inp} type="email" name="email" autoComplete="username" aria-label="Email" placeholder="Email" required />
+          </label>
+          <label style={{display:"block",marginBottom:16}} onClickCapture={activateCredentials}>
+            <input inert={credentialsActive?undefined:""} style={inp} type="password" name="password" autoComplete={mode==="login"?"current-password":"new-password"} aria-label="Password" placeholder="Password" required />
+          </label>
           {error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:12}}>{error}</div>}
           {notice&&<div style={{background:"#E8F5E9",color:"#2E7D32",padding:"10px 12px",borderRadius:8,fontSize:13,marginBottom:12}}>{notice}</div>}
           <button type="submit" disabled={loading} style={{...btn("#003584"),width:"100%"}}>

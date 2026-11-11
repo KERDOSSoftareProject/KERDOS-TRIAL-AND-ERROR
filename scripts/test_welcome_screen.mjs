@@ -106,31 +106,26 @@ try{
       removeEventListener:(name,listener)=>{assert.equal(name,'keydown');assert.equal(listener,keydown);keydown=null;},
     };
     const inputs=()=>tree.root.findAllByType('input');
-    let clearedFocus=0;
-    const focusField=()=>tree.root.findByType('form').props.onFocusCapture({target:{tagName:'INPUT',blur:()=>clearedFocus++}});
+    const activateEmail=isTrusted=>tree.root.findByProps({'aria-label':'Email'}).parent.props.onClickCapture({nativeEvent:{isTrusted}});
     await act(async()=>{tree=Renderer.create(React.createElement(LandingGate));});
-    assert.ok(inputs().every(input=>!input.props.autoFocus&&!input.props.readOnly));
+    assert.ok(inputs().every(input=>input.props.inert===''&&!input.props.autoFocus&&!input.props.readOnly));
     assert.deepEqual(inputs().map(input=>input.props.autoComplete),['username','current-password']);
-    focusField();
-    assert.equal(clearedFocus,1);
-    const form=tree.root.findByType('form');
-    await act(async()=>form.props.onPointerDownCapture({nativeEvent:{isTrusted:false}}));
-    focusField();
-    assert.equal(clearedFocus,2);
-    await act(async()=>form.props.onPointerDownCapture({nativeEvent:{isTrusted:true}}));
-    focusField();
-    assert.equal(clearedFocus,2);
+    await act(async()=>activateEmail(false));
+    assert.ok(inputs().every(input=>input.props.inert===''));
+    await act(async()=>activateEmail(true));
+    assert.ok(inputs().every(input=>input.props.inert===undefined));
+    assert.equal(keydown,null);
     await click('Sign Up');
     assert.equal(inputs()[1].props.autoComplete,'new-password');
     await act(async()=>tree.unmount());
     await act(async()=>{tree=Renderer.create(React.createElement(LandingGate));});
+    assert.ok(inputs().every(input=>input.props.inert===''));
     await act(async()=>keydown({key:'Tab',isTrusted:true}));
-    focusField();
-    assert.equal(clearedFocus,2);
+    assert.ok(inputs().every(input=>input.props.inert===undefined));
     await act(async()=>tree.unmount());
     assert.equal(keydown,null);
     delete globalThis.document;
-    console.log('PASS sign-in clears early focus while keeping editable, autofill-ready fields');
+    console.log('PASS sign-in keeps focus out until the first credential click or keyboard navigation, with native autofill hints');
 
 
   `,resolveDir:process.cwd(),sourcefile:'welcome-test.jsx',loader:'jsx'},bundle:true,platform:'node',format:'esm',jsx:'automatic',packages:'external',outfile,

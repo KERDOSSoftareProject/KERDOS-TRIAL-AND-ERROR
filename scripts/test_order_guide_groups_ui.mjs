@@ -30,12 +30,13 @@ const plus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equ
 const alternatives=tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});assert.match(text(alternatives),/Sample Vendor/);assert.match(text(alternatives),/20.00/);assert.equal(alternatives.props['aria-expanded'],false);
 assert.equal(alternatives.props['aria-description'],undefined,'held vendors do not count as ready quotes');
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'listings start collapsed');
-assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));assert.ok(guideText.includes('Unit Price'));
-const honeyCost=()=>tree.root.findByProps({'aria-label':'Unit price for Honey Mustard'});
-assert.equal(text(honeyCost()),'—','held listings show no order-guide comparison cost');
+assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));assert.ok(!guideText.includes('Unit Price'));
 const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
 await act(async()=>alternatives.props.onClick());
 const listingRegion=tree.root.findByProps({'aria-label':'Group listings'});assert.equal(listingRegion.findAllByType('input').filter(input=>input.props.type==='number').length,2,'both source listings remain under one row');
+const unitPrices=region=>region.findAllByProps({'data-field-label':'Unit Price'}).map(text);
+assert.ok(listingRegion.findAllByType('th').some(cell=>text(cell)==='Unit Price'));
+assert.deepEqual(unitPrices(listingRegion),['—','—']);
 assert.equal(listingRegion.findAllByType('summary').length,0,'held listings do not show a Review control in the price dropdown');
 assert.equal([...listingRegion.findAllByType('input'),...listingRegion.findAllByType('select')].every(input=>input.props.disabled),true,'employee has selection but no listing write permission');
 await act(async()=>listingRegion.findAllByType('button').find(button=>button.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
@@ -112,10 +113,10 @@ const honeyUnit=()=>tree.root.findByProps({'aria-label':'Order unit for Honey Mu
 await act(async()=>honeyUnit().props.onChange({target:{value:'each'}}));assert.equal(honeyUnit().props.value,'each');
 assert.equal(priceButton().props['aria-description'],undefined,'the case-only listing does not count toward the each-price outline');
 assert.match(text(priceButton()),/Sample Vendor.*5\.00/,'the Each price is the listing’s accepted quote');
-assert.equal(text(honeyCost()),'$5.00 / gal');
 await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());
+assert.deepEqual(unitPrices(tree.root.findByProps({'aria-label':'Group listings'})),['$5.00 / gal','$0.90 / lb']);
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
-assert.equal(honeyUnit().props.value,'case');assert.equal(text(honeyCost()),'$0.90 / lb');assert.match(text(priceButton()),/Second Vendor.*9\.00/);assert.match(text(tree.toJSON()),/1\/10 LB/);
+assert.equal(honeyUnit().props.value,'case');assert.match(text(priceButton()),/Second Vendor.*9\.00/);assert.match(text(tree.toJSON()),/1\/10 LB/);
 assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='+')[1].props.disabled,false,'a valid confirmed listing remains purchasable when another supplier quotes a different dimension');
 await act(async()=>tree.unmount());
 // F2.1: actual App assessment -> option flags -> controls -> basket. An
