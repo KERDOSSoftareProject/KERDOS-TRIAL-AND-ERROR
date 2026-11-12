@@ -27,6 +27,7 @@ export function assertBackendContract(backend) {
   }
   // Optional during provider upgrades; when advertised, all operations must
   // exist. Screens use this business capability, never a vendor SDK.
+  if(backend.regularItems&&typeof backend.regularItems.list!=='function')throw new Error('KERDOS backend regularItems.list is not implemented');
   if(backend.variableWeight)for(const name of ['listApprovals','approve','revoke'])
     if(typeof backend.variableWeight[name]!=='function')throw new Error(`KERDOS backend variableWeight.${name} is not implemented`);
   if(backend.estimatedDrafts)for(const name of ['save','get','getByRequest','list','cancel','closeAttempt'])

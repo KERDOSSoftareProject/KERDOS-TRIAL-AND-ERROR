@@ -31,3 +31,12 @@ assert.equal(vendorHeld.category,'all','category filtering does not change the a
 assert.deepEqual(vendorHeld.items[0].linkedOptions.map(o=>o.vendorId),['vendor-a','vendor-b']);
 assert.deepEqual(vendorHeld.items[0].options.map(o=>o.vendorId),['vendor-a'],'vendor filtering does not promote a held offer into purchasing eligibility');
 console.log('PASS G mixed-vendor browse: a linked held vendor is searchable without becoming purchasable.');
+
+const regularIds=new Set(['z','a','u','missing']);
+assert.deepEqual(orderGuideGroups(products,{regularIds:null})[0].items,result);
+assert.deepEqual(orderGuideGroups(products,{regularIds})[0].items.map(item=>item.catalogItemId),['a','z']);
+assert.deepEqual(orderGuideGroups(products,{regularIds,search:'hass',vendor:'vendor-b'})[0].items.map(item=>item.catalogItemId),['a']);
+assert.deepEqual(orderGuideGroups(products,{regularIds,category:'Frozen'}),[]);
+assert.deepEqual(orderGuideGroups(products,{regularIds:new Set()}),[]);
+assert.equal(JSON.stringify(products),before);
+console.log('PASS Regulars filter: compound filters, canonical visibility, order and source immutability.');

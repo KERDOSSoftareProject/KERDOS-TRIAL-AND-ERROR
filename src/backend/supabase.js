@@ -56,6 +56,11 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
         return loadWorkspaceSnapshot(client,organizationId);
       },
     },
+    regularItems:{
+      list(organizationId){
+        return providerResult(client.rpc("kerdos_regular_item_ids",{p_organization_id:organizationId}),"Load regular items");
+      },
+    },
     inbox:createSupabaseInbox(client),
     vendorConnect:{
       verifySelection(input){return providerResult(client.rpc('kerdos_verify_pending_vendor_transfer',{p_organization_id:input.organizationId,p_vendor_id:input.vendorId,p_request_id:input.requestId,p_adapter_key:input.adapterKey,p_transfer_revision:input.revision,p_account_label:input.account,p_list_label:input.list,p_portal_origin:input.portalOrigin}),'Check pending vendor transfer');},

@@ -72,6 +72,36 @@ await act(async()=>orderTab.props.onClick());
 assert.equal(window.scrollY,0,'clicking the already active Order Guide tab scrolls the page to the top');
 assert.equal(orderRow('Avocados').props['data-active'],true,'reopening the guide highlights its first item');
 await act(async()=>tree.unmount());
+
+const originalCatalogCount=catalogItems.length,originalVendorCount=vendorItems.length,originalMappingCount=snapshot.mappings.length;
+for(const [index,name] of ['Cheddar Cheese','Basmati Rice','Olive Oil'].entries()){
+ const group={...catalogItems[0],id:'regular-group-'+index,name,master_item_number:600+index};
+ const listing={...vendorItems[0],id:'regular-listing-'+index,description:name};
+ catalogItems.push(group);vendorItems.push(listing);
+ snapshot.mappings.push({...snapshot.mappings[0],id:'regular-map-'+index,catalog_item_id:group.id,vendor_item_id:listing.id});
+}
+let qualifying=['ci0','ci1','ci2','regular-group-0','regular-group-1'];
+backend.regularItems={list:async()=>qualifying.map(catalog_item_id=>({catalog_item_id}))};
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+const listButton=label=>tree.root.findByProps({'aria-label':'Order Guide lists'}).findAllByType('button').find(button=>text(button)===label);
+assert.equal(listButton('Regulars (5)').props['aria-pressed'],true);
+assert.equal(orderRow('Olive Oil'),undefined);
+await act(async()=>listButton('All Items').props.onClick());
+assert.equal(listButton('All Items').props['aria-pressed'],true,'explicit All choice survives the refreshed history');
+assert.ok(orderRow('Olive Oil'));
+assert.ok(text(orderRow('Avocados')).includes('Regular'));
+await act(async()=>tree.unmount());
+qualifying=[];
+await act(async()=>{tree=Renderer.create(React.createElement(App));});
+assert.equal(listButton('All Items').props['aria-pressed'],true);
+await act(async()=>listButton('Regulars (0)').props.onClick());
+assert.ok(text(tree.toJSON()).includes('No regular items yet'));
+await act(async()=>tree.root.findAllByType('button').find(button=>text(button)==='View All Items').props.onClick());
+assert.equal(listButton('All Items').props['aria-pressed'],true);
+await act(async()=>tree.unmount());
+delete backend.regularItems;
+catalogItems.length=originalCatalogCount;vendorItems.length=originalVendorCount;snapshot.mappings.length=originalMappingCount;
+console.log('PASS Regulars in the rendered Order Guide: default threshold, manual All, badges and empty state.');
 // A second render exercises an actual owner edit through App's saved-data refresh,
 // followed by selecting an alternative and putting that exact listing in a basket.
 for(const key of [...store.keys()])if(key.includes('basket'))store.delete(key);
