@@ -231,7 +231,17 @@ export default function App() {
   const [orderCategoryFilter,setOrderCategoryFilter]=useState("");
   const [orderVendorFilter,setOrderVendorFilter]=useState("");
   const [orderSortMode,setOrderSortMode]=useState("alphabetical");
-  function openOrderGuide(){setSearch("");setOrderCategoryFilter("");setOrderVendorFilter("");setTab("order");}
+  const [orderGuideOpenCount,setOrderGuideOpenCount]=useState(0);
+  function openOrderGuide(){
+    setSearch("");
+    setOrderCategoryFilter("");
+    setOrderVendorFilter("");
+    setOpenPriceMenu(null);
+    setActiveOrderItem(null);
+    orderItemClickedAt.current=0;
+    setOrderGuideOpenCount(count=>count+1);
+    setTab("order");
+  }
 
   // Startup and session transitions are owned by sessionController (see
   // session.js), not decided here. It reports a single "entered" flag for
@@ -275,7 +285,9 @@ export default function App() {
     window.history.scrollRestoration="manual";
     return ()=>{window.history.scrollRestoration=previous;};
   },[]);
-  useEffect(()=>{ if(!loading) window.scrollTo?.(0,0); },[tab,loading]);
+  useEffect(()=>{
+    if(!loading) window.scrollTo?.({left:0,top:0,behavior:"instant"});
+  },[tab,loading,orderGuideOpenCount]);
 
   // Inbox tracks actionable attachments; there is no read/unread state.
   useEffect(()=>{

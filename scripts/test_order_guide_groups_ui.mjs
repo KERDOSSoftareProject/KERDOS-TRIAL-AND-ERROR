@@ -11,7 +11,7 @@ try{
 import React from 'react';import Renderer,{act} from 'react-test-renderer';import assert from 'node:assert/strict';
 const store=new Map([['kerdos.activeTab.v2','order']]);const storage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};globalThis.sessionStorage=storage;globalThis.localStorage=storage;
 const listeners={};let scrollRows=[];
-globalThis.window={addEventListener:(name,listener)=>{listeners[name]=listener;},removeEventListener:()=>{},innerHeight:1000,scrollY:0,requestAnimationFrame:cb=>setTimeout(cb,0),cancelAnimationFrame:clearTimeout,history:{scrollRestoration:'auto'},scrollTo:()=>{},location:{origin:'https://test.example'}};
+globalThis.window={addEventListener:(name,listener)=>{listeners[name]=listener;},removeEventListener:()=>{},innerHeight:1000,scrollY:0,requestAnimationFrame:cb=>setTimeout(cb,0),cancelAnimationFrame:clearTimeout,history:{scrollRestoration:'auto'},scrollTo:({top})=>{window.scrollY=top;},location:{origin:'https://test.example'}};
 globalThis.document={addEventListener:()=>{},removeEventListener:()=>{},querySelectorAll:()=>scrollRows};globalThis.alert=message=>{throw new Error(message);};
 const categories=[{id:'cat',name:'Dry Goods',is_holding_pen:false}];
 const vendorItems=['Zucchini','Honey Mustard Dressing','Avocado','USA'].map((description,i)=>({id:'vi'+i,organization_id:'org',vendor_id:'vendor',description,brand:'',pack_size:'4/1 GAL',selling_unit:'CASE',price_basis:'case',price:20,price_source:'price_list',last_updated:new Date().toISOString(),field_resolutions:{},row_revision:0}));
@@ -65,6 +65,12 @@ await act(async()=>listingRegion.findAllByType('button').find(button=>button.pro
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'selection closes dropdown');assert.match(text(tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'})),/Second Vendor/);
 assert.equal(orderRow('Honey Mustard').props['data-active'],true,'the edited row remains marked after vendor selection closes the menu');
 assert.equal(text(tree.root.findByProps({className:'order-aside'})),basketBefore,'selecting a held listing does not change baskets');
+window.scrollY=500;
+const orderTab=tree.root.findByProps({'aria-label':'Workspace tabs'}).findAllByType('button').find(button=>text(button)==='Order Guide');
+assert.equal(orderTab.props['aria-current'],'page');
+await act(async()=>orderTab.props.onClick());
+assert.equal(window.scrollY,0,'clicking the already active Order Guide tab scrolls the page to the top');
+assert.equal(orderRow('Avocados').props['data-active'],true,'reopening the guide highlights its first item');
 await act(async()=>tree.unmount());
 // A second render exercises an actual owner edit through App's saved-data refresh,
 // followed by selecting an alternative and putting that exact listing in a basket.
