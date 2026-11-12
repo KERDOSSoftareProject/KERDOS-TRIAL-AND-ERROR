@@ -1106,7 +1106,7 @@ export default function App() {
                             <button aria-label={`Remove one ${selectedUnit} of ${item.name}`} onClick={()=>setQty(activeKey,activeQty-1)}
                               style={{width:26,height:26,borderRadius:7,border:"1px solid #FFCDD2",background:"#FFEBEE",cursor:"pointer",fontSize:15,fontWeight:800,color:"#D32F2F",flexShrink:0}}>−</button>
                             <span style={{width:18,textAlign:"center",fontWeight:800,fontSize:13,color:activeQty>0?vc.accent:"#CCC"}}>{activeQty||"·"}</span>
-                            <button aria-label={`Add one ${selectedUnit} of ${item.name}`} onClick={()=>{if(!activeBlocked) setQty(activeKey,activeQty+1);}} disabled={activeBlocked}
+                            <button aria-label={`Add one ${selectedUnit} of ${item.name}`} onClick={()=>{if(!activeBlocked){if(activeQty===0&&orderVendorFilter){const filteredOffer=rankedOptions.find(o=>orderable(o)&&o.vendorId===orderVendorFilter);if(filteredOffer)setVendorOverride(prev=>({...prev,[activeKey]:filteredOffer.vendorItemId}));}setQty(activeKey,activeQty+1);}}} disabled={activeBlocked}
                               title={activeBlocked?activeBlockReason:undefined}
                               style={{width:26,height:26,borderRadius:7,border:"none",background:activeBlocked?"#DDD":"#2E7D32",cursor:activeBlocked?"not-allowed":"pointer",fontSize:15,fontWeight:800,color:"white",flexShrink:0}}>+</button>
                           </div>,
