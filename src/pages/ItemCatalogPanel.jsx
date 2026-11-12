@@ -47,6 +47,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
   const [basisEditId,setBasisEditId]=useState(null);
   const [basisValue,setBasisValue]=useState("");
   const [vendorDraft,setVendorDraft]=useState({description:"",brand:"",packSize:"",caseQty:"",eachQty:"",unit:"EA"});
+  const [catalogBrandDrafts,setCatalogBrandDrafts]=useState({});
   const [renamingId,setRenamingId]=useState(null);
   const [renameValue,setRenameValue]=useState("");
   const [categoryEditId,setCategoryEditId]=useState(null);
@@ -628,7 +629,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onPreferBrand={(id,brand)=>handleItemSetting(id,{preferred_brand:brand})} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onPreferBrand={(id,brand)=>handleItemSetting(id,{preferred_brand:brand,brand_locked:!!brand,locked_brand:brand})} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"
@@ -712,7 +713,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                       </div>
                       <button onClick={()=>setShowItemNumberFor(showItemNumberFor===item.catalogItemId?null:item.catalogItemId)} style={{border:"1px solid #CBD9E9",borderRadius:6,background:"white",color:"#173C70",padding:"6px 9px",fontWeight:700,cursor:"pointer",fontSize:11}}>{showItemNumberFor===item.catalogItemId?`KERDOS #${item.masterItemNumber} ▴`:"KERDOS number ▾"}</button>
                     </div>
-                    <div style={{fontSize:11,fontWeight:800,color:"#597089",textTransform:"uppercase",letterSpacing:".05em",marginBottom:7}}>Vendor products · choose an association to correct it</div>
+                    <div style={{fontSize:11,fontWeight:800,color:"#597089",textTransform:"uppercase",letterSpacing:".05em",marginBottom:7}}>Vendor products · choose an association to edit it</div>
                     {new Set(item.options.map(o=>o.vendorId)).size>=2&&<div style={{background:comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"#E6F5ED":"#FFF3E0",color:comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"#23764C":"#9C5A00",padding:"8px 10px",borderRadius:6,fontSize:11,fontWeight:700,marginBottom:8}}>
                       {comparableItems.some(p=>p.catalogItemId===item.catalogItemId)?"At least two vendors have current, matching-pack offers for this product.":"Multiple vendors are linked, but their current offers or packs are not yet verified as comparable."}
                     </div>}
@@ -721,7 +722,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                       <b>{o.vendorName}</b><span>{o.description}{o.brand?` · ${o.brand}`:""}</span><b>{o.packSize||"Unknown"}</b><b>{o.casePrice!=null?formatMoney(o.casePrice):"No quote"}</b><b>{o.perUnit?`${formatMoney(o.perUnit.price)}/${o.perUnit.unit}`:"—"}</b>
                       <button disabled={!canManage} onClick={()=>{setRemapOpenFor(o.mappingId);setRemapSearch("");}} style={{...btn("#E8F1FB","#003584",{fontSize:10,padding:"6px"})}}>Change association</button>
                       {canManage&&<div style={{gridColumn:"1 / -1"}}>
-                        <button onClick={()=>vendorEditId===o.vendorItemId?setVendorEditId(null):openVendorEdit(o)} style={{...btn("#E8F1FB","#003584",{fontSize:10,padding:"5px 8px"})}}>{vendorEditId===o.vendorItemId?"Close field editor":"Correct product, brand or pack"}</button>
+                        <button onClick={()=>vendorEditId===o.vendorItemId?setVendorEditId(null):openVendorEdit(o)} style={{...btn("#E8F1FB","#003584",{fontSize:10,padding:"5px 8px"})}}>{vendorEditId===o.vendorItemId?"Close field editor":"Edit vendor details"}</button>
                         {vendorEditId===o.vendorItemId&&<div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"end",padding:10,marginTop:7,background:"#F4F8FE",borderRadius:6}}>
                           <label>Product description<input aria-label="Vendor product description" style={{...inp,width:205,fontSize:11}} value={vendorDraft.description} onChange={e=>setVendorDraft(d=>({...d,description:e.target.value}))} /></label>
                           <label>Brand<input aria-label="Vendor brand, blank if absent" placeholder="Leave blank if absent" style={{...inp,width:130,fontSize:11}} value={vendorDraft.brand} onChange={e=>setVendorDraft(d=>({...d,brand:e.target.value}))} /></label>
@@ -731,7 +732,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                           <label>Unit<select aria-label="Pack measurement unit" style={{...inp,width:95,fontSize:11}} value={vendorDraft.unit} onChange={e=>setVendorDraft(d=>({...d,unit:e.target.value,packSize:Number(d.caseQty)>0&&Number(d.eachQty)>0?`${d.caseQty}/${d.eachQty} ${e.target.value}`:d.packSize}))}>
                             {[...new Set([vendorDraft.unit,...unitChoices(vocabulary,true,industry).map(u=>u.value)])].map(unit=><option key={unit} value={unit}>{unit}</option>)}
                           </select></label>
-                          <button disabled={busyMappingId===o.mappingId} onClick={()=>saveVendorEdit(o)} style={{...btn("#003584","white",{fontSize:11})}}>Save correction</button>
+                          <button disabled={busyMappingId===o.mappingId} onClick={()=>saveVendorEdit(o)} style={{...btn("#003584","white",{fontSize:11})}}>Save changes</button>
                           <div style={{flexBasis:"100%",fontSize:10,color:"#875200"}}>Changing defining fields keeps the KERDOS association but pauses this offer for verification before price comparison.</div>
                         </div>}
                       </div>}
@@ -766,9 +767,6 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                     {!item.options.length&&<div style={{background:"white",padding:14,fontSize:12,color:"#667"}}>No vendor products linked yet.</div>}
                     <div style={{marginTop:15,fontSize:11,fontWeight:800,color:"#597089",textTransform:"uppercase",letterSpacing:".05em",marginBottom:7}}>Product preferences</div>
                     {(()=>{
-                      // Brands come from this item's own vendor options - a lock can
-                      // only ever name a brand some vendor actually lists.
-                      const brands=[...new Set(item.options.map(o=>String(o.brand||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
                       const units=[...new Set([item.canonicalUnit,...item.options.flatMap(option=>
                         option.costOverride?[option.costOverride.unit]:unitsForDimension(parsePackSize(option.packSize)?.dimension))].filter(Boolean))];
                       const sel={...inp,fontSize:11,padding:"4px 6px",width:"auto"};
@@ -780,16 +778,15 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                             <small>To add an alternative, set its KERDOS number to this item's number in Edit catalog rows, then Apply. Each vendor keeps its description, brand and pack.</small>
                           </div>
                           <div>
-                            <div style={lbl}>Require this brand</div>
-                            {brands.length?(
-                              <select style={sel} value={item.lockedBrand||""}
-                                onChange={e=>handleItemSetting(item.catalogItemId,{brand_locked:!!e.target.value,locked_brand:e.target.value||null})}>
-                                <option value="">Any brand</option>
-                                {brands.map(b=><option key={b} value={b}>{b}</option>)}
-                              </select>
-                            ):(
-                              <div style={{fontSize:11,color:"#AAA",paddingTop:4}}>No vendor lists a brand for this item</div>
-                            )}
+                            <label style={lbl}>Brand</label>
+                            <input aria-label={`Brand for KERDOS item ${item.masterItemNumber}`} style={sel}
+                              value={catalogBrandDrafts[item.catalogItemId]??item.lockedBrand??item.preferredBrand??""}
+                              placeholder="No brand" disabled={!canManage}
+                              onChange={e=>setCatalogBrandDrafts(previous=>({...previous,[item.catalogItemId]:e.target.value}))}
+                              onBlur={e=>{if(item.brandLocked&&e.target.value.trim()!==item.lockedBrand)void handleItemSetting(item.catalogItemId,{preferred_brand:e.target.value.trim()||null,brand_locked:!!e.target.value.trim(),locked_brand:e.target.value.trim()||null});}} />
+                            <label style={{display:"block",fontSize:11}}><input type="checkbox" checked={!!item.brandLocked}
+                              disabled={!canManage||!(catalogBrandDrafts[item.catalogItemId]??item.lockedBrand??item.preferredBrand??"").trim()&&!item.brandLocked}
+                              onChange={e=>{const brand=e.target.checked?(catalogBrandDrafts[item.catalogItemId]??item.lockedBrand??item.preferredBrand??"").trim():null;if(!e.target.checked)setCatalogBrandDrafts(previous=>({...previous,[item.catalogItemId]:""}));void handleItemSetting(item.catalogItemId,{preferred_brand:brand,brand_locked:!!brand,locked_brand:brand});}} /> Prefer brand</label>
                           </div>
                           <div>
                             <div style={lbl}>Vendor matching</div>

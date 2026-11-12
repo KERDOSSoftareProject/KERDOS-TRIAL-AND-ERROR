@@ -19,10 +19,10 @@ try{
  const before=JSON.stringify({vendorItems,mappings,catalogItems});const calls=[];let fail=false;
  globalThis.__catalogBaseBackend={records:{query(){throw Error('Unexpected data query');}},catalog:{saveRow:async request=>{if(fail)throw Error('Listing changed; refresh');calls.push(request);}}};
  let tree;await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,props));});
- await act(async()=>tree.root.findByProps({'aria-label':'brand for HM1'}).props.onChange({target:{value:'Unapplied brand draft'}}));
+ await act(async()=>tree.root.findByProps({'aria-label':'Brand for HM1'}).props.onChange({target:{value:'Unapplied brand draft'}}));
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true})));
  assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'brand'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'pack'}).length,2);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'sellingUnit'}).length,0);assert.equal(tree.root.findAllByProps({'data-blank-trial-field':'unitCost'}).length,2);
- assert.equal(tree.root.findAllByProps({'aria-label':'brand for HM1'}).length,0);assert.ok(!JSON.stringify(tree.toJSON()).includes('70%'));assert.ok(!JSON.stringify(tree.toJSON()).includes('90%'));
+ assert.equal(tree.root.findAllByProps({'aria-label':'Brand for HM1'}).length,0);assert.ok(!JSON.stringify(tree.toJSON()).includes('70%'));assert.ok(!JSON.stringify(tree.toJSON()).includes('90%'));
  assert.match(JSON.stringify(tree.toJSON()),/NVIN-69/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/Confirmed group|Provisional group/);assert.equal(calls.length,0);
  const text=n=>typeof n==='string'?n:(n?.children||[]).map(text).join('');
  const rowFor=label=>{let n=tree.root.findByProps({'aria-label':label});while(n&&n.type!=='tr')n=n.parent;return n;};
@@ -32,7 +32,7 @@ try{
  await act(async()=>tree.root.findByProps({'aria-label':'price for HM1'}).props.onChange({target:{value:'70.00'}}));await apply('price for HM1');assert.deepEqual(calls.at(-1).patch,{price:70});assert.equal(calls.at(-1).expectedRevision,3);
  await act(async()=>rowFor('price for null').findByProps({'aria-label':'Item name for 50013'}).props.onChange({target:{value:'Cheddar'}}));
  assert.equal(text(tree.root.findByProps({'aria-label':'KERDOS item number for null'})),'#100001');assert.equal(tree.root.findByProps({'aria-label':'Category for null'}).props.value,'dairy');await apply('price for null');assert.deepEqual(calls.at(-1).patch,{catalog_item_id:two});
- await act(async()=>tree.update(React.createElement(CatalogRows,props)));assert.equal(tree.root.findByProps({'aria-label':'brand for HM1'}).props.value,'Unapplied brand draft');assert.equal(tree.root.findByProps({'aria-label':'Pack for HM1'}).props.value,'case');
+ await act(async()=>tree.update(React.createElement(CatalogRows,props)));assert.equal(tree.root.findByProps({'aria-label':'Brand for HM1'}).props.value,'Unapplied brand draft');assert.equal(tree.root.findByProps({'aria-label':'Pack for HM1'}).props.value,'case');
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true})));fail=true;await act(async()=>tree.root.findByProps({'aria-label':'price for HM1'}).props.onChange({target:{value:'69'}}));const count=calls.length;await apply('price for HM1');assert.equal(calls.length,count);assert.match(JSON.stringify(tree.toJSON()),/Listing changed; refresh/);
  await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:true,canManage:false})));assert.equal(tree.root.findByProps({'aria-label':'product for HM1'}).props.disabled,true);assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Apply').length,0);await act(async()=>tree.unmount());
  assert.equal(JSON.stringify({vendorItems,mappings,catalogItems}),before);
@@ -88,7 +88,7 @@ try{
  await act(async()=>tree.update(React.createElement(CatalogRows,{...confirmProps,vendorItems:[cheeseListings[0],accepted,noPrice]})));
  assert.equal(rowFor('Pack for AC3').props['data-migration-tier'],1);
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}));
- await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Correct quoted unit for AC3'}).props.onClick());
+ await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Edit pricing basis for AC3'}).props.onClick());
  assert.equal(rowFor('Pack for AC3').findByProps({'aria-label':'Quoted unit'}).props.value,'CASE');
  await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Quoted unit'}).props.onChange({target:{value:'EACH'}}));
  assert.equal(calls.length,beforeChoice+1);
