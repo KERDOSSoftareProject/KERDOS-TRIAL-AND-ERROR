@@ -64,7 +64,7 @@ try{
  const beforeConfirm=calls.length;
  await act(async()=>confirmButton.props.onClick());
  assert.equal(calls.length,beforeConfirm+1,'one click accepts the displayed inference: '+tree.root.findAllByProps({role:'alert'}).map(text).join(' | '));
- assert.deepEqual(calls.at(-1).patch,{description:'AMERICAN CHEESE',pack_size:'5 lb',selling_unit:'EACH',price:16.75,approve_row:true});
+ assert.deepEqual(calls.at(-1).patch,{pack_size:'5 lb',selling_unit:'EACH',approve_row:true});
  const priceInput=()=>tree.root.findByProps({'aria-label':'price for AC0'});
  const beforeEdit=calls.length;
  await act(async()=>priceInput().props.onChange({target:{value:'17'}}));
@@ -96,7 +96,7 @@ try{
  await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Pricing basis'}).props.onChange({target:{value:'CASE'}}));
  assert.equal(calls.length,beforeChoice,'choosing a value stages the edit');
  await act(async()=>confirmFor('AC3').props.onClick());
- assert.deepEqual(calls.at(-1).patch,{description:'AMERICAN CHEESE',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,approve_row:true});
+ assert.deepEqual(calls.at(-1).patch,{selling_unit:'CASE',approve_row:true});
  const accepted={...blankUnit,selling_unit:'CASE',price_basis:'case',row_revision:1,
   field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}};
  await act(async()=>tree.update(React.createElement(CatalogRows,{...confirmProps,vendorItems:[cheeseListings[0],accepted,noPrice]})));
@@ -106,7 +106,7 @@ try{
   assert.equal(rowFor('Pack for AC3').findByProps({'aria-label':label}).props.disabled,false,label+' remains writable');
  await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Confirm listing AC3'}).props.onClick());
  assert.equal(rowFor('Pack for AC3').findAllByProps({'aria-label':'Pricing basis'}).length,0,'one click accepts a complete listing');
- assert.deepEqual(calls.at(-1).patch,{description:'AMERICAN CHEESE',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,approve_row:true});
+ assert.deepEqual(calls.at(-1).patch,{approve_row:true});
  assert.equal(calls.length,beforeChoice+2);
 
  assert.equal(rowFor('Pack for AC4').props['data-migration-tier'],4);

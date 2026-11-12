@@ -45,7 +45,7 @@ fail=true;await change('price for 000012','4.25');await settle();assert.match(JS
 await act(async()=>tree.unmount());assert.ok([...cache.values()].some(v=>JSON.parse(v).draft.price==='4.25'));
 await mount({vendorItems:[structuredClone(current)]});assert.equal(Number(input('price for 000012').props.value),4.25,'failed edits survive remount for the same user/client/listing');fail=false;await change('price for 000012','4.50');await settle();assert.equal(current.price,4.5);await act(async()=>tree.unmount());
 await mount({userId:'another-user',vendorItems:[structuredClone(current)],canManage:false});assert.equal(Number(input('price for 000012').props.value),4.5);assert.equal(input('Brand for 000012').props.disabled,true);const before=calls.length;await settle();assert.equal(calls.length,before);await act(async()=>tree.unmount());
-await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','5.00');await act(async()=>tree.unmount());assert.equal(current.price,4.5,'an unminimized edit remains a draft');
+await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','5.00');await act(async()=>tree.unmount());assert.equal(current.price,5,'leaving the catalog saves the edited field once');
 cache.clear();await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','6.25');await settle();const external={...structuredClone(current),price:6.50,row_revision:current.row_revision+1};current=external;await act(async()=>tree.update(React.createElement(CatalogRows,{...props,vendorItems:[external]})));assert.equal(Number(input('price for 000012').props.value),6.5,'a newer incoming revision replaces a clean accepted snapshot');await act(async()=>tree.unmount());await mount({vendorItems:[{...external,price:6.75,row_revision:external.row_revision+1}]});assert.ok(!JSON.stringify(tree.toJSON()).includes('Review your recovered edits'),'a clean persisted visibility marker is not an unsaved conflict');await act(async()=>tree.unmount());
 cache.clear();current={...structuredClone(row),pack_size:'4/1 GAL',selling_unit:'CASE',price_basis:'case',price_unavailable:false,field_resolutions:{unit_cost_override:{value:{price:123,unit:'GAL',packPrice:492}}}};await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','7.00');await settle();assert.equal(calls.at(-1).patch.unit_cost_override,null,'a changed price invalidates an old unit-cost override so cost can recalculate');await act(async()=>tree.unmount());
 const preferredWrites=[];
@@ -113,9 +113,58 @@ assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').map(text).join(
 assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Confirm'],['Confirm'],['Confirm'],['Confirm']]);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));
 
-assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],['Unit cost'],['Unit cost'],['Quoted price']]);
+assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],[],[],['Quoted price']],
+ 'an unresolved pricing basis does not highlight the unrelated unit-cost metric');
 assert.match(tree.root.findByType('style').children.join(''),/\[data-catalog-review-field\] :is\(input, select\):enabled \{ background-color: #E3F2FD; box-shadow: inset 0 0 0 2px #1565C0; \}/,'flagged writable controls use one blue fill and border');
 for(const n of tierRows)assert.ok(n.findAllByType('td').every(cell=>!cell.props.style.backgroundColor),'surrounding cells stay neutral');
+await act(async()=>tree.unmount());
+cache.clear();calls.length=0;
+const baconItem={...item,id,brand_locked:true,locked_brand:'Wrights',preferred_brand:'Wrights'};
+const baconPeers=[55.9,44.99].map((price,i)=>({...row,id:'bacon-peer-'+i,vendor_id:'other-'+i,
+ vendor_item_code:'CASE-'+i,description:'BACON LAYOUT',brand:'Other',pack_size:'15 LB',price,
+ selling_unit:'CASE',price_basis:'case',price_unavailable:false,last_updated:'2026-11-12',
+ import_row:{sourceDocumentId:'peer-doc-'+i,reviewRequired:false,row:{sellingUnit:'CASE',packSize:'15 LB',price}}}));
+current={...structuredClone(row),description:'BACON LAYOUT 18/22',brand:'Wrights',pack_size:'15 LB',
+ price:null,selling_unit:null,price_basis:null,price_unavailable:true,field_resolutions:{brand:{value:'Wrights',confirmedBy:'owner'}},
+ import_row:{sourceDocumentId:'bacon-doc',rowKey:'row:2',reviewRequired:false,row:{description:'BACON LAYOUT 18/22',
+ packSize:'15 LB',price:null,priceUnavailable:true,sellingUnit:null}}};
+const baconMappings=[mapping,...baconPeers.map((peer,i)=>({...mapping,id:'peer-map-'+i,vendor_item_id:peer.id}))];
+const baconProps={baseFieldsOnly:false,catalogItems:[baconItem],vendorItems:[structuredClone(current),...baconPeers],
+ mappings:baconMappings,vendors:[props.vendors[0],...baconPeers.map(p=>({id:p.vendor_id,name:p.vendor_id}))],
+ editors:{owner:{name:'Kai Morgan'}},onPreferBrand:async()=>true};
+await mount(baconProps);await change('price for 000012','2');await change('price for 000012','2.');
+await change('price for 000012','2.97');assert.equal(input('price for 000012').props.value,'2.97');
+assert.equal(calls.length,0,'typing does not write to the server or interrupt the edit');
+await act(async()=>tree.root.findByProps({'aria-label':'Confirm listing 000012'}).props.onClick());
+assert.equal(calls.length,1,'one confirmation writes once');
+assert.equal(calls[0].patch.price,2.97);assert.equal(calls[0].patch.selling_unit,'LB');
+assert.equal(calls[0].patch.approve_row,true);assert.equal(Object.hasOwn(calls[0].patch,'pack_size'),false);
+assert.equal(tree.root.findAllByProps({'aria-label':'Pricing basis'}).length,0,'no extra selector when peers establish one basis');
+await act(async()=>tree.update(React.createElement(CatalogRows,{...props,...baconProps,
+ vendorItems:[structuredClone(current),...baconPeers]})));
+const accepted=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']===1)
+ .find(n=>n.findAllByProps({'aria-label':'price for 000012'}).length);
+assert.ok(accepted,'the confirmed listing moves to Tier 1');
+assert.equal(accepted.findAll(n=>n.type==='td'&&n.props['data-catalog-review-field']).length,0,'blue review fields clear');
+assert.equal(text(accepted.findByProps({'data-field-label':'Brand'})).includes('KM'),true);
+assert.equal(text(accepted.findByProps({'data-field-label':'Quoted price'})).includes('KM'),true);
+assert.equal(text(accepted.findByProps({'data-field-label':'Pack'})).includes('KM'),false,'unchanged pack is not attributed');
+await change('Brand for 000012','');
+const checked=tree.root.findByProps({'aria-label':'Brand for 000012'}).parent.findAllByType('input').find(n=>n.props.type==='checkbox');
+assert.equal(checked.props.disabled,false,'a preferred brand can still be unchecked after clearing its text');
+await act(async()=>checked.props.onChange({target:{checked:false}}));
+await act(async()=>tree.update(React.createElement(CatalogRows,{...props,...baconProps,
+ catalogItems:[{...baconItem,brand_locked:false,locked_brand:null,preferred_brand:null}],
+ vendorItems:[structuredClone(current),...baconPeers]})));
+await act(async()=>tree.root.findByProps({'aria-label':'Confirm listing 000012'}).props.onClick());
+assert.equal(calls.at(-1).patch.brand,'','confirm clears this listing brand after removing the preference');
+assert.equal(current.selling_unit,'LB');assert.equal(current.price,2.97);
+await act(async()=>tree.update(React.createElement(CatalogRows,{...props,...baconProps,
+ catalogItems:[{...baconItem,brand_locked:false,locked_brand:null,preferred_brand:null}],
+ vendorItems:[structuredClone(current),...baconPeers]})));
+assert.ok(tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']===1)
+ .some(n=>n.findAllByProps({'aria-label':'price for 000012'}).length),
+ 'clearing a preferred brand does not undo a confirmed pricing basis');
 await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
 `,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});

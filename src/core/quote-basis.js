@@ -160,8 +160,9 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
     brand:listing.brand,gtin:listing.gtin,manufacturerCode:listing.manufacturer_code,sellingUnit:listing.selling_unit,
     // A retained amount may be held because its basis is under review. The
     // original availability and review fields still govern ordering.
-    priceUnavailable:amountSource.row.priceUnavailable};
-  const comparisonPeers=item?.brand_locked?peers.filter(peer=>procurement.brandsMatch(peer.brand,item.locked_brand)):peers;
+    priceUnavailable:checkEditedAmount&&Number(listing.price)>0?false:amountSource.row.priceUnavailable};
+  // A preferred brand governs ordering, not which verified peers establish a quote basis.
+  const comparisonPeers=peers;
   const inference=inferCrossVendorQuoteBasis(row,comparisonPeers,{organizationId:listing.organization_id,vendorId:listing.vendor_id},
     procurement,{currentUnit:listing.selling_unit,linkedPeerIds,settings,now,reviewOutlier:true});
   if(!inference)return listing;

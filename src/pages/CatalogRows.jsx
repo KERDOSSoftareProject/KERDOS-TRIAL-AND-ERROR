@@ -13,7 +13,7 @@ import {backend} from "../backend/index.js";
 import {createCatalogRowsService} from "../services/catalog-rows.js";
 import {createVariableWeightService} from '../services/variable-weight.js';
 import {VariableWeightConfirmation} from './VariableWeightConfirmation.jsx';
-import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOCKER_LABELS} from "../core/catalog-fields.js";
+import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOCKER_LABELS,initialsFor} from "../core/catalog-fields.js";
 import {catalogMigrationAssessment} from "../core/catalog-migration-tier.js";
 import {normalizeCatalogQuote} from "../core/quote-basis.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost,brandsMatch} from "../procurement.js";
@@ -34,7 +34,7 @@ function Evidence({field}){
   if(field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
   return field.by?<small style={{display:"block",marginTop:4,color:"#003584"}}>{field.by}</small>:null;
 }
-function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},variableApproval,onVariableApprovalChanged,tier,tierFields,quoteBasisInference}){
+function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,editors={},baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},variableApproval,onVariableApprovalChanged,tier,tierFields,quoteBasisInference}){
   const storageKey=autoSave&&userId?`kerdos-catalog-draft:${orgId}:${userId}:${vendorItem.id}`:null;
   const [recovery]=useState(()=>{try{return storageKey?JSON.parse(window.localStorage.getItem(storageKey)||'null'):null;}catch{return null;}});
   const [trialVisible,setTrialVisible]=useState(recovery?.visible||{});
@@ -53,6 +53,8 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
   const [packParts,setPackParts]=useState(null);
   const [choosingQuotedUnit,setChoosingQuotedUnit]=useState(false);
   const packControl=useRef(null);
+  const savingRef=useRef(false);
+  const pendingSave=useRef(null);
   const showUnitChooser=choosingQuotedUnit;
   const wasOpen=useRef(editorOpen);
   const mounted=useRef(true);
@@ -77,11 +79,11 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
   const category=categories.find(c=>c.id===categoryId);
   const evidenceItem={...displayItem,category_id:categoryId,category_review:'category_id' in draft?!!category?.is_holding_pen:displayItem.category_review};
   const previewMapping=linkDirty?{...mapping,catalog_item_id:displayItem.id,comparison_track:"review",confidence_score:null}:mapping;
-  const quoteEdited=["description","brand","price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key));
   const quoteContext={item:evidenceItem,mapping:previewMapping,
     groupMappings:allMappings.filter(link=>link.catalog_item_id===displayItem.id),settings,
     checkEditedAmount:Object.hasOwn(draft,"price")};
-  const refreshed=quoteEdited||linkDirty;
+  // A draft stays responsive while typing; compare with the group on Confirm.
+  const refreshed=linkDirty;
   const draftProjection=refreshed?normalizeCatalogQuote(current,displayPeers,quoteContext):null;
   const inference=refreshed?draftProjection.quoteBasisInference:
     original.row_revision===vendorItem.row_revision?quoteBasisInference:null;
@@ -101,23 +103,20 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
   const currentBasis=priceBasisFor(current.selling_unit);
   const caseEstimate=estimateCaseCost(current.price,currentBasis?.basis,currentBasis?.unit||current.selling_unit,current.pack_size);
   const hasSupportedInference=key=>key==='selling_unit'&&listingSourceForField(current,'selling_unit').evidence.fieldInference?.sellingUnit?.source==='cross-vendor comparison'&&!Object.hasOwn(current.field_resolutions||{},key);
-  const displayed=key=>inference?.value&&["selling_unit","pack_size","price"].includes(key)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
+  const displayed=key=>Object.hasOwn(draft,key)?current[key]??'':inference?.value&&["selling_unit","pack_size","price"].includes(key)?projected[key]:hasSupportedInference(key)?current[key]??'':baseFieldsOnly&&autoSave?trialSourceValue(current,key,{visible:!!trialVisible[key]}):current[key]??"";
   const inputValue=key=>Object.hasOwn(draft,key)?current[key]??"":displayed(key);
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
   const shownPack=packParts||editablePack(inputValue("pack_size"));
+  const confirmedFields=values=>({approve_row:true,...Object.fromEntries(Object.entries(values).filter(([key,value])=>
+    Object.hasOwn(draft,key)||String(value??'')!==String(original[key]??'')))});
   function confirmReview(){
     const pack=displayed("pack_size"),price=Number(displayed("price"));
     const description=displayed("description"),brand=displayed("brand");
     const unit=displayed("selling_unit")||projected.selling_unit;
-    const basis=priceBasisFor(unit);
     if(!parsePackSize(pack)?.parsed){
       setError("Enter the pack size.");
       packControl.current?.focus();
-      return;
-    }
-    if(!basis||casePriceFromQuote(1,basis.basis,basis.unit||unit,pack)==null){
-      setChoosingQuotedUnit(true);
       return;
     }
     if(!(price>0)||!Number.isFinite(price)||!description.trim()){
@@ -128,24 +127,26 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
       setError("Choose the required brand before confirming.");
       return;
     }
-    const proposed={...current,description,brand,pack_size:pack,selling_unit:unit,price,price_basis:basis.basis};
-    const checked=normalizeCatalogQuote(proposed,displayPeers,quoteContext);
+    const basis=priceBasisFor(unit);
+    const proposed={...current,description,brand,pack_size:pack,selling_unit:unit,price,
+      price_basis:basis?.basis||null,price_unavailable:false};
+    const checked=normalizeCatalogQuote(proposed,displayPeers,{...quoteContext,checkEditedAmount:Object.hasOwn(draft,'price')});
     if(checked.quoteBasisInference){
       if(checked.quoteBasisInference.value){
-        if(checked.pack_size===pack&&checked.selling_unit===unit&&Number(checked.price)===price){
-          void save(null,{description,pack_size:pack,selling_unit:unit,price,approve_row:true,...(Object.hasOwn(draft,"brand")?{brand}:{})});
-          return;
-        }
-        if(checked.pack_size!==pack)edit("pack_size",checked.pack_size);
-        edit("selling_unit",checked.selling_unit);
-        setError("Review the updated pack and pricing basis, then confirm.");
+        void save(null,confirmedFields({description,pack_size:checked.pack_size,selling_unit:checked.selling_unit,price,
+          ...(Object.hasOwn(draft,"brand")?{brand}:{})}));
       }else{
         setError(checked.quoteBasisInference.reason);
         setChoosingQuotedUnit(true);
       }
       return;
     }
-    void save(null,{description,pack_size:pack,selling_unit:unit,price,approve_row:true,...(Object.hasOwn(draft,"brand")?{brand}:{})});
+    if(!basis||casePriceFromQuote(1,basis.basis,basis.unit||unit,pack)==null){
+      setChoosingQuotedUnit(true);
+      return;
+    }
+    void save(null,confirmedFields({description,pack_size:pack,selling_unit:unit,price,
+      ...(Object.hasOwn(draft,"brand")?{brand}:{})}));
   }
   function changePack(key,value){
     const parts={...shownPack,[key]:value};
@@ -154,8 +155,10 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
     edit("pack_size",serializePack(parts));
   }
   async function save(override=null,confirmation=null){
+    if(savingRef.current)return false;
+    savingRef.current=true;
     if(!autoSave&&!baseFieldsOnly&&!override&&!calculatedUnitCost(current,{industry})){
-      setOverridePackPrice(String(current.price||""));setOverrideOpen(true);return;
+      setOverridePackPrice(String(current.price||""));setOverrideOpen(true);savingRef.current=false;return;
     }
     setBusy(true);setError("");
     try{
@@ -177,7 +180,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
       return true;
     }
     catch(err){if(mounted.current)setError(err.message||String(err));return false;}
-    finally{if(mounted.current)setBusy(false);}
+    finally{savingRef.current=false;if(mounted.current)setBusy(false);}
   }
   useEffect(()=>{
     if(!autoSave||!storageKey)return;
@@ -188,7 +191,19 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
     wasOpen.current=editorOpen;
     if(minimized&&autoSave&&canManage&&dirty&&!busy&&!error)void save();
   },[editorOpen,autoSave,canManage,dirty,busy,error]);
-  const saveStatus=autoSave?<small role={error?'alert':'status'} style={{display:'block',marginTop:4,color:error?'#A32B20':'#276742'}}>{busy?'Saving…':error?error:dirty?'Saves when minimized':saved?'Saved':''}{error&&dirty&&<><button onClick={()=>{setError('');}} style={{border:0,background:'none',color:'#003584'}}>Retry on minimize</button><button onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setOverrideCost('');setError('');}} style={{border:0,background:'none'}}>Discard unsaved edits</button></>}</small>:null;
+  useEffect(()=>{
+    if(!autoSave||!canManage||!dirty||busy||error||typeof document==='undefined')return;
+    const flush=()=>{if(document.visibilityState==='hidden'&&!savingRef.current)void save();};
+    document.addEventListener('visibilitychange',flush);
+    return ()=>document.removeEventListener('visibilitychange',flush);
+  },[autoSave,canManage,dirty,busy,error,draft,nameDraft,numberDraft]);
+  pendingSave.current={autoSave,canManage,dirty,busy,error,save};
+  useEffect(()=>()=>{
+    const pending=pendingSave.current;
+    if(pending?.autoSave&&pending.canManage&&pending.dirty&&!pending.busy&&!pending.error&&!savingRef.current)
+      void pending.save();
+  },[]);
+  const saveStatus=autoSave?<small role={error?'alert':'status'} style={{display:'block',marginTop:4,color:error?'#A32B20':'#276742'}}>{busy?'Saving…':error?error:dirty?'Unsaved':saved?'Saved':''}{error&&dirty&&<><button onClick={()=>{setError('');}} style={{border:0,background:'none',color:'#003584'}}>Retry</button><button onClick={()=>{setDraft({});setNameDraft(null);setNumberDraft(null);setBase(null);setOverrideCost('');setError('');}} style={{border:0,background:'none'}}>Discard unsaved edits</button></>}</small>:null;
   const fields={product:"description",brand:"brand",price:"price"};
   return <>
     <tr role="row" data-migration-tier={tier} style={{background:"white"}}>
@@ -233,12 +248,16 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
         </>;
         const sourceKey={product:"description",pack:"packSize"}[key]||key;
         const change=vendorItem.import_row?.reviewRequired&&vendorItem.import_row?.changes?.find(c=>c.field===sourceKey);
-        const reviewField=key==="unitCost"?"sellingUnit":key;
+        const reviewField=key;
+        const storedKey={category:'category_id',itemName:'item_name',product:'description',pack:'pack_size'}[key]||key;
+        const confirmation=current.field_resolutions?.[storedKey];
+        const initials=confirmation?.confirmedBy?initialsFor(editors[confirmation.confirmedBy]):'';
         return <td role="cell" key={key} data-field-label={label} data-mobile-wide={["product","itemName","pack"].includes(key)?true:undefined} data-catalog-review-field={key!=="product"&&(tierFields.has(reviewField)||reviewField==="sellingUnit"&&!!inference||key==="pack"&&!!inference?.packSize)?true:undefined} style={cellStyle}>
           {content}
+          {initials&&<small aria-label={`Confirmed by ${initials}`} style={{display:'block',marginTop:4,color:'#003584'}}>{initials}</small>}
           {key==="brand"&&onPreferBrand&&<label style={{display:"block",marginTop:4,fontSize:11}}>
             <input type="checkbox" checked={!!displayItem.brand_locked&&!!(Object.hasOwn(draft,"brand")?current.brand:current.field_resolutions?.brand?.confirmedBy?current.brand:"")&&brandsMatch(displayItem.preferred_brand,current.brand)}
-              disabled={!canManage||busy||!(Object.hasOwn(draft,"brand")?current.brand:current.field_resolutions?.brand?.confirmedBy?current.brand:"")?.trim()}
+              disabled={!canManage||busy||(!displayItem.brand_locked&&!(Object.hasOwn(draft,"brand")?current.brand:current.field_resolutions?.brand?.confirmedBy?current.brand:"")?.trim())}
               onChange={event=>{const selected=event.target.checked,brand=String(current.brand||"").trim();void (async()=>{if(selected&&Object.hasOwn(draft,"brand")&&!await save())return;await onPreferBrand(displayItem.id,selected?brand:null);})();}} /> Prefer brand
           </label>}
           {key==="itemName"&&<>
@@ -299,7 +318,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,baseF
     </td></tr>}
   </>;
 }
-export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,onPreferBrand,settings={}}){
+export function CatalogRows({mobileDetails=false,autoSave=false,userId,editors={},baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,onPreferBrand,settings={}}){
   const [expanded,setExpanded]=useState(new Set());
   const [mobileGroup,setMobileGroup]=useState(null);
   // Keep opened editors mounted so a pending autosave can finish after Minimize.
@@ -355,7 +374,7 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,baseField
     {orderedGroups.map(group=>{
       const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;
       const listings=<div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr>{visibleColumns.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>
-        <tbody role="rowgroup">{group.rows.map(row=><EditableRow editorOpen={mobileDetails?mobileGroup===group.id:expanded.has(group.id)} onPreferBrand={onPreferBrand} autoSave={autoSave} userId={userId} baseFieldsOnly={baseFieldsOnly} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} key={`${orgId}:${userId||""}:${row.vendorItem.id}`} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
+        <tbody role="rowgroup">{group.rows.map(row=><EditableRow editorOpen={mobileDetails?mobileGroup===group.id:expanded.has(group.id)} onPreferBrand={onPreferBrand} autoSave={autoSave} userId={userId} editors={editors} baseFieldsOnly={baseFieldsOnly} variableApproval={variableApprovals[row.vendorItem.id]} onVariableApprovalChanged={approval=>setVariableApprovals(prior=>({...prior,[row.vendorItem.id]:approval}))} industry={industry} allCatalogItems={catalogItems} allVendorItems={vendorItems} allMappings={mappings} settings={settings} key={`${orgId}:${userId||""}:${row.vendorItem.id}`} {...row} orgId={orgId} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onDetails={()=>onDetails(row.item.id)} />)}
         {!group.rows.length&&<tr><td colSpan={visibleColumns.length+(!autoSave?1:0)} style={cellStyle}>No vendor listing linked yet. <button onClick={()=>onDetails(group.id)}>Details</button></td></tr>}
         </tbody>
       </table></div>;
