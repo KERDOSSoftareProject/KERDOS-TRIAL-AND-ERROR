@@ -38,6 +38,8 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
   const [categoryFilter,setCategoryFilter]=useState("");
   const [vendorFilter,setVendorFilter]=useState("");
   const [catalogSortMode,setCatalogSortMode]=useState("alphabetical");
+  const tierFilter=Number(catalogSortMode)||null;
+  const browseSortMode=tierFilter?"alphabetical":catalogSortMode;
   const [remapOpenFor,setRemapOpenFor]=useState(null);
   const [remapSearch,setRemapSearch]=useState("");
   const [busyMappingId,setBusyMappingId]=useState(null);
@@ -127,14 +129,19 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
       return itemMatchesSearch(item,search);
     });
     // Apply the selected sort to the filtered KERDOS item list.
-    const sorted=[...items].sort((a,b)=>compareItems(a,b,catalogSortMode));
+    const sorted=[...items].sort((a,b)=>compareItems(a,b,browseSortMode));
     // Product details uses a single heading for the current category.
     if(categoryFilter){
       const label=categoryFilter===CATEGORY_REVIEW_FILTER?"Review categories":categoryFilter;
       return sorted.length?[{category:label,items:sorted}]:[];
     }
     return sorted.length?[{category:'Items',items:sorted}]:[];
-  },[productList,search,categoryFilter,vendorFilter,mappedOnly,categoryCorrections,catalogSortMode]);
+  },[productList,search,categoryFilter,vendorFilter,mappedOnly,categoryCorrections,browseSortMode]);
+
+  function showProductDetails(){
+    if(tierFilter)setCatalogSortMode(browseSortMode);
+    setRowView(false);
+  }
 
   function statusFor(item){
     if(!isMapped(item))return {label:"Not mapped",color:"#B26A00",bg:"#FFF3E0"};
@@ -410,8 +417,13 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
             {categoryList.map(category=><option key={category} value={category}>{category}</option>)}
             {categoryFilter===CATEGORY_REVIEW_FILTER&&<option value={CATEGORY_REVIEW_FILTER}>Review categories</option>}
           </select>}
-          {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>setCatalogSortMode(e.target.value)} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
-            <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
+          {!showReview&&<select aria-label="Sort" value={catalogSortMode} onChange={e=>{setCatalogSortMode(e.target.value);if(Number(e.target.value))setRowView(true);}} style={{...inp,width:"auto",minWidth:180,background:"white",color:"#174EAB",fontWeight:700}}>
+            <optgroup label="All tiers">
+              <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
+            </optgroup>
+            <optgroup label="Show one tier">
+              {[1,2,3,4].map(tier=><option key={tier} value={String(tier)}>Tier {tier}</option>)}
+            </optgroup>
           </select>}
 
           <button aria-pressed={baseFieldsOnly} onClick={()=>{setBaseFieldsOnly(value=>!value);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn(baseFieldsOnly?"#003584":"#E8F1FB",baseFieldsOnly?"white":"#003584")}>{baseFieldsOnly?"Full catalog":"Base fields trial"}</button>
@@ -424,7 +436,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
               <button disabled={!productList.length} onClick={()=>{setActionsOpen(false);downloadTextFile(`catalog-export-${new Date().toISOString().split("T")[0]}.csv`,buildCatalogExportCSV(productList,vendors),"text/csv");}} style={btn('#E8F1FB','#003584')}>Export (CSV)</button>
               <hr/>
               <button onClick={()=>{setActionsOpen(false);setRowView(true);setShowReview(false);setMappedOnly(false);}} style={btn('#EEE','#173C70')}>Item list</button>
-              <button onClick={()=>{setActionsOpen(false);setRowView(false);setShowReview(false);}} style={btn('#EEE','#173C70')}>Product details</button>
+              <button onClick={()=>{setActionsOpen(false);showProductDetails();setShowReview(false);}} style={btn('#EEE','#173C70')}>Product details</button>
               <button onClick={()=>{setActionsOpen(false);setSourceReviewOpen(true);}} style={btn('#EEE','#173C70')}>Review incoming rows</button>
               {canManage&&<>
                 <hr/>
@@ -629,7 +641,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
         <div style={{background:"white",borderRadius:10,padding:20,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <p style={{color:"#888",fontSize:13,margin:0}}>No items match that search.</p>
         </div>
-      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={catalogSortMode} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onPreferBrand={(id,brand)=>handleItemSetting(id,{preferred_brand:brand,brand_locked:!!brand,locked_brand:brand})} onDetails={id=>{setRowView(false);setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
+      ):rowView?<CatalogRows mobileDetails={mobileDetails} autoSave userId={userId} baseFieldsOnly={baseFieldsOnly} sortMode={browseSortMode} tierFilter={tierFilter} industry={industry} settings={settings} editors={editors} orgId={orgId} items={groupedItems.flatMap(g=>g.items)} catalogItems={catalogItems} vendorItems={vendorItems} mappings={mappings} vendors={vendors} categories={categories} vocabulary={vocabulary} canManage={canManage} onUpdated={onUpdated} onPreferBrand={(id,brand)=>handleItemSetting(id,{preferred_brand:brand,brand_locked:!!brand,locked_brand:brand})} onDetails={id=>{showProductDetails();setMapPanelOpenFor(id);}} />:groupedItems.map(group=>(
         <div key={group.category} style={{marginBottom:20}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingLeft:2}}>
             {canManage&&<input type="checkbox"
