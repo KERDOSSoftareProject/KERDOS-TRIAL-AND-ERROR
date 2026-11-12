@@ -85,10 +85,11 @@ export function buildProductAssociations({vendorItems=[],catalogItems=[],mapping
   groupedListings:groups.reduce((n,g)=>n+g.rows.length,0)};
 }
 
-// Approval concerns identity alone, and expires when the source identity or
-// accepted target changes. Pack, price and all field checks stay independent.
+// Approval concerns product identity alone. A client-entered listing brand
+// does not undo the accepted group; preference is checked when ordering.
+// A changed description or target still requires a fresh identity review.
 export function productGroupApproved(row,item,mapping){
  const record=row?.field_resolutions?.product_group;
  return !!item&&!!record&&record.confirmed!==false&&mapping?.match_method==='manual'&&mapping.comparison_track==='exact'&&mapping.confidence_score===100&&
-  record.catalogItemId===item?.id&&mapping.catalog_item_id===item?.id&&record.description===row.description&&record.brand===(row.brand??null);
+  record.catalogItemId===item?.id&&mapping.catalog_item_id===item?.id&&record.description===row.description;
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {configureProcurement} from '../src/procurement.js';
+import {orderable,solveOrder,supportsOrderUnit} from '../src/core/ordering.js';
 import {buildProductAssociations,productGroupApproved,productAssociationIdentity,associationProfile} from '../src/core/product-associations.js';
 import {productGroupRequest} from '../src/services/product-associations.js';
 import {orderGuideAssessment} from '../src/core/catalog-fields.js';
@@ -74,6 +75,8 @@ configureProcurement({industry:'restaurant'});
 const item={id:'target',name:'Pomace Oil',category_id:'cat',master_item_number:100,comparison_mode:'alternatives'},mapping={catalog_item_id:'target',comparison_track:'exact',confidence_score:100,match_method:'manual'};
 const approved={...a,field_resolutions:{product_group:{catalogItemId:'target',description:a.description,brand:a.brand}}};
 assert.equal(productGroupApproved(approved,item,mapping),true);
+assert.equal(productGroupApproved({...approved,brand:'Wrights'},item,mapping),true,
+ 'adding a client brand does not undo an approved product identity');
 assert.equal(productGroupApproved({...approved,field_resolutions:{product_group:{...approved.field_resolutions.product_group,confirmed:false}}},item,mapping),
  false,'an unconfirmed placement cannot act as a client identity approval even with exact mapping metadata');
 assert.equal(productGroupApproved({...approved,description:'Tomato paste'},item,mapping),false);
@@ -86,5 +89,22 @@ const complete={...approved,organization_id:'org',vendor_id:'a',pack_size:'4/1 G
 const different={...complete,id:'peer',vendor_id:'b',pack_size:'4/3 L',description:'OIL POMACE 100%',field_resolutions:{}};
 const groupedFields={...fields,item:{...item,category_reason:'confirmed'},vendorItem:complete,peers:[different]};
 assert.equal(orderGuideAssessment(groupedFields).evidence.pack.accuracy>=90,true,'accepted group does not treat different purchasing packs as a source conflict');
+const preferred={...complete,brand:'Wrights',field_resolutions:{...complete.field_resolutions,
+ brand:{value:'Wrights',confirmedBy:'owner'},selling_unit:{value:'CASE',confirmedBy:'owner'},row_approval:{confirmedBy:'owner'}}};
+const preferredItem={...groupedFields.item,brand_locked:true,locked_brand:'Wrights',preferred_brand:'Wrights'};
+const preferredAssessment=orderGuideAssessment({...groupedFields,item:preferredItem,vendorItem:preferred});
+assert.equal(preferredAssessment.ready,true,'confirmed preferred listing remains orderable with a different-pack vendor in its group');
+assert.equal(orderGuideAssessment({...groupedFields,item:preferredItem,vendorItem:{...preferred,brand:'Other'}}).blockers.includes('brand'),true,
+ 'the preferred brand still restricts ordering to matching listings');
+const preferredOffer={vendorId:'a',vendorName:'Vendor A',vendorItemId:preferred.id,
+ matchTrack:'exact',matchConfidence:100,packSize:preferred.pack_size,quoteBasis:'case',casePrice:20,
+ expired:false,priceUnavailable:false,invoiceOnly:false,unverified:!preferredAssessment.ready,
+ brandMismatch:false,basisUnconvertible:false};
+assert.equal(orderable(preferredOffer),true,'the Order Guide add and remove controls can become active');
+assert.equal(supportsOrderUnit(preferredOffer,'case'),true);
+const assigned=solveOrder([{catalogItemId:item.id,name:item.name,quantity:1,orderUnit:'case',
+ options:[preferredOffer],forcedVendorId:preferredOffer.vendorItemId}],[{id:'a',name:'Vendor A'}]);
+assert.equal(assigned[0].assignedVendorId,'a','adding the preferred listing reaches its vendor basket');
+assert.equal(assigned[0].unorderable,false);
 assert.equal(orderGuideAssessment({...groupedFields,vendorItem:{...complete,selling_unit:null,price_basis:null}}).ready,false,'accepting identity does not supply a quoted unit');
 console.log('PASS product association engine/service/readiness: complete coverage, examples, deterministic ordering, restrictions/rejections, independent fields, stale identity and industry-neutral data contract.');
