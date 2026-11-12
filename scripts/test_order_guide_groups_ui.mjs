@@ -11,7 +11,7 @@ try{
 import React from 'react';import Renderer,{act} from 'react-test-renderer';import assert from 'node:assert/strict';
 const store=new Map([['kerdos.activeTab.v2','order']]);const storage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};globalThis.sessionStorage=storage;globalThis.localStorage=storage;
 const listeners={};let scrollRows=[];
-globalThis.window={addEventListener:(name,listener)=>{listeners[name]=listener;},removeEventListener:()=>{},innerHeight:1000,requestAnimationFrame:cb=>setTimeout(cb,0),cancelAnimationFrame:clearTimeout,history:{scrollRestoration:'auto'},scrollTo:()=>{},location:{origin:'https://test.example'}};
+globalThis.window={addEventListener:(name,listener)=>{listeners[name]=listener;},removeEventListener:()=>{},innerHeight:1000,scrollY:0,requestAnimationFrame:cb=>setTimeout(cb,0),cancelAnimationFrame:clearTimeout,history:{scrollRestoration:'auto'},scrollTo:()=>{},location:{origin:'https://test.example'}};
 globalThis.document={addEventListener:()=>{},removeEventListener:()=>{},querySelectorAll:()=>scrollRows};globalThis.alert=message=>{throw new Error(message);};
 const categories=[{id:'cat',name:'Dry Goods',is_holding_pen:false}];
 const vendorItems=['Zucchini','Honey Mustard Dressing','Avocado','USA'].map((description,i)=>({id:'vi'+i,organization_id:'org',vendor_id:'vendor',description,brand:'',pack_size:'4/1 GAL',selling_unit:'CASE',price_basis:'case',price:20,price_source:'price_list',last_updated:new Date().toISOString(),field_resolutions:{},row_revision:0}));
@@ -32,10 +32,15 @@ assert.ok(guideText.indexOf('Avocados')<guideText.indexOf('Honey Mustard'));asse
 const plus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equal(plus.length,3);assert.ok(plus.every(b=>b.props.disabled),'all candidate offers stay unorderable');
 const alternatives=tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});assert.match(text(alternatives),/Sample Vendor/);assert.match(text(alternatives),/20.00/);assert.equal(alternatives.props['aria-expanded'],false);
 const orderRow=name=>tree.root.findAllByProps({className:'order-item'}).find(row=>text(row).includes(name));
-scrollRows=[{dataset:{orderItemName:'ci0'},getBoundingClientRect:()=>({top:200,bottom:250})},
+assert.equal(orderRow('Avocados').props['data-active'],true,'opening the Order Guide highlights its first item');
+scrollRows=[{dataset:{orderItemName:'ci2'},getBoundingClientRect:()=>({top:200,bottom:250})},
  {dataset:{orderItemName:'ci1'},getBoundingClientRect:()=>({top:620,bottom:670})}];
+window.scrollY=500;
 await act(async()=>{listeners.scroll();await new Promise(resolve=>setTimeout(resolve,5));});
 assert.equal(orderRow('Honey Mustard').props['data-active'],true,'the row highlight follows the visible part of the scrolled guide');
+window.scrollY=0;
+await act(async()=>{listeners.scroll();await new Promise(resolve=>setTimeout(resolve,5));});
+assert.equal(orderRow('Avocados').props['data-active'],true,'returning to the top highlights the first item');
 await act(async()=>orderRow('Honey Mustard').props.onClickCapture());
 assert.equal(orderRow('Honey Mustard').props['data-active'],true,'the row being edited stays highlighted');
 await act(async()=>orderRow('Avocados').props.onFocusCapture());
