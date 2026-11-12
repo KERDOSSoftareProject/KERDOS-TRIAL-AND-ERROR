@@ -146,6 +146,8 @@ export default function App() {
   const [vendorOverride,setVendorOverride]=useState({});
   const [negotiatedPrices,setNegotiatedPrices]=useState({}); // unit key -> vendor ID -> agreed price
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
+  const [activeOrderItem,setActiveOrderItem]=useState(null);
+  const orderItemClickedAt=useRef(0);
   const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,editorKey:tab==="order"?openPriceMenu:null,
     canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping,patch)=>{
       // A legacy device-only price must not conceal a freshly saved quote.
@@ -163,6 +165,26 @@ export default function App() {
     }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
   useEffect(()=>{if(tab!=="order")setOpenPriceMenu(null);},[tab]);
+  useEffect(()=>{
+    if(tab!=="order")return;
+    let frame=0;
+    const followVisibleRow=()=>{
+      frame=0;
+      if(Date.now()-orderItemClickedAt.current<300)return;
+      const target=window.innerHeight*0.65;
+      let closest=null,distance=Infinity;
+      for(const element of document.querySelectorAll('[data-order-item-name]')){
+        const rect=element.getBoundingClientRect();
+        if(rect.bottom<=0||rect.top>=window.innerHeight)continue;
+        const gap=Math.abs((rect.top+rect.bottom)/2-target);
+        if(gap<distance){closest=element.dataset.orderItemName;distance=gap;}
+      }
+      if(closest)setActiveOrderItem(previous=>previous===closest?previous:closest);
+    };
+    const onScroll=()=>{if(!frame)frame=window.requestAnimationFrame(followVisibleRow);};
+    window.addEventListener('scroll',onScroll,{passive:true});
+    return ()=>{window.removeEventListener('scroll',onScroll);if(frame)window.cancelAnimationFrame(frame);};
+  },[tab]);
   const mobileOrder=useLayoutQuery(mobileOrderQuery);
   const mobileDetails=useLayoutQuery(`${mobileOrderQuery}, (hover: none) and (pointer: coarse)`);
   useEffect(()=>{
@@ -958,6 +980,12 @@ export default function App() {
               .order-item-listings { border-top:1px solid #E3E7ED; }
               .order-item-grid { display:grid; grid-template-columns:minmax(220px,1fr) 88px 104px minmax(370px,420px); gap:2px 10px; align-items:center; padding:8px 12px; }
               .order-item { display:contents; }
+              .order-item[data-active="true"] > .order-item-name,
+              .order-item[data-active="true"] > .order-item-unit,
+              .order-item[data-active="true"] > .order-item-qty,
+              .order-item[data-active="true"] > .order-item-price { background:#FFF1BF!important; box-shadow:inset 0 2px #D49400,inset 0 -2px #D49400; }
+              .order-item[data-active="true"] > .order-item-name { border-left:3px solid #D49400; }
+              .order-item[data-active="true"] > .order-item-price { border-right:3px solid #D49400; }
               @media (max-width:1240px) {
                 .order-item-grid { grid-template-columns:minmax(120px,1fr) 80px 104px minmax(190px,1.35fr); }
               }
@@ -1085,7 +1113,7 @@ export default function App() {
                             setOpenPriceMenu(null);
                           }}/>;
                         const cells=[
-                          <div className="order-item-name" key={item.catalogItemId+"_name"} draggable={!activeBlocked}
+                          <div className="order-item-name" data-order-item-name={item.catalogItemId} key={item.catalogItemId+"_name"} draggable={!activeBlocked}
                             onDragStart={event=>{event.dataTransfer.effectAllowed="copy";event.dataTransfer.setData("text/plain",activeKey);setDragItem({catalogItemId:item.catalogItemId,key:activeKey,name:item.name});}}
                             onDragEnd={()=>{setDragItem(null);setDropTarget(null);}}
                             title={activeBlocked?undefined:"Drag onto a vendor basket to order from that vendor"}
@@ -1146,7 +1174,9 @@ export default function App() {
                             :<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>{alternativesMenu}</div>]:[]),
                         ];
 
-                        return <div className="order-item" key={item.catalogItemId}>{cells}</div>;
+                        return <div className="order-item" key={item.catalogItemId} data-active={activeOrderItem===item.catalogItemId}
+                          onClickCapture={()=>{orderItemClickedAt.current=Date.now();setActiveOrderItem(item.catalogItemId);}}
+                          onFocusCapture={()=>setActiveOrderItem(item.catalogItemId)}>{cells}</div>;
                       })}
                     </div>
                   </div>
