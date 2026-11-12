@@ -148,7 +148,7 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
   if(origin.root?.source==='sheet'||origin.root?.source==='invoice'||origin.confirmation?.documentConfirmation||
     !amountSource.sourceDocumentId||(!amountEdited&&Number(amountSource.row.price)!==Number(listing.price))||
     amountSource.row.description&&procurement.compareProductIdentity(amountSource.row.description,listing.description).status==='different'||
-    printedQuoteEvidence(amountSource.row,procurement).present)return listing;
+    printedQuoteEvidence(amountSource.row,procurement,{ignoreLegacyOrderingUnit:true}).present)return listing;
   const group=listing.field_resolutions?.product_group;
   const sameGroup=item&&mapping?.catalog_item_id===item.id&&
     (mapping.comparison_track==='exact'&&mapping.confidence_score===100||

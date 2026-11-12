@@ -5,7 +5,7 @@ import {preparePriceImport} from './price-import-review.js';
 import {explainImportRow} from './import-evidence.js';
 import {catalogMigrationAssessment} from './catalog-migration-tier.js';
 import {orderGuideAssessment} from './catalog-fields.js';
-import {calculatedUnitCost} from './quote-controls.js';
+import {calculatedUnitCost,catalogPackEachCost} from './quote-controls.js';
 const scope={organizationId:'org',vendorId:'incoming'};
 const row={code:'X',description:'STEEL WASHERS',packSize:'4/5 LB',price:35,sellingUnit:null};
 const peers=[34,36].map((price,i)=>({id:'ref-'+i,organization_id:'org',vendor_id:'other-'+i,description:row.description,pack_size:row.packSize,
@@ -45,6 +45,20 @@ for(const industry of ['restaurant','construction']){
 
  const item={id:'catalog',name:row.description};
  const mapping={catalog_item_id:item.id,comparison_track:'exact',confidence_score:100};
+ const legacyType={...peers[0],id:'legacy-type',vendor_id:scope.vendorId,selling_unit:null,price_basis:null,
+  price:35,price_unavailable:true,import_row:{sourceDocumentId:'raw',rowKey:'row:0',reviewRequired:true,
+   conflicts:['Quoted unit is unresolved.'],row:{...row,sellingUnit:'P',sellingUnitSource:'header: Type:'}}};
+ const legacyBefore=structuredClone(legacyType);
+ const supported=normalizeCatalogQuote(legacyType,peers,{item,mapping,procurement:context});
+ assert.equal(supported.quoteBasisInference?.value,'CASE','a legacy ordering Type token leaves room for evidence-backed pricing inference');
+ assert.deepEqual(catalogPackEachCost(supported,context),{price:8.75,estimated:true});
+ assert.equal(catalogMigrationAssessment({item,listing:supported,mapping,procurement:context}).tier,2);
+ assert.equal(catalogPackEachCost(normalizeCatalogQuote(legacyType,peers.slice(0,1),{item,mapping,procurement:context}),context),null,
+   'the same Type token and price cannot establish a price per each without independent support');
+ assert.equal(normalizeCatalogQuote({...legacyType,import_row:{...legacyType.import_row,row:{...legacyType.import_row.row,
+   sellingUnitSource:'header: Quoted per'}}},peers,{item,mapping,procurement:context}).quoteBasisInference,undefined,
+   'an unresolved printed pricing unit remains evidence for review');
+ assert.deepEqual(legacyType,legacyBefore);
  const saved={...peers[0],id:'saved',vendor_id:scope.vendorId,vendor_item_code:row.code,price:16.75,
   import_row:{sourceDocumentId:'raw',row:{description:row.description,price:16.75,sellingUnit:null}},
   field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'reviewer'}}};
@@ -56,6 +70,8 @@ for(const industry of ['restaurant','construction']){
  assert.equal(normalized.price,16.75);
  assert.equal(normalized.quoteBasisInference.evidence.inferredCasePrice,67);
  assert.equal(calculatedUnitCost(normalized,{procurement:context}).price,3.35);
+ assert.deepEqual(catalogPackEachCost(normalized,context),{price:16.75,estimated:true},
+   'an inferred each quote is already the price of one package');
  const mixedPacks=[
    {...comparables[0],pack_size:'2/5 LB',price:27.45},
    {...comparables[1],pack_size:'2/20 LB',price:131.28},

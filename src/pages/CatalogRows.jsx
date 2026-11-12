@@ -6,7 +6,7 @@ import {trialSourceValue,sourceTrialUnitCost,trialListingLabel} from '../core/so
 import {compareItems} from '../core/catalog-browse.js';
 import {unitLabel} from "../core/unit-labels.js";
 import {editablePack,serializePack} from "../core/pack-editor.js";
-import {calculatedUnitCost,comparisonUnits,defaultComparisonUnit,verifiedFullPackPrice,verifiedPackEachCost} from "../core/quote-controls.js";
+import {calculatedUnitCost,catalogPackEachCost,comparisonUnits,defaultComparisonUnit,verifiedFullPackPrice} from "../core/quote-controls.js";
 import {buildCategoryDropdown} from "../services/categories.js";
 import {useState,useEffect,useRef} from "react";
 import {backend} from "../backend/index.js";
@@ -107,8 +107,8 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
   const inputValue=key=>Object.hasOwn(draft,key)?current[key]??"":displayed(key);
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
-  const eachCost=autoSave&&!baseFieldsOnly?verifiedPackEachCost(projected):null;
-  const showEach=eachCost!=null&&(!current.unit_cost_unit||current.unit_cost_unit==='EA');
+  const eachCost=autoSave&&!baseFieldsOnly?catalogPackEachCost(projected):null;
+  const showEach=!!eachCost&&(!current.unit_cost_unit||current.unit_cost_unit==='EA');
   const shownPack=packParts||editablePack(inputValue("pack_size"));
   const confirmedFields=values=>({approve_row:true,...Object.fromEntries(Object.entries(values).filter(([key,value])=>
     Object.hasOwn(draft,key)||String(value??'')!==String(original[key]??'')))});
@@ -213,7 +213,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
         if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
         const f=key!=='unitCost'?evidence[key]:inference?.kind==='unresolved'?{...evidence[key],value:null}:
           baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:
-          showEach?{...evidence[key],value:eachCost,unit:'EA',estimated:false}:evidence[key];let content;
+          showEach?{...evidence[key],value:eachCost.price,unit:'EA',estimated:eachCost.estimated}:evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
         else if(key==="vendor")content=<span>{f.value}</span>;
         else if(key==="vendorItemNumber")content=<span>{baseFieldsOnly?trialListingLabel(current,f.value):f.value||"NVIN pending"}</span>;
@@ -243,7 +243,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={inputValue(fields[key])} onChange={e=>edit(fields[key],e.target.value)} />;
         else content=<>
           {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
-          {eachCost!=null&&!showEach&&<small style={{display:"block",marginTop:4}}>Each {formatMoney(eachCost)}</small>}
+          {eachCost&&!showEach&&<small style={{display:"block",marginTop:4}}>{eachCost.estimated?'Est. each':'Each'} {formatMoney(eachCost.price)}</small>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":showEach?"EA":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
             {current.unit_cost_unit&&!comparisonUnits(calculationPack).includes(current.unit_cost_unit)&&<option value={current.unit_cost_unit}>{unitLabel(current.unit_cost_unit)} — check pack</option>}

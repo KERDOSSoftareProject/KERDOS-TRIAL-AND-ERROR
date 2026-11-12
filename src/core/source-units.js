@@ -1,5 +1,8 @@
 import {getProcurementContext} from "../procurement.js";
 
+const isOrderingHeader=value=>/^(?:order(?:ing)? unit|order uom|type)$/i.test(String(value||'').trim().replace(/:$/,'').trim());
+const directPriceSources=new Set(['price cell','price header','document note','manual']);
+
 // Read only explicit price units. A pack's measurement is not a price unit.
 export function canonicalQuoteUnit(value, procurement=getProcurementContext()){
   const basis=procurement.priceBasisFor(String(value||"").trim().replace(/[.)]+$/,""));
@@ -34,18 +37,20 @@ export function documentQuoteUnit(text, procurement=getProcurementContext()){
 export function hasPrintedQuoteUnit(row, procurement=getProcurementContext()){
   return printedQuoteEvidence(row,procurement).present;
 }
-export function printedQuoteEvidence(row,procurement=getProcurementContext()){
+export function printedQuoteEvidence(row,procurement=getProcurementContext(),{ignoreLegacyOrderingUnit=false}={}){
   const present=value=>String(value??'').trim()!=='';
   const retained=row.originalFields||{};
   const binding=row.fieldIdentification?.bindings?.sellingUnit;
   const price=row.fieldIdentification?.bindings?.price;
   const header=price?.header||row.priceHeader||'';
   const value=String(price?.rawValue??'').trim();
-  const ordering=/^(?:order(?:ing)? unit|order uom|type)$/i.test(binding?.header||row.sellingUnitHeader||'');
-  const clues=Array.isArray(row.quoteUnitEvidence)?row.quoteUnitEvidence:[];
-  const direct=[retained.sellingUnit,
-    binding?.evidence!=='inferred'&&!ordering?binding?.rawValue:null,
-    !['inferred','remembered','invoice'].includes(row.sellingUnitSource)?row.sellingUnit:null,
+  const orderingHeader=binding?.header||row.sellingUnitHeader||'';
+  const ordering=/^(?:order(?:ing)? unit|order uom|type)$/i.test(orderingHeader);
+  const ignoreLegacyOrder=ignoreLegacyOrderingUnit&&isOrderingHeader(orderingHeader||String(row.sellingUnitSource||'').replace(/^header:\s*/i,''));
+  const clues=Array.isArray(row.quoteUnitEvidence)?row.quoteUnitEvidence.filter(clue=>!ignoreLegacyOrder||directPriceSources.has(clue?.source)):[];
+  const direct=[!ignoreLegacyOrder?retained.sellingUnit:null,
+    binding?.evidence!=='inferred'&&!ordering&&!ignoreLegacyOrder?binding?.rawValue:null,
+    (!ignoreLegacyOrder||directPriceSources.has(row.sellingUnitSource))&&!['inferred','remembered','invoice'].includes(row.sellingUnitSource)?row.sellingUnit:null,
     ...clues.map(clue=>clue?.unit),
   ].filter(present);
   const cellUnit=unitInPrice(value,procurement),headerUnit=unitInPriceHeader(header,procurement);
@@ -58,7 +63,7 @@ export function printedQuoteEvidence(row,procurement=getProcurementContext()){
 }
 export function applySourceUnits(row,{priceCell,priceHeader,documentUnit}={}, procurement=getProcurementContext()){
   // An ordering-unit column does not state what the quoted price covers.
-  if(/^(?:order(?:ing)? unit|order uom|type)$/i.test(row.sellingUnitHeader||'')&&!['price cell','price header','document note','manual'].includes(row.sellingUnitSource))row={...row,orderingUnit:row.orderingUnit||row.sellingUnit,sellingUnit:null,billingUnitEvidence:null,sellingUnitSource:null};
+  if(/^(?:order(?:ing)? unit|order uom|type)$/i.test(row.sellingUnitHeader||'')&&!directPriceSources.has(row.sellingUnitSource))row={...row,orderingUnit:row.orderingUnit||row.sellingUnit,sellingUnit:null,billingUnitEvidence:null,sellingUnitSource:null};
   const clues=[
     row.sellingUnit&&{unit:canonicalQuoteUnit(row.sellingUnit, procurement),source:row.sellingUnitSource||"column"},
     {unit:unitInPrice(priceCell, procurement),source:"price cell"},

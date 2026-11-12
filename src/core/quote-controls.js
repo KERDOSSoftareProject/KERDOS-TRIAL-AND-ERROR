@@ -50,17 +50,23 @@ export function verifiedFullPackPrice(row,procurement=getProcurementContext()){
     original.priceUnavailable||original.priceNeedsReview||original.cellConflicts?.length||
     (row.price_unavailable&&!basisOnlyHold)||
     procurement.comparePurchasingPack(row.pack_size,originalPack).status!=='same')return null;
-  return printedQuoteEvidence(original,procurement).unit==='CASE'?price:null;
+  return printedQuoteEvidence(original,procurement,{ignoreLegacyOrderingUnit:true}).unit==='CASE'?price:null;
 }
 
-export function verifiedPackEachCost(row,procurement=getProcurementContext()){
+export function catalogPackEachCost(row,procurement=getProcurementContext()){
   if(row.field_resolutions?.unit_cost_override?.value)return null;
   const pack=procurement.parsePackSize(row.pack_size);
   if(!pack?.parsed||!row.field_resolutions?.pack_size&&row.import_row?.baseFieldCompletion?.fields?.pack_size?.caseCountKnown===false)return null;
   const count=pack.dimension==='count'&&pack.levels.length===1?pack.baseTotal:pack.caseQty;
   if(!Number.isSafeInteger(count)||count<1)return null;
-  const price=verifiedFullPackPrice(row,procurement);
-  return price===null?null:price/count;
+  const verifiedPrice=verifiedFullPackPrice(row,procurement);
+  if(verifiedPrice!==null)return {price:verifiedPrice/count,estimated:false};
+  const inference=row.quoteBasisInference;
+  if(inference?.kind!=='inferred'||inference.value!==row.selling_unit)return null;
+  const basis=procurement.priceBasisFor(inference.value);
+  if(!basis)return null;
+  const inferredPrice=procurement.casePriceFromQuote(row.price,basis.basis,basis.unit,row.pack_size);
+  return inferredPrice===null?null:{price:inferredPrice/count,estimated:true};
 }
 
 export function calculatedUnitCost(row,{industry='',procurement=getProcurementContext()}={}){
