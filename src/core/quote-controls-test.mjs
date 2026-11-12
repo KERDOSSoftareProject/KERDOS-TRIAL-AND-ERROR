@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {quoteGroup,quoteMetrics,chooseQuoteGroup,comparisonUnits,calculatedUnitCost} from './quote-controls.js';
+import {quoteGroup,quoteMetrics,chooseQuoteGroup,comparisonUnits,calculatedUnitCost,verifiedPackEachCost} from './quote-controls.js';
 import {prepareCatalogCorrection} from '../services/catalog-rows.js';
 import {casePriceFromQuote,estimateCaseCost,quotePriceOnBasis,measuredQuoteRate,configureVocabulary} from '../procurement.js';
 assert.equal(quoteGroup('CSE'),'case');assert.equal(quoteGroup('lbs'),'weight');assert.equal(quoteGroup('FL OZ'),'volume');
@@ -20,6 +20,22 @@ assert.deepEqual(comparisonUnits('4/5 LB'),['LB','OZ','KG','G','EA']);
 assert.equal(calculatedUnitCost({...row,pack_size:'4/32 FL OZ'},{industry:'Restaurant'}).price,40);
 assert.equal(calculatedUnitCost({...row,pack_size:'24 CT'},{industry:'Restaurant'}).unit,'EA');
 assert.equal(calculatedUnitCost({...row,pack_size:'6/2 EA',unit_cost_unit:'DOZ'}).price,40);
+const retainedPackQuote={...row,pack_size:'6/5 LB',price:51.64,selling_unit:null,
+  import_row:{sourceDocumentId:'sheet',rowKey:'row:0',row:{packSize:'6/5 LB',price:'$51.64',priceHeader:'Case Price'}}};
+assert.equal(verifiedPackEachCost(retainedPackQuote),51.64/6);
+assert.equal(verifiedPackEachCost({...retainedPackQuote,price_unavailable:true,
+  import_row:{...retainedPackQuote.import_row,conflicts:['Quoted unit is unresolved.']}}),51.64/6);
+assert.equal(calculatedUnitCost({...retainedPackQuote,unit_cost_unit:'LB'}).price,1.7213);
+assert.equal(verifiedPackEachCost({...retainedPackQuote,price:60}),null,'an edited price cannot borrow the old amount evidence');
+assert.equal(verifiedPackEachCost({...retainedPackQuote,pack_size:'12/5 LB'}),null,'an unmatched pack cannot borrow the source case price');
+for(const sourceRow of [{priceHeader:'Price'},{priceHeader:'Each Price'},{sellingUnit:'LB'}]){
+  assert.equal(verifiedPackEachCost({...retainedPackQuote,import_row:{...retainedPackQuote.import_row,
+    row:{...retainedPackQuote.import_row.row,...sourceRow}}}),null);
+}
+const confirmedPack={...row,field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}};
+assert.equal(verifiedPackEachCost({...confirmedPack,pack_size:'24 CT',price:48}),2);
+assert.equal(verifiedPackEachCost({...confirmedPack,pack_size:'6/2 EA',price:48}),8);
+assert.equal(verifiedPackEachCost({...confirmedPack,price_unavailable:true}),null);
 const mapping={id:'m',organization_id:'o',vendor_item_id:'vi'};
 assert.equal(prepareCatalogCorrection({organizationId:'o',vendorItem:row,mapping,patch:{selling_unit:'WEIGHT',brand:'A'}}).priceAvailable,false);
 assert.throws(()=>prepareCatalogCorrection({organizationId:'o',vendorItem:row,mapping,patch:{unit_cost_unit:'GAL'}}),/compatible/);
