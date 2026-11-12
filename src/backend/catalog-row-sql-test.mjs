@@ -265,13 +265,14 @@ assert.equal(requalified?.mappingId,mapping,'a valid new pack can reuse the expl
 assert.equal(requalified.verification.match_method,'manual','the existing client approval retains its provenance');
 for(const row of [
  {...checked.vendorItem,description:'Different product'},
- {...checked.vendorItem,brand:'Different brand'},
  {...checked.vendorItem,price_quote_valid_until:'2000-01-01'},
  {...checked.vendorItem,import_row:{reviewRequired:true}},
  {...checked.vendorItem,field_resolutions:{...checked.vendorItem.field_resolutions,product_group:{...approval,confirmed:false}}},
 ]){
  assert.equal(autoPlaceable({...correctedGroup,vendorItems:[row,alternative]}).length,0);
 }
+assert.equal(autoPlaceable({...correctedGroup,vendorItems:[{...checked.vendorItem,brand:'Different brand'},alternative]}).length,1,
+ 'a client brand edit does not invalidate the product group after a pack correction');
 assert.equal(autoPlaceable({...correctedGroup,catalogItems:[{...groupedItem,comparison_mode:'exact'}]}).length,0);
 console.log('Pack correction passed: manual product approval can be reused for a current, independently valid alternative.');
 await db.exec(fs.readFileSync(root+'/knowledge/migration_023_automatic_alternatives.sql','utf8'));

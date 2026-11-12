@@ -29,7 +29,8 @@ const guideText=text(tree.toJSON());assert.ok(guideText.includes('KERDOS #501'))
 assert.ok(guideText.indexOf('Avocados')<guideText.indexOf('Honey Mustard'));assert.ok(guideText.indexOf('Honey Mustard')<guideText.indexOf('Zucchini'));
 const plus=tree.root.findAllByType('button').filter(b=>text(b)==='+');assert.equal(plus.length,3);assert.ok(plus.every(b=>b.props.disabled),'all candidate offers stay unorderable');
 const alternatives=tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'});assert.match(text(alternatives),/Sample Vendor/);assert.match(text(alternatives),/20.00/);assert.equal(alternatives.props['aria-expanded'],false);
-assert.equal(alternatives.props['aria-description'],undefined,'held vendors do not count as ready quotes');
+assert.equal(alternatives.props['aria-description'],'2 vendors quote this item','blue marks multiple quoted vendor choices even when ordering is held');
+assert.equal(alternatives.props.style.background,'#E3F2FD');
 assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0,'listings start collapsed');
 assert.ok(!guideText.includes('Negotiated price'));assert.ok(!guideText.includes('Vendor price'));assert.ok(!guideText.includes('Power Ranked'));assert.ok(guideText.includes('PRICE'));assert.ok(!guideText.includes('Unit Price'));
 const basketBefore=text(tree.root.findByProps({className:'order-aside'}));
@@ -81,6 +82,9 @@ assert.equal(savedRequest.vendorItemId,'honey-second');assert.deepEqual(savedReq
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Sample Vendor')).props.onClick());
 assert.match(text(priceButton()),/Sample Vendor/);assert.equal(tree.root.findAllByProps({'aria-label':'Group listings'}).length,0);
+assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Clear selection').length,0,
+ 'choosing a vendor adds no detail row below the price choice');
+assert.equal(priceButton().props.style.background,'#E3F2FD','multiple vendor choices stay blue');
 assert.doesNotMatch(text(tree.toJSON()),/Use lowest price/);
 await act(async()=>priceButton().props.onClick());
 await act(async()=>tree.root.findByProps({'aria-label':'Price for listing honey-second'}).props.onChange({target:{value:'9.00'}}));
@@ -121,7 +125,9 @@ assert.match(text(priceButton()),/Sample Vendor.*5\.00/,'the Each price is the l
 await act(async()=>tree.root.findByProps({'aria-label':'Price choices for Honey Mustard'}).props.onClick());
 assert.deepEqual(unitPrices(tree.root.findByProps({'aria-label':'Group listings'})),['$5.00 / gal','$0.90 / lb']);
 await act(async()=>tree.root.findByProps({'aria-label':'Group listings'}).findAllByType('button').find(b=>b.props['aria-label']?.startsWith('Select Second Vendor')).props.onClick());
-assert.equal(honeyUnit().props.value,'case');assert.match(text(priceButton()),/Second Vendor.*9\.00/);assert.match(text(tree.toJSON()),/1\/10 LB/);
+assert.equal(honeyUnit().props.value,'case');assert.match(text(priceButton()),/Second Vendor.*9\.00/);
+assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Clear selection').length,0,
+ 'switching order units does not add a detail row under the vendor choice');
 assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='+')[1].props.disabled,false,'a valid confirmed listing remains purchasable when another supplier quotes a different dimension');
 await act(async()=>tree.unmount());
 // F2.1: actual App assessment -> option flags -> controls -> basket. An
@@ -289,7 +295,7 @@ third.field_resolutions=structuredClone(expiring.field_resolutions);
 snapshot.mappings.push({...snapshot.mappings.find(mapping=>mapping.vendor_item_id===expiring.id),id:'each-incompatible-peer',vendor_item_id:third.id});
 await act(async()=>{tree=Renderer.create(React.createElement(App));});
 assert.match(text(priceButton()),/Sample Vendor.*16\.75/,'an approved but incomparable $1 volume pack cannot enter the weight ranking');
-assert.equal(priceButton().props['aria-description'],'2 vendors quote this item');
+assert.equal(priceButton().props['aria-description'],'3 vendors quote this item');
 await selectHoney('Third Vendor');
 assert.equal(honeyPlus().props.disabled,true,'the incompatible offer remains visible with a comparison hold');
 assert.match(priceButton().props.title,/comparison measurement/);

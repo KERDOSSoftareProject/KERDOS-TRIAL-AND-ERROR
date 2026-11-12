@@ -1074,7 +1074,7 @@ export default function App() {
                         const activeBlockReason=activeBlocked?(wrongUnit?"This listing has no quote for the selected unit":displayOption?blockReason(displayOption):"No quote for the selected unit"):null;
                         const allListings=[...allUnitListings,...item.linkedOptions.filter(o=>!supportsOrderUnit(o,selectedUnit))];
                         const pendingListingEdit=menuOpen?null:allListings.map(offer=>listingEdits.drafts[offer.vendorItemId]).find(edit=>edit?.error||edit?.phase==='queued'||edit?.phase==='saving');
-                        const vendorCount=new Set(rankedOptions.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
+                        const vendorCount=new Set(allUnitListings.filter(offer=>offer.unitPrice>0).map(offer=>offer.vendorId)).size;
                         const multipleVendors=vendorCount>1;
                         const alternativesMenu=menuOpen&&<OrderGuideListings canManage={['owner','manager'].includes(org.role)}
                           offers={allListings} selectedId={displayOption?.vendorItemId} vendorItems={vendorItems} unit={selectedUnit} listingEdits={listingEdits}
@@ -1118,10 +1118,6 @@ export default function App() {
                                 title={[activeBlocked&&activeBlockReason,multipleVendors&&`${vendorCount} vendors quote this item`].filter(Boolean).join(' · ')||undefined} style={{width:'100%',textAlign:'left',padding:'7px 9px',border:multipleVendors?`2px solid ${fieldHighlight.accent}`:'1px solid #CBD5E1',borderRadius:6,background:multipleVendors?fieldHighlight.fill:'white',cursor:'pointer',fontSize:12}}>
                                 {activeVendorName||'Select listing'} · {activePrice==null?'Price unavailable':formatMoney(activePrice)} <span style={{float:'right'}}>{menuOpen?'▴':'▾'}</span>
                               </button>
-                              {vendorOverride[activeKey]&&<div style={{display:'flex',justifyContent:'space-between',gap:6,alignItems:'baseline',marginTop:4}}>
-                                <small style={{color:'#52647A'}}>{[displayOption?.vendorItemCode,displayOption?.brand,displayOption?.packSize].filter(Boolean).join(' · ')}</small>
-                                <button onClick={()=>setVendorOverride(prev=>{const next={...prev};delete next[activeKey];return next;})} style={{fontSize:10,background:'none',border:0,padding:0,cursor:'pointer'}}>Clear selection</button>
-                              </div>}
                               {pendingListingEdit&&<small role={pendingListingEdit.error?'alert':'status'} style={{display:'block',color:pendingListingEdit.error?'#B42318':'#52647A',marginTop:4}}>{pendingListingEdit.error||'Saving listing changes…'}</small>}
                               </div>
                               {activeQty>1&&rankedOptions.some(opt=>opt.vendorId!==activeVendorId)&&(

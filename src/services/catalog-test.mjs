@@ -104,9 +104,10 @@ assert.equal(approvedMatch.track,"review","group approval cannot approve a new l
 const unconfirmedOil={...approvedOil,field_resolutions:{product_group:{
   ...approvedOil.field_resolutions.product_group,confirmed:false,
 }}};
+assert.equal((await matchOil({...approvedOil,brand:"Corrected brand"})).method,"product_group",
+  "changing a listing brand does not undo its approved product identity");
 for(const [result,reason] of [
   [await matchOil(unconfirmedOil),"an unconfirmed placement"],
-  [await matchOil({...approvedOil,brand:"Corrected brand"}),"a stale source approval"],
   [await matchOil(approvedOil,{...approvedLink,match_method:"rejected"}),"a rejected mapping"],
   [await matchOil(approvedOil,approvedLink,{...groupedItem,preferred_brand:"A"}),"an explicit brand preference"],
 ]){
