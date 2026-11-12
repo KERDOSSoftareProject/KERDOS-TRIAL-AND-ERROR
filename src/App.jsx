@@ -983,9 +983,9 @@ export default function App() {
               .order-item[data-active="true"] > .order-item-name,
               .order-item[data-active="true"] > .order-item-unit,
               .order-item[data-active="true"] > .order-item-qty,
-              .order-item[data-active="true"] > .order-item-price { background:#FFF1BF!important; box-shadow:inset 0 2px #D49400,inset 0 -2px #D49400; }
-              .order-item[data-active="true"] > .order-item-name { border-left:3px solid #D49400; }
-              .order-item[data-active="true"] > .order-item-price { border-right:3px solid #D49400; }
+              .order-item[data-active="true"] > .order-item-price { background:#DCEBFC!important; box-shadow:inset 0 2px #1565C0,inset 0 -2px #1565C0; }
+              .order-item[data-active="true"] > .order-item-name { border-left:3px solid #1565C0; }
+              .order-item[data-active="true"] > .order-item-price { border-right:3px solid #1565C0; }
               @media (max-width:1240px) {
                 .order-item-grid { grid-template-columns:minmax(120px,1fr) 80px 104px minmax(190px,1.35fr); }
               }
