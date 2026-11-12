@@ -171,11 +171,20 @@ export default function App() {
     const followVisibleRow=()=>{
       frame=0;
       if(Date.now()-orderItemClickedAt.current<300)return;
-      const target=window.innerHeight*0.65;
+      const rows=document.querySelectorAll('[data-order-item-name]');
+      const firstRow=rows[0];
+      if(!firstRow)return;
+      if(window.scrollY<=1){
+        setActiveOrderItem(firstRow.dataset.orderItemName);
+        return;
+      }
+      const controls=document.querySelector('.order-layout .workspace-browse-controls');
+      const visibleTop=Math.max(0,controls?.getBoundingClientRect().bottom??0);
+      const target=Math.max(visibleTop,window.innerHeight*0.65);
       let closest=null,distance=Infinity;
-      for(const element of document.querySelectorAll('[data-order-item-name]')){
+      for(const element of rows){
         const rect=element.getBoundingClientRect();
-        if(rect.bottom<=0||rect.top>=window.innerHeight)continue;
+        if(rect.bottom<=visibleTop||rect.top>=window.innerHeight)continue;
         const gap=Math.abs((rect.top+rect.bottom)/2-target);
         if(gap<distance){closest=element.dataset.orderItemName;distance=gap;}
       }
