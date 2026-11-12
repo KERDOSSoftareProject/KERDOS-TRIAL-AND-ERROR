@@ -13,17 +13,33 @@
 //      import-price-row code writes ONLY import_row (not selling_unit),
 //      capturing the inferred value and rationale in the DB record.
 //   2. Reload: values survive (read them back from backend._stores).
-//   3. Move: peerA's mapping shifts to catItemY. Now only peerB at X →
-//      1 vendor, below the ≥2 threshold → inference fails.
+//   3. Move (peer out): peerA's mapping shifts to catItemY. Now only
+//      peerB at X → 1 vendor, below the ≥2 threshold → inference fails.
 //   4. Recheck: re-import subject → import_row.evidence.sellingUnit
 //      is cleared and conflicts updated to "unresolved" — the listing
 //      is flagged for manual review.
+//   5. New listing lifecycle: (a) first import, no ex, no priorMapping →
+//      matchOrCreate places listing at catItemX, selling_unit=null (no group
+//      evidence yet — knownCatalogItemId is null without a priorMapping);
+//      (b) second import (ex+priorMapping both present) → linkedPeerIds
+//      resolves to {peerA, peerB} → inference fires → import_row captures
+//      sellingUnit='CASE'.  This is the first import WITH group evidence
+//      after the listing has been placed in the destination catalog group.
+//   6. Move (subject in): subject starts at catItemY (no peers). After
+//      its mapping is moved to catItemX (peerA+peerB), the next import
+//      re-evaluates with the new group evidence and sets
+//      import_row.evidence.sellingUnit='CASE'.
+//   7. Step 7 tier agreement: after a group-linked inference import the
+//      tier returned by catalogMigrationAssessment must be consistent with
+//      the saved import_row state (reviewRequired=true ⇒ tier ≥ 2,
+//      fields includes 'sellingUnit').
 //
 // Uses createInMemoryBackend() — no real Supabase connection needed.
 
 import assert from 'node:assert/strict';
 import {importPriceRow} from './import-price-row.js';
 import {createCatalogService} from '../services/catalog.js';
+import {catalogMigrationAssessment} from './catalog-migration-tier.js';
 
 // ---------------------------------------------------------------------------
 // In-memory backend  (same pattern as reimport-persistence-test.mjs)
@@ -88,15 +104,19 @@ function createInMemoryBackend(){
         const id=vendorItemId||uuid();
         if(!vendors.has(id))
           vendors.set(id,{id,organization_id:args.organizationId,vendor_id:args.vendorId,
+            vendor_item_code:args.vendorItemCode||null,
             description:args.description,pack_size:args.packSize,brand:args.brand||null,
             gtin:args.gtin||null,manufacturer_code:args.manufacturerCode||null,
             selling_unit:args.sellingUnit||null,
-            field_resolutions:args.fieldResolutions||{},row_revision:1});
+            field_resolutions:args.fieldResolutions||{},
+            import_row:args.importRow||null,
+            row_revision:1});
         else{
           const ex=vendors.get(id);
           vendors.set(id,{...ex,
             selling_unit:args.sellingUnit||ex.selling_unit,
             field_resolutions:args.fieldResolutions!=null?args.fieldResolutions:ex.field_resolutions,
+            import_row:args.importRow!=null?args.importRow:ex.import_row,
           });
         }
         const prior=backend.pricing._priceHistory.get(id)||[];
@@ -204,7 +224,7 @@ function seed(backend){
   backend._stores.vendors.set(subjectId,{id:subjectId,organization_id:ORG,
     vendor_id:V_SBJ,vendor_item_code:'WASH-X',
     description:'STEEL WASHERS',pack_size:'4/5 LB',brand:null,gtin:null,
-    manufacturer_code:null,selling_unit:null,price_basis:null,
+    manufacturer_code:null,selling_unit:null,price_basis:'case',price:27.45,
     price_source:'pricelist',field_resolutions:{},row_revision:1,
     import_row:null,
   });
@@ -386,6 +406,217 @@ run('after a peer moves out of the group, the relying listing is rechecked and o
   assert.equal(afterMove.description,'STEEL WASHERS','description unchanged after peer moves');
   assert.equal(afterMove.pack_size,'4/5 LB','pack unchanged after peer moves');
   assert.equal(afterMove.selling_unit,null,'selling_unit still null — was never confirmed');
+});
+
+// ---- 4. New listing lifecycle: matchOrCreate then verified group evidence ----
+//
+// A brand-new vendor code (no ex, no priorMapping) triggers matchOrCreate on
+// its first import.  matchOrCreate finds catItemX by description match and
+// links the listing there (pack differs → track=review).  Because priorMapping
+// is null, knownCatalogItemId is null, so linkedPeerIds is null — no group
+// evidence is applied on import 1.
+//
+// On import 2, ex and priorMapping both exist.  linkedPeerIds resolves from
+// peerA+peerB (exact/100 at catItemX) and cross-pack inference fires.
+// Since needsBasis=true && ex exists, the needsBasis&&ex path writes only
+// import_row (not selling_unit), capturing sellingUnit='CASE' as evidence.
+//
+// This is the "destination-group evidence used on the import AFTER the
+// listing has been placed in the group" scenario that the spec describes.
+
+run('new listing: matchOrCreate places it at catItemX, next import uses verified destination-group evidence', async()=>{
+  const backend=createInMemoryBackend();
+  const ids=seed(backend);
+  const services=makeServices(backend);
+  const{catalogService,importService}=services;
+
+  // Only peer mappings — the subject does not exist yet on this vendor.
+  const peerMappings=[
+    backend._stores.mappings.get(ids.peerAMappingId),
+    backend._stores.mappings.get(ids.peerBMappingId),
+  ];
+
+  // --- Import 1: brand-new code, no ex, no priorMapping ---
+  // matchOrCreate finds catItemX (description='STEEL WASHERS' match, pack differs
+  // → track=review).  No group evidence: linkedPeerIds=null because priorMapping=null.
+  const result1=await importPriceRow({
+    backend,importService,catalogService,
+    sourceRow:{code:'WASH-NEW',description:'STEEL WASHERS',price:'27.45',packSize:'4/5 LB'},
+    row:      {code:'WASH-NEW',description:'STEEL WASHERS',price: 27.45, packSize:'4/5 LB'},
+    ex:null,priorMapping:null,rowIssues:[],rowNeedsReview:false,invoiceSources:[],
+    orgId:ORG,vendorId:V_SBJ,
+    sourceDocumentId:'doc-new-1',completedKey:'WASH-NEW',
+    importBatchTime:new Date().toISOString(),
+    group:{name:'Weekly sheet',quoteValidUntil:null},
+    sourceFilePath:null,
+    workingCatalogItems:[...backend._stores.catalogs.values()],
+    workingCategories :[...backend._stores.categories.values()],
+    workingVendorItems:[...backend._stores.vendors.values()],
+    workingMappings:peerMappings,
+    applySelectedCategory:null,
+  });
+
+  assert.ok(result1.vendorItemId,'import 1 created a new vendor item');
+
+  // matchOrCreate must have linked the new item to catItemX.
+  const mapping1=await importService.mapping(ORG,result1.vendorItemId);
+  assert.ok(mapping1,'mapping created by matchOrCreate on first import');
+  assert.equal(mapping1.catalog_item_id,ids.catItemXId,
+    'matchOrCreate placed new listing at catItemX (description match)');
+
+  // No group evidence on first import — linkedPeerIds was null without priorMapping.
+  const vi1=backend._stores.vendors.get(result1.vendorItemId);
+  assert.ok(vi1,'new vendor item in store after first import');
+  assert.ok(!vi1.import_row?.evidence?.sellingUnit,
+    'no group evidence on first import — linkedPeerIds null without priorMapping');
+
+  // --- Import 2: ex and priorMapping both exist → group evidence available ---
+  const ex2=backend._stores.vendors.get(result1.vendorItemId);
+  const allMappings2=[...backend._stores.mappings.values()];
+
+  const result2=await importPriceRow({
+    backend,importService,catalogService,
+    sourceRow:{code:'WASH-NEW',description:'STEEL WASHERS',price:'27.45',packSize:'4/5 LB'},
+    row:      {code:'WASH-NEW',description:'STEEL WASHERS',price: 27.45, packSize:'4/5 LB'},
+    ex:ex2,priorMapping:mapping1,rowIssues:[],rowNeedsReview:false,invoiceSources:[],
+    orgId:ORG,vendorId:V_SBJ,
+    sourceDocumentId:'doc-new-2',completedKey:'WASH-NEW',
+    importBatchTime:new Date().toISOString(),
+    group:{name:'Weekly sheet',quoteValidUntil:null},
+    sourceFilePath:null,
+    workingCatalogItems:[...backend._stores.catalogs.values()],
+    workingCategories :[...backend._stores.categories.values()],
+    workingVendorItems:[...backend._stores.vendors.values()],
+    workingMappings:allMappings2,
+    applySelectedCategory:null,
+  });
+
+  assert.equal(result2.needsBasis,true,'basis still inferred — awaiting confirmation');
+
+  const vi2=backend._stores.vendors.get(result1.vendorItemId);
+  assert.equal(vi2.import_row?.evidence?.sellingUnit,'CASE',
+    'import_row.evidence.sellingUnit=CASE — destination-group evidence used after listing placed at catItemX');
+  assert.equal(vi2.import_row?.evidence?.sellingUnitSource,'inferred',
+    'sellingUnitSource=inferred — cross-vendor group inference');
+  assert.equal(vi2.import_row?.reviewRequired,true,
+    'reviewRequired=true — inferred unit awaits confirmation');
+  assert.equal(vi2.selling_unit,null,
+    'selling_unit null — reimport path holds inferred value pending confirmation');
+});
+
+// ---- 5. Moving a listing INTO a group triggers re-evaluation ----
+//
+// Subject starts at catItemY (no peers there).  On its first import the
+// selling-unit inference is blocked.  When the user remaps the subject to
+// catItemX (which has peerA + peerB), the NEXT import re-evaluates with the
+// new group evidence and sets import_row.evidence.sellingUnit='CASE'.
+//
+// This is the inverse of test 3: rather than a peer moving out of the group
+// and causing the subject to lose evidence, the SUBJECT itself moves into a
+// group and gains evidence on the next import.
+
+run('moving a listing into a peer group triggers re-evaluation on next import', async()=>{
+  const backend=createInMemoryBackend();
+  const ids=seed(backend);
+  const services=makeServices(backend);
+
+  // --- Move subject to catItemY before first import ---
+  // catItemY has no peers → inference will be blocked.
+  const subjectMapping=backend._stores.mappings.get(ids.subjectMappingId);
+  backend._stores.mappings.set(ids.subjectMappingId,{
+    ...subjectMapping,catalog_item_id:ids.catItemYId,
+  });
+
+  // --- Import 1: subject at catItemY (no peers) → inference blocked ---
+  const mappingsAtY=[...backend._stores.mappings.values()];
+  const result1=await importSubject(backend,ids,services,mappingsAtY);
+
+  assert.equal(result1.needsBasis,true,'basis unresolved at catItemY — no peers');
+
+  const afterFirst=backend._stores.vendors.get(ids.subjectId);
+  assert.ok(!afterFirst.import_row?.evidence?.sellingUnit,
+    'no group evidence at catItemY — import_row.evidence.sellingUnit absent after import 1');
+
+  // --- Move subject to catItemX ---
+  backend._stores.mappings.set(ids.subjectMappingId,{
+    ...subjectMapping,catalog_item_id:ids.catItemXId,
+  });
+
+  // --- Import 2: subject now at catItemX (peerA + peerB) → re-evaluation ---
+  const mappingsAtX=[...backend._stores.mappings.values()];
+  const result2=await importSubject(backend,ids,services,mappingsAtX);
+
+  assert.equal(result2.needsBasis,true,'basis still needs review — inference not yet confirmed');
+
+  const afterMove=backend._stores.vendors.get(ids.subjectId);
+
+  // Re-evaluation: group evidence now available.
+  assert.equal(afterMove.import_row?.evidence?.sellingUnit,'CASE',
+    'import_row.evidence.sellingUnit=CASE after subject moves into peer group');
+  assert.equal(afterMove.import_row?.evidence?.sellingUnitSource,'inferred',
+    'sellingUnitSource=inferred — group evidence used on re-evaluation');
+  assert.equal(afterMove.import_row?.reviewRequired,true,
+    'reviewRequired=true — still needs confirmation after move-in re-evaluation');
+
+  // selling_unit unchanged — the reimport path only writes import_row.
+  assert.equal(afterMove.selling_unit,null,
+    'selling_unit remains null — reimport path holds inferred value for review');
+  assert.equal(afterMove.description,'STEEL WASHERS','description unchanged through move');
+  assert.equal(afterMove.pack_size,'4/5 LB','pack unchanged through move');
+});
+
+// ---- 6. After reload, Step 7 tier agrees with interpretation ----
+//
+// After a group-linked inference import the saved state is:
+//   selling_unit = null   (needsBasis path: applyQuote not called)
+//   import_row.reviewRequired = true
+//   import_row.evidence.sellingUnit = 'CASE'
+//
+// catalogMigrationAssessment (Step 7 tier) must agree:
+//   tier must NOT be 1 (fully resolved) while the interpretation is unconfirmed.
+//   The 'sellingUnit' field must appear in the returned field set so the UI
+//   can direct the user to resolve it.
+
+run('Step 7 tier agrees with saved interpretation: tier≥2 and sellingUnit in fields when reviewRequired=true', async()=>{
+  const backend=createInMemoryBackend();
+  const ids=seed(backend);
+  const services=makeServices(backend);
+
+  // Run the group-linked inference import (same state as test 2).
+  const allMappings=[...backend._stores.mappings.values()];
+  await importSubject(backend,ids,services,allMappings);
+
+  // Reload listing, item, and mapping from store — the same objects the UI
+  // and Step 7 tier logic would receive after a database read.
+  const listing=backend._stores.vendors.get(ids.subjectId);
+  const item   =backend._stores.catalogs.get(ids.catItemXId);
+  const mapping=backend._stores.mappings.get(ids.subjectMappingId);
+  const settings={priceValidDays:90};
+
+  // Sanity: confirm the state we're evaluating is the expected one.
+  assert.equal(listing.selling_unit,null,'precondition: selling_unit null (not confirmed)');
+  assert.equal(listing.import_row?.reviewRequired,true,'precondition: reviewRequired true');
+  assert.equal(listing.import_row?.evidence?.sellingUnit,'CASE','precondition: inferred CASE');
+
+  // Step 7 tier assessment.
+  const assessment=catalogMigrationAssessment({item,listing,mapping,settings,now:new Date()});
+
+  assert.ok(assessment,'catalogMigrationAssessment returned a result');
+
+  // Tier must reflect the unconfirmed state:
+  //   tier 3 = source row present, selling unit needs resolution
+  //   tier 4 = no source row
+  //   tier 2 = inferred/tentative — still needs attention
+  //   tier 1 = fully resolved  ← must NOT occur when reviewRequired=true
+  assert.notEqual(assessment.tier,1,
+    'tier must not be 1 (fully resolved) while import_row.reviewRequired is true');
+  assert.ok(assessment.tier>=2,
+    'tier≥2 — system acknowledges the selling unit is not yet confirmed');
+
+  // sellingUnit must appear in the fields that need attention.
+  const fields=[...(assessment.fields||[])];
+  assert.ok(fields.includes('sellingUnit'),
+    'sellingUnit in assessment fields — UI can direct user to resolve the inferred unit');
 });
 
 console.log('');
