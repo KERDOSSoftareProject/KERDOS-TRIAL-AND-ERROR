@@ -66,6 +66,21 @@ for(const industry of ['restaurant','construction']){
  assert.deepEqual(mixed.quoteBasisInference.evidence.references.map(peer=>peer.comparableCharge),[54.9,65.64]);
  assert.equal(normalizeCatalogQuote(saved,mixedPacks,{item,mapping,procurement:context}),saved,
    'different packs require verified catalog links');
+ // Import-time path: preparePriceImport uses linkedPeerIds for cross-pack inference.
+ // Without linkedPeerIds, different-pack peers are skipped (pack check fails before identity).
+ // With linkedPeerIds, verified group links supply identity evidence across different packs.
+ const crossPackPeers=[
+   {...peers[0],pack_size:'2/5 LB',price:13.725},
+   {...peers[1],pack_size:'2/5 LB',price:13.72},
+ ];
+ const importLinkedIds=new Set(crossPackPeers.map(p=>p.id));
+ // Both peers normalize to ~27.45 for a 4/5 LB pack (13.725 × (20/10) = 27.45).
+ const importRow={...row,price:27.45};
+ const importNoLinks=preparePriceImport(importRow,null,null,[],[],scope,context,crossPackPeers);
+ assert.equal(importNoLinks.row.sellingUnit,null,'without verified group links, different-pack peers are skipped at import time');
+ const importWithLinks=preparePriceImport(importRow,null,null,[],[],scope,context,crossPackPeers,undefined,{linkedPeerIds:importLinkedIds});
+ assert.ok(importWithLinks.row.sellingUnit,'import-time inference uses verified group links across different packs');
+ assert.equal(importWithLinks.row.sellingUnitSource,'inferred','result is marked inferred, not confirmed');
  const revisedAmount={...saved,price:17};
  assert.equal(normalizeCatalogQuote(revisedAmount,mixedPacks,{item,mapping,groupMappings,procurement:context,checkEditedAmount:true}).selling_unit,'EACH');
  assert.equal(normalizeCatalogQuote({...revisedAmount,field_resolutions:{...saved.field_resolutions,

@@ -35,7 +35,7 @@ const importModal=fs.readFileSync(path.join(root,"src/pages/ImportModal.jsx"),"u
 assert.match(importModal,/if\(mode==="invoice"&&\(missingInvoiceDates\.length\|\|needsReview\.length\)\) return;/,"price-sheet auto-save must not be gated on row issues");
 assert.ok(!/if\(unsafeDocuments\.length\|\|missingInvoiceDates\.length\|\|needsReview\.length\) return;/.test(importModal),"old price-sheet review gate must be gone");
 const importPriceRowSrc=fs.readFileSync(path.join(root,"src/core/import-price-row.js"),"utf8");
-assert.match(importPriceRowSrc,/preparePriceImport\(row,\s*ex,\s*priorMapping,\s*rowNeedsReview\s*\?\s*rowIssues\s*:\s*\[\],\s*invoiceSources,\s*\{organizationId:\s*orgId,\s*vendorId\},\s*procurement,\s*workingVendorItems,\s*sourceRow\)/,"document issues and scoped invoice evidence must reach the row review decision");
+assert.match(importPriceRowSrc,/preparePriceImport\(row,\s*ex,\s*priorMapping,\s*rowNeedsReview\s*\?\s*rowIssues\s*:\s*\[\],\s*invoiceSources,\s*\{organizationId:\s*orgId,\s*vendorId\},\s*procurement,\s*workingVendorItems,\s*sourceRow,\s*\{linkedPeerIds\}\)/,"document issues, scoped invoice evidence, and verified group links must reach the row review decision");
 assert.match(importPriceRowSrc,/reviewRequired:\s*needsBasis\s*\|\|\s*!!row\.requiresReview,\s*reviewFields:\s*prepared\.reviewFields,\s*conflicts:\s*prepared\.reasons/,"row issues and identity/pack warnings must be saved for new catalog rows");
 assert.match(importPriceRowSrc,/reviewRequired:\s*true,\s*reviewFields:\s*prepared\.reviewFields,\s*changes:\s*row\.changes\s*\|\|\s*\[\],\s*conflicts:\s*prepared\.reasons/,"repeat row warnings must be saved without replacing the accepted quote");
 
