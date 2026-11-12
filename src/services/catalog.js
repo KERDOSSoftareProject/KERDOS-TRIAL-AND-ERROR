@@ -228,17 +228,17 @@ export function createCatalogService(backend,importProcurement){
         const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},match.catalogItem,procurement);
         if(evidence.exact)return {catalogItemId:match.catalogItem.id,track:"exact",score:1,method:"description_pack",reason:"Same description and pack as an existing item"};
       }
-      // Different purchasing packs are separate catalog items even when the product
-      // description is the same. 3/12 LB and 1/12 LB of CHEESE PROVOLONE SLICING are
-      // distinct purchasing units — sharing one catalog entry hides the distinction and
-      // makes price-per-unit comparison ambiguous. A human can always link two separate
-      // entries; a false shared entry is harder to undo.
-      // When a similar match exists (identity uncertain or pack doesn't match), fall through
-      // to create a new entry. Mixed or unknown packs do NOT trigger automatic attachment —
-      // without confirmed identity, pack, and brand-lock agreement a link is unsafe.
-      if(match?.track==="similar"){
-        // No automatic attachment for any similar match — fall through to new entry.
-        // If a suggestion exists with confirmed identity ("same"), it is offered below.
+      // Same product identity, different pack. The vendor listing keeps its own pack.
+      // Propose it for review against the existing KERDOS item — the client confirms
+      // or rejects the link. The pack difference is visible in the review state.
+      // The proposed link becomes eligible for inference after verification.
+      // Skip when the entry is brand-locked and the incoming brand disagrees.
+      // Skip when the existing entry has no established pack (mixed vendor packs → knownPack null):
+      // the entry is indeterminate and cannot absorb another vendor until pack consensus is known.
+      if(match?.track==="similar"&&brandVerified&&match.catalogItem.pack_size){
+        return {catalogItemId:match.catalogItem.id,track:"review",score:match.score,
+          method:match.method==="identifier"?"identifier_pack_differs":"pack_differs",
+          reason:match.reason||"Same product, different pack — verify this listing belongs with the existing item"};
       }
 
       // Fix 2: only suggest when description identity is confirmed same, not just plausible.

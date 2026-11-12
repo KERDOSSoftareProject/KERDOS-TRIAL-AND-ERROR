@@ -78,8 +78,10 @@ const differentBrand=await service.matchOrCreate({organizationId:"o1",descriptio
 assert.equal(differentBrand.track,"exact","unlocked catalog item: different brands are acceptable alternatives");
 const reviewed=await service.matchOrCreate({organizationId:"o1",description:"American cheese",packSize:"160 CT",catalogItems:[...established],categories:[{id:"h",name:"Uncategorized",is_holding_pen:true,range_start:30000}],vendorItems,mappings});
 // Same product (American cheese), different pack (160 CT vs 120 CT).
-// Different purchasing packs → separate catalog entries. A human links them if needed.
-assert.equal(reviewed.track,"new","same product different pack creates a new catalog entry");
+// The vendor listing keeps its own pack; the engine proposes it for review against the existing item.
+assert.equal(reviewed.track,"review","same product different pack proposes review against the existing item");
+assert.equal(reviewed.catalogItemId,"c1","different-pack listing links to the existing KERDOS entry");
+assert.equal(reviewed.method,"pack_differs","different-pack review link uses pack_differs method");
 
 // A new pack may join a confirmed product identity, but only with a
 // current approval. The imported listing still needs its own review.
@@ -139,10 +141,12 @@ assert.notEqual(differingWords.track,"exact","abbreviated description never auto
   assert.equal(r1.catalogItemId,"p1","same description same pack → exact link to existing entry");
   assert.equal(r1.track,"exact");
 
-  // Same understood product + different pack → new entry (separate purchasing unit).
-  // 10 EA and 5 EA are distinct purchasing quantities; a human links them if needed.
+  // Same understood product + different pack → propose for review against the existing item.
+  // The vendor listing keeps its own pack (5 EA); the client confirms whether it belongs
+  // with the existing entry (10 EA). The proposed link becomes eligible for inference after verification.
   const r2=await service.matchOrCreate({...args("ITEM ALPHA STANDARD","5 EA"),categories:rule_cats});
-  assert.equal(r2.track,"new","same description different confirmed pack → separate catalog entry");
+  assert.equal(r2.track,"review","same description different pack proposes review against existing entry");
+  assert.equal(r2.catalogItemId,"p1","different-pack listing links to the existing KERDOS entry");
 
   // Genuinely different product (conflicting defining terms) → new entry
   // The engine must never suggest an entry when product terms conflict.
