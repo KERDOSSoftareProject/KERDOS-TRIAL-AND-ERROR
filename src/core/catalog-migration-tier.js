@@ -3,7 +3,7 @@ import {listingSourceForField, quotedUnitOrigin} from './listing-provenance.js';
 
 // Older imports saved unresolved quote bases as unavailable prices. Recognize
 // those recorded reasons for display without clearing any persisted hold.
-const basisReviewReason=/^(?:Pricing basis .* suggested but not confirmed|Could not determine pricing basis|No basis could be inferred|Product type prior favors .* basis|Quoted unit is (?:inferred|unresolved)|The incoming price basis needs review)/i;
+const basisReviewReason=/^(?:Pricing basis .* suggested but not confirmed|Could not determine pricing basis|No basis could be inferred|Product type prior favors .* basis|Quoted unit is (?:inferred|unresolved)|Pricing basis is (?:inferred|unresolved)|Pricing basis needs review|The incoming price basis needs review)/i;
 const ordinaryBrandChange=/^Brand changed from /i;
 const reviewColumn={description:'product',pack_size:'pack',packSize:'pack',selling_unit:'sellingUnit',sellingUnit:'sellingUnit',price:'price'};
 
@@ -40,7 +40,7 @@ export function catalogMigrationAssessment({item, listing, mapping, settings, no
     for(const change of saved.changes||[]){
       if(change.field!=='description'&&reviewColumn[change.field])fields.add(reviewColumn[change.field]);
     }
-    if(conflicts.some(reason=>/^Quoted unit .*(?:differs|conflicts|needs review)/i.test(reason)))fields.add('sellingUnit');
+    if(conflicts.some(reason=>/^(?:Quoted unit|Pricing basis) .*(?:differs|conflicts|needs review)/i.test(reason)))fields.add('sellingUnit');
   }
   if(fields.size||sourceHold){
     if(listing.quoteBasisInference)fields.add('sellingUnit');

@@ -27,9 +27,9 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   if(document){
     const pack=Object.hasOwn(rawSource.originalFields||{},'packSize')?rawSource.originalFields.packSize:rawSource.packSize;
     if(pack&&procurement.comparePurchasingPack(pack,document.packSize).status!=='same'&&!source.manualFields?.includes('packSize'))
-      reasons.push('The incoming pack differs from the document-confirmed pack or cannot be verified. Confirm the new pack and quoted unit.');
+      reasons.push('The incoming pack differs from the document-confirmed pack or cannot be verified. Confirm the new pack and pricing basis.');
     if(printed.present&&printed.unit!==canonicalQuoteUnit(priorRoot.value,procurement)&&!source.manualFields?.includes('sellingUnit'))
-      reasons.push('Quoted unit stated on the new sheet conflicts with the document confirmation.');
+      reasons.push('Pricing basis stated on the new sheet conflicts with the document confirmation.');
   }
   let changes=[];
   if(prior&&(source.code?String(source.code)!==String(prior.vendor_item_code):!!prior.vendor_item_code))
@@ -74,11 +74,11 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
       description:source.description||row.description,packSize:source.packSize||row.packSize},scopedInvoices, undefined, procurement);
     invoiceConfirmsUnit=!!arithmetic&&!arithmetic.conflict;
     if(arithmetic?.conflict){
-      reasons.push(`Quoted unit needs review because invoice evidence conflicts. ${arithmetic.reason}.`);
+      reasons.push(`Pricing basis needs review because invoice evidence conflicts. ${arithmetic.reason}.`);
       invoiceConflict=true;
     }else if(arithmetic&&resolved&&
       (arithmetic.basis.basis!==resolved.basis.basis||arithmetic.basis.unit!==resolved.basis.unit)){
-      reasons.push(`Quoted unit differs between the saved listing (${resolved.sellingUnit}) and invoice evidence (${arithmetic.sellingUnit}).`);
+      reasons.push(`Pricing basis differs between the saved listing (${resolved.sellingUnit}) and invoice evidence (${arithmetic.sellingUnit}).`);
       invoiceConflict=true;
     }else if(arithmetic&&!resolved){
       resolved=arithmetic;
@@ -92,19 +92,19 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   const rememberedWithoutStatedUnit=resolved?.source==='confirmed vendor item'&&!invoiceConfirmsUnit&&!printedQuoteEvidence(rawSource,procurement).present;
   if((!resolved||rememberedWithoutStatedUnit)&&!invoiceConflict&&!reasons.length){
     const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement,{currentUnit:resolved?.sellingUnit,reviewOutlier:true});
-    if(inference?.kind==='unresolved')reasons.push(`Quoted unit needs review. ${inference.reason}`);
+    if(inference?.kind==='unresolved')reasons.push(`Pricing basis needs review. ${inference.reason}`);
     else if(inference){
       row={...row,sellingUnit:inference.value,sellingUnitSource:'inferred',
         fieldInference:{...row.fieldInference,sellingUnit:inference}};
       resolved={basis:procurement.priceBasisFor(inference.value),sellingUnit:inference.value,source:'inferred'};
-      reasons.push(`Quoted unit is inferred, not confirmed. ${inference.reason}`);
+      reasons.push(`Pricing basis is inferred, not confirmed. ${inference.reason}`);
     }
   }
   // A price amount or an industry prior cannot establish what is being sold.
   // Cross-vendor inferences above stay at review accuracy; without sufficient
   // comparison evidence, the unit remains unresolved.
   if(!row.priceUnavailable){
-    if(!resolved)reasons.push("Quoted unit is unresolved.");
+    if(!resolved)reasons.push("Pricing basis is unresolved.");
     else if(procurement.parsePackSize(row.packSize)?.parsed&&procurement.casePriceFromQuote(row.price,resolved.basis.basis,resolved.basis.unit||resolved.sellingUnit,row.packSize)==null)
       reasons.push(procurement.parsePackSize(row.packSize)?.catchWeight?
         "Average or ranged pack weight does not establish an exact case charge; the quoted rate is retained for review.":
@@ -114,7 +114,7 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   const quoteBasisEvidence=resolved?.invoiceArithmetic?{source:resolved.source,unit:resolved.sellingUnit,references:resolved.invoiceReferences}:null;
   const quoteBasisReview=(!resolved||row.sellingUnitSource==='inferred')&&!row.priceUnavailable&&!invoiceConflict?{
     status:row.sellingUnitSource==='inferred'?'inferred':'unresolved',
-    reason:(row.sellingUnitSource==='inferred'&&row.fieldInference?.sellingUnit?.reason)||'Confirm what the quoted price covers. Pack contents alone do not establish the quoted unit.',
+    reason:(row.sellingUnitSource==='inferred'&&row.fieldInference?.sellingUnit?.reason)||'Confirm what the quoted price covers. Pack contents alone do not establish the pricing basis.',
     alternatives:quoteBasisAlternatives(row,procurement),
   }:null;
   const statedPriceQuotes=interpretStatedQuotePair(source.fieldIdentification?.bindings, procurement);
@@ -131,9 +131,9 @@ export function priceReviewFields({reasons=[],changes=[],row={},prior=null}={}){
   for(const reason of reasons){
     const text=String(reason);
     if(/barcode|manufacturer code|gtin/i.test(text))fields.add("identifiers");
-    else if(/^quoted unit/i.test(text))fields.add("selling_unit");
+    else if(/^(?:quoted unit|pricing basis)/i.test(text))fields.add("selling_unit");
     else if(/pack/i.test(text))fields.add("pack_size");
-    else if(/sellingUnit|quoted unit|price basis|selling unit|quoted units/i.test(text))fields.add("selling_unit");
+    else if(/sellingUnit|quoted unit|pricing basis|price basis|selling unit|quoted units/i.test(text))fields.add("selling_unit");
     else if(/brand/i.test(text))fields.add("brand");
     else if(/product|description|wording/i.test(text))fields.add("description");
     else if(/price|amount/i.test(text))fields.add("price");

@@ -156,7 +156,7 @@ export function quotedUnitOrigin(listing,procurement=getProcurementContext()){
 
 export function quotedUnitRootReason(origin){
   const root=origin.root;
-  if(!root)return 'Original confirmation evidence is missing; review the quoted unit';
+  if(!root)return 'Original confirmation evidence is missing; review the pricing basis';
   const at=root.source==='client confirmation'&&root.confirmedAt?` on ${root.confirmedAt}`:'';
   const cell=root.locator?.addresses?.join(', ');
   const header=root.binding?.header;

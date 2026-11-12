@@ -16,6 +16,6 @@ export function QuotedPerControl({industry="",vocabulary=[],value,onChange,disab
       <option value="" disabled>Select {group==='measure'?'measurement':group} unit</option>{metrics.map(u=><option key={u} value={u}>{unitLabel(u)}</option>)}
     </select>}
     {group==='measure'&&unit&&!metrics.includes(unit)&&<small style={{display:'block'}}>From sheet: {value}</small>}
-    {!group&&value&&<small style={{display:'block'}}>From sheet: {value} · select quoted basis</small>}
+    {!group&&value&&<small style={{display:'block'}}>From sheet: {value} · select pricing basis</small>}
   </>;
 }

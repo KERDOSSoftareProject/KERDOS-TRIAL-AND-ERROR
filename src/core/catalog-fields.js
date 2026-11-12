@@ -10,7 +10,7 @@ import {mappingVerification,mappingGap} from "../services/catalog.js";
 export const CATALOG_COLUMNS=[
   ["itemNumber","KERDOS item #"],["vendor","Vendor name"],["vendorItemNumber","Vendor item number"],["category","Category"],
   ["itemName","Item name"],["product","Vendor description"],["brand","Brand"],["pack","Pack"],
-  ["price","Quoted price"],["sellingUnit","Quoted per"],["unitCost","Unit cost"],
+  ["price","Quoted price"],["sellingUnit","Pricing basis"],["unitCost","Unit cost"],
 ];
 const BASE_UNITS=[["CASE","Case / full pack"],["EACH","Each / inner item"],["LB","Pounds (LB)"],["OZ","Ounces, weight (OZ)"],
   ["GAL","Gallons (US)"],["QT","Quarts (US)"],["PT","Pints (US)"],["FLOZ","Fluid ounces (US)"],
@@ -98,7 +98,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
         // but no # prefix) are ambiguous — flag them for client confirmation.
         const isNamedCanSize=/^#\d/.test(pack.unit||"");
         if(!isNamedCanSize){packAcc=Math.min(packAcc,DOUBTFUL);packWhy+="; unit '"+pack.unit+"' is not a recognised dimension — confirm whether this is a can size code, a count abbreviation, or something else";}
-      }else if(basis?.basis==="measure"&&casePrice==null){packAcc=Math.min(packAcc,DOUBTFUL);packWhy+=pack.catchWeight?"; average/ranged weight does not establish an exact case charge":"; doesn't fit a price quoted per "+(basis.unit||vi.selling_unit);}
+      }else if(basis?.basis==="measure"&&casePrice==null){packAcc=Math.min(packAcc,DOUBTFUL);packWhy+=pack.catchWeight?"; average/ranged weight does not establish an exact case charge":"; isn't compatible with a price per "+(basis.unit||vi.selling_unit);}
       const disagree=!comparableAlternatives&&otherVendors.find(p=>p.pack_size&&procurement.parsePackSize(p.pack_size)?.parsed&&procurement.comparePurchasingPack(vi.pack_size,p.pack_size).status!=="same");
       if(disagree){packAcc=Math.min(packAcc,GUESSED);packWhy+=`; another vendor lists ${disagree.pack_size}`;}
       else if(provenPeers.length&&provenPeers.every(p=>procurement.comparePurchasingPack(vi.pack_size,p.pack_size).status==="same")){
@@ -126,13 +126,13 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
       if(!byClient("selling_unit")&&["price cell","price header","document note"].includes(unitOrigin.source))unitWhy=`Stated in the ${unitOrigin.source}`;
       if(!byClient('selling_unit')&&(unitOrigin.bound===false||Object.hasOwn(manual,'selling_unit'))){
         unitAcc=Math.min(unitAcc,GUESSED);
-        unitWhy+='; the retained source or saved confirmation belongs to a different quoted unit';
+        unitWhy+='; the retained source or saved confirmation belongs to a different pricing basis';
       }
       if(basis.basis==="measure"&&pack?.parsed&&casePrice==null){
         if(pack.catchWeight&&procurement.measuredQuoteRate(amount,basis.unit||vi.selling_unit,pack.unit))unitWhy+="; measured rate retained independently of variable case weight";
         else{unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; the pack isn't measured in "+(basis.unit||vi.selling_unit);}
       }
-      if(vi.price_basis&&vi.price_basis!==basis.basis){unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; saved price basis conflicts with quoted unit";}
+      if(vi.price_basis&&vi.price_basis!==basis.basis){unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; saved price basis conflicts with pricing basis";}
       const sourceUnit=source("selling_unit","sellingUnit");
       if(byClient("selling_unit")&&sourceUnit&&JSON.stringify(procurement.priceBasisFor(sourceUnit))!==JSON.stringify(basis)){
         unitAcc=Math.min(unitAcc,GUESSED);unitWhy+="; differs from the original source";
@@ -241,7 +241,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const priceField=clientField("price",hasPrice?amount:null,priceAcc,priceWhy||"No price");
   const unitField=clientField("selling_unit",vi.selling_unit||"",unitAcc,unitWhy||"Choose what the quoted price is per");
   unitField.status=unitField.value?unitOrigin.status:null;
-  if(unitField.value&&!unitOrigin.status&&!byClient('selling_unit'))unitField.reason='Confirmation source is not recorded for this quoted unit';
+  if(unitField.value&&!unitOrigin.status&&!byClient('selling_unit'))unitField.reason='Confirmation source is not recorded for this pricing basis';
   // Unit cost is as sure as the least sure of the three it comes from.
   const directMeasuredRate=basis?.basis==="measure"&&per&&!per.estimated&&per.unit!=="EA";
   const costAccuracy=per?.manual?100:per?Math.min(per.estimated?GUESSED:100,directMeasuredRate?100:packField.accuracy??0,unitField.accuracy??0,priceField.accuracy??0):null;
@@ -257,7 +257,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     pack:packField,
     price:priceField,
     sellingUnit:unitField,
-    unitCost:{status:per&&unitField.status==='inferred'?'inferred':null,...field(per?.price??null,costAccuracy,per?.manual?`Client-approved unit cost per ${per.unit}`:per?`${unitField.status==='inferred'?"Provisional — quoted unit inferred; ":""}${per.estimated?"Estimated":"Calculated"} per ${per.unit}${pack?.catchWeight?"; final case charge depends on delivered weight":""}`:"Needs a readable pack and a compatible quoted unit"),unit:per?.unit||null,estimated:!!per?.estimated},
+    unitCost:{status:per&&unitField.status==='inferred'?'inferred':null,...field(per?.price??null,costAccuracy,per?.manual?`Client-approved unit cost per ${per.unit}`:per?`${unitField.status==='inferred'?"Provisional — pricing basis inferred; ":""}${per.estimated?"Estimated":"Calculated"} per ${per.unit}${pack?.catchWeight?"; final case charge depends on delivered weight":""}`:"Needs a readable pack and a compatible pricing basis"),unit:per?.unit||null,estimated:!!per?.estimated},
   };
 }
 
@@ -269,7 +269,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
 // with the vendor wording. Rows like that are placed without a click.
 export const REQUIRED_FIELDS=["category","product","pack","sellingUnit","price"];
 export const BLOCKER_LABELS={category:"Category needs evidence",product:"Description needs evidence",pack:"Pack needs details",
-  sellingUnit:"Quoted unit missing or unresolved",price:"Quoted amount needs evidence",unitCost:"Pack and price unit cannot convert",
+  sellingUnit:"Pricing basis missing or unresolved",price:"Quoted amount needs evidence",unitCost:"Pack and price unit cannot convert",
   association:"Product association needs verification",quote:"No current quotation",expired:"Quote expired",
   source:"Source conflict needs review",brand:"Locked brand does not match",link:"Catalog link missing"};
 export function orderGuideAssessment(input){
@@ -414,7 +414,7 @@ const normalize=text=>String(text??"").trim().toUpperCase().replace(/[^A-Z0-9]+/
 export function knownItemChanges(row,prior, procurement=getProcurementContext()){
   const baseline=prior.import_row?.baseline||prior.import_row?.row||{};
   const saved={description:prior.description,brand:prior.brand,packSize:prior.pack_size,sellingUnit:prior.selling_unit,gtin:prior.gtin,manufacturerCode:prior.manufacturer_code};
-  const labels={description:"Product wording",brand:"Brand",packSize:"Pack",sellingUnit:"Quoted unit",gtin:"Barcode",manufacturerCode:"Manufacturer code"};
+  const labels={description:"Product wording",brand:"Brand",packSize:"Pack",sellingUnit:"Pricing basis",gtin:"Barcode",manufacturerCode:"Manufacturer code"};
   const changes=[];
   for(const [field,label] of Object.entries(labels)){
     const after=row[field];

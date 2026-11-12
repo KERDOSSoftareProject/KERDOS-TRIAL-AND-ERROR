@@ -55,7 +55,7 @@ try{
  assert.equal(text(tree.root.findByProps({'aria-label':'Calculated unit cost for AC0'})),'$3.35');
  assert.equal(rowFor('Pack for AC0').findByProps({'data-field-label':'Pack'}).props['data-catalog-review-field'],true);
  assert.doesNotMatch(text(rowFor('Pack for AC0')),/Inferred (?:pack|price per)/);
- const confirmButton=rowFor('Pack for AC0').findByProps({'aria-label':'Confirm pack and quoted unit'});
+ const confirmButton=rowFor('Pack for AC0').findByProps({'aria-label':'Confirm pack and pricing basis'});
  assert.equal(text(confirmButton),'Confirm');
  assert.equal(confirmButton.props.style.border,'1px solid #1565C0');
  assert.equal(confirmButton.props.style.padding,'4px 8px');
@@ -88,7 +88,7 @@ try{
  assert.equal(rowFor('Pack for AC3').props['data-migration-tier'],3);
  const beforeChoice=calls.length;
  await act(async()=>confirmFor('AC3').props.onClick());
- await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Quoted unit'}).props.onChange({target:{value:'CASE'}}));
+ await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Pricing basis'}).props.onChange({target:{value:'CASE'}}));
  assert.equal(calls.length,beforeChoice,'choosing a value stages the edit');
  await act(async()=>confirmFor('AC3').props.onClick());
  assert.deepEqual(calls.at(-1).patch,{description:'AMERICAN CHEESE',brand:'',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,approve_row:true});
@@ -97,9 +97,9 @@ try{
  await act(async()=>tree.update(React.createElement(CatalogRows,{...confirmProps,vendorItems:[cheeseListings[0],accepted,noPrice]})));
  assert.equal(rowFor('Pack for AC3').props['data-migration-tier'],1);
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:true}}));
- await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Correct quoted unit for AC3'}).props.onClick());
- assert.equal(rowFor('Pack for AC3').findByProps({'aria-label':'Quoted unit'}).props.value,'CASE');
- await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Quoted unit'}).props.onChange({target:{value:'EACH'}}));
+ await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Correct pricing basis for AC3'}).props.onClick());
+ assert.equal(rowFor('Pack for AC3').findByProps({'aria-label':'Pricing basis'}).props.value,'CASE');
+ await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Pricing basis'}).props.onChange({target:{value:'EACH'}}));
  assert.equal(calls.length,beforeChoice+1);
  await act(async()=>tree.root.findByType('details').props.onToggle({currentTarget:{open:false}}));
  assert.deepEqual(calls.at(-1).patch,{selling_unit:'EACH'});

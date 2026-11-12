@@ -42,9 +42,9 @@ function prepareObservation(listing,mapping,source,unit,invoices,listings,procur
   // inference branch. Check that evidence independently before supplying it.
   if(unit){
     const invoice=resolveFromInvoiceArithmetic({...source,sellingUnit:''},scopedInvoices,scope,procurement);
-    if(invoice?.conflict)issues.push(`Quoted unit needs review because invoice evidence conflicts. ${invoice.reason}.`);
+    if(invoice?.conflict)issues.push(`Pricing basis needs review because invoice evidence conflicts. ${invoice.reason}.`);
     else if(invoice&&canonicalQuoteUnit(invoice.sellingUnit,procurement)!==canonicalQuoteUnit(unit,procurement))
-      issues.push('Quoted unit differs from verified invoice evidence.');
+      issues.push('Pricing basis differs from verified invoice evidence.');
   }
   try {
     return preparePriceImport(incoming,listing,mapping,issues,scopedInvoices,scope,procurement,listings);
@@ -62,11 +62,11 @@ function measureInference(listing,procurement){
 function confirmationProblem(listing,document,origin,unit,procurement){
   const source=listing.import_row.row;
   if(hasPrintedQuoteUnit(source,procurement)||origin.status==='confirmed')
-    return 'The quoted unit is already stated or confirmed.';
+    return 'The pricing basis is already stated or confirmed.';
   const declared=documentQuoteEvidence(document.original_text,procurement);
   if(declared.present&&declared.unit!==unit)return 'The selected unit conflicts with the document terms.';
   if(listing.selling_unit&&origin.status!=='inferred')
-    return 'The saved quoted unit is not a blank or an unconfirmed inference.';
+    return 'The saved pricing basis is not a blank or an unconfirmed inference.';
   if(measureInference(listing,procurement))return 'A weight or volume inference requires individual review.';
   // A withdrawn price cannot be revived by a document confirmation. The
   // existing importer marks unresolved unit observations unavailable and held.
@@ -79,7 +79,7 @@ function confirmationProblem(listing,document,origin,unit,procurement){
 export function planDocumentQuoteConfirmation({organization,vocabulary,document,listings,mappings,invoices=[],unit,listingIds,now=new Date()}){
   const procurement=workspaceProcurement({organization,vocabulary});
   const canonical=canonicalQuoteUnit(unit,procurement);
-  if(!canonical)throw new Error('Choose a recognized quoted unit.');
+  if(!canonical)throw new Error('Choose a recognized pricing basis.');
   if(!document?.id||document.organization_id!==organization.id||document.document_kind!=='pricelist'||!document.vendor_id)
     throw new Error('Choose a price sheet in this organization.');
   const byListing=new Map(mappings.map(mapping=>[mapping.vendor_item_id,mapping]));
@@ -130,7 +130,7 @@ export function planSourceReviewRecheck({organization,vocabulary,documents,listi
     if(staleRoot){held.push({listingId:listing.id,reason:'The confirmed source row no longer matches its document receipt.'});continue;}
     const declared=documentQuoteEvidence(document.original_text,procurement);
     if(declared.present&&declared.unit!==canonicalQuoteUnit(listing.selling_unit,procurement)){
-      held.push({listingId:listing.id,reason:'The saved quoted unit conflicts with the document terms.'});
+      held.push({listingId:listing.id,reason:'The saved pricing basis conflicts with the document terms.'});
       continue;
     }
     const source=observation.row;

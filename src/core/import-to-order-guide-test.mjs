@@ -184,7 +184,7 @@ const chickenCatalogItem = {
   t('missing evidence: basis unresolved', prepared.resolved, null);
   t('inference only: requiresReview is true', !!prepared.requiresReview, true);
   ok('missing evidence: reason explains unresolved unit',
-    prepared.reasons.includes('Quoted unit is unresolved.'));
+    prepared.reasons.includes('Pricing basis is unresolved.'));
 }
 
 // ── TEST 3: Explicit unit on sheet — resolves immediately, no review ───────────

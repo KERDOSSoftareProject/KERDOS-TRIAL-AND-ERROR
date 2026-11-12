@@ -8,7 +8,7 @@ const primary=btn("#003584","white",{fontSize:12,padding:"8px 12px"});
 const secondary=btn("#E8F1FB","#003584",{fontSize:12,padding:"8px 12px"});
 const buttons={display:"flex",gap:8,flexWrap:"wrap"};
 const workspacePanel={marginBottom:14,fontSize:13,background:"white",color:"#17243A",borderRadius:10,padding:12};
-const reviewFieldLabels=fields=>fields.map(field=>field==="selling_unit"?"quoted per":String(field).replaceAll("_"," ")).join(", ");
+const reviewFieldLabels=fields=>fields.map(field=>field==="selling_unit"?"pricing basis":String(field).replaceAll("_"," ")).join(", ");
 
 function ReviewRows({title,rows,excluded,onToggle,disabled}){
   if(!rows.length)return null;
@@ -19,7 +19,7 @@ function ReviewRows({title,rows,excluded,onToggle,disabled}){
         {onToggle?<label><input type="checkbox" aria-label={`Include ${row.description||row.listingId}`} checked={!excluded.has(row.listingId)} disabled={disabled} onChange={()=>onToggle(row.listingId)}/> <b>{row.description||row.listingId}</b></label>:<b>{row.description||row.listingId}</b>}
         {row.vendorItemCode&&<> · #{row.vendorItemCode}</>}{row.packSize&&<> · {row.packSize}</>}
         {row.vendorName&&<> · {row.vendorName}</>}{row.fileName&&<> · {row.fileName}</>}
-        {row.sellingUnit&&<> · Quoted per {unitLabel(row.sellingUnit)}</>}{row.reason&&<> · {row.reason}</>}
+        {row.sellingUnit&&<> · Priced per {unitLabel(row.sellingUnit)}</>}{row.reason&&<> · {row.reason}</>}
         {row.previousReviewFields?.length>0&&<div>Current review fields {reviewFieldLabels(row.previousReviewFields)}</div>}
         {row.reviewRequired===false?<div>Source review clears</div>:row.reviewFields?.length>0&&<div>Review fields {reviewFieldLabels(row.reviewFields)}</div>}
       </li>)}
@@ -110,13 +110,13 @@ export function PriceSheetReview({organizationId,documentId,role,industry,vocabu
   }
   return <section aria-label={workspace?"Workspace price sheet recheck":"Price sheet review"} style={workspace?workspacePanel:{marginTop:14,fontSize:13}}>
     <div style={buttons}>
-      {canConfirm&&<button type="button" disabled={pending} onClick={()=>choose("confirmation")} style={secondary}>Confirm quoted per</button>}
+      {canConfirm&&<button type="button" disabled={pending} onClick={()=>choose("confirmation")} style={secondary}>Confirm pricing basis</button>}
       {canRecheck&&<button type="button" disabled={pending} onClick={()=>{choose("recheck");void run("preview-recheck");}} style={secondary}>{workspace?"Preview workspace recheck":"Preview source recheck"}</button>}
     </div>
     {mode&&<div style={{marginTop:12}}>
       {confirmation&&<>
-        <p>Verify the quoted unit on the original price sheet before confirming.</p>
-        <QuotedPerControl label="Confirmed quoted unit" industry={industry} vocabulary={vocabulary} value={unit} onChange={value=>{setUnit(value);setPreview(null);setExcluded(new Set());setError("");}} disabled={pending} style={{...inp,width:"min(100%, 200px)"}}/>
+        <p>Verify the pricing basis on the original price sheet before confirming.</p>
+        <QuotedPerControl label="Confirmed pricing basis" industry={industry} vocabulary={vocabulary} value={unit} onChange={value=>{setUnit(value);setPreview(null);setExcluded(new Set());setError("");}} disabled={pending} style={{...inp,width:"min(100%, 200px)"}}/>
         <button type="button" disabled={pending||!priceBasisFor(unit)} onClick={()=>void run("preview-confirmation",{unit})} style={{...secondary,marginLeft:8}}>Preview confirmation</button>
       </>}
       {preview&&<>
@@ -133,7 +133,7 @@ export function PriceSheetReview({organizationId,documentId,role,industry,vocabu
     </div>}
     {pending&&<p role="status">Working…</p>}
     {result&&<div role="status">
-      <p>{result.action==="confirm"?"Quoted unit confirmation saved.":"Source recheck saved."}</p>
+      <p>{result.action==="confirm"?"Pricing basis confirmation saved.":"Source recheck saved."}</p>
       <ReviewCounts counts={result.counts} applied/>
       {result.readinessRefreshRequired&&<p>Refresh the workspace for the current Order Guide count.</p>}
     </div>}

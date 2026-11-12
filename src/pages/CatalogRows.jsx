@@ -134,7 +134,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
       if(checked.quoteBasisInference.value){
         if(checked.pack_size!==pack)edit("pack_size",checked.pack_size);
         edit("selling_unit",checked.selling_unit);
-        setError("Review the corrected pack and quoted unit, then confirm.");
+        setError("Review the corrected pack and pricing basis, then confirm.");
       }else{
         setError(checked.quoteBasisInference.reason);
         setChoosingQuotedUnit(true);
@@ -238,16 +238,16 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
             {tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
             {autoSave&&canManage&&tier===1&&!inference&&!showUnitChooser&&<button type="button"
               style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4})}
-              aria-label={`Correct quoted unit for ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
+              aria-label={`Correct pricing basis for ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
               disabled={busy||linkDirty} onClick={()=>setChoosingQuotedUnit(true)}>Correct</button>}
             {autoSave&&canManage&&(tierNames[tier]||inference)&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
-              aria-label={inference?.packSize?"Confirm pack and quoted unit":inference?.value?"Confirm quoted unit":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
+              aria-label={inference?.packSize?"Confirm pack and pricing basis":inference?.value?"Confirm pricing basis":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
               disabled={busy||linkDirty||showUnitChooser} onClick={confirmReview}>Confirm</button>}
-            {showUnitChooser&&<select autoFocus aria-label="Quoted unit" style={{...inputStyle,marginTop:4}}
+            {showUnitChooser&&<select autoFocus aria-label="Pricing basis" style={{...inputStyle,marginTop:4}}
               value={tier===1?(priceBasisFor(current.selling_unit)?.unit||String(current.selling_unit||"").toUpperCase()):""}
               disabled={busy} onChange={event=>{edit("selling_unit",event.target.value);setChoosingQuotedUnit(false);}}
               onKeyDown={event=>{if(event.key==="Escape")setChoosingQuotedUnit(false);}}>
-              <option value="" disabled>Select quoted unit</option>
+              <option value="" disabled>Select pricing basis</option>
               {unitChoices(vocabulary,false,industry).map(unit=><option key={unit.value} value={unit.value}>{unit.label}</option>)}
             </select>}
           </>}
@@ -270,7 +270,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
     {!autoSave&&!baseFieldsOnly&&overrideOpen&&<tr><td colSpan={visibleColumns.length+(!autoSave?1:0)}>
       <MovableDialog label="Unit cost override" maxWidth={428} zIndex={1000}>
         <div style={{background:"white",padding:24,borderRadius:10,width:380,maxWidth:"90vw"}}>
-          <div>KERDOS cannot calculate unit cost from this pack and quoted unit. Enter your approved values to continue.</div>
+          <div>KERDOS cannot calculate unit cost from this pack and pricing basis. Enter your approved values to continue.</div>
           <label style={{display:"block",marginTop:12}}>Unit cost<input aria-label="Override unit cost" type="number" min="0" step="any" style={inputStyle} value={overrideCost} onChange={e=>setOverrideCost(e.target.value)}/></label>
           <label style={{display:"block",marginTop:12}}>Per measurement<select aria-label="Override measurement" style={inputStyle} value={overrideUnit} onChange={e=>setOverrideUnit(e.target.value)}>{unitChoices(vocabulary,false,"").map(u=><option key={u.value} value={u.value}>{unitLabel(u.value)}</option>)}</select></label>
           <label style={{display:"block",marginTop:12}}>Price for one purchasing pack<input aria-label="Override purchasing pack price" type="number" min="0" step="any" style={inputStyle} value={overridePackPrice} onChange={e=>setOverridePackPrice(e.target.value)}/></label>
@@ -287,7 +287,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,preferredBra
         <b>Incoming quote: {formatMoney(vendorItem.import_row.row?.price)} · pack {vendorItem.import_row.row?.packSize||"not stated"} · per {vendorItem.import_row.row?.sellingUnit||"not stated"}</b>
         <div>{(vendorItem.import_row.conflicts||[]).join(" ")}</div>
         {canManage&&<button disabled={busy} onClick={()=>{const r=vendorItem.import_row.row;edit("price",r.price??"");if(r.description)edit("description",r.description);if(r.brand)edit("brand",r.brand);if(r.packSize)edit("pack_size",r.packSize);edit("selling_unit",r.sellingUnit||"");}} style={{...btn("#FFF","#875200",{fontSize:11,marginTop:6})}}>Review incoming values in this row</button>}
-        {canManage&&<button disabled={busy} onClick={()=>{if(window.confirm("Keep the saved product, brand, pack and quoted unit, and accept this incoming amount on that basis?"))edit("price",vendorItem.import_row.row?.price??"");}} style={{...btn("#FFF","#875200",{fontSize:11,marginLeft:8,marginTop:6})}}>Keep saved fields; review new price</button>}
+        {canManage&&<button disabled={busy} onClick={()=>{if(window.confirm("Keep the saved product, brand, pack and pricing basis, and accept this incoming amount on that basis?"))edit("price",vendorItem.import_row.row?.price??"");}} style={{...btn("#FFF","#875200",{fontSize:11,marginLeft:8,marginTop:6})}}>Keep saved fields; review new price</button>}
       </div>}
       <div style={{fontSize:12,marginBottom:6}}>To associate this vendor item with another catalog item, enter its existing KERDOS number and Apply changes. Apply approves this association. You can edit it again at any time.</div>
       <div style={{fontSize:12}}>Source: {vendorItem.import_row?.row?.sourceLine||"Original source is available under Price Sheets."}</div>

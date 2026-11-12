@@ -25,7 +25,7 @@ export function prepareCatalogCorrection({organizationId,vendorItem,mapping,patc
     cleaned.unit_cost_override={price:Number(o.price),packPrice:Number(o.packPrice),unit:o.unit};
   }
   const next={...vendorItem,...cleaned},basis=priceBasisFor(next.selling_unit),pack=parsePackSize(next.pack_size);
-  if(next.selling_unit&&!basis&&!["WEIGHT","VOLUME","MEASURE"].includes(next.selling_unit))throw new Error("Select a recognized quoted unit.");
+  if(next.selling_unit&&!basis&&!["WEIGHT","VOLUME","MEASURE"].includes(next.selling_unit))throw new Error("Select a recognized pricing basis.");
   if("unit_cost_unit" in cleaned&&cleaned.unit_cost_unit){
     const options=comparisonUnits(next.pack_size);
     if(options.length&&!options.includes(cleaned.unit_cost_unit))throw new Error("Select a unit cost metric compatible with the pack.");

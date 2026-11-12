@@ -65,7 +65,7 @@ export function applySourceUnits(row,{priceCell,priceHeader,documentUnit}={}, pr
     {unit:unitInPriceHeader(priceHeader, procurement),source:"price header"},
   ].filter(clue=>clue?.unit);
   if(new Set(clues.map(clue=>clue.unit)).size>1)return {...row,priceNeedsReview:true,
-    issues:[...(row.issues||[]),"The price column and row state different quoted units."],quoteUnitEvidence:clues};
+    issues:[...(row.issues||[]),"The price column and row state different pricing bases."],quoteUnitEvidence:clues};
   // Row/table declarations take precedence over a document-wide default.
   const clue=clues[0]||(!row.sellingUnit&&documentUnit?{unit:documentUnit,source:"document note"}:null);
   return clue?{...row,sellingUnit:row.sellingUnit||clue.unit,sellingUnitSource:clue.source,quoteUnitEvidence:row.quoteUnitEvidence||(clues.length?clues:[clue])}:row;

@@ -105,17 +105,17 @@ try{
   const reviewProps={...base,orgId:'org-1',expandedId:file.id,reviewPriceSheet,onReviewSaved:()=>{refreshes++;}};
   const reviewButton=label=>tree.root.findAllByType('button').find(b=>text({children:b.children})===label);
   await act(async()=>{tree=Renderer.create(createElement(PriceSheetsPage,reviewProps));});
-  await act(async()=>{reviewButton('Confirm quoted per').props.onClick();});
+  await act(async()=>{reviewButton('Confirm pricing basis').props.onClick();});
   assert.deepEqual(requests,[],'opening confirmation is read only');
   assert.equal(reviewButton('Preview confirmation').props.disabled,true,'a quoted unit is required');
-  const pick=value=>tree.root.findByProps({'aria-label':'Confirmed quoted unit'}).props.onChange({target:{value}});
+  const pick=value=>tree.root.findByProps({'aria-label':'Confirmed pricing basis'}).props.onChange({target:{value}});
   await act(async()=>{pick('weight');});
   assert.equal(reviewButton('Preview confirmation').props.disabled,true,'a measurement group alone is not a valid unit');
   await act(async()=>{pick('case');});
   await act(async()=>{reviewButton('Preview confirmation').props.onClick();});
   assert.deepEqual(requests,[{organizationId:'org-1',documentId:file.id,action:'preview-confirmation',unit:'CASE'}]);
   assert.match(pageText(),/Eligible product.*12 EA/);
-  assert.match(pageText(),/Quoted per Case/);
+  assert.match(pageText(),/Priced per Case/);
   assert.match(pageText(),/Held product.*Verify original pack/);
   assert.match(pageText(),/Order Guide ready 170 of 531/);
   await act(async()=>{pick('each');});
@@ -135,12 +135,12 @@ try{
   await act(async()=>{reviewButton('Confirm verified unit').props.onClick();});
   assert.deepEqual(requests.at(-1),{organizationId:'org-1',documentId:file.id,action:'confirm',token:'confirm-token-selected'});
   assert.equal(refreshes,1);
-  assert.match(pageText(),/Quoted unit confirmation saved/);
+  assert.match(pageText(),/Pricing basis confirmation saved/);
 
   await act(async()=>{reviewButton('Preview source recheck').props.onClick();});
   assert.deepEqual(requests.at(-1),{organizationId:'org-1',documentId:file.id,action:'preview-recheck'});
   assert.match(pageText(),/Projected after approval 256 of 531/);
-  assert.match(pageText(),/Current review fields quoted per.*Source review clears/);
+  assert.match(pageText(),/Current review fields pricing basis.*Source review clears/);
   staleApply=true;
   await act(async()=>{reviewButton('Approve source recheck').props.onClick();});
   assert.match(pageText(),/Preview is stale/);
@@ -165,11 +165,11 @@ try{
   assert.equal(refreshes,3);
 
   await act(async()=>{tree.update(createElement(PriceSheetsPage,{...reviewProps,role:'manager'}));});
-  assert.ok(reviewButton('Confirm quoted per'));
+  assert.ok(reviewButton('Confirm pricing basis'));
   assert.equal(reviewButton('Preview source recheck'),undefined,'approval is available only to owners');
   assert.equal(reviewButton('Preview workspace recheck'),undefined,'workspace approval is available only to owners');
   await act(async()=>{tree.update(createElement(PriceSheetsPage,{...reviewProps,role:'employee'}));});
-  assert.equal(reviewButton('Confirm quoted per'),undefined,'employees cannot confirm pricing');
+  assert.equal(reviewButton('Confirm pricing basis'),undefined,'employees cannot confirm pricing');
   await act(async()=>{tree.unmount();});
   console.log('PASS price sheet review shows exact eligible and held listings, sends scoped tokens, and refreshes readiness after each explicit action.');
 

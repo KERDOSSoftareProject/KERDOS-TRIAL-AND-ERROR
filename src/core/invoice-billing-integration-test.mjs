@@ -55,7 +55,7 @@ const disagreement=preparePriceImport(sheet,savedCase,knownMapping,[],[entry(bil
 assert.equal(disagreement.resolved,null,'an unstated quote cannot choose between remembered case and verified invoice weight');
 assert.equal(disagreement.row.sellingUnit,'');
 assert.ok(disagreement.reviewFields.includes('selling_unit'));
-assert.match(disagreement.reasons.join(' '),/Quoted unit.*CS.*LB/);
+assert.match(disagreement.reasons.join(' '),/Pricing basis.*CS.*LB/);
 assert.equal(preparePriceImport(sheet,savedMeasure,knownMapping,[],[entry(billed)],scope).requiresReview,false);
 assert.equal(preparePriceImport({...sheet,sellingUnit:'CASE'},savedCase,knownMapping,[],[entry(billed)],scope).requiresReview,false,
   'a current stated case quote can coexist with an invoice billed by weight');

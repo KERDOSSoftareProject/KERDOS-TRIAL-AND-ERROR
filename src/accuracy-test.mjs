@@ -30,7 +30,7 @@ await test("a pack read from the description is 90; a sheet-wide unit is 90; a g
 await test("a value the client typed reads 100% with their name; a contradiction stays as a note",()=>{
   const input={item,vendorItem:{...base,pack_size:"1/160 CT",field_resolutions:{pack_size:{confirmedBy:"u1"}}},mapping,vendor,category,peers:[]};
   const e=catalogRowEvidence({...input,editors:{u1:{name:"Kai Morgan",email:"orders@example.com"}}});
-  assert.equal(e.pack.accuracy,100);assert.equal(e.pack.by,"Kai Morgan");assert.match(e.pack.reason,/^Set by Kai Morgan/);assert.match(e.pack.reason,/doesn't fit a price quoted per/);
+  assert.equal(e.pack.accuracy,100);assert.equal(e.pack.by,"Kai Morgan");assert.match(e.pack.reason,/^Set by Kai Morgan/);assert.match(e.pack.reason,/isn't compatible with a price per/);
   assert.equal(e.unitCost.value,null);
   assert.equal(catalogRowEvidence({...input,editors:{u1:{email:"orders@example.com"}}}).pack.by,"");
 });

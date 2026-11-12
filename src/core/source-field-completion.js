@@ -18,7 +18,7 @@ export function directSourceFields(row,{columnMap={},headerFound=false}={}){
   fields.pack_size=readablePack(pack)?field(pack,'pack cell',1,{caseCountKnown:true}):field(null,'pack not stated');
   const conflicting=row.quoteUnitEvidence?.length>1&&new Set(row.quoteUnitEvidence.map(e=>canonicalQuoteUnit(e.unit)).filter(Boolean)).size>1;
   const unit=!conflicting&&(row.billingUnitEvidence?.kind==='pricing-unit-header'||['price cell','price header'].includes(row.sellingUnitSource))?canonicalQuoteUnit(row.sellingUnit):null;
-  fields.selling_unit=unit?field(unit,row.sellingUnitSource||'price unit header'):field(null,conflicting?'quoted units conflict':'quoted unit not stated',1,conflicting?{status:'conflict'}:{});
+  fields.selling_unit=unit?field(unit,row.sellingUnitSource||'price unit header'):field(null,conflicting?'pricing bases conflict':'pricing basis not stated',1,conflicting?{status:'conflict'}:{});
   return fields;
 }
 

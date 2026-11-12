@@ -25,7 +25,7 @@ export function RetainedImportRows({orgId,vendors,service,search=""}){
     {rows.slice(0,limit).map(row=><div key={row.id} style={{borderTop:"1px solid #D7B88B",padding:"10px 0"}}>
       <strong>{row.description||"Description not stated"}</strong>
       <div>{names.get(row.vendorId)||"Vendor unavailable"}{row.code?` · Vendor #${row.code}`:" · Vendor item identity unresolved"}</div>
-      <div>Pack: {row.packSize||"Not stated"} · Amount: {row.price==null?"Not stated":formatMoney(row.price)} · Quoted per: {row.sellingUnit||"Unconfirmed"}</div>
+      <div>Pack: {row.packSize||"Not stated"} · Amount: {row.price==null?"Not stated":formatMoney(row.price)} · Pricing basis: {row.sellingUnit||"Unconfirmed"}</div>
       <details><summary>Source evidence</summary><div>{row.fileName} · source row {Number(row.key.slice(4))+1}{row.position?.page?` · page ${row.position.page}`:""}</div><pre style={{whiteSpace:"pre-wrap"}}>{row.sourceLine||(row.position?.cells||[]).join(" | ")}</pre></details>
     </div>)}
     {rows.length>limit&&<button onClick={()=>setLimit(value=>value+25)}>Show more saved rows</button>}

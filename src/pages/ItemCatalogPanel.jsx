@@ -738,8 +738,8 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                       {canManage&&o.priceUnavailable&&!o.quoteBasis&&o.quotedPrice!=null&&<div style={{gridColumn:"1 / -1",background:"#FFF3E0",padding:8,borderRadius:6}}>
                         <b>Quoted amount {formatMoney(o.quotedPrice)} · selling unit unknown.</b> The product stays here; this price cannot compete yet.
                         {basisEditId===o.vendorItemId?<div style={{display:"flex",gap:7,marginTop:7,alignItems:"center"}}>
-                          <select aria-label="Confirm quoted selling unit" value={basisValue} onChange={e=>setBasisValue(e.target.value)} style={{...inp,width:125,fontSize:11}}><option value="">Select unit</option>{unitChoices(vocabulary,false,industry).map(unit=><option key={unit.value} value={unit.value}>{unit.label}</option>)}</select>
-                          <button disabled={busyMappingId===o.mappingId||!basisValue} onClick={()=>saveBasis(o)} style={{...btn("#003584","white",{fontSize:11})}}>Confirm quoted unit</button>
+                          <select aria-label="Confirm pricing basis" value={basisValue} onChange={e=>setBasisValue(e.target.value)} style={{...inp,width:125,fontSize:11}}><option value="">Select unit</option>{unitChoices(vocabulary,false,industry).map(unit=><option key={unit.value} value={unit.value}>{unit.label}</option>)}</select>
+                          <button disabled={busyMappingId===o.mappingId||!basisValue} onClick={()=>saveBasis(o)} style={{...btn("#003584","white",{fontSize:11})}}>Confirm pricing basis</button>
                           <button onClick={()=>setBasisEditId(null)} style={{...btn("#EEE","#555",{fontSize:11})}}>Cancel</button>
                         </div>:<button onClick={()=>{setBasisEditId(o.vendorItemId);setBasisValue("");}} style={{...btn("#FFF","#875200",{fontSize:11,marginLeft:8})}}>Resolve price unit</button>}
                       </div>}

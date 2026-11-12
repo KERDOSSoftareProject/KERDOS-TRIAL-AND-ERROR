@@ -318,7 +318,7 @@ export function createCatalogService(backend,importProcurement){
       const targets=vendorItems.filter(vi=>vi.organization_id===organizationId&&!vi.price_basis&&!vi.selling_unit&&Number(vi.price)>0&&vi.price_source!=="invoice");
       let done=0;
       for(const vi of targets){
-        await run(table("vendor_items").update({price_basis:"case",selling_unit:"CS",price_unavailable:!parsePackSize(vi.pack_size)?.parsed}).eq("id",vi.id).eq("organization_id",organizationId),"Could not set the quoted unit");
+        await run(table("vendor_items").update({price_basis:"case",selling_unit:"CS",price_unavailable:!parsePackSize(vi.pack_size)?.parsed}).eq("id",vi.id).eq("organization_id",organizationId),"Could not set the pricing basis");
         done++;
       }
       return done;
