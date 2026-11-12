@@ -148,6 +148,7 @@ export default function App() {
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
   const [activeOrderItem,setActiveOrderItem]=useState(null);
   const orderItemClickedAt=useRef(0);
+  const orderBrowseControlsRef=useRef(null);
   const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,editorKey:tab==="order"?openPriceMenu:null,
     canManage:['owner','manager'].includes(org?.role),vendorItems,mappings,onSaved:async (vendorItem,mapping,patch)=>{
       // A legacy device-only price must not conceal a freshly saved quote.
@@ -164,18 +165,31 @@ export default function App() {
       await loadData();
     }});
   const [splitOrders,setSplitOrders]=useState({}); // {item/unit key: {vendorId, quantity}}
-  useEffect(()=>{if(tab!=="order")setOpenPriceMenu(null);},[tab]);
+  useEffect(()=>{
+    if(tab==="order")return;
+    setOpenPriceMenu(null);
+    setActiveOrderItem(null);
+    orderItemClickedAt.current=0;
+  },[tab]);
   useEffect(()=>{
     if(tab!=="order")return;
     let frame=0;
     const followVisibleRow=()=>{
       frame=0;
+      const rows=document.querySelectorAll('[data-order-item-name]');
+      const firstRow=rows[0];
+      if(!firstRow)return;
+      if(window.scrollY<=1){
+        setActiveOrderItem(firstRow.dataset.orderItemName);
+        return;
+      }
       if(Date.now()-orderItemClickedAt.current<300)return;
-      const target=window.innerHeight*0.65;
+      const visibleTop=Math.max(0,orderBrowseControlsRef.current?.getBoundingClientRect().bottom??0);
+      const target=Math.max(visibleTop,window.innerHeight*0.65);
       let closest=null,distance=Infinity;
-      for(const element of document.querySelectorAll('[data-order-item-name]')){
+      for(const element of rows){
         const rect=element.getBoundingClientRect();
-        if(rect.bottom<=0||rect.top>=window.innerHeight)continue;
+        if(rect.bottom<=visibleTop||rect.top>=window.innerHeight)continue;
         const gap=Math.abs((rect.top+rect.bottom)/2-target);
         if(gap<distance){closest=element.dataset.orderItemName;distance=gap;}
       }
@@ -217,7 +231,17 @@ export default function App() {
   const [orderCategoryFilter,setOrderCategoryFilter]=useState("");
   const [orderVendorFilter,setOrderVendorFilter]=useState("");
   const [orderSortMode,setOrderSortMode]=useState("alphabetical");
-  function openOrderGuide(){setSearch("");setOrderCategoryFilter("");setOrderVendorFilter("");setTab("order");}
+  const [orderGuideOpenCount,setOrderGuideOpenCount]=useState(0);
+  function openOrderGuide(){
+    setSearch("");
+    setOrderCategoryFilter("");
+    setOrderVendorFilter("");
+    setOpenPriceMenu(null);
+    setActiveOrderItem(null);
+    orderItemClickedAt.current=0;
+    setOrderGuideOpenCount(count=>count+1);
+    setTab("order");
+  }
 
   // Startup and session transitions are owned by sessionController (see
   // session.js), not decided here. It reports a single "entered" flag for
@@ -261,7 +285,9 @@ export default function App() {
     window.history.scrollRestoration="manual";
     return ()=>{window.history.scrollRestoration=previous;};
   },[]);
-  useEffect(()=>{ if(!loading) window.scrollTo?.(0,0); },[tab,loading]);
+  useEffect(()=>{
+    if(!loading) window.scrollTo?.({left:0,top:0,behavior:"instant"});
+  },[tab,loading,orderGuideOpenCount]);
 
   // Inbox tracks actionable attachments; there is no read/unread state.
   useEffect(()=>{
@@ -721,6 +747,7 @@ export default function App() {
 
   const orderCategoryList=useMemo(()=>orderGuideCategories(productList),[productList]);
   const filtered=useMemo(()=>orderGuideGroups(productList,{search,category:orderCategoryFilter,vendor:orderVendorFilter,sort:orderSortMode}),[productList,search,orderCategoryFilter,orderVendorFilter,orderSortMode]);
+  const highlightedOrderItem=activeOrderItem??filtered[0]?.items[0]?.catalogItemId;
 
   async function handleLogoUpload(file) {
     if (!file) return;
@@ -1018,7 +1045,7 @@ export default function App() {
               }
             `}</style>
             <main style={{flex:1,minWidth:0}}>
-              <div className="workspace-browse-controls" role="region" aria-label="Order Guide controls">
+              <div ref={orderBrowseControlsRef} className="workspace-browse-controls" role="region" aria-label="Order Guide controls">
                 <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
                   <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:180,background:"white",color:"#174EAB",fontWeight:700}}>
                     <option value="">Vendors</option>
@@ -1174,7 +1201,7 @@ export default function App() {
                             :<div className="order-item-listings" data-price-menu key={item.catalogItemId+'_listings'} style={{gridColumn:'1 / -1',minWidth:0}}>{alternativesMenu}</div>]:[]),
                         ];
 
-                        return <div className="order-item" key={item.catalogItemId} data-active={activeOrderItem===item.catalogItemId}
+                        return <div className="order-item" key={item.catalogItemId} data-active={highlightedOrderItem===item.catalogItemId}
                           onClickCapture={()=>{orderItemClickedAt.current=Date.now();setActiveOrderItem(item.catalogItemId);}}
                           onFocusCapture={()=>setActiveOrderItem(item.catalogItemId)}>{cells}</div>;
                       })}
