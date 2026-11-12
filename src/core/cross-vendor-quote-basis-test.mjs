@@ -72,6 +72,22 @@ for(const industry of ['restaurant','construction']){
    price:{value:17,confirmedBy:'reviewer'}}},mixedPacks,{item,mapping,groupMappings,procurement:context}).selling_unit,'EACH',
    'saving an edit does not bypass the same comparison');
 
+ const pricedAfterMissingSource={...saved,id:'bacon',description:'BACON LAYOUT 18/22',brand:'Wrights',pack_size:'15 LB',
+   price:2.97,selling_unit:null,price_basis:null,price_unavailable:false,field_resolutions:{price:{value:2.97}},
+   import_row:{sourceDocumentId:'bacon-sheet',rowKey:'row:2',row:{description:'BACON LAYOUT 18/22',
+     packSize:'15 LB',price:null,priceUnavailable:true,sellingUnit:null}}};
+ const baconPeers=[55.9,44.99].map((price,i)=>({...peers[i],id:`bacon-peer-${i}`,brand:i?'Other':'Indian',
+   description:i?'BACON SLICED':'BACON LAYOUT',pack_size:'15 LB',price,selling_unit:'CASE',price_basis:'case',
+   import_row:{...peers[i].import_row,row:{...peers[i].import_row.row,packSize:'15 LB',sellingUnit:'CASE'}}}));
+ const baconItem={...item,brand_locked:true,locked_brand:'Wrights'};
+ const baconMappings=baconPeers.map(peer=>({...mapping,vendor_item_id:peer.id}));
+ const bacon=normalizeCatalogQuote(pricedAfterMissingSource,baconPeers,{item:baconItem,mapping,
+   groupMappings:baconMappings,checkEditedAmount:true,procurement:context});
+ assert.equal(bacon.quoteBasisInference?.value,'LB','a client-entered price can use verified group peers despite a preferred brand');
+ assert.equal(normalizeCatalogQuote(pricedAfterMissingSource,baconPeers,{item:baconItem,mapping,
+   groupMappings:baconMappings,procurement:context}),pricedAfterMissingSource,
+   'an unchanged N/A source price cannot be treated as an available quote');
+
  assert.equal(catalogMigrationAssessment({item,listing:normalized,mapping,procurement:context}).tier,2);
  assert.ok(orderGuideAssessment({item,vendorItem:normalized,mapping,procurement:context}).blockers.includes('sellingUnit'));
  assert.deepEqual(saved,original,'the calculation must preserve the saved quote and the original document');
