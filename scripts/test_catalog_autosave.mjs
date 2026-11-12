@@ -49,20 +49,33 @@ await mount({vendorItems:[structuredClone(current)]});await change('price for 00
 cache.clear();await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','6.25');await settle();const external={...structuredClone(current),price:6.50,row_revision:current.row_revision+1};current=external;await act(async()=>tree.update(React.createElement(CatalogRows,{...props,vendorItems:[external]})));assert.equal(Number(input('price for 000012').props.value),6.5,'a newer incoming revision replaces a clean accepted snapshot');await act(async()=>tree.unmount());await mount({vendorItems:[{...external,price:6.75,row_revision:external.row_revision+1}]});assert.ok(!JSON.stringify(tree.toJSON()).includes('Review your recovered edits'),'a clean persisted visibility marker is not an unsaved conflict');await act(async()=>tree.unmount());
 cache.clear();current={...structuredClone(row),pack_size:'4/1 GAL',selling_unit:'CASE',price_basis:'case',price_unavailable:false,field_resolutions:{unit_cost_override:{value:{price:123,unit:'GAL',packPrice:492}}}};await mount({vendorItems:[structuredClone(current)]});await change('price for 000012','7.00');await settle();assert.equal(calls.at(-1).patch.unit_cost_override,null,'a changed price invalidates an old unit-cost override so cost can recalculate');await act(async()=>tree.unmount());
 const preferredWrites=[];
-const branded={...structuredClone(current),brand:'House',field_resolutions:{...current.field_resolutions,brand:{value:'House',confirmedBy:'owner'}}};
+const branded={...structuredClone(current),brand:'House',field_resolutions:{...current.field_resolutions}};
 await mount({vendorItems:[branded],onPreferBrand:async(itemId,brand)=>{preferredWrites.push({itemId,brand});return true;}});
-const brandCell=()=>tree.root.findByProps({'data-field-label':'Brand'});
+const brandCell=()=>{let cell=input('Brand for 000012');while(cell.type!=='td')cell=cell.parent;return cell;};
 const prefer=()=>brandCell().findAllByType('input').find(input=>input.props.type==='checkbox');
 assert.equal(brandCell().findAllByType('input')[0].props.value,'','vendor brand never fills the client Brand control');
-await change('Brand for 000012','House');
+await change('Brand for 000012','USA');
 assert.equal(prefer().props.checked,false);
 await act(async()=>prefer().props.onChange({target:{checked:true}}));
-assert.equal(prefer().props.checked,true);assert.deepEqual(preferredWrites,[]);
-await settle();assert.deepEqual(preferredWrites,[{itemId:id,brand:'House'}]);
-await act(async()=>tree.update(React.createElement(CatalogRows,{...props,catalogItems:[{...item,preferred_brand:'House',brand_locked:true,locked_brand:'House'}],vendorItems:[branded],
+assert.deepEqual(calls.at(-1).patch,{brand:'USA'});assert.deepEqual(preferredWrites,[{itemId:id,brand:'USA'}]);
+const other={...branded,id:'other',vendor_item_code:'000013',brand:'Other',field_resolutions:{}};
+const acceptedBrand={...branded,brand:'USA',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,row_revision:current.row_revision,field_resolutions:{...branded.field_resolutions,brand:{value:'USA',confirmedBy:'owner'}}};
+await act(async()=>tree.update(React.createElement(CatalogRows,{...props,catalogItems:[{...item,preferred_brand:'USA',brand_locked:true,locked_brand:'USA'}],vendorItems:[acceptedBrand,other],mappings:[mapping,{...mapping,id:'mapping-other',vendor_item_id:'other'}],
  onPreferBrand:async(itemId,brand)=>{preferredWrites.push({itemId,brand});return true;}})));
+assert.equal(input('Brand for 000012').props.value,'USA');
+assert.equal(input('Brand for 000013').props.value,'','the preferred brand does not fill another vendor row');
+assert.equal(prefer().props.checked,true);
 await act(async()=>prefer().props.onChange({target:{checked:false}}));
-assert.equal(prefer().props.checked,false);await settle();assert.deepEqual(preferredWrites.at(-1),{itemId:id,brand:null});
+assert.deepEqual(preferredWrites.at(-1),{itemId:id,brand:null});
+await act(async()=>tree.update(React.createElement(CatalogRows,{...props,baseFieldsOnly:false,catalogItems:[{...item,preferred_brand:null,brand_locked:false,locked_brand:null}],vendorItems:[acceptedBrand,other],mappings:[mapping,{...mapping,id:'mapping-other',vendor_item_id:'other'}],
+ onPreferBrand:async(itemId,brand)=>{preferredWrites.push({itemId,brand});return true;}})));
+await change('Brand for 000012','');
+const beforeClear=calls.length;
+await act(async()=>tree.root.findByProps({'aria-label':'Confirm listing 000012'}).props.onClick());
+assert.equal(calls.length,beforeClear+1,'confirm saves the cleared brand: '+tree.root.findAllByProps({role:'alert'}).map(text).join(' | '));
+assert.equal(calls.at(-1).patch.brand,'','clearing and confirming removes only this vendor brand');
+assert.equal(input('Brand for 000013').props.value,'','another vendor row stays blank and editable');
+assert.equal(input('Brand for 000013').props.disabled,false);
 await act(async()=>tree.unmount());
 const panel={...props,role:'owner',productList:[{catalogItemId:id,name:item.name,category:'General',options:[]}],vendorItems:[structuredClone(current)]};await act(async()=>{tree=Renderer.create(React.createElement(ItemCatalogPanel,panel));});const button=label=>tree.root.findAllByType('button').find(n=>text(n)===label);await act(async()=>button('Base fields trial').props.onClick());assert.equal(tree.root.findAllByProps({'aria-label':'Item catalog actions'}).length,0,'base trial has no Actions menu');assert.equal(tree.root.findAllByType('button').filter(b=>text(b)==='Apply').length,0);await act(async()=>tree.unmount());
 cache.clear();current={...structuredClone(row),brand:null,pack_size:'4/5 LB',selling_unit:'LB',price:2.41,import_row:{baseFieldCompletion:{fields:{brand:{value:null,status:'not-stated'},pack_size:{value:'4/5 LB',status:'stated'},selling_unit:{value:null,status:'not-stated'}}}}};await mount({vendorItems:[structuredClone(current)]});assert.equal(input('Brand for 000012').props.placeholder,'No brand');assert.equal(input('Pack for 000012').props.value,'case');assert.equal(text(input('Calculated unit cost for 000012')),'','source trial cannot calculate from an older inferred unit');await act(async()=>tree.unmount());
@@ -97,7 +110,7 @@ assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
 const tierCells=tierRows.map(row=>row.findByProps({'data-field-label':'Item name'}));
 assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').map(text).join('')),
   ['', 'Tier 2 · Inferred Migration','Tier 3 · No Unit Migration','Tier 4 · Client Required Migration']);
-assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Edit pricing basis'],['Confirm'],['Confirm'],['Confirm']]);
+assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Confirm'],['Confirm'],['Confirm'],['Confirm']]);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));
 
 assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],['Unit cost'],['Unit cost'],['Quoted price']]);
