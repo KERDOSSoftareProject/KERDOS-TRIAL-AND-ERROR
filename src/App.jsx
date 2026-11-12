@@ -50,6 +50,7 @@ const vendorService=createVendorService(backend);
 const operationsService=createOperationsService(backend);
 const catalogService=createCatalogService(backend);
 const sessionController=createSessionController(backend.session);
+const regularsDefaultMinimum=5;
 
 
 async function viewSourceDocument(documentId){
@@ -147,6 +148,8 @@ export default function App() {
   const [negotiatedPrices,setNegotiatedPrices]=useState({}); // unit key -> vendor ID -> agreed price
   const [openPriceMenu,setOpenPriceMenu]=useState(null);
   const [activeOrderItem,setActiveOrderItem]=useState(null);
+  const [orderGuideView,setOrderGuideView]=useState(null);
+  const [regularItems,setRegularItems]=useState(null);
   const orderItemClickedAt=useRef(0);
   const orderBrowseControlsRef=useRef(null);
   const listingEdits=useOrderGuideListingAutosave({backend,organizationId:org?.id,userId:session?.user?.id,editorKey:tab==="order"?openPriceMenu:null,
@@ -169,6 +172,7 @@ export default function App() {
     if(tab==="order")return;
     setOpenPriceMenu(null);
     setActiveOrderItem(null);
+    setOrderGuideView(null);
     orderItemClickedAt.current=0;
   },[tab]);
   useEffect(()=>{
@@ -238,6 +242,7 @@ export default function App() {
     setOrderVendorFilter("");
     setOpenPriceMenu(null);
     setActiveOrderItem(null);
+    setOrderGuideView(null);
     orderItemClickedAt.current=0;
     setOrderGuideOpenCount(count=>count+1);
     setTab("order");
@@ -318,6 +323,22 @@ export default function App() {
   // flashes, and unsaved edits in other rows are untouched.
   const loadedOnce=useRef(false);
   const [loadSeq,setLoadSeq]=useState(0);
+  const regularItemsScope=session?.user?.id&&org?.id?`${session.user.id}:${org.id}`:null;
+  useEffect(()=>{
+    if(tab!=="order"||loading||!regularItemsScope||!backend.regularItems)return;
+    let current=true;
+    async function loadRegularItems(){
+      try{
+        const rows=await backend.regularItems.list(org.id);
+        if(current)setRegularItems({scope:regularItemsScope,ids:new Set((rows||[]).map(row=>row.catalog_item_id))});
+      }catch{
+        if(current)setRegularItems({scope:regularItemsScope,ids:null});
+      }
+    }
+    void loadRegularItems();
+    return ()=>{current=false;};
+  },[tab,loading,regularItemsScope,org?.id,loadSeq,orderGuideOpenCount]);
+
   async function loadData(requestedOrganizationId=null){
     const silent=loadedOnce.current&&!requestedOrganizationId;
     if(!silent)setLoading(true);
@@ -389,6 +410,7 @@ export default function App() {
   async function switchOrganization(organizationId){
     if(!organizationId||organizationId===org?.id)return;
     setQuantities({});setVendorOverride({});setNegotiatedPrices({});setUnitSelection({});
+    setOrderGuideView(null);setActiveOrderItem(null);
     await loadData(organizationId);
   }
 
@@ -746,8 +768,24 @@ export default function App() {
   const totalUnits=baskets.reduce((s,b)=>s+b.units,0);
 
   const orderCategoryList=useMemo(()=>orderGuideCategories(productList),[productList]);
-  const filtered=useMemo(()=>orderGuideGroups(productList,{search,category:orderCategoryFilter,vendor:orderVendorFilter,sort:orderSortMode}),[productList,search,orderCategoryFilter,orderVendorFilter,orderSortMode]);
-  const highlightedOrderItem=activeOrderItem??filtered[0]?.items[0]?.catalogItemId;
+  const regularItemIds=regularItems?.scope===regularItemsScope?regularItems.ids:null;
+  const regularCount=useMemo(()=>regularItemIds
+    ?productList.filter(item=>regularItemIds.has(item.catalogItemId)&&item.hasProductIdentity!==false&&item.options.length>0).length
+    :0,[productList,regularItemIds]);
+  const orderView=orderGuideView??(regularCount>=regularsDefaultMinimum?'regulars':'all');
+  const showingRegulars=orderView==='regulars';
+  const filtered=useMemo(()=>showingRegulars&&!regularItemIds?[]:orderGuideGroups(productList,{
+    search,category:orderCategoryFilter,vendor:orderVendorFilter,sort:orderSortMode,regularIds:showingRegulars?regularItemIds:null,
+  }),[productList,search,orderCategoryFilter,orderVendorFilter,orderSortMode,showingRegulars,regularItemIds]);
+  const highlightedOrderItem=filtered[0]?.items.some(item=>item.catalogItemId===activeOrderItem)
+    ?activeOrderItem:filtered[0]?.items[0]?.catalogItemId;
+  function chooseOrderView(view){
+    setOrderGuideView(view);
+    setActiveOrderItem(null);
+    orderItemClickedAt.current=0;
+    setOpenPriceMenu(null);
+    setOrderGuideOpenCount(count=>count+1);
+  }
 
   async function handleLogoUpload(file) {
     if (!file) return;
@@ -1046,6 +1084,11 @@ export default function App() {
             `}</style>
             <main style={{flex:1,minWidth:0}}>
               <div ref={orderBrowseControlsRef} className="workspace-browse-controls" role="region" aria-label="Order Guide controls">
+                {backend.regularItems&&productList.length>0&&<div role="group" aria-label="Order Guide lists" style={{display:"flex",gap:8,padding:"0 0 10px"}}>
+                  {[['all','All Items'],['regulars',`Regulars (${regularCount})`]].map(([view,label])=><button
+                    type="button" key={view} aria-pressed={orderView===view} onClick={()=>chooseOrderView(view)}
+                    style={btn(orderView===view?'#DCEBFC':'#17529B',orderView===view?'#003584':'white')}>{label}</button>)}
+                </div>}
                 <div className="order-browse-filters" style={{display:"flex",gap:12,marginBottom:14,padding:18,borderRadius:10,background:"#DCE9FA"}}>
                   <select aria-label="Vendors" value={orderVendorFilter} onChange={e=>{setOrderVendorFilter(e.target.value);}} style={{...inp,width:180,background:"white",color:"#174EAB",fontWeight:700}}>
                     <option value="">Vendors</option>
@@ -1067,7 +1110,7 @@ export default function App() {
                   style={inp} />
               </div>
 
-              {productList.length===0&&(
+              {!showingRegulars&&productList.length===0&&(
                 <div style={{background:"white",borderRadius:10,padding:32,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.08)"}}>
                   <div style={{fontSize:32,marginBottom:8}}>📋</div>
                   <h3 style={{margin:"0 0 8px"}}>No items yet</h3>
@@ -1076,7 +1119,15 @@ export default function App() {
                 </div>
               )}
 
-              {productList.length>0&&filtered.length===0&&(
+              {showingRegulars&&filtered.length===0&&(
+                <div style={{background:"white",borderRadius:10,padding:24,color:"#24436B",marginBottom:12}}>
+                  <b>{regularItems?.scope!==regularItemsScope?"Loading regular items":!regularItemIds?"Regulars are unavailable":regularCount?"No regular items match these filters":"No regular items yet"}</b>
+                  {regularItemIds&&regularCount===0&&<p>Regulars builds from submitted orders. Items fall off after 60 days without an order.</p>}
+                  <button type="button" onClick={()=>chooseOrderView('all')} style={{...btn("#003584"),marginTop:10}}>View All Items</button>
+                </div>
+              )}
+
+              {!showingRegulars&&productList.length>0&&filtered.length===0&&(
                 <div style={{background:"white",borderRadius:10,padding:24,color:"#24436B",marginBottom:12}}>
                   <b>{search||orderCategoryFilter||orderVendorFilter?"No KERDOS items match this filter":"Your Order Guide has no product groups yet"}</b>
                   <p style={{margin:"8px 0",fontSize:13}}>{search||orderCategoryFilter||orderVendorFilter?"Clear the search or choose All in both menus to see your product groups.":"Product groups with vendor listings appear here alphabetically. Unidentified source rows remain in Item Catalog."}</p>
@@ -1149,6 +1200,7 @@ export default function App() {
                               {item.name}
                             </div>
                             <div style={{fontSize:10,color:'#52647A',marginTop:4}}>KERDOS #{item.masterItemNumber}</div>
+                            {!showingRegulars&&regularItemIds?.has(item.catalogItemId)&&<span style={{fontSize:10,color:"#176247"}}>Regular</span>}
                           </div>,
                           <div className="order-item-unit" key={item.catalogItemId+"_unit"} style={{padding:"8px 6px",borderTop:"1px solid #F2F2F2",borderLeft:"1px solid #EEE",background:hasEach?fieldHighlight.fill:"#FAFBFC"}}>
                             <select aria-label={`Order unit for ${item.name}`} value={selectedUnit} onChange={e=>setUnitSelection(prev=>({...prev,[item.catalogItemId]:e.target.value}))}
