@@ -32,7 +32,20 @@ export function calculatedUnitCost(row,{industry='',procurement=getProcurementCo
   const override=row.field_resolutions?.unit_cost_override?.value;
   if(override&&Number(override.price)>0&&Number(override.packPrice)>0&&procurement.priceBasisFor(override.unit))return {price:Number(override.price),unit:override.unit,manual:true};
   const pack=procurement.parsePackSize(row.pack_size),basis=procurement.priceBasisFor(row.selling_unit);
-  if(!pack?.parsed||!basis)return null;
+  if(!pack?.parsed)return null;
+  // No confirmed basis: treat the vendor's price as a case price and divide by pack count.
+  // Per Dino's direction 2026-11-11: each = price ÷ pack count; for a single-measure pack
+  // (e.g. "10 LB") return per-unit-of-measure instead.  Result is estimated (amber) until
+  // the client clicks to confirm.
+  if(!basis){
+    const price=Number(row.price);
+    if(!Number.isFinite(price)||price<=0)return null;
+    if(pack.caseQty===1&&pack.dimension!=='count'&&pack.total>0)
+      return {price:Math.round(price/pack.total*10000)/10000,unit:pack.unit,estimated:true};
+    if(pack.caseQty>1)
+      return {price:Math.round(price/pack.caseQty*10000)/10000,unit:'EA',estimated:true};
+    return null;
+  }
   const target=row.unit_cost_unit||defaultComparisonUnit(row.pack_size,industry,procurement);
   if(!comparisonUnits(row.pack_size,procurement).includes(target))return null;
   // A stated measured rate does not depend on estimated case weight.
