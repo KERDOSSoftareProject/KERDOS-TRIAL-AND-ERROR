@@ -318,7 +318,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
     </td></tr>}
   </>;
 }
-export function CatalogRows({mobileDetails=false,autoSave=false,userId,editors={},baseFieldsOnly=false,sortMode="alphabetical",industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,onPreferBrand,settings={}}){
+export function CatalogRows({mobileDetails=false,autoSave=false,userId,editors={},baseFieldsOnly=false,sortMode="alphabetical",tierFilter=null,industry="",orgId,items,catalogItems,vendorItems,mappings,vendors,categories,vocabulary,canManage,onUpdated,onDetails,onPreferBrand,settings={}}){
   const [expanded,setExpanded]=useState(new Set());
   const [mobileGroup,setMobileGroup]=useState(null);
   // Keep opened editors mounted so a pending autosave can finish after Minimize.
@@ -345,6 +345,7 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,editors={
     const clientName=clientProductName(item,[vendorItem,...peers],industry)||'Product name needed';
     const projected=normalizeCatalogQuote(vendorItem,peers,{item,mapping,groupMappings,settings,now});
     const {tier,fields:tierFields}=catalogMigrationAssessment({item,listing:projected,mapping,settings,now});
+    if(tierFilter!==null&&tier!==tierFilter)return [];
     return [{mapping,item,vendorItem,vendor,peers,clientName,tier,tierFields,quoteBasisInference:projected.quoteBasisInference,
       evidence:catalogRowEvidence({item,vendorItem:projected,vendor,mapping,category,peers,categories})}];
   }).sort((a,b)=>{
@@ -362,15 +363,20 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,editors={
     if(!groups.has(row.item.id))groups.set(row.item.id,{id:row.item.id,name:row.clientName,number:row.item.master_item_number,rows:[]});
     groups.get(row.item.id).rows.push(row);
   }
-  for(const item of items)if(!groups.has(item.catalogItemId)){
+  for(const item of tierFilter===null?items:[])if(!groups.has(item.catalogItemId)){
     const catalogItem=catalog.get(item.catalogItemId);
     groups.set(item.catalogItemId,{id:item.catalogItemId,name:clientProductName(catalogItem||{name:item.name},[],industry)||item.name||'Product name needed',number:catalogItem?.master_item_number??item.masterItemNumber,rows:[]});
   }
+  const mobileGroupVisible=groups.has(mobileGroup);
+  useEffect(()=>{
+    if(mobileGroup&&!mobileGroupVisible)setMobileGroup(null);
+  },[mobileGroup,mobileGroupVisible]);
   const browseById=new Map(items.map(item=>[item.catalogItemId,item]));
   const orderedGroups=[...groups.values()].sort((a,b)=>compareItems({...browseById.get(a.id),name:a.name,masterItemNumber:a.number,options:browseById.get(a.id)?.options||[]},{...browseById.get(b.id),name:b.name,masterItemNumber:b.number,options:browseById.get(b.id)?.options||[]},sortMode)||a.id.localeCompare(b.id));
   return <div data-catalog-base-trial={baseFieldsOnly} style={{borderRadius:10,background:"white",marginBottom:16}}>
     <style>{`td[data-catalog-review-field] :is(input, select):enabled { background-color: ${fieldHighlight.fill}; box-shadow: inset 0 0 0 2px ${fieldHighlight.accent}; }`}</style>
     {approvalError&&<p role="alert" style={{padding:12,color:'#A32B20'}}>Could not load variable-weight confirmations: {approvalError}</p>}
+    {tierFilter!==null&&!orderedGroups.length&&<p style={{margin:0,padding:20,textAlign:'center',color:'#52647A'}}>No Tier {tierFilter} listings match these filters.</p>}
     {orderedGroups.map(group=>{
       const label=<>{group.name}<span style={{marginLeft:12,fontSize:12,fontWeight:400}}>KERDOS #{group.number??'—'}</span></>;
       const listings=<div style={{overflowX:'auto'}}><table className="mobile-edit-table" role="table" aria-label={`Vendor listings for ${group.name}`} style={{borderCollapse:"collapse",width:"100%",minWidth:1250,fontSize:12}}><thead><tr>{visibleColumns.map(([key,label])=><th key={key} style={{...cellStyle,textAlign:"left",background:"#E8F0FA"}} aria-sort={sort.key===key?sort.direction===1?"ascending":"descending":"none"}><button style={{border:0,background:"none",fontWeight:700,cursor:"pointer"}} onClick={()=>setSort(s=>({key,direction:s.key===key?-s.direction:1}))}>{label}{sort.key===key?sort.direction===1?" ↑":" ↓":""}</button></th>)}{!autoSave&&<th style={cellStyle}>Actions</th>}</tr></thead>

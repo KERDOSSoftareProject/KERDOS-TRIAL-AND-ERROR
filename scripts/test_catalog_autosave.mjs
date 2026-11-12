@@ -166,6 +166,20 @@ assert.ok(tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']===1
  .some(n=>n.findAllByProps({'aria-label':'price for 000012'}).length),
  'clearing a preferred brand does not undo a confirmed pricing basis');
 await act(async()=>tree.unmount());
+const tierPanel={...props,role:'owner',productList:[{catalogItemId:id,name:item.name,category:'General',options:[]}],
+ vendorItems:tierListings,mappings:tierListings.map(v=>({...mapping,id:v.id,vendor_item_id:v.id}))};
+await act(async()=>{tree=Renderer.create(React.createElement(ItemCatalogPanel,tierPanel));});
+const visibleTiers=()=>tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null).map(n=>n.props['data-migration-tier']);
+const writesBeforeFilter=calls.length;
+for(const tier of [1,2,3,4]){
+ await change('Sort',String(tier));
+ assert.deepEqual(visibleTiers(),[tier],'a mixed-tier group shows only its matching vendor listing');
+ assert.equal(tree.root.findAllByProps({'data-catalog-group':id}).length,1,'retain the shared KERDOS group');
+}
+await change('Sort','alphabetical');
+assert.deepEqual(visibleTiers(),[1,2,3,4]);
+assert.equal(calls.length,writesBeforeFilter,'tier browsing does not write listings');
+await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
 `,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});
  process.stdout.write(execFileSync(process.execPath,[join(dir,'test.mjs')],{encoding:'utf8',timeout:60000}));
