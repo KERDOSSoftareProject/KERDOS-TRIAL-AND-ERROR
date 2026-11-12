@@ -66,11 +66,12 @@ assert.ok(["exact","review"].includes(exact.track),"links to existing entry");
 const mixedPeers=[{id:"v1",vendor_id:"vendor-a",description:"American cheese",pack_size:"120 CT"},
   {id:"v2",vendor_id:"vendor-c",description:"American cheese",pack_size:"160 CT"}];
 const conflicted=await service.matchOrCreate({organizationId:"o1",vendorId:"vendor-b",description:"American cheese",packSize:"120 CT",catalogItems:[...established],categories:[],vendorItems:mixedPeers,mappings:[...mappings,{catalog_item_id:"c1",vendor_item_id:"v2"}]});
-// Mixed packs on entry: engine cannot confirm identity, pack agreement, or brand-lock
-// without unambiguous evidence. No automatic association — a new entry is created.
-// The client links manually via Item Catalog if the products are confirmed the same.
-assert.equal(conflicted.track,"new","mixed-pack entry: no automatic association without confirmed identity and pack");
-assert.notEqual(conflicted.catalogItemId,"c1","mixed-pack entry: incoming item must not be auto-linked to the conflicted entry");
+// Mixed vendor packs on entry (120 CT + 160 CT): existing vendors disagree on pack.
+// Incoming item has confirmed same product identity ("American cheese" = "American cheese").
+// Policy: single product identity spans vendor packs — propose for review.
+// The vendor listing keeps its own pack; the link is pending client confirmation.
+assert.equal(conflicted.track,"review","mixed-pack entry: same identity proposed for review");
+assert.equal(conflicted.catalogItemId,"c1","mixed-pack entry: incoming item linked to entry for review");
 assert.equal(associationEvidence({description:"American cheese",packSize:"120 CT"},{linkedVendorItems:mixedPeers}).exact,false);
 const singleVendor=await service.matchOrCreate({organizationId:"o1",vendorId:"vendor-a",description:"American cheese",packSize:"120 CT",catalogItems:[...established],categories:[],vendorItems,mappings});
 assert.ok(["exact","review"].includes(singleVendor.track),"same description+pack links to existing entry");
@@ -159,7 +160,8 @@ assert.notEqual(differingWords.track,"exact","abbreviated description never auto
 
   // Mixed-pack conflict: entry has two vendors with different packs already (24 CT and 48 CT).
   // The engine cannot confirm pack agreement — knownPack is null (no consensus).
-  // No automatic association. A new entry is created; the client links manually if needed.
+  // But product identity is confirmed same ("ITEM GAMMA UNIT" = "ITEM GAMMA UNIT").
+  // Policy: same identity spans vendor packs — propose for review. Client confirms or rejects.
   const p2={id:"p2",name:"ITEM GAMMA UNIT",category_id:"cat1",master_item_number:1002,brand_locked:false,matching_behavior:"flexible",category_review:false};
   const vi2={id:"v2",vendor_id:"vendor-one",description:"ITEM GAMMA UNIT",pack_size:"24 CT",brand:null,gtin:null,manufacturer_code:null};
   const vi3={id:"v3",vendor_id:"vendor-two",description:"ITEM GAMMA UNIT",pack_size:"48 CT",brand:null,gtin:null,manufacturer_code:null};
@@ -167,8 +169,8 @@ assert.notEqual(differingWords.track,"exact","abbreviated description never auto
   const m3={id:"m3",catalog_item_id:"p2",vendor_item_id:"v3",comparison_track:"review",confidence_score:80};
   const r4=await service.matchOrCreate({organizationId:"o",vendorId:"vendor-three",description:"ITEM GAMMA UNIT",packSize:"24 CT",brand:null,gtin:null,manufacturerCode:null,
     catalogItems:[{...p2}],categories:rule_cats,vendorItems:[vi2,vi3],mappings:[m2,m3]});
-  assert.equal(r4.track,"new","mixed-pack conflict: no automatic association — engine cannot confirm pack agreement");
-  assert.notEqual(r4.catalogItemId,"p2","mixed-pack conflict: incoming item must not be auto-linked to the conflicted entry");
+  assert.equal(r4.track,"review","mixed-pack conflict: same identity proposed for review");
+  assert.equal(r4.catalogItemId,"p2","mixed-pack conflict: incoming item linked to entry for review");
 }
 console.log("KERDOS provider-neutral catalog-service tests passed");
 

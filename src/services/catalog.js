@@ -233,9 +233,11 @@ export function createCatalogService(backend,importProcurement){
       // or rejects the link. The pack difference is visible in the review state.
       // The proposed link becomes eligible for inference after verification.
       // Skip when the entry is brand-locked and the incoming brand disagrees.
-      // Skip when the existing entry has no established pack (mixed vendor packs → knownPack null):
-      // the entry is indeterminate and cannot absorb another vendor until pack consensus is known.
-      if(match?.track==="similar"&&brandVerified&&match.catalogItem.pack_size){
+      // Guard on identityStatus="same": "similar" covers both "same identity, different pack"
+      // and "uncertain identity" cases. Only route to review when identity is confirmed same —
+      // this provides the independent evidence the review path requires.
+      // Mixed-pack entries (knownPack null) still get review when product identity is confirmed.
+      if(match?.track==="similar"&&brandVerified&&match.identityStatus==="same"){
         return {catalogItemId:match.catalogItem.id,track:"review",score:match.score,
           method:match.method==="identifier"?"identifier_pack_differs":"pack_differs",
           reason:match.reason||"Same product, different pack — verify this listing belongs with the existing item"};

@@ -818,11 +818,11 @@ async function matchOrCreateAgainstSeeded(catalogService, seededName, seededPack
   t('tomato-5x6-grape: new track (no match found)', match.track, 'new');
 }
 
-// TEST 24: CHEESE PROVOLONE SLICING 3/12 LB vs CHEESE PROVOLONE SLICING 1/12 LB — separate entries
-// Same product name, different purchasing packs. Different purchasing packs are always
-// separate catalog entries — the pack_conflict review path has been removed.
-// A separate catalog item (track="new") is the correct outcome; the seeded 3/12 LB entry
-// must not be reused for the 1/12 LB item.
+// TEST 24: CHEESE PROVOLONE SLICING 3/12 LB vs CHEESE PROVOLONE SLICING 1/12 LB — review link
+// Same product identity, different purchasing packs. Policy (Module C Finding 3): a single
+// product identity spans vendor packs — propose the incoming listing for review against the
+// existing KERDOS item. The vendor listing keeps its own pack (1/12 LB preserved).
+// The proposed link is pending client confirmation; track="review" is the correct outcome.
 {
   const {catalogService} = createInMemoryBackend();
   const holdingCategory = {id:'cat-hold-cheese', name:'Uncategorized', is_holding_pen:true, range_start:9000, range_end:9999};
@@ -844,13 +844,13 @@ async function matchOrCreateAgainstSeeded(catalogService, seededName, seededPack
     catalogItems:workingCatalogItems, categories:workingCategories,
     vendorItems:workingVendorItems, mappings:workingMappings,
   });
-  // Different purchasing packs always produce separate catalog entries.
-  // The 1/12 LB item must not reuse the 3/12 LB catalog entry.
-  ok('cheese-provolone-pack: separate catalog item for different purchasing pack',
-    match.catalogItemId !== 'ci-provolone-3lb',
+  // Same product identity → proposed for review against the 3/12 LB catalog entry.
+  // The vendor listing keeps its own pack (1/12 LB); the link is pending confirmation.
+  ok('cheese-provolone-pack: proposed for review against existing catalog item',
+    match.catalogItemId === 'ci-provolone-3lb',
     `catalogItemId=${match.catalogItemId} track=${match.track}`);
-  t('cheese-provolone-pack: new track (separate entry, not reuse)', match.track, 'new');
-  ok('cheese-provolone-pack: not promoted to exact (different items)',
+  t('cheese-provolone-pack: review track (same identity, different pack)', match.track, 'review');
+  ok('cheese-provolone-pack: not promoted to exact (pack differs)',
     match.track !== 'exact',
     `track=${match.track} method=${match.method}`);
 }
