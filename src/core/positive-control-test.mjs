@@ -4,8 +4,9 @@
  * Positive-control verification using the real importPriceRow pipeline.
  *
  * Proves two outcomes:
- *   1. Different purchasing packs (provolone 3/12 LB vs 1/12 LB) produce separate
- *      catalog items — the pack guard is enforced at every matching path.
+ *   1. Same product identity, different purchasing packs (provolone 3/12 LB vs 1/12 LB):
+ *      proposed for review against the same catalog item — vendor listings keep their
+ *      own packs; the proposed link is pending client confirmation (Module C Finding 3).
  *   2. Equivalent products with matching packs from two different vendors share one
  *      catalog item (track="exact") and qualify for Order Guide when all required
  *      evidence is resolved (confirmed billing unit, invoice-confirmed quote, review
@@ -194,10 +195,11 @@ const BATCH = new Date().toISOString();
 const SOURCE_DOC = 'doc-pc-test';
 
 // ═══════════════════════════════════════════════════════════════════════
-// TEST CASE 1 — Different purchasing packs produce separate catalog items
+// TEST CASE 1 — Same identity, different packs → review-linked to same catalog item
 // ═══════════════════════════════════════════════════════════════════════
 // Provolone 3/12 LB (Vendor A) is imported first, then 1/12 LB (Vendor B).
-// They must not share a catalog item — different packs are different purchasing entries.
+// Same product identity: both map to the same catalog item via track="review".
+// Each vendor listing keeps its own pack. The proposed link is pending confirmation.
 {
   const ORG = 'org-pc-pack-sep';
   const fb = createFreshBackend();
@@ -231,16 +233,16 @@ const SOURCE_DOC = 'doc-pc-test';
   ok('pack-sep: vendor item B saved', !!viB, `vendorItemId=${resultB.vendorItemId}`);
   ok('pack-sep: mapping A saved', !!mapA, `vendorItemId=${resultA.vendorItemId}`);
   ok('pack-sep: mapping B saved', !!mapB, `vendorItemId=${resultB.vendorItemId}`);
-  ok('pack-sep: separate catalog items (different packs must not share an entry)',
-    mapA && mapB && mapA.catalog_item_id !== mapB.catalog_item_id,
+  ok('pack-sep: same catalog item (same identity, different packs → review link)',
+    mapA && mapB && mapA.catalog_item_id === mapB.catalog_item_id,
     `catA=${mapA?.catalog_item_id} catB=${mapB?.catalog_item_id}`);
   t('pack-sep: A pack stored correctly', viA?.pack_size, '3/12 LB');
   t('pack-sep: B pack stored correctly', viB?.pack_size, '1/12 LB');
 
   results.push({
-    label: 'Different purchasing packs → separate catalog items',
+    label: 'Same identity, different packs → review-linked to same catalog item',
     orgId: ORG,
-    outcome: (mapA && mapB && mapA.catalog_item_id !== mapB.catalog_item_id) ? 'PASS' : 'FAIL',
+    outcome: (mapA && mapB && mapA.catalog_item_id === mapB.catalog_item_id) ? 'PASS' : 'FAIL',
     detail: `catalogItemA=${mapA?.catalog_item_id}  catalogItemB=${mapB?.catalog_item_id}`,
   });
 }

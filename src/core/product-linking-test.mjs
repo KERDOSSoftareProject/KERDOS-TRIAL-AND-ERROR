@@ -26,7 +26,7 @@ const ranked=rankVendorOffers(options,{});assert.equal(ranked.length,2);assert.e
 const close=await importRow({...b,id:'c',vendor_id:'C',description:'CHICKEN BREAST',price:39});
 assert.equal(close.catalogItemId,first.catalogItemId);assert.equal(close.track,'review','missing defining details attach for review');
 assert.equal(mappings.find(m=>m.vendor_item_id==='c').comparison_track,'review');
-const distinct=await importRow({...b,id:'d',vendor_id:'D',pack_size:'10 LB'});assert.equal(distinct.track,'new');assert.notEqual(distinct.catalogItemId,first.catalogItemId);
+const distinct=await importRow({...b,id:'d',vendor_id:'D',pack_size:'10 LB'});assert.equal(distinct.track,'review','same product identity, different pack → proposed for review');assert.equal(distinct.catalogItemId,first.catalogItemId,'same catalog item (review-linked, different pack)');
 assert.equal(productFamily(a),'chicken');assert.equal(productFamily(b),'chicken');
 const rejected={...b,id:'z',field_resolutions:{rejected_vendor_item_ids:['a','b','c']}};
 assert.equal(matchExistingProduct(rejected,[catalogItems[0]],vendorItems,mappings),null,'client unlink remains respected');

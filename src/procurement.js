@@ -771,6 +771,7 @@ function buildProcurementContext(profile,vocabularyProfile,rows) {
       const exact=identity.status==="same"&&pack.status==="same"&&score>=MATCH_POLICY.autoLink;
       if(ci.matching_behavior==="strict"&&!exact)return null;
       return {catalogItem:ci,score,track:exact?"exact":"similar",
+        identityStatus:identity.status,packStatus:pack.status,
         reason:identity.status==="review"?identity.reason:pack.reason};
     }).filter(Boolean).sort((a,b)=>(b.track==="exact")-(a.track==="exact")||b.score-a.score);
     return ranked[0]||null;

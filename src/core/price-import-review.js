@@ -11,7 +11,7 @@ const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===S
 // incomplete row is reviewable data, not a failed database write. The caller
 // retains its listing and catalog association, and stages the incoming quote
 // without overwriting the accepted quote when requiresReview is true.
-export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext(),comparisonListings=[],rawSource=source){
+export function preparePriceImport(source,prior=null,mapping=null,issues=[],invoices=[],scope=null, procurement=getProcurementContext(),comparisonListings=[],rawSource=source,{linkedPeerIds=null}={}){
   let row=source;
   const priorRoot=prior?quotedUnitOrigin(prior,procurement).root:null;
   const document=priorRoot?.confirmation?.documentConfirmation;
@@ -91,7 +91,7 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   }
   const rememberedWithoutStatedUnit=resolved?.source==='confirmed vendor item'&&!invoiceConfirmsUnit&&!printedQuoteEvidence(rawSource,procurement).present;
   if((!resolved||rememberedWithoutStatedUnit)&&!invoiceConflict&&!reasons.length){
-    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement,{currentUnit:resolved?.sellingUnit,reviewOutlier:true});
+    const inference=inferCrossVendorQuoteBasis(row,comparisonListings,scope,procurement,{currentUnit:resolved?.sellingUnit,linkedPeerIds,reviewOutlier:true});
     if(inference?.kind==='unresolved')reasons.push(`Pricing basis needs review. ${inference.reason}`);
     else if(inference){
       row={...row,sellingUnit:inference.value,sellingUnitSource:'inferred',

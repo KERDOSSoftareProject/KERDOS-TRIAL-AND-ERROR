@@ -69,9 +69,25 @@ export async function importPriceRow({
   // Normal resume already proved this held source observation against its
   // immutable snapshot. Recover its mapping/progress using the current listing;
   // explicit Inbox review may still resolve a current held row deliberately.
+  //
+  // Build verified group peer IDs for inference at import time, mirroring the
+  // display-time path in normalizeCatalogQuote (quote-basis.js). Only verified
+  // mappings (exact track, 100% confidence) for the known catalog item supply
+  // peer evidence across different packs. Without a known catalog item (new
+  // imports with no priorMapping), linkedPeerIds stays null and inference falls
+  // back to same-pack or same-identity peers only.
+  const knownCatalogItemId=priorMapping?.catalog_item_id;
+  const linkedPeerIds=knownCatalogItemId
+    ?new Set(workingMappings.filter(m=>
+        m.catalog_item_id===knownCatalogItemId&&
+        m.comparison_track==='exact'&&
+        m.confidence_score===100&&
+        m.vendor_item_id!==ex?.id
+      ).map(m=>m.vendor_item_id))
+    :null;
   const prepared = stagedReceipt&&replayStagedObservation
     ? {row,requiresReview:true,resolved:null,reviewFields:[],reasons:[]}
-    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement, workingVendorItems,sourceRow);
+    : preparePriceImport(row, ex, priorMapping, rowNeedsReview ? rowIssues : [], invoiceSources, {organizationId: orgId, vendorId}, procurement, workingVendorItems,sourceRow,{linkedPeerIds});
   row = prepared.row;
   const resolved = prepared.resolved;
   const needsBasis = prepared.requiresReview;
