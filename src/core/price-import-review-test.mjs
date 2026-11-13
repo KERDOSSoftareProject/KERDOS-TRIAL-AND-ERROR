@@ -3,6 +3,10 @@ import {configureProcurement,parsePackSize,packsEquivalent,pricePerUnit,priceBas
 import {parseDocument} from "../ingestion.js";
 import {preparePriceImport} from "./price-import-review.js";
 import {explainImportRow} from "./import-evidence.js";
+import {catalogMigrationAssessment} from "./catalog-migration-tier.js";
+import {orderGuideAssessment} from "./catalog-fields.js";
+import {planDocumentQuoteConfirmation} from "./source-review-recheck.js";
+import {PRICE_UNIT_CONFLICT_REASON} from "./source-units.js";
 
 // Synthetic cases only. No client/vendor fixture, prices or item list ships.
 for(const industry of [null,"Restaurant","Building Supply"]){
@@ -27,6 +31,34 @@ assert.ok(source,"exercise the document parser as well as the row review decisio
 const prior={id:"listing",vendor_item_code:"A-001",description:"Material Alpha",pack_size:"18 LB",brand:"Example",selling_unit:"CASE",price_basis:"case",price:30,import_row:{sourceDocumentId:"confirmed-source-document",row:{sellingUnit:"CASE"},evidence:{sellingUnit:"CASE",sellingUnitSource:"price header"}}};
 const exact={vendor_item_id:"listing",catalog_item_id:"catalog",comparison_track:"exact",confidence_score:100};
 const pending={...exact,comparison_track:"review",confidence_score:70};
+const contradictory=parseDocument('Code,Description,Pack,Price Unit,Price\nA-003,Material Alpha,18 LB,LB,36/CS').rows[0];
+assert.ok(contradictory.issues.includes(PRICE_UNIT_CONFLICT_REASON));
+for(const issues of [[],contradictory.issues]){
+  const checked=preparePriceImport(contradictory,null,null,issues);
+  assert.equal(checked.requiresReview,true);
+  assert.deepEqual(checked.reasons,[PRICE_UNIT_CONFLICT_REASON]);
+  assert.deepEqual(checked.reviewFields,['selling_unit'],'the amount is intact; its unit needs review');
+}
+const contradicted=preparePriceImport(contradictory,null,null,contradictory.issues);
+const listing={id:'contradictory',organization_id:'org',vendor_id:'vendor',vendor_item_code:contradictory.code,
+  description:contradictory.description,pack_size:contradictory.packSize,price:contradictory.price,
+  selling_unit:contradicted.resolved?.sellingUnit,price_basis:contradicted.resolved?.basis.basis,price_source:'price_list',
+  price_unavailable:false,import_row:{sourceDocumentId:'document',rowKey:'row:1',row:contradictory,evidence:contradicted.row,
+    reviewRequired:true,reviewFields:contradicted.reviewFields,conflicts:contradicted.reasons}};
+const catalog={id:'catalog',name:listing.description,category_id:'cat'};
+const mapping={...exact,organization_id:'org',vendor_item_id:listing.id};
+const assess=vendorItem=>catalogMigrationAssessment({item:catalog,listing:vendorItem,mapping});
+assert.deepEqual(assess(listing),{tier:3,fields:new Set(['sellingUnit']),reviewPriceUnitConflict:true});
+assert.ok(orderGuideAssessment({item:catalog,vendorItem:listing,mapping,category:{id:'cat',name:'General'}}).blockers.includes('source'));
+const legacy={...listing,price_unavailable:true,import_row:{...listing.import_row,reviewFields:['price']}};
+assert.deepEqual(assess(legacy),{tier:3,fields:new Set(['price','sellingUnit']),reviewPriceUnitConflict:true});
+const incoming=preparePriceImport(contradictory,{...listing,price:24},mapping,contradictory.issues);
+assert.deepEqual(incoming.reviewFields,['selling_unit','price'],'a different incoming amount still requires its own review');
+const organization={id:'org',industry:'Building Supply'};
+const document={id:'document',organization_id:'org',vendor_id:'vendor',document_kind:'pricelist',status:'complete',fingerprint:'original'};
+const bulk=planDocumentQuoteConfirmation({organization,vocabulary:[],document,listings:[listing],mappings:[mapping],unit:'CASE'});
+assert.equal(bulk.rows.length,0,'conflicting price units are not eligible for batch confirmation');
+assert.equal(bulk.held.length,1);
 for(const mapping of [null,pending,exact]){
   const result=preparePriceImport(source,prior,mapping);
   assert.equal(result.requiresReview,false,JSON.stringify(result.reasons));
@@ -62,11 +94,11 @@ assert.equal(changedPackWithoutUnit.requiresReview,true);
 assert.notEqual(changedPackWithoutUnit.resolved?.source,"confirmed vendor item","a changed source pack cannot borrow the old unit");
 const sourceMarkedForReview=preparePriceImport({...source,priceNeedsReview:true},prior,exact);
 assert.equal(sourceMarkedForReview.requiresReview,true,"a known listing does not clear incoming price-review evidence");
-const corrected={...prior,pack_size:"18 LB",field_resolutions:{pack_size:{sourceValue:"CASE",value:"18 LB"}},import_row:{row:{packSize:"CASE"}}};
+const corrected={...prior,pack_size:"18 LB",field_resolutions:{pack_size:{sourceValue:"CASE",value:"18 LB"}},import_row:{...prior.import_row,row:{...prior.import_row.row,packSize:"CASE"}}};
 assert.equal(preparePriceImport({...source,packSize:"CASE"},corrected,pending).requiresReview,false,"known source shorthand retains manual correction");
 assert.equal(preparePriceImport({...source,packSize:"BOX"},corrected,pending).requiresReview,true,"changed corrected field is saved for review, not thrown away");
-assert.equal(preparePriceImport({...source,sellingUnit:"GAL"},prior,pending).requiresReview,true,"incompatible measure cannot become a current quotation");
-assert.equal(preparePriceImport({...source,sellingUnit:"?"},prior,pending).requiresReview,true);
+assert.equal(preparePriceImport({...source,sellingUnit:"GAL",sellingUnitSource:"price header"},prior,pending).requiresReview,true,"incompatible measure cannot become a current quotation");
+assert.equal(preparePriceImport({...source,sellingUnit:"?",sellingUnitSource:"price header"},prior,pending).requiresReview,true);
 assert.equal(preparePriceImport(source,prior,exact,["Invoice disagrees"]).requiresReview,true);
 assert.equal(preparePriceImport({...source,packSize:null}).requiresReview,true,"new incomplete rows enter review too");
 const changedUnavailable=preparePriceImport({...source,packSize:"24 LB",priceUnavailable:true},prior,exact);
@@ -89,14 +121,14 @@ assert.equal(pricePerUnit(24,'3/4/200 ML','ML').price,0.01);
 assert.equal(packsEquivalent('3/4/200 ML','3x4x200 ML'),true);
 assert.equal(packsEquivalent('3/4/200 ML','3/800 ML'),false,'same total cannot erase inner packages');
 assert.equal(packsEquivalent('3/2/2/200 ML','3/4/200 ML'),false,'every intermediate level participates in identity');
-assert.equal(preparePriceImport({...source,packSize:'3/4/200 ML',sellingUnit:'CS',price:24}).requiresReview,false);
+assert.equal(preparePriceImport({...source,packSize:'3/4/200 ML',sellingUnit:'CS',sellingUnitSource:'price header',price:24}).requiresReview,false);
 for(const value of ['2/8-9 LB','0/4/200 ML','3/0/200 ML','3/4/0 ML','3/4/200 ML EXTRA'])
   assert.ok(!parsePackSize(value)?.parsed,`${value}: preserve ranges and reject invalid nested specs`);
 
 for(const packSize of ['3/7 LBA','3/7 LB AVG','2/6-8 LBA','6-8 LB AVG']){
   const parsed=parsePackSize(packSize);
   assert.equal(parsed.parsed,true);assert.equal(parsed.catchWeight,true);assert.equal(parsed.unit,'LB');
-  const reviewed=preparePriceImport({...source,packSize,sellingUnit:'LB',price:3});
+  const reviewed=preparePriceImport({...source,packSize,sellingUnit:'LB',sellingUnitSource:'price header',price:3});
   assert.equal(reviewed.requiresReview,true,'a stated measured rate does not authorize a fabricated case charge');
   assert.ok(reviewed.reasons.some(reason=>reason.includes('exact case charge')));
   assert.equal(reviewed.row.packSize,packSize);assert.equal(reviewed.row.price,3);

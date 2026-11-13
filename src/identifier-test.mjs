@@ -212,22 +212,6 @@ await test("moving an item clears the review flag; confirming keeps it in place"
   assert.deepEqual(updates[1],{id:"i2",category_review:false,category_reason:"confirmed"});
 });
 
-// --- one decision for rows whose sheet never said what the price is for ---
-await test("setCaseBasisWhereUnstated prices readable packs and leaves stated units alone",async()=>{
-  const writes=[];
-  const query=()=>({update:v=>{const chain={eq:(col,id)=>{if(col==="id")chain._id=id;return chain;},then:res=>{writes.push({id:chain._id,...v});return Promise.resolve({data:null,error:null}).then(res);}};return chain;}});
-  const service=createCatalogService({records:{query}});
-  const rows=[
-    {id:"a",organization_id:"o",price:33.99,pack_size:null,price_basis:null,selling_unit:null},
-    {id:"b",organization_id:"o",price:38.4,pack_size:"6/1 LB",price_basis:null,selling_unit:null},
-    {id:"c",organization_id:"o",price:12,pack_size:"4/10 LB",price_basis:"measure",selling_unit:"LB"},
-    {id:"d",organization_id:"o",price:0,pack_size:"1 CS",price_basis:null,selling_unit:null},
-  ];
-  const n=await service.setCaseBasisWhereUnstated({organizationId:"o",vendorItems:rows});
-  assert.equal(n,2);
-  assert.deepEqual(writes,[{id:"a",price_basis:"case",selling_unit:"CS",price_unavailable:true},{id:"b",price_basis:"case",selling_unit:"CS",price_unavailable:false}]);
-});
-
 // --- automatic placement: a row whose fields are all solved goes to the Order Guide ---
 {
   const vendors=[{id:"A",name:"Vendor One"},{id:"B",name:"Vendor Two"}];

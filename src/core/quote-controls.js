@@ -50,7 +50,7 @@ export function verifiedFullPackPrice(row,procurement=getProcurementContext()){
     original.priceUnavailable||original.priceNeedsReview||original.cellConflicts?.length||
     (row.price_unavailable&&!basisOnlyHold)||
     procurement.comparePurchasingPack(row.pack_size,originalPack).status!=='same')return null;
-  return printedQuoteEvidence(original,procurement,{ignoreLegacyOrderingUnit:true}).unit==='CASE'?price:null;
+  return printedQuoteEvidence(original,procurement).unit==='CASE'?price:null;
 }
 
 export function catalogPackEachCost(row,procurement=getProcurementContext()){
@@ -73,7 +73,8 @@ export function calculatedUnitCost(row,{industry='',procurement=getProcurementCo
   const override=row.field_resolutions?.unit_cost_override?.value;
   if(override&&Number(override.price)>0&&Number(override.packPrice)>0&&procurement.priceBasisFor(override.unit))return {price:Number(override.price),unit:override.unit,manual:true};
   const pack=procurement.parsePackSize(row.pack_size);
-  const basis=procurement.priceBasisFor(row.selling_unit)||
+  const savedUnit=quotedUnitOrigin(row,procurement).orderingUnitOnly?null:row.selling_unit;
+  const basis=procurement.priceBasisFor(savedUnit)||
     (verifiedFullPackPrice(row,procurement)!==null?procurement.priceBasisFor('CASE'):null);
   if(!pack?.parsed||!basis)return null;
   const target=row.unit_cost_unit||defaultComparisonUnit(row.pack_size,industry,procurement);

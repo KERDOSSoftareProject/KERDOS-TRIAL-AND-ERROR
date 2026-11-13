@@ -58,7 +58,7 @@ const UNIT_DEFINITIONS = {
 };
 
 const BASE_PACKAGING = [
-  "case","cases","cs","carton","cartons","box","boxes","bx","bag","bags",
+  "case","cases","cs","cse","carton","cartons","box","boxes","bx","bag","bags",
   "pack","packs","pk","pallet","pallets","roll","rolls","container","containers",
   "bottle","bottles","can","cans","jar","jars","tub","tubs","tray","trays",
 ];

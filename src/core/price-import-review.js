@@ -3,7 +3,7 @@ import {knownItemChanges} from "./catalog-fields.js";
 import {prepareImportRow} from "./import-row.js";
 import {resolveQuoteBasis,inferCrossVendorQuoteBasis,quoteBasisAlternatives,resolveFromInvoiceArithmetic,interpretStatedQuotePair} from "./quote-basis.js";
 import {quotedUnitOrigin} from "./listing-provenance.js";
-import {canonicalQuoteUnit,printedQuoteEvidence} from "./source-units.js";
+import {canonicalQuoteUnit,printedQuoteEvidence,PRICE_UNIT_CONFLICT_REASON} from "./source-units.js";
 
 const sameText=(a,b)=>String(a||"").trim().toLowerCase().replace(/\s+/g," ")===String(b||"").trim().toLowerCase().replace(/\s+/g," ");
 
@@ -40,6 +40,8 @@ export function preparePriceImport(source,prior=null,mapping=null,issues=[],invo
   catch(error){reasons.push(error.message);changes=prior?knownItemChanges(source,prior, procurement):[];}
   changes=row.changes||changes;
   reasons.push(...(row.conflicts||[]));
+  if(!source.manualFields?.includes('sellingUnit')&&row.issues?.includes(PRICE_UNIT_CONFLICT_REASON))
+    reasons.push(PRICE_UNIT_CONFLICT_REASON);
   if(prior&&!row.knownVendorItem){
     const change=(field,before,after,reason)=>{
       reasons.push(reason);
@@ -131,7 +133,7 @@ export function priceReviewFields({reasons=[],changes=[],row={},prior=null}={}){
   for(const reason of reasons){
     const text=String(reason);
     if(/barcode|manufacturer code|gtin/i.test(text))fields.add("identifiers");
-    else if(/^(?:quoted unit|pricing basis)/i.test(text))fields.add("selling_unit");
+    else if(text===PRICE_UNIT_CONFLICT_REASON||/^(?:quoted unit|pricing basis)/i.test(text))fields.add("selling_unit");
     else if(/pack/i.test(text))fields.add("pack_size");
     else if(/sellingUnit|quoted unit|pricing basis|price basis|selling unit|quoted units/i.test(text))fields.add("selling_unit");
     else if(/brand/i.test(text))fields.add("brand");

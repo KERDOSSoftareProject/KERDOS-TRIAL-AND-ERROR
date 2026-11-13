@@ -514,9 +514,10 @@ export default function App() {
           peers,categories,settings:org?.settings||{}});
         // A full-pack equivalent supports comparison across pack sizes.
         // An each quote keeps its original amount for purchasing.
-        const quoteBasis=vi.price_basis||priceBasisFor(vi.selling_unit)?.basis||null;
+        const unitOrigin=quotedUnitOrigin(vi);
+        const quoteBasis=unitOrigin.orderingUnitOnly?null:vi.price_basis||priceBasisFor(vi.selling_unit)?.basis||null;
         const quoteUnit=quoteBasis==="measure"?(vi.selling_unit||null):null;
-        const price=costOverride?Number(costOverride.packPrice):casePriceFromQuote(vi.price,quoteBasis,quoteUnit,pack);
+        const price=costOverride?Number(costOverride.packPrice):quoteBasis?casePriceFromQuote(vi.price,quoteBasis,quoteUnit,pack):null;
         const eachPack=quoteBasis==="each"?parsePackSize(pack):null;
         const basisUnconvertible=quoteBasis==="each"?!eachPack?.parsed:price==null&&quoteBasis==="measure";
         // A locked brand blocks every vendor item that is a different
@@ -525,13 +526,13 @@ export default function App() {
         const brandMismatch=!!lockedBrand&&!brandsMatch(vi.brand,lockedBrand);
         // Show supported arithmetic for held listings without admitting it to ranking.
         const projectedRate=vi.quoteBasisInference?.kind==="inferred";
-        const knownRate=vi.quoteBasisInference?.kind!=="unresolved"&&quote==="current"&&quotedUnitOrigin(vi).status==="confirmed";
+        const knownRate=vi.quoteBasisInference?.kind!=="unresolved"&&quote==="current"&&unitOrigin.status==="confirmed";
         const displayRate=!expired&&!invoiceOnly&&(projectedRate||knownRate)?calculatedUnitCost(vi,{industry:org?.industry}):null;
         return {
           vendorId:v.id, vendorName:v.name,
           vendorItemId:vi.id, vendorItemCode:vi.vendor_item_code,vendorNvim:vi.nvim_number,
           brand:vi.brand, packSize:pack, description:vi.description,clientApproved,costOverride,automaticAlternative:automaticAlternativeVerified(vi,ci,ciMappings.map(other=>viMap.get(other.vendor_item_id)).filter(Boolean))||productGroupApproved(vi,ci,m),
-          casePrice:quote==="unavailable"&&vi.price_basis==null?null:price??(!quoteBasis&&vi.price!=null?parseFloat(vi.price):null),
+          casePrice:price,
           quotedPrice:vi.price==null?null:parseFloat(vi.price), quoteBasis, quoteUnit, basisUnconvertible,
           displayRate:displayRate&&!displayRate.estimated&&displayRate.price>0?displayRate:null,
           projectedQuote:projectedRate?{note:vi.quoteBasisInference.price!=null&&!vi.quoteBasisInference.evidence.references?"Unit carried forward":"Inferred"}:null,

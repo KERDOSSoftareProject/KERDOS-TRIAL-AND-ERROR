@@ -3,7 +3,7 @@ import {getProcurementContext} from "../procurement.js";
 import {billingUnitEvidence} from "./billing-unit-evidence.js";
 import {parseAssignedMoney} from "./assigned-numbers.js";
 import {unitLabel} from "./unit-labels.js";
-import {hasPrintedQuoteUnit,printedQuoteEvidence,unitInPrice,unitInPriceHeader} from "./source-units.js";
+import {applySourceUnits,hasPrintedQuoteUnit,isOrderingQuoteUnit,printedQuoteEvidence,unitInPrice,unitInPriceHeader} from "./source-units.js";
 
 // Interpret only bound source prices. Each amount keeps its own header
 // and coordinates, independent of calculations or later client edits.
@@ -140,15 +140,16 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
     listing.field_resolutions?.unit_cost_override?.value||
     item?.brand_locked&&!procurement.brandsMatch(listing.brand,item.locked_brand))return listing;
   listing=projectHeldAmount(listing,settings,now,procurement);
-  if(peers.length<2)return listing;
   const origin=quotedUnitOrigin(listing,procurement);
+  if(origin.orderingUnitOnly)listing={...listing,selling_unit:null,price_basis:null};
+  if(peers.length<2)return listing;
   const amountSource=listingSourceForField(listing,'price');
   const confirmedPrice=listing.field_resolutions?.price;
   const amountEdited=checkEditedAmount||!!confirmedPrice?.confirmedBy&&Number(confirmedPrice.value)===Number(listing.price);
   if(origin.root?.source==='sheet'||origin.root?.source==='invoice'||origin.confirmation?.documentConfirmation||
     !amountSource.sourceDocumentId||(!amountEdited&&Number(amountSource.row.price)!==Number(listing.price))||
     amountSource.row.description&&procurement.compareProductIdentity(amountSource.row.description,listing.description).status==='different'||
-    printedQuoteEvidence(amountSource.row,procurement,{ignoreLegacyOrderingUnit:true}).present)return listing;
+    printedQuoteEvidence(amountSource.row,procurement).present)return listing;
   const group=listing.field_resolutions?.product_group;
   const sameGroup=item&&mapping?.catalog_item_id===item.id&&
     (mapping.comparison_track==='exact'&&mapping.confidence_score===100||
@@ -191,6 +192,7 @@ export function normalizeCatalogQuote(listing,peers,{item,mapping,groupMappings,
 // a new document with an omitted unit also quotes cases.
 export function resolveQuoteBasis(row,prior=null, procurement=getProcurementContext(),source=row){
   if(row.sellingUnitSource==='inferred')return null;
+  if(row.sellingUnitSource!=='remembered'&&isOrderingQuoteUnit(row))row=applySourceUnits(row,{},procurement);
   const explicit=procurement.priceBasisFor(row.sellingUnit);
   if(explicit&&row.sellingUnitSource==='remembered'){
     const origin=quotedUnitOrigin({...prior,description:row.description,pack_size:row.packSize,

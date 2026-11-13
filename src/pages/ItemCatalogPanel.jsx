@@ -186,20 +186,6 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
     });
     setBusyMappingId(null);
   }
-  // Vendor rows with a price but no stated unit. Most sheets quote per
-  // case and simply don't say so; one click applies that to all of them.
-  const unstatedBasisRows=useMemo(()=>vendorItems.filter(vi=>vi.organization_id===orgId&&!vi.price_basis&&!vi.selling_unit&&Number(vi.price)>0&&vi.price_source!=="invoice"),[vendorItems,orgId]);
-  const [settingBasis,setSettingBasis]=useState(false);
-  async function handleSetCaseBasis(){
-    if(!unstatedBasisRows.length)return;
-    const byVendor=new Map();
-    for(const vi of unstatedBasisRows){const name=vendors.find(v=>v.id===vi.vendor_id)?.name||"Vendor";byVendor.set(name,(byVendor.get(name)||0)+1);}
-    const lines=[...byVendor].map(([name,n])=>`• ${name}: ${n}`).join("\n");
-    if(!window.confirm(`Treat the quoted price as the price of one full case for ${unstatedBasisRows.length} product${unstatedBasisRows.length===1?"":"s"} whose sheet didn't say?\n\n${lines}\n\nRows with a readable pack become priced for ordering. Rows without a pack stay unavailable until the pack is set. Rows that state their own unit are not touched.`))return;
-    setSettingBasis(true);
-    await act(()=>catalogService.setCaseBasisWhereUnstated({organizationId:orgId,vendorItems:unstatedBasisRows}));
-    setSettingBasis(false);
-  }
   async function handleSavePack(mappingId){
     const mapping=mappings.find(m=>m.id===mappingId);
     const vendor=viMap.get(mapping?.vendor_item_id);
@@ -422,7 +408,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
               <option value="alphabetical">Item A–Z</option><option value="added">Date Added</option><option value="itemNumber">Item #</option><option value="vendorCode">Vendor Code</option>
             </optgroup>
             <optgroup label="Show one tier">
-              {[1,2,3,4].map(tier=><option key={tier} value={String(tier)}>Tier {tier}</option>)}
+              {[1,2,3].map(tier=><option key={tier} value={String(tier)}>Tier {tier}</option>)}
             </optgroup>
           </select>}
 
@@ -445,7 +431,6 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
                 {categoryCorrections.size>0&&<button onClick={()=>{setActionsOpen(false);setShowReview(false);setMappedOnly(false);setCategoryFilter(CATEGORY_REVIEW_FILTER);}} style={btn('#EEE','#173C70')}>Review categories</button>}
                 <button onClick={()=>{setActionsOpen(false);setCatalogTool('associations');}} style={btn('#EEE','#173C70')}>Review suggested associations</button>
                 <button onClick={()=>{setActionsOpen(false);setCatalogTool('groups');}} style={btn('#EEE','#173C70')}>Grouping review</button>
-                {unstatedBasisRows.length>0&&<button disabled={settingBasis} onClick={()=>{setActionsOpen(false);handleSetCaseBasis();}} style={btn('#EEE','#173C70')}>{settingBasis?'Setting…':'Set missing quote units to case'}</button>}
               </>}
             </div>
           </details>}

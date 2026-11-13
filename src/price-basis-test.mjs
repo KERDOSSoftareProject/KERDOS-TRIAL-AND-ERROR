@@ -11,6 +11,15 @@ await test("vendor packs without a leading zero still resolve their measurement"
 
 // --- basis recognition: what the vendor's selling unit means ---
 await test("case words",()=>{for(const w of ["CS","case","Bx","PK","CT","cs."])assert.equal(priceBasisFor(w).basis,"case",w);});
+await test("case packaging suffix preserves the actual pack measurement",()=>{
+  for(const code of ["CS","CSE"]){
+    const pack=parsePackSize(`70 LB ${code}`);
+    assert.equal(pack.parsed,true);
+    assert.equal(pack.caseQty,1);
+    assert.equal(pack.total,70);
+    assert.equal(pack.unit,"LB");
+  }
+});
 await test("each words",()=>{for(const w of ["EA","each","PC","unit"])assert.equal(priceBasisFor(w).basis,"each",w);});
 await test("measure words carry the unit",()=>{
   assert.deepEqual(priceBasisFor("LB"),{basis:"measure",unit:"LB"});

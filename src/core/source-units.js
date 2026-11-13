@@ -1,7 +1,17 @@
 import {getProcurementContext} from "../procurement.js";
 
-const isOrderingHeader=value=>/^(?:order(?:ing)? unit|order uom|type)$/i.test(String(value||'').trim().replace(/:$/,'').trim());
+export const isOrderingHeader=value=>/^(?:order(?:ing)?\s+(?:unit|uom)|type)$/i.test(String(value||'').trim().replace(/:$/,'').trim());
 const directPriceSources=new Set(['price cell','price header','document note','manual']);
+export const PRICE_UNIT_CONFLICT_REASON="The price column and row state different pricing bases.";
+const orderingHeader=row=>[
+  row.fieldIdentification?.bindings?.sellingUnit?.header,
+  row.sellingUnitHeader,
+  String(row.sellingUnitSource||'').replace(/^header:\s*/i,''),
+].some(isOrderingHeader);
+
+export function isOrderingQuoteUnit(row){
+  return orderingHeader(row)&&!directPriceSources.has(row.sellingUnitSource)&&row.sellingUnitSource!=='invoice';
+}
 
 // Read only explicit price units. A pack's measurement is not a price unit.
 export function canonicalQuoteUnit(value, procurement=getProcurementContext()){
@@ -37,20 +47,18 @@ export function documentQuoteUnit(text, procurement=getProcurementContext()){
 export function hasPrintedQuoteUnit(row, procurement=getProcurementContext()){
   return printedQuoteEvidence(row,procurement).present;
 }
-export function printedQuoteEvidence(row,procurement=getProcurementContext(),{ignoreLegacyOrderingUnit=false}={}){
+export function printedQuoteEvidence(row,procurement=getProcurementContext()){
   const present=value=>String(value??'').trim()!=='';
   const retained=row.originalFields||{};
   const binding=row.fieldIdentification?.bindings?.sellingUnit;
   const price=row.fieldIdentification?.bindings?.price;
   const header=price?.header||row.priceHeader||'';
   const value=String(price?.rawValue??'').trim();
-  const orderingHeader=binding?.header||row.sellingUnitHeader||'';
-  const ordering=/^(?:order(?:ing)? unit|order uom|type)$/i.test(orderingHeader);
-  const ignoreLegacyOrder=ignoreLegacyOrderingUnit&&isOrderingHeader(orderingHeader||String(row.sellingUnitSource||'').replace(/^header:\s*/i,''));
-  const clues=Array.isArray(row.quoteUnitEvidence)?row.quoteUnitEvidence.filter(clue=>!ignoreLegacyOrder||directPriceSources.has(clue?.source)):[];
-  const direct=[!ignoreLegacyOrder?retained.sellingUnit:null,
-    binding?.evidence!=='inferred'&&!ordering&&!ignoreLegacyOrder?binding?.rawValue:null,
-    (!ignoreLegacyOrder||directPriceSources.has(row.sellingUnitSource))&&!['inferred','remembered','invoice'].includes(row.sellingUnitSource)?row.sellingUnit:null,
+  const ordering=orderingHeader(row);
+  const clues=Array.isArray(row.quoteUnitEvidence)?row.quoteUnitEvidence.filter(clue=>!ordering||directPriceSources.has(clue?.source)):[];
+  const direct=[!ordering?retained.sellingUnit:null,
+    binding?.evidence!=='inferred'&&!ordering?binding?.rawValue:null,
+    !isOrderingQuoteUnit(row)&&!['inferred','remembered','invoice'].includes(row.sellingUnitSource)?row.sellingUnit:null,
     ...clues.map(clue=>clue?.unit),
   ].filter(present);
   const cellUnit=unitInPrice(value,procurement),headerUnit=unitInPriceHeader(header,procurement);
@@ -63,14 +71,23 @@ export function printedQuoteEvidence(row,procurement=getProcurementContext(),{ig
 }
 export function applySourceUnits(row,{priceCell,priceHeader,documentUnit}={}, procurement=getProcurementContext()){
   // An ordering-unit column does not state what the quoted price covers.
-  if(/^(?:order(?:ing)? unit|order uom|type)$/i.test(row.sellingUnitHeader||'')&&!directPriceSources.has(row.sellingUnitSource))row={...row,orderingUnit:row.orderingUnit||row.sellingUnit,sellingUnit:null,billingUnitEvidence:null,sellingUnitSource:null};
+  let independentClues=[];
+  if(isOrderingQuoteUnit(row)){
+    const boundPrice=row.fieldIdentification?.bindings?.price;
+    priceCell??=boundPrice?.rawValue;
+    priceHeader??=boundPrice?.header??row.priceHeader;
+    if(Array.isArray(row.quoteUnitEvidence))independentClues=row.quoteUnitEvidence.filter(clue=>directPriceSources.has(clue?.source));
+    row={...row,orderingUnit:row.orderingUnit||row.sellingUnit,sellingUnit:null,billingUnitEvidence:null,sellingUnitSource:null,
+      quoteUnitEvidence:independentClues.length?independentClues:undefined};
+  }
   const clues=[
     row.sellingUnit&&{unit:canonicalQuoteUnit(row.sellingUnit, procurement),source:row.sellingUnitSource||"column"},
     {unit:unitInPrice(priceCell, procurement),source:"price cell"},
     {unit:unitInPriceHeader(priceHeader, procurement),source:"price header"},
+    ...independentClues,
   ].filter(clue=>clue?.unit);
   if(new Set(clues.map(clue=>clue.unit)).size>1)return {...row,priceNeedsReview:true,
-    issues:[...(row.issues||[]),"The price column and row state different pricing bases."],quoteUnitEvidence:clues};
+    issues:[...(row.issues||[]),PRICE_UNIT_CONFLICT_REASON],quoteUnitEvidence:clues};
   // Row/table declarations take precedence over a document-wide default.
   const clue=clues[0]||(!row.sellingUnit&&documentUnit?{unit:documentUnit,source:"document note"}:null);
   return clue?{...row,sellingUnit:row.sellingUnit||clue.unit,sellingUnitSource:clue.source,quoteUnitEvidence:row.quoteUnitEvidence||(clues.length?clues:[clue])}:row;

@@ -489,11 +489,11 @@ await test('cross-vendor inferred fields have identical held outcomes in fresh u
  const email=run('email');assert.deepEqual(email,run('manual'));
  const held=email.find(row=>row.description==='STEEL WASHERS');
  assert.equal(email.length,4);assert.equal(held.sellingUnit,'LB');assert.equal(held.unitInference.accuracy,70);
- assert.equal(held.sourceUnit,null);assert.equal(held.priceUnavailable,true);assert.equal(held.reviewRequired,true);
+ assert.equal(held.sourceUnit,null);assert.equal(held.priceUnavailable,false);assert.equal(held.reviewRequired,true);
  assert.equal(held.unitInference.evidence.references.length,2);
 });
 
-await test("missing quoted-per stays blank in fresh upload and email processes", () => {
+await test("a supplied price remains available during review in fresh upload and email processes", () => {
   const run=path=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),path,'missing-basis'],{encoding:'utf8'}));
   const manual=run('manual'),email=run('email');
   assert.deepEqual(email,manual);
@@ -504,7 +504,7 @@ await test("missing quoted-per stays blank in fresh upload and email processes",
   assert.equal(held.basis,null);
   assert.deepEqual(held.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','LB']);
   assert.equal(held.price,2.06);
-  assert.equal(held.priceUnavailable,true);
+  assert.equal(held.priceUnavailable,false);
   assert.equal(held.reviewRequired,true);
   assert.ok(held.reviewFields.includes('selling_unit'));
 });

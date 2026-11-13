@@ -107,15 +107,16 @@ console.log('PASS Regulars in the rendered Order Guide: default threshold, manua
 for(const key of [...store.keys()])if(key.includes('basket'))store.delete(key);
 backend.workspace.memberships=async()=>[{role:'owner',organizations:{id:'org',name:'Trial',industry:'restaurant',settings:{}}}];
 for(const ci of catalogItems){ci.category_reason='confirmed';ci.category_review=false;}
-for(const row of vendorItems)row.field_resolutions={row_approval:true};
+for(const row of vendorItems)row.field_resolutions={row_approval:true,selling_unit:{value:row.selling_unit,confirmedBy:'owner'}};
 Object.assign(vendorItems.find(row=>row.id==='honey-second'),{pack_size:'4/1 GAL',description:'Honey Mustard Dressing'});
 for(const m of snapshot.mappings){m.organization_id='org';m.comparison_track='exact';m.confidence_score=100;m.match_method='manual';}
 backend.workspace.snapshot=async()=>structuredClone(snapshot);
 let savedRequest;
 backend.catalog.saveRow=async request=>{savedRequest=request;const row=vendorItems.find(v=>v.id===request.vendorItemId);Object.assign(row,request.patch);
 if(['price','pack_size','selling_unit'].some(field=>Object.hasOwn(request.patch,field))){
- row.price_basis=request.priceBasis;row.price_unavailable=!request.priceAvailable;
+ row.price_basis=request.priceBasis;
 }
+if(Object.hasOwn(request.patch,'price'))row.price_unavailable=!(Number(row.price)>0);
 row.row_revision++;
 };
 await act(async()=>{tree=Renderer.create(React.createElement(App));});

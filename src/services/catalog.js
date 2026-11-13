@@ -3,7 +3,7 @@
 // imports a database vendor.
 import {prepareCatalogCorrection} from "./catalog-rows.js";
 import {productAssociationIdentity,productGroupApproved} from '../core/product-associations.js';
-import {nextCategoryRange,parsePackSize,abbreviationPairs,getProcurementContext} from "../procurement.js";
+import {nextCategoryRange,abbreviationPairs,getProcurementContext} from "../procurement.js";
 
 // An association is a customer's assertion about identity. Ordering eligibility
 // additionally requires agreement with the existing vendor product's pack and
@@ -309,19 +309,6 @@ export function createCatalogService(backend,importProcurement){
       const masterItemNumber=itemsInCategory.length?Math.max(...itemsInCategory.map(item=>item.master_item_number||0))+1:(category.range_start);
       if(category.range_end!=null&&masterItemNumber>Number(category.range_end))throw new Error("This category item-number range is full.");
       return run(table("catalog_items").insert({organization_id:organizationId,category_id:categoryId||null,master_item_number:masterItemNumber,name:name.slice(0,120),matching_behavior:"flexible",canonical_unit:null,brand_locked:false,category_review:!!categoryReview,category_reason:categoryReason||null}).select().single(),"Could not create the item");
-    },
-    // Rows whose sheet never said what the price is for. One decision for
-    // the lot: the quoted amount is for one full pack. Rows with a readable
-    // pack become priced; rows without one stay unavailable until the pack
-    // is set. Rows that already state a unit are left alone.
-    async setCaseBasisWhereUnstated({organizationId,vendorItems=[]}){
-      const targets=vendorItems.filter(vi=>vi.organization_id===organizationId&&!vi.price_basis&&!vi.selling_unit&&Number(vi.price)>0&&vi.price_source!=="invoice");
-      let done=0;
-      for(const vi of targets){
-        await run(table("vendor_items").update({price_basis:"case",selling_unit:"CS",price_unavailable:!parsePackSize(vi.pack_size)?.parsed}).eq("id",vi.id).eq("organization_id",organizationId),"Could not set the pricing basis");
-        done++;
-      }
-      return done;
     },
     // The client's word on a guessed placement: keep it where it is.
     confirmCategory(catalogItemId){

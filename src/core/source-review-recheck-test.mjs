@@ -51,6 +51,29 @@ assert.equal(confirm({price_expired_at:now.toISOString()}).rows.length,0);
 assert.equal(confirm({price:50}).rows.length,0,'retained quote amount cannot be substituted');
 assert.equal(confirm({field_resolutions:confirmed.field_resolutions}).rows.length,0,'prior confirmation is protected');
 
+const orderingSource={...sample.import_row.row,sellingUnit:'CSE',sellingUnitSource:'header: Type:',
+  fieldIdentification:{bindings:{sellingUnit:{evidence:'stated',rawValue:'CSE',header:'Type:'}}}};
+const orderingObservation={...sample.import_row,row:orderingSource,evidence:orderingSource,
+  baseline:{...orderingSource,sellingUnit:'CS'}};
+const orderingListing={...sample,selling_unit:'CSE',price_unavailable:false,import_row:orderingObservation};
+const orderingPlan=confirm(orderingListing,{unit:'EACH'});
+assert.equal(orderingPlan.rows.length,1,'a Type-only row may be confirmed in its original sheet');
+assert.equal(orderingPlan.rows[0].sellingUnit,'EACH','the explicit choice can replace a legacy ordering token');
+assert.equal(orderingPlan.rows[0].expectedListing.import_row,orderingObservation,'the full stored snapshot stays in the plan');
+assert.equal(orderingPlan.rows[0].expectedListing.selling_unit,'CSE');
+assert.equal(confirm({...orderingListing,price_unavailable:true,import_row:{...orderingObservation,reviewRequired:false}}).rows.length,0,'a withdrawn quote is excluded');
+assert.equal(confirm({...orderingListing,import_row:{...orderingObservation,retainedSource:{row:orderingSource}}}).rows.length,0,'an incoming observation cannot replace a different active quote');
+assert.equal(confirm({...orderingListing,import_row:{...orderingObservation,evidence:{sellingUnit:'EACH',sellingUnitSource:'price header'}}}).rows.length,0,'explicit evidence stays protected');
+assert.equal(confirm(orderingListing,{document:statedTerms,unit:'EACH'}).rows.length,0,'a Type-only row cannot override explicit sheet terms');
+const unrecognizedOrdering={...orderingSource,sellingUnit:'P',
+  fieldIdentification:{bindings:{sellingUnit:{evidence:'stated',rawValue:'P',header:'Type:'}}}};
+assert.equal(confirm({...orderingListing,selling_unit:'P',price_basis:null,price_unavailable:true,
+  import_row:{...orderingObservation,row:unrecognizedOrdering,evidence:unrecognizedOrdering,baseline:unrecognizedOrdering}}).rows.length,1,
+  'the same bound Type code can be replaced even if it cannot be interpreted as a price unit');
+const orderingConfirmed={...orderingListing,selling_unit:'EACH',price_basis:'each',
+  field_resolutions:{selling_unit:{...confirmation(),value:'EACH',sourceValue:'CSE'}}};
+assert.equal(recheck(orderingConfirmed).rows.length,1,'recheck can clear a resolved legacy hold without rewriting its original source');
+
 const warnings={...sample.import_row,row:{...sample.import_row.row,cellConflicts:[{field:'pack',note:'Verify'}]}};
 assert.equal(confirm({import_row:warnings}).rows.length,0);
 assert.equal(recheck({...confirmed,import_row:warnings}).rows.length,0);
@@ -68,6 +91,7 @@ assert.equal(confirmed.import_row.reviewRequired,true,'a recheck produces only a
 
 const scopedInvoice={organizationId:organization.id,vendorId:sample.vendor_id,id:'invoice',row:{code:'ITEM',description:'Different product',packSize:sample.pack_size}};
 assert.equal(confirm({}, {invoices:[scopedInvoice]}).rows.length,0,'a selected unit cannot mask invoice conflicts');
+assert.equal(confirm(orderingListing,{unit:'EACH',invoices:[scopedInvoice]}).rows.length,0,'Type-only rows still require consistent invoices');
 assert.equal(recheck(confirmed,{invoices:[scopedInvoice]}).rows.length,0);
 assert.equal(recheck(confirmed,{invoices:[{...scopedInvoice,vendorId:'another'}]}).rows.length,1);
 

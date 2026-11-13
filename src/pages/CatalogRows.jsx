@@ -15,7 +15,7 @@ import {createVariableWeightService} from '../services/variable-weight.js';
 import {VariableWeightConfirmation} from './VariableWeightConfirmation.jsx';
 import {CATALOG_COLUMNS,catalogRowEvidence,unitChoices,orderGuideAssessment,BLOCKER_LABELS,initialsFor} from "../core/catalog-fields.js";
 import {catalogMigrationAssessment} from "../core/catalog-migration-tier.js";
-import {normalizeCatalogQuote} from "../core/quote-basis.js";
+import {normalizeCatalogQuote,quoteBasisAlternatives} from "../core/quote-basis.js";
 import {parsePackSize,priceBasisFor,casePriceFromQuote,estimateCaseCost,brandsMatch} from "../procurement.js";
 import {formatMoney} from "../localization.js";
 import {btn,fieldHighlight,inp} from "../ui/styles.js";
@@ -26,7 +26,11 @@ const cellStyle={padding:8,borderBottom:"1px solid #DEE7F0",verticalAlign:"top"}
 const visibleColumns=CATALOG_COLUMNS.filter(([key])=>key!=="sellingUnit");
 const BASE_COLUMNS=new Set(['itemNumber','vendor','vendorItemNumber','category','itemName','product','price']);
 const BASE_EDIT_FIELDS=new Set(['description','price','category_id']);
-const tierNames={2:"Inferred Migration",3:"No Unit Migration",4:"Client Required Migration"};
+const tiers={
+  1:{label:"Confirmed",color:"#19613A"},
+  2:{label:"Inferred Migration",color:"#875200"},
+  3:{label:"Client Required Migration",color:"#A32B20"},
+};
 const inputStyle={...inp,fontSize:12,padding:6,width:"100%",minWidth:85,boxSizing:"border-box"};
 // Source and editor notes remain available without confidence/origin badges.
 function Evidence({field}){
@@ -34,7 +38,7 @@ function Evidence({field}){
   if(field.value==null||field.value==="")return <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Empty</small>;
   return field.by?<small style={{display:"block",marginTop:4,color:"#003584"}}>{field.by}</small>:null;
 }
-function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,editors={},baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},variableApproval,onVariableApprovalChanged,tier,tierFields,quoteBasisInference}){
+function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,editors={},baseFieldsOnly=false,clientName,industry,allCatalogItems,allVendorItems,allMappings,orgId,item,vendorItem,mapping,vendor,categories,vocabulary,canManage,onUpdated,onDetails,peers=[],settings={},variableApproval,onVariableApprovalChanged,tier:loadedTier,tierFields:loadedTierFields,holdFields:loadedHoldFields,reviewPriceUnitConflict:loadedPriceUnitConflict,quoteBasisInference}){
   const storageKey=autoSave&&userId?`kerdos-catalog-draft:${orgId}:${userId}:${vendorItem.id}`:null;
   const [recovery]=useState(()=>{try{return storageKey?JSON.parse(window.localStorage.getItem(storageKey)||'null'):null;}catch{return null;}});
   const [trialVisible,setTrialVisible]=useState(recovery?.visible||{});
@@ -51,11 +55,9 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
   const [overridePackPrice,setOverridePackPrice]=useState("");
   const [details,setDetails]=useState(false);
   const [packParts,setPackParts]=useState(null);
-  const [choosingQuotedUnit,setChoosingQuotedUnit]=useState(false);
   const packControl=useRef(null);
   const savingRef=useRef(false);
   const pendingSave=useRef(null);
-  const showUnitChooser=choosingQuotedUnit;
   const wasOpen=useRef(editorOpen);
   const mounted=useRef(true);
   useEffect(()=>{mounted.current=true;return ()=>{mounted.current=false;};},[]);
@@ -65,11 +67,12 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
   for(const key of Object.keys(draft))if(key!=="item_name")resolutions[key]={value:draft[key],
     sourceValue:resolutions[key]?.sourceValue??original.import_row?.row?.[sourceKeys[key]||key]??original[key]};
   const current={...original,...draft,field_resolutions:resolutions};
-  if(["price","pack_size","selling_unit","unit_cost_unit"].some(key=>Object.hasOwn(draft,key))){
+  const pricingDraft=["price","pack_size","selling_unit"].some(key=>Object.hasOwn(draft,key));
+  if(pricingDraft||Object.hasOwn(draft,"unit_cost_unit")){
     delete current.field_resolutions.unit_cost_override;
     const basis=priceBasisFor(current.selling_unit);
     current.price_basis=basis?.basis||null;
-    current.price_unavailable=!(basis&&Number(current.price)>0&&parsePackSize(current.pack_size)?.parsed&&casePriceFromQuote(current.price,basis.basis,basis.unit||current.selling_unit,current.pack_size)!=null);
+    if(Object.hasOwn(draft,"price"))current.price_unavailable=!(Number(current.price)>0&&Number.isFinite(Number(current.price)));
   }
   const linkDirty=numberDraft!=null&&numberDraft.trim()!==String(item.master_item_number);
   const destination=linkDirty?allCatalogItems.find(ci=>String(ci.master_item_number)===numberDraft.trim()):item;
@@ -82,14 +85,17 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
   const quoteContext={item:evidenceItem,mapping:previewMapping,
     groupMappings:allMappings.filter(link=>link.catalog_item_id===displayItem.id),settings,
     checkEditedAmount:Object.hasOwn(draft,"price")};
-  // A draft stays responsive while typing; compare with the group on Confirm.
-  const refreshed=linkDirty;
+  // A Tier 3 edit may produce a supported proposal before confirmation.
+  const refreshed=linkDirty||loadedTier===3&&pricingDraft;
   const draftProjection=refreshed?normalizeCatalogQuote(current,displayPeers,quoteContext):null;
   const inference=refreshed?draftProjection.quoteBasisInference:
     original.row_revision===vendorItem.row_revision?quoteBasisInference:null;
   const projected=draftProjection||(inference?.value?{...current,price:inference.price??current.price,
     pack_size:inference.packSize||current.pack_size,selling_unit:inference.value,
     price_basis:priceBasisFor(inference.value).basis,quoteBasisInference:inference}:{...current,quoteBasisInference:inference});
+  const {tier,fields:tierFields,holdFields,reviewPriceUnitConflict}=refreshed
+    ?catalogMigrationAssessment({item:evidenceItem,listing:projected,mapping:previewMapping,settings})
+    :{tier:loadedTier,fields:loadedTierFields,holdFields:loadedHoldFields,reviewPriceUnitConflict:loadedPriceUnitConflict};
   const evidence=catalogRowEvidence({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,industry});
   const assessment=orderGuideAssessment({item:evidenceItem,vendorItem:projected,mapping:previewMapping,vendor,category,peers:displayPeers,categories,settings});
   const packUnits=unitChoices(vocabulary,true,industry);
@@ -108,10 +114,24 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
   const calculationPack=baseFieldsOnly&&autoSave?displayed('pack_size'):projected.pack_size;
   const trialCost=baseFieldsOnly&&autoSave?sourceTrialUnitCost({...projected,price:displayed('price')},{pack:calculationPack,unit:displayed('selling_unit'),packEdited:!!inference||!!trialVisible.pack_size,industry}):null;
   const eachCost=autoSave&&!baseFieldsOnly?catalogPackEachCost(projected):null;
-  const showEach=!!eachCost&&(!current.unit_cost_unit||current.unit_cost_unit==='EA');
+  const inferredRate=evidence.sellingUnit.status==='inferred'&&priceBasisFor(projected.selling_unit)?.basis==='measure';
+  const showEach=!!eachCost&&(current.unit_cost_unit==='EA'||!current.unit_cost_unit&&!inferredRate);
   const shownPack=packParts||editablePack(inputValue("pack_size"));
+  const savedReview=original.import_row;
+  const pendingSourceFields=savedReview?.reviewRequired?savedReview.reviewFields||[]:[];
+  const needsBasisChoice=tier===3&&tierFields.has("sellingUnit")&&
+    !tierFields.has("pack")&&!tierFields.has("price")&&Number(projected.price)>0;
+  const basisChoices=needsBasisChoice&&pendingSourceFields.every(field=>['selling_unit','brand','description'].includes(field))
+    ?quoteBasisAlternatives({packSize:calculationPack}).filter(option=>option.sellingUnit!=='EACH'||parsedPack?.caseQty!==1)
+    :[];
   const confirmedFields=values=>({approve_row:true,...Object.fromEntries(Object.entries(values).filter(([key,value])=>
-    Object.hasOwn(draft,key)||String(value??'')!==String(original[key]??'')))});
+    Object.hasOwn(draft,key)||key==='selling_unit'&&tierFields.has('sellingUnit')||
+    key==='pack_size'&&tierFields.has('pack')||String(value??'')!==String(original[key]??'')))});
+  function chooseBasis(unit){
+    if(!basisChoices.some(option=>option.sellingUnit===unit))return;
+    void save(null,{selling_unit:unit,
+      ...(Number(projected.price)!==Number(current.price)?{price:Number(projected.price)}:{})});
+  }
   function confirmReview(){
     const pack=displayed("pack_size"),price=Number(displayed("price"));
     const description=displayed("description"),brand=displayed("brand");
@@ -139,12 +159,11 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
           ...(Object.hasOwn(draft,"brand")?{brand}:{})}));
       }else{
         setError(checked.quoteBasisInference.reason);
-        setChoosingQuotedUnit(true);
       }
       return;
     }
     if(!basis||casePriceFromQuote(1,basis.basis,basis.unit||unit,pack)==null){
-      setChoosingQuotedUnit(true);
+      setError("Choose a price unit compatible with the pack.");
       return;
     }
     void save(null,confirmedFields({description,pack_size:pack,selling_unit:unit,price,
@@ -211,7 +230,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
     <tr role="row" data-migration-tier={tier} style={{background:"white"}}>
       {visibleColumns.map(([key,label])=>{
         if(baseFieldsOnly&&!autoSave&&!BASE_COLUMNS.has(key))return <td key={key} data-blank-trial-field={key} style={cellStyle}/>;
-        const f=key!=='unitCost'?evidence[key]:inference?.kind==='unresolved'?{...evidence[key],value:null}:
+        const f=key!=='unitCost'?evidence[key]:inference?.kind==='unresolved'||needsBasisChoice||reviewPriceUnitConflict?{...evidence[key],value:null}:
           baseFieldsOnly&&autoSave?{...evidence[key],value:trialCost?.price??null,unit:trialCost?.unit??null,estimated:!!trialCost?.estimated}:
           showEach?{...evidence[key],value:eachCost.price,unit:'EA',estimated:eachCost.estimated}:evidence[key];let content;
         if(key==="itemNumber")content=<span aria-label={`KERDOS item number for ${vendorItem.vendor_item_code}`} style={{fontWeight:700,color:"#003584",display:"block",padding:"6px 0"}}>{(baseFieldsOnly?displayItem:item).master_item_number!=null?`#${(baseFieldsOnly?displayItem:item).master_item_number}`:"—"}</span>;
@@ -242,7 +261,8 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
         else if(key==="brand")content=<input aria-label={`Brand for ${vendorItem.vendor_item_code||vendorItem.id}`} style={{...inputStyle,minWidth:95}} disabled={!canManage||busy} value={Object.hasOwn(draft,"brand")?current.brand??"":current.field_resolutions?.brand?.confirmedBy?current.brand??"":""} placeholder="No brand" onChange={e=>edit("brand",e.target.value)} />;
         else if(fields[key])content=<input aria-label={`${key} for ${vendorItem.vendor_item_code}`} style={{...inputStyle,minWidth:key==="product"?220:95}} disabled={!canManage||busy} type={key==="price"?"number":"text"} step={key==="price"?"any":undefined} min={key==="price"?"0":undefined} value={inputValue(fields[key])} onChange={e=>edit(fields[key],e.target.value)} />;
         else content=<>
-          {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
+          {autoSave?<span aria-label={`Calculated unit cost for ${vendorItem.vendor_item_code}`}>{baseFieldsOnly&&(!displayed("pack_size")||!displayed("selling_unit"))||f.value==null?"":<>{f.estimated?"Est. ":""}{formatMoney(f.value)}{!baseFieldsOnly&&inferredRate&&f.unit&&f.unit!=="EA"&&`/${f.unit.toLowerCase()}`}</>}</span>:f.value==null?<span style={{color:"#8D5900",fontWeight:700}}>Undetermined</span>:<span>{f.estimated?"Est. ":""}{formatMoney(f.value)}</span>}
+          {!baseFieldsOnly&&tier===2&&f.value!=null&&(inference?.value||tierFields.has('pack')||evidence.sellingUnit.status==='inferred')&&<small> · Inferred</small>}
           {eachCost&&!showEach&&<small style={{display:"block",marginTop:4}}>{eachCost.estimated?'Est. each':'Each'} {formatMoney(eachCost.price)}</small>}
           <select aria-label={`Unit cost metric for ${vendorItem.vendor_item_code}`} style={{...inputStyle,marginTop:4,minWidth:100}} disabled={!canManage||busy||!comparisonUnits(calculationPack).length} value={baseFieldsOnly&&autoSave&&(!displayed("pack_size")||!displayed("selling_unit"))?"":showEach?"EA":current.unit_cost_unit||f.unit||defaultComparisonUnit(calculationPack,industry)||""} onChange={e=>edit("unit_cost_unit",e.target.value)}>
             <option value="" disabled>Select measurement</option>
@@ -266,20 +286,31 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
               onChange={event=>{const selected=event.target.checked,brand=String(current.brand||"").trim();void (async()=>{if(selected&&Object.hasOwn(draft,"brand")&&!await save())return;await onPreferBrand(displayItem.id,selected?brand:null);})();}} /> Prefer brand
           </label>}
           {key==="itemName"&&<>
-            {tierNames[tier]&&<small style={{display:"block",marginTop:4,color:"#003584"}}>Tier {tier} · {tierNames[tier]}</small>}
-            {autoSave&&canManage&&(tier===1||tierNames[tier]||inference)&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
+            {tiers[tier]&&<small style={{display:"block",marginTop:4,color:tiers[tier].color}}>Tier {tier} · {holdFields?.size?"Review":tiers[tier].label}</small>}
+            {holdFields?.size>0&&<small style={{display:"block",marginTop:4,color:"#8D5900"}}>
+              {holdFields.has('brand')&&'Resolve brand conflict'}{holdFields.has('brand')&&holdFields.has('product')&&' · '}{holdFields.has('product')&&'Resolve product association'}
+            </small>}
+            {autoSave&&canManage&&holdFields?.has('product')&&<button type="button" onClick={onDetails}
+              style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4})}>Review association</button>}
+            {autoSave&&canManage&&tier!==3&&!holdFields?.size&&<button type="button" style={btn("#E8F1FB","#003584",{fontSize:11,padding:"4px 8px",marginTop:4,border:`1px solid ${fieldHighlight.accent}`})}
               aria-label={inference?.packSize?"Confirm pack and pricing basis":inference?.value?"Confirm pricing basis":`Confirm listing ${vendorItem.vendor_item_code||trialListingLabel(vendorItem)}`}
-              disabled={busy||linkDirty||showUnitChooser} onClick={confirmReview}>Confirm</button>}
-            {showUnitChooser&&<select autoFocus aria-label="Pricing basis" style={{...inputStyle,marginTop:4}}
-              value={tier===1?(priceBasisFor(current.selling_unit)?.unit||String(current.selling_unit||"").toUpperCase()):""}
-              disabled={busy} onChange={event=>{edit("selling_unit",event.target.value);setChoosingQuotedUnit(false);}}
-              onKeyDown={event=>{if(event.key==="Escape")setChoosingQuotedUnit(false);}}>
-              <option value="" disabled>Select pricing basis</option>
-              {unitChoices(vocabulary,false,industry).map(unit=><option key={unit.value} value={unit.value}>{unit.label}</option>)}
+              disabled={busy||linkDirty} onClick={confirmReview}>Confirm</button>}
+            {autoSave&&canManage&&basisChoices.length>0&&<select aria-label="Pricing basis" style={{...inputStyle,marginTop:4}}
+              value="" disabled={busy||linkDirty} onChange={event=>chooseBasis(event.target.value)}>
+              <option value="" disabled>Choose price unit</option>
+              {basisChoices.map(({sellingUnit})=><option key={sellingUnit} value={sellingUnit}>
+                {formatMoney(projected.price)} · per {sellingUnit.toLowerCase()}
+              </option>)}
             </select>}
+            {reviewPriceUnitConflict&&<details style={{marginTop:4,fontSize:11,color:tiers[3].color}}>
+              <summary>Review conflicting price units</summary>
+              <div>{basisChoices.length?"Check the source before choosing a price unit.":"Verify the amount and unit on the original price sheet."}</div>
+              {savedReview?.row?.sourceLine&&<div style={{overflowWrap:"anywhere"}}>{savedReview.row.sourceLine}</div>}
+            </details>}
           </>}
-          {!baseFieldsOnly&&key!=="brand"&&(key==="unitCost"&&tier===3&&f.value==null?
-            <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Pricing basis needs evidence</small>:<Evidence field={f}/>)}
+          {autoSave&&tier===3&&key==="pack"&&tierFields.has("pack")&&<small style={{display:"block",marginTop:4,color:tiers[3].color}}>Fix pack</small>}
+          {!baseFieldsOnly&&key!=="brand"&&(key==="unitCost"&&basisChoices.length>0&&f.value==null?
+            <small style={{display:"block",marginTop:4,color:"#8D5900"}}>Choose what the price covers</small>:<Evidence field={f}/>)}
           {key==="price"&&inference?.price!=null&&<small style={{display:"block",marginTop:4,color:"#003584"}}>{inference.evidence.references?"Inferred":"Unit carried forward"}</small>}
           {autoSave&&key==="product"&&saveStatus}
           {change&&<small style={{display:"block",color:"#9B4400"}} title={change.reason}>Changed on new sheet</small>}
@@ -350,9 +381,9 @@ export function CatalogRows({mobileDetails=false,autoSave=false,userId,editors={
     const peers=groupMappings.filter(o=>o.id!==mapping.id).map(o=>viById.get(o.vendor_item_id)).filter(Boolean);
     const clientName=clientProductName(item,[vendorItem,...peers],industry)||'Product name needed';
     const projected=normalizeCatalogQuote(vendorItem,peers,{item,mapping,groupMappings,settings,now});
-    const {tier,fields:tierFields}=catalogMigrationAssessment({item,listing:projected,mapping,settings,now});
+    const {tier,fields:tierFields,holdFields,reviewPriceUnitConflict}=catalogMigrationAssessment({item,listing:projected,mapping,settings,now});
     if(tierFilter!==null&&tier!==tierFilter)return [];
-    return [{mapping,item,vendorItem,vendor,peers,clientName,tier,tierFields,quoteBasisInference:projected.quoteBasisInference,
+    return [{mapping,item,vendorItem,vendor,peers,clientName,tier,tierFields,holdFields,reviewPriceUnitConflict,quoteBasisInference:projected.quoteBasisInference,
       evidence:catalogRowEvidence({item,vendorItem:projected,vendor,mapping,category,peers,categories})}];
   }).sort((a,b)=>{
     if(a.tier!==b.tier)return a.tier-b.tier;

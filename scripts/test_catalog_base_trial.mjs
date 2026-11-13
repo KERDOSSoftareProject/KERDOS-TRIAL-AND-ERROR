@@ -89,14 +89,15 @@ try{
   mappings:confirmListings.map(row=>({id:'map-'+row.id,organization_id:org,vendor_item_id:row.id,catalog_item_id:cheese.id,comparison_track:'exact',confidence_score:100})),
   onDetails:()=>assert.fail('Confirm must stay in the editor')};
  await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,confirmProps));});
- const confirmFor=code=>rowFor('Pack for '+code).findByProps({'aria-label':'Confirm listing '+code});
  assert.equal(rowFor('Pack for AC3').props['data-migration-tier'],3);
  const beforeChoice=calls.length;
- await act(async()=>confirmFor('AC3').props.onClick());
- await act(async()=>rowFor('Pack for AC3').findByProps({'aria-label':'Pricing basis'}).props.onChange({target:{value:'CASE'}}));
- assert.equal(calls.length,beforeChoice,'choosing a value stages the edit');
- await act(async()=>confirmFor('AC3').props.onClick());
- assert.deepEqual(calls.at(-1).patch,{selling_unit:'CASE',approve_row:true});
+ const unresolvedRow=rowFor('Pack for AC3');
+ assert.equal(unresolvedRow.findAllByType('button').length,0);
+ const chooser=unresolvedRow.findByProps({'aria-label':'Pricing basis'});
+ assert.deepEqual(chooser.findAllByType('option').map(text),['Choose price unit','$16.75 · per case','$16.75 · per each','$16.75 · per lb']);
+ await act(async()=>chooser.props.onChange({target:{value:'CASE'}}));
+ assert.equal(calls.length,beforeChoice+1,'one choice saves the selected unit');
+ assert.deepEqual(calls.at(-1).patch,{selling_unit:'CASE'});
  const accepted={...blankUnit,selling_unit:'CASE',price_basis:'case',row_revision:1,
   field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}};
  await act(async()=>tree.update(React.createElement(CatalogRows,{...confirmProps,vendorItems:[cheeseListings[0],accepted,noPrice]})));
@@ -109,9 +110,10 @@ try{
  assert.deepEqual(calls.at(-1).patch,{approve_row:true});
  assert.equal(calls.length,beforeChoice+2);
 
- assert.equal(rowFor('Pack for AC4').props['data-migration-tier'],4);
- await act(async()=>confirmFor('AC4').props.onClick());
- assert.match(text(rowFor('Pack for AC4')),/Enter the product description and quoted price/);
+ const missingPriceRow=rowFor('Pack for AC4');
+ assert.equal(missingPriceRow.props['data-migration-tier'],3);
+ assert.equal(missingPriceRow.findAllByType('button').length,0);
+ assert.equal(missingPriceRow.findAllByProps({'aria-label':'Pricing basis'}).length,0);
  assert.equal(calls.length,beforeChoice+2,'incomplete rows stay in review without a write');
  await act(async()=>tree.unmount());
  const acceptedInference={...cheeseListings[0],pack_size:'5 lb',selling_unit:'EACH',price_basis:'each',row_revision:1,

@@ -29,6 +29,9 @@ export function parseMoneyLenient(str){
 // decimal must leave the assigned cell unresolved, even if it starts with digits.
 export function parseAssignedMoney(value){
  const text=String(value??'').trim();
+ // Treat one trailing period on a plain decimal as punctuation. The caller
+ // retains the original assigned cell and the strict column profiler is unchanged.
+ if(/^\d+\.\d+\.$/.test(text))return parseMoney(text.slice(0,-1));
  const number=text.match(/^\(?-?(?:\$\s*)?(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+|,\d{1,2})?)\)?/)?.[0];
  if(!number||number.startsWith('(')!==number.endsWith(')'))return null;
  const suffix=text.slice(number.length).trim();

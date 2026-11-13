@@ -51,11 +51,11 @@ export function VendorDetail({vendor,vc,vendorItems,invoices,purchaseOrders,pric
 
   async function savePriceEdit(item){
     const newPrice=parseFloat(priceEditValue);
-    if(isNaN(newPrice)||newPrice<=0){ setPriceEditId(null); return; }
+    if(!Number.isFinite(newPrice)||newPrice<=0){ setPriceEditId(null); return; }
     setError("");
     try{
       if(Math.abs((item.price||0)-newPrice)>0.001){
-        await vendorService.recordManualPrice({organizationId:orgId,item,price:newPrice});
+        await vendorService.recordManualPrice({organizationId:orgId,item,mapping:mappingFor(item.id).mapping,price:newPrice});
       }
       setPriceEditId(null);
       onUpdated();

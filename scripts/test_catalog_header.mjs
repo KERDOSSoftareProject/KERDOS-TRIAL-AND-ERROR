@@ -30,7 +30,7 @@ const before=JSON.stringify(props),text=n=>typeof n==='string'?n:(n?.children||[
 await act(async()=>{tree=Renderer.create(React.createElement(ItemCatalogPanel,props));});
 const actions=()=>tree.root.findByProps({'aria-label':'Item catalog actions'});
 assert.equal(actions().props.open,false);assert.equal(tree.root.findAllByType('h3').filter(n=>text(n)==='Item Catalog').length,0,'the page title is not repeated inside its content');
-assert.deepEqual(tree.root.findByProps({'aria-label':'Sort'}).findAllByType('option').map(text),['Item A–Z','Date Added','Item #','Vendor Code','Tier 1','Tier 2','Tier 3','Tier 4']);
+assert.deepEqual(tree.root.findByProps({'aria-label':'Sort'}).findAllByType('option').map(text),['Item A–Z','Date Added','Item #','Vendor Code','Tier 1','Tier 2','Tier 3']);
 assert.ok(tree.root.findByProps({placeholder:'Search by item, vendor description, or vendor code...'}));
 assert.deepEqual(tree.root.findByProps({'aria-label':'Vendors'}).findAllByType('option').map(text),['Vendors','Vendor','Second Vendor']);
 assert.deepEqual(tree.root.findByProps({'aria-label':'Item Categories'}).findAllByType('option').map(text),['Item Categories','Dairy','General']);
@@ -48,11 +48,12 @@ await choose('Item Categories','Dairy');assert.deepEqual(groups(),[]);
 await act(async()=>tree.root.findByProps({placeholder:'Search by item, vendor description, or vendor code...'}).props.onChange({target:{value:''}}));
 await choose('Item Categories','');await choose('Vendors','');assert.deepEqual(groups(),['item','milk'],'blank menu choices restore all items');
 await choose('Sort','1');assert.deepEqual(groups(),[]);assert.match(text(tree.toJSON()),/No Tier 1 listings match these filters/);
-await choose('Sort','4');assert.deepEqual(groups(),['item','milk']);
+await choose('Sort','3');assert.deepEqual(groups(),['item','milk']);
 await choose('Item Categories','Dairy');assert.deepEqual(groups(),['milk'],'tier combines with the existing category filter');
 await choose('Item Categories','');await choose('Sort','alphabetical');assert.deepEqual(groups(),['item','milk']);
 for(const forbidden of ['All products (','Not mapped (','Mapped (','Quoted per case:','Correct any cell','vendor rows meet Order Guide requirements'])assert.ok(!text(tree.toJSON()).includes(forbidden),forbidden);
 const button=label=>tree.root.findAllByType('button').find(b=>text(b)===label);
+assert.equal(button('Set missing quote units to case'),undefined,'the catalog cannot assign one case basis across unsupported rows');
 for(const label of ['+ Add Item','Export (CSV)','Estimated drafts','Product details','Review listings','Grouping review','Review suggested associations']){
  const b=button(label);assert.ok(b,label+' remains accessible');let parent=b.parent;while(parent&&parent!==actions())parent=parent.parent;assert.equal(parent,actions(),label+' belongs in Actions');
 }

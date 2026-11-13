@@ -380,7 +380,7 @@ await check('new uncertain items are retained without being counted as saved quo
   const state=makeBackend({csv});const result=await run(state);
   assert.equal(result.outcome,'needs_review');assert.equal(state.vendorItems.length,3);
   assert.deepEqual(docFor(state).completed_keys,[]);assert.equal(result.heldKeys.length,3);
-  assert.ok(state.vendorItems.every(v=>v.price_unavailable&&v.import_row.reviewRequired));
+  assert.ok(state.vendorItems.every(v=>!v.price_unavailable&&v.import_row.reviewRequired));
 });
 await check('exact catalog mapping cannot confirm previously inferred quote units',async()=>{
   const state=makeBackend({csv:buildCsv(CODES.map(code=>({code,priceUnit:''})))});
@@ -390,7 +390,7 @@ await check('exact catalog mapping cannot confirm previously inferred quote unit
   const retry=await run(state);assert.equal(retry.outcome,'needs_review');
   assert.equal(state.calls.applyQuote.length,before);
   assert.equal(retry.heldKeys.length,3);assert.deepEqual(docFor(state).completed_keys,[]);
-  assert.ok(state.vendorItems.every(v=>v.price_unavailable&&v.import_row.reviewRequired));
+  assert.ok(state.vendorItems.every(v=>!v.price_unavailable&&v.import_row.reviewRequired));
 });
 await check('write failure stays partial without marking the failed or later row complete',async()=>{
   const state=makeBackend({csv:buildCsv(CODES.map(code=>({code,priceUnit:'CASE'})))});
