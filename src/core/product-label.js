@@ -4,6 +4,7 @@ const vowels = /[aeiou]/g;
 const consonants = word => word.replace(vowels, '');
 const unique = values => [...new Set(values)];
 const phrase = value => dictionaryTokens(value).join(' ');
+const statedLevels = /\b\d+(?:\.\d+)?\s*%|\b(?:grade|level)\s+(?:[a-z]{1,2}|\d+(?:\.\d+)?[a-z]?)\b[+-]?|\b(?:premium|standard)\s+grade\b/gi;
 
 function singular(word) {
   if (word.length > 4 && word.endsWith('ies')) return word.slice(0, -3) + 'y';
@@ -46,21 +47,32 @@ const isWithin = (inner, outer) => inner.start >= outer.start && inner.end <= ou
 
 function keepMostSpecific(matches) {
   return matches.filter(match => !matches.some(other =>
-    other !== match && (other.entry.broader?.has(match.entry.key)
+    other !== match && ((other.entry.key !== match.entry.key && other.entry.broader.has(match.entry.key))
       || (other.words.length > match.words.length && isWithin(match, other)))));
 }
 
 function identifyConcepts(index, ...representations) {
   const matches = representations.flatMap(words => keepMostSpecific(findSpans(words, index)));
-  return matches.filter(match => !matches.some(other => other.entry.broader.has(match.entry.key)));
+  return matches.filter(match => !matches.some(other =>
+    other.entry.key !== match.entry.key && other.entry.broader.has(match.entry.key)));
 }
 
 function informationalPositions(words, modifierIndex, conceptIndex) {
   const products = findSpans(words, conceptIndex).filter(match => match.words.length > 1);
-  return new Set(findSpans(words, modifierIndex).filter(match =>
-    match.entry.role === 'informational' && !match.entry.concepts.size
-    && !products.some(product => spansOverlap(match, product)))
+  const modifiers = findSpans(words, modifierIndex).filter(match => !match.entry.concepts.size);
+  return new Set(modifiers.filter(match =>
+    match.entry.role !== 'defining' && !products.some(product => spansOverlap(match, product))
+    && (match.entry.role === 'level' || !modifiers.some(form =>
+      form.entry.role === 'defining' && spansOverlap(match, form))))
     .flatMap(span => words.slice(span.start, span.end).map((_, offset) => span.start + offset)));
+}
+
+function definingModifiers(words, index, concept) {
+  const eligible = findSpans(words, index)
+    .filter(match => !match.entry.concepts.size || match.entry.concepts.has(concept));
+  const levels = eligible.filter(match => match.entry.role === 'level');
+  return eligible.filter(match => match.entry.role === 'defining'
+    && !levels.some(level => isWithin(match, level))).map(match => match.entry);
 }
 
 function indexAliases(groups, vocabulary) {
@@ -164,9 +176,9 @@ const review = (reason, evidence = []) => ({status: 'review', key: null, label: 
 
 export function createProductLabelReader({profile = {}, dictionaries, vocabulary, unitWords = []} = {}) {
   const concepts = (profile.concepts || []).map(entry => ({
-    ...entry,
-    key: phrase(entry.label),
-    terms: entry.terms || [],
+    label: entry.levelOf || entry.label,
+    key: phrase(entry.levelOf || entry.label),
+    terms: [entry.label, ...(entry.terms || [])],
     broader: new Set((entry.broader || []).map(phrase)),
   }));
   const modifiers = (profile.modifiers || []).map(entry => ({
@@ -176,7 +188,10 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     concepts: new Set((entry.concepts || []).map(phrase)),
   }));
   const conceptIndex = indexRules(concepts);
-  const modifierIndex = indexRules(modifiers);
+  const modifierIndex = indexRules([
+    ...modifiers,
+    {label: 'whole', terms: [], role: 'informational', concepts: new Set()},
+  ]);
   const knownBrands = (profile.brandTerms || []).map(label => ({label, terms: []}));
   const brandIndex = indexRules(knownBrands);
   const origins = new Set((profile.origins || []).map(phrase));
@@ -195,7 +210,7 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
   const standalone = unique([...aliases.productWords, ...(profile.standalone || []).map(phrase),
     ...concepts.map(entry => entry.key), ...modifiers.map(entry => entry.key)])
     .filter(word => /^[a-z]+$/.test(word)).sort();
-  const known = new Set([...standalone, ...(profile.knownWords || []).flatMap(dictionaryTokens),
+  const known = new Set(['whole', ...standalone, ...(profile.knownWords || []).flatMap(dictionaryTokens),
     ...concepts.flatMap(entry => dictionaryTokens(entry.label)), ...modifiers.flatMap(entry => dictionaryTokens(entry.label))]);
   for (const modifier of modifiers) {
     for (const value of modifier.terms) {
@@ -207,7 +222,7 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
   const packs = packPattern(unitWords);
 
   return function readProductLabel({description, brand, packSize, pack_size: storedPack} = {}) {
-    const input = String(description || '').replace(/\(([^()]*)\)/g, (span, content) =>
+    const input = String(description || '').replace(statedLevels, ' ').replace(/\(([^()]*)\)/g, (span, content) =>
       origins.has(phrase(content)) ? ' ' : span);
     const source = dictionaryTokens(packs ? input.replace(packs, ' ') : input);
     const stated = [brand, packSize || storedPack].filter(Boolean).map(label => ({label, terms: []}));
@@ -231,12 +246,9 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     const keys = unique(matches.map(match => match.entry.key));
     if (keys.length > 1) return review('Description identifies more than one product', expanded.evidence);
     const base = matches[0]?.entry;
-    const rawModifiers = findSpans(words, modifierIndex);
-    const resolvedModifiers = findSpans(expanded.words, modifierIndex);
-    const eligible = [...rawModifiers, ...resolvedModifiers]
-      .filter(match => !match.entry.concepts.size || match.entry.concepts.has(base?.key));
-    const marks = [...new Map(eligible.map(match => [match.entry.key, match.entry])).values()];
-    const defining = marks.filter(mark => mark.role === 'defining');
+    const defining = [...new Map([words, expanded.words]
+      .flatMap(sourceWords => definingModifiers(sourceWords, modifierIndex, base?.key))
+      .map(mark => [mark.key, mark])).values()];
     const exclusive = defining.filter(mark => mark.exclusive).map(mark => mark.exclusive);
     if (new Set(exclusive).size < exclusive.length) {
       return review('Description has conflicting product forms', expanded.evidence);

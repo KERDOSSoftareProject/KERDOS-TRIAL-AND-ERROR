@@ -16,7 +16,13 @@ const same = [
   ['GARLIC LOOSE (ARG)', 'GARLIC WHOLE'],
   ['FRESH ARTICHOKE HEARTS', 'ARTICHOKE HEARTS'],
   ['KENS KETCHUP UNKNOWNX', 'HEINZ KETCHUP UNKNOWNY'],
-  ['MILK 1%', 'MILK 2%'],
+  ['MILK', 'MILK 1%', 'MILK 2%', 'MILK WHOLE', 'SKIM MILK', 'FAT FREE MILK', 'LOW FAT MILK'],
+  ['WHOLE MILK POWDER', 'SKIM MILK POWDER', 'DRIED MILK'],
+  ['CREAM', 'LIGHT CREAM', 'CREAM HEAVY 36%', 'HEAVY WHIPPING CREAM'],
+  ['COFFEE', 'DARK ROAST COFFEE', 'MEDIUM ROASTED COFFEE'],
+  ['TOFU SOFT', 'TOFU EXTRA FIRM'],
+  ['MUSHROOM', 'MUSHROOM WHOLE'],
+  ['WHEAT WRAP', 'WHOLE WHEAT TORTILLA'],
   ['BEEF BASE SELECT', 'BASE BEEF ROYAL'],
   ['CHICKEN BASE SELECT', 'BASE CHICKEN ROYAL'],
   ['GARLIC POWDER', 'POWDER GARLIC'],
@@ -39,6 +45,10 @@ const distinct = [
   ['CHICKEN STRIPS', 'CHICKEN'],
   ['SAGE POWDER', 'SAGE'],
   ['HAMBURGER', 'HAMBURGER PATTY', 'HAMBURGER BUN'],
+  ['MILK', 'BUTTERMILK', 'DRIED MILK'],
+  ['CREAM', 'SOUR CREAM', 'WHIPPED CREAM', 'HALF AND HALF CREAM'],
+  ['WHOLE CHICKEN', 'CHICKEN BREAST', 'CHICKEN THIGH'],
+  ['RED PEPPER', 'ROASTED RED PEPPER'],
 ];
 for (const list of [...same, ...distinct]) {
   const outcomes = list.map(description => reader({description}));
@@ -63,15 +73,21 @@ for (const description of ['DELI TRIM CRN BEEF', 'BREAD WH GRN SL GLUTEN FREE', 
 }
 const toy = createProductLabelReader({
   profile: {
-    concepts: [{label:'Cable',terms:[]}, {label:'Box',terms:[]}],
-    modifiers: [{label:'Coiled',terms:[],role:'defining'}, {label:'Large',terms:[],role:'informational'}],
+    concepts: [{label:'Cable',terms:[]}, {label:'Box',terms:[]},
+      {label:'Premium Cable', terms:['cable premium'], levelOf:'Cable', broader:['cable']}],
+    modifiers: [{label:'Coiled',terms:[],role:'defining'}, {label:'Large',terms:[],role:'informational'},
+      {label:'Whole',terms:[],role:'defining',concepts:['cable']}],
     standalone: ['green','grain'],
   },
   vocabulary: [{kind:'synonym',term:'CBL',canonical:'cable'}],
   unitWords: ['ft'],
 });
 assert.equal(toy({description:'CBL LARGE 25 FT'}).key, toy({description:'CABLE'}).key);
+assert.equal(toy({description:'PREMIUM CABLE'}).key, toy({description:'CABLE'}).key);
+assert.equal(toy({description:'CABLE PREMIUM COILED'}).key, toy({description:'CABLE COILED'}).key);
 assert.notEqual(toy({description:'CBL COILED'}).key, toy({description:'CABLE'}).key);
+assert.notEqual(toy({description:'WHOLE CABLE'}).key, toy({description:'CABLE'}).key);
+assert.equal(toy({description:'WHOLE BOX'}).key, toy({description:'BOX'}).key);
 assert.equal(toy({description:'GREEN GRAIN GRN'}).status, 'review');
 assert.equal(toy({description:'GRN'}).key, null);
 assert.equal(toy({description:'CABLE BOX'}).status, 'review');
@@ -79,6 +95,14 @@ assert.equal(toy({description:'CABLE BOX'}).status, 'review');
 const other = createProcurementContext({industry:'construction',vocabulary:[{kind:'synonym',term:'PLYWD',canonical:'plywood'}]}).readProductLabel;
 assert.equal(other({description:'PLYWD PANEL 6 FT'}).key, other({description:'PANEL PLYWOOD'}).key);
 assert.equal(other({description:'BCON'}).key, 'literal:bcon');
+const unlisted = other({description:'UNLISTED SEALANT'}).key;
+for (const description of ['UNLISTED SEALANT GRADE A', 'UNLISTED SEALANT GRADE B',
+  'UNLISTED SEALANT LEVEL 2', 'UNLISTED SEALANT 5%', 'UNLISTED SEALANT 10%',
+  'PREMIUM GRADE UNLISTED SEALANT', 'WHOLE UNLISTED SEALANT']) {
+  assert.equal(other({description}).key, unlisted, description);
+}
+assert.equal(other({description:'GRADE B 10%'}).status, 'review');
+assert.notEqual(other({description:'SEALANT MODEL 101'}).key, other({description:'SEALANT MODEL 102'}).key);
 const fallback = reader({description:'UNLISTED ITEM 3/10 LB',brand:'Plain Brand'});
 assert.equal(fallback.key, reader({description:'ITEM UNLISTED 4/5 LB'}).key);
 assert.equal(fallback.status, 'literal');

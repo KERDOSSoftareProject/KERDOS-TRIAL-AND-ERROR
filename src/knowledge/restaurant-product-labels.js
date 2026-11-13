@@ -14,11 +14,18 @@ function concept(label, terms, broader) {
   concepts.set(key, {label, terms: [...new Set([...(existing?.terms ?? []), ...terms])], broader: broader ?? existing?.broader});
 }
 
-const oilGrades = ['extra virgin olive oil', 'olive oil pure', 'pure olive oil', 'pomace oil', 'oil pomace'];
-const oliveTerms = [...oilGrades, ...concepts.get('extra virgin olive oil').terms, ...concepts.get('pomace oil').terms];
-concepts.delete('extra virgin olive oil');
-concepts.delete('pomace oil');
-concept('Olive Oil', oliveTerms);
+function levelsOf(label, ...levels) {
+  concept(label, []);
+  for (const [name, terms] of levels) {
+    concept(name, terms);
+    concepts.get(name.toLowerCase()).levelOf = label;
+  }
+}
+
+levelsOf('Olive Oil',
+  ['Extra Virgin Olive Oil', ['olive oil extra virgin']],
+  ['Pure Olive Oil', ['olive oil pure']],
+  ['Pomace Oil', ['oil pomace']]);
 for (const [label, oldName] of [['Paper Towels', 'paper towel'], ['Trash Bags', 'trash liner']]) {
   const old = concepts.get(oldName);
   concept(label, [old.label, ...old.terms]);
@@ -49,10 +56,19 @@ concept('Beef Brisket', ['beef brisket', 'brisket beef', 'brisket'], ['beef']);
 concept('Corned Beef', ['corned beef', 'beef corned'], ['beef']);
 concept('Sage', ['sage']);
 concept('Corn', ['corn']);
-concept('Whole Milk', ['whole milk', 'milk whole'], ['milk']);
-concept('Skim Milk', ['skim milk', 'milk skim'], ['milk']);
+levelsOf('Milk',
+  ['Whole Milk', ['milk whole', 'full fat milk', 'milk full fat']],
+  ['Skim Milk', ['milk skim', 'skimmed milk', 'milk skimmed', 'nonfat milk', 'milk nonfat']],
+  ['Reduced Fat Milk', ['milk reduced fat', 'low fat milk', 'milk low fat', 'fat free milk', 'milk fat free']]);
+levelsOf('Cream',
+  ['Heavy Cream', ['cream heavy', 'heavy whipping cream', 'cream heavy whipping']],
+  ['Light Cream', ['cream light', 'single cream', 'cream single']],
+  ['Whipping Cream', ['cream whipping', 'double cream', 'cream double']]);
+concept('Whipped Cream', ['cream whipped'], ['cream']);
 concept('Buttermilk', ['buttermilk'], ['milk']);
-concept('Sour Cream', ['cream sour']);
+concept('Sour Cream', ['cream sour'], ['cream']);
+concept('Half and Half', [], ['cream', 'milk']);
+concept('Tofu', []);
 concept('Butter Blend', ['butter blend', 'blend butter'], ['butter']);
 concept('Butter Substitute', ['butter substitute', 'substitute butter', 'butter sub', 'oil butter sub'], ['butter']);
 concept('White Mushroom', ['white mushroom', 'mushroom white'], ['mushroom']);
@@ -106,11 +122,13 @@ concept('Parboiled Rice', ['parboiled rice', 'par boil rice', 'rice parboiled'])
 
 const defining = (label, terms, concepts, exclusive) => ({label, terms, concepts, exclusive, role:'defining'});
 const informational = (label, terms, concepts) => ({label, terms, concepts, role:'informational'});
+const level = (label, terms, concepts) => ({label, terms, concepts, role:'level'});
 const poultry = ['chicken', 'turkey', 'duck'];
 const beans = ['black bean', 'red kidney bean', 'cannellini bean'];
 const herbs = ['basil', 'cilantro', 'dill', 'oregano', 'parsley', 'sage', 'mint'];
 
 const modifiers = [
+  defining('Whole', ['whole'], poultry, 'poultry cut'),
   defining('Breast', ['breast'], poultry, 'poultry cut'),
   defining('Thigh', ['thigh'], poultry, 'poultry cut'),
   defining('Wing', ['wing'], poultry, 'poultry cut'),
@@ -148,6 +166,7 @@ const modifiers = [
   defining('Pureed', ['pureed', 'puree']),
   defining('Granulated', ['granulated'], ['garlic', 'ginger', 'shallot']),
   defining('Powdered', ['powder', 'powdered'], [...herbs, 'ginger', 'shallot']),
+  defining('Dried', ['powder', 'powdered'], ['milk'], 'preservation'),
   defining('Cooked', ['cooked', 'fully cooked', 'precooked', 'pre cooked'], undefined, 'cooking state'),
   defining('Raw', ['raw', 'uncooked'], undefined, 'cooking state'),
   defining('Breaded', ['breaded']),
@@ -164,11 +183,12 @@ const modifiers = [
   defining('Waffle Cut', ['waffle cut']),
   defining('Roasted', ['roast'], ['green bell peppers', 'red bell peppers', 'orange bell peppers', 'yellow bell peppers']),
   informational('Brand and packaging', ['layout', 'laid out'], ['bacon', 'turkey bacon']),
-  informational('Grade', ['extra virgin', 'pure', 'pomace'], ['olive oil']),
-  // These unqualified product names already denote the whole bulb.
-  informational('Whole', ['whole'], ['shallot', 'garlic']),
+  level('Olive oil grade', ['extra virgin', 'pure', 'pomace'], ['olive oil']),
+  level('Coffee roast level', ['light roast', 'light roasted', 'medium roast', 'medium roasted',
+    'dark roast', 'dark roasted', 'roast', 'roasted'], ['coffee']),
   informational('Bone and skin', ['boneless skinless', 'boneless', 'skinless', 'bone in', 'skin on', 'deboned']),
-  informational('Size and grade', ['small', 'medium', 'med', 'large', 'lg', 'extra large', 'xl', 'jumbo', 'standard', 'choice', 'select', 'prime']),
+  informational('Size', ['small', 'medium', 'med', 'large', 'lg', 'extra large', 'xl', 'jumbo']),
+  level('Grade', ['standard', 'choice', 'select', 'prime']),
   informational('Storage state', ['fresh', 'frozen', 'individually quick frozen', 'refrigerated']),
 ];
 
