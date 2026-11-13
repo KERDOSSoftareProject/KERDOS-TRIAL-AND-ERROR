@@ -2,6 +2,7 @@
 // Pure functions only: no UI, database, client, vendor, or industry assumptions.
 import {associationRules,configureCategoryProfile,getActiveCategoryProfile,getIndustryProfile} from "./knowledge/category-profiles.js";
 import {compileDictionary} from "./core/term-dictionary.js";
+import {createProductLabelReader} from "./core/product-label.js";
 
 // One named place for the auto-link cutoff instead of the same magic
 // number repeated at each call site. At or above this score two
@@ -98,6 +99,16 @@ function buildProcurementContext(profile,vocabularyProfile,rows) {
     .sort((a, b) => b.length - a.length).map(k => escapeRegExp(k).replace(/\s+/g, "\\s*"));
   const UNIT_ALTERNATION = words.join("|");
   const MEASURE_RE = new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s*(${UNIT_ALTERNATION})\\b`, "g");
+  let productLabelReader;
+  function readProductLabel(row) {
+    productLabelReader ??= createProductLabelReader({
+      profile: profile?.productLabels,
+      dictionaries: profile?.dictionaries,
+      vocabulary: rows,
+      unitWords: [...UNIT_LOOKUP.keys(), ...PACKAGING_ALIASES],
+    });
+    return productLabelReader(row);
+  }
 
   function round(n, places=6) {
     const p = 10 ** places;
@@ -822,7 +833,7 @@ function buildProcurementContext(profile,vocabularyProfile,rows) {
   }
 
   return Object.freeze({
-    productKnowledge, normalizeUnit, measurement, parsePackSize, packsEquivalent, normalizedPrice,
+    productKnowledge, readProductLabel, normalizeUnit, measurement, parsePackSize, packsEquivalent, normalizedPrice,
     eachPrice, unitsForDimension, pricePerUnit, brandsMatch, priceBasisFor, casePriceFromQuote,
     measuredQuoteRate, estimateCaseCost, quotePriceOnBasis, normalizeGtin, normalizeManufacturerCode, packFromDescription,
     isAbbreviationOf, abbreviationPairs, normalizeForMatch, wordsMatch, classifyCategory, suggestCategory,

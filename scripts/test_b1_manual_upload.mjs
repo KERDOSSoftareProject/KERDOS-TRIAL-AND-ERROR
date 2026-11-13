@@ -2,16 +2,21 @@
 // Persistence and browser file reading are simulated: local evidence only.
 import {build} from 'esbuild';
 import {execFileSync} from 'node:child_process';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 const dir=mkdtempSync(join(tmpdir(),'kerdos-b1-'));
+const inputMode=process.argv[2]==='--product-label-parity';
+const suppliedInput=inputMode?readFileSync(0,'utf8'):null;
 const source=String.raw`
 import React from 'react';
 import Renderer,{act} from 'react-test-renderer';
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
 import {PasteModal} from './src/pages/ImportModal.jsx';
+import {createProcurementContext} from './src/procurement.js';
 import {createPriceImportFixture} from './scripts/fixtures/price-import-backend.mjs';
 import * as XLSX from 'xlsx';
 import {createDocumentReader} from './src/core/document-reading.js';
@@ -51,6 +56,51 @@ async function save(p){
  }
 }
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
+async function productLabelParity(input){
+ const {industry,vocabulary,descriptions}=input;
+ const cell=value=>'"'+String(value??'').replaceAll('"','""')+'"';
+ const sourceRows=descriptions.map((entry,index)=>{
+  const row=typeof entry==='string'?{description:entry,brand:'Fixture Foods',packSize:'4/10 LB'}:entry;
+  return {code:'LABEL-'+(index+1),description:row.description,brand:row.brand??null,packSize:row.packSize??null};
+ });
+ const csvText=['Code,Description,Brand,Pack,Price Unit,Price',...sourceRows.map(row=>[row.code,row.description,row.brand,row.packSize,'CASE','41.25'].map(cell).join(','))].join('\n');
+ const f=fixture(),p=await open(vendor,'pricelist',{industry,vocabulary});
+ try{
+  await upload(p,'picker',file('Product_Label_Parity_Prices.csv',csvText));await save(p);
+  assert.equal(p.finished.length,1,JSON.stringify(p.tree.toJSON()));
+  const procurement=createProcurementContext({industry,vocabulary});
+  const browser=f.calls.applyQuote.map(quote=>{
+   const {code,description,brand=null,packSize=null}=quote.importRow.row;
+   return {code,description,brand,packSize,label:procurement.readProductLabel({description,brand,packSize})};
+  });
+  assert.deepEqual(browser.map(({code})=>code),sourceRows.map(({code})=>code),'manual upload should produce each fixture row in source order');
+  // Task A reads candidate labels for assertions. Existing import writes and
+  // catalog grouping continue through their normal production path.
+  const worker=JSON.parse(execFileSync(process.execPath,['supabase/functions/process-attachment/process-attachment-test.mjs','--product-label-parity'],{
+   input:JSON.stringify({industry,vocabulary,text:csvText}),encoding:'utf8',
+  }));
+  assert.deepEqual(browser,worker,'manual-upload and email-worker rows should produce identical labels');
+  return browser.map(row=>row.label);
+ }finally{p.tree.unmount();}
+}
+if(process.argv[2]==='--product-label-parity'){
+ const input=JSON.parse(readFileSync(0,'utf8'));
+ const labels=await productLabelParity(input);
+ console.log(JSON.stringify({tested:labels.length,labels}));
+ process.exit(0);
+}
+await check('Task A candidate labels agree for rendered manual upload and the email worker',async()=>{
+ const labels=await productLabelParity({industry:'restaurant',vocabulary:[{kind:'synonym',term:'label proof rasher',canonical:'bacon'}],descriptions:[
+  'BCON LAYOUT 15LB','BACON','SAUSAGE LINKS 2OZ','SAUSAGE PATTIES 2OZ','DELI TRIM CRN BEEF','LABEL PROOF RASHER',
+ ]});
+ assert.equal(labels[0].key,labels[1].key);
+ assert.ok(labels[1].key);
+ assert.ok(labels[2].key&&labels[3].key);
+ assert.notEqual(labels[2].key,labels[3].key);
+ assert.equal(labels[4].key,null);
+ assert.equal(labels[4].status,'review');
+ assert.equal(labels[5].key,labels[1].key);
+});
 await check('positioned invoice non-product sections render safely before saving',async()=>{
  const f=fixture(),p=await open(vendor,'invoice');
  const line=(values,y)=>values.map((value,index)=>({text:value,transform:[1,0,0,12,[30,140,390,490,590,690,790][index],y],width:60,height:12}));
@@ -459,7 +509,7 @@ await check('automatic unmount while downloading the retained original prevents 
  const p=await autoOpen();for(let i=0;i<100&&!started;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});assert.equal(started,true);const updates=f.calls.updateImportDoc.length;
  await act(async()=>p.tree.unmount());await act(async()=>{release();await new Promise(r=>setTimeout(r,30));});assert.equal(p.finished.length,0);assert.equal(f.calls.applyQuote.length,0);assert.equal(f.calls.updateImportDoc.length,updates);assert.equal(Object.values(f.importDocs)[0].status,'processing');
 });
-console.log(passed+'/46 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
+console.log(passed+'/47 B1/B2/B3/B4/B5 rendered upload checks passed (local mocked persistence; not live browser/database evidence).');
 process.exit(0);
 `;
 try{
@@ -472,5 +522,6 @@ try{
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
   b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),download:(...args)=>globalThis.__b1Backend.documents.download(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});
- process.stdout.write(execFileSync(process.execPath,[outfile],{encoding:'utf8',timeout:60000}));
+ const args=inputMode?[outfile,'--product-label-parity']:[outfile];
+ process.stdout.write(execFileSync(process.execPath,args,{input:suppliedInput??undefined,encoding:'utf8',timeout:60000,maxBuffer:16*1024*1024}));
 }finally{rmSync(dir,{recursive:true,force:true});}

@@ -6,6 +6,7 @@ import {restaurantProductContext} from "./restaurant-product-context.js";
 import {restaurantCellBrands,restaurantDictionaries,restaurantUnitVocabulary,RESTAURANT_DICTIONARY_VERSION} from "./restaurant-dictionaries.js";
 import {restaurantAssociations} from './restaurant-associations.js';
 import {restaurantClientNames} from './restaurant-client-names.js';
+import {restaurantProductLabels} from './restaurant-product-labels.js';
 
 // Profiles supply industry-specific interpretation; procurement stays generic.
 const profiles=new Map([["restaurant",{
@@ -13,6 +14,7 @@ const profiles=new Map([["restaurant",{
   unitCostUnits:restaurantUnitCostUnits,
   dictionaries:restaurantDictionaries,vocabulary:restaurantUnitVocabulary,version:RESTAURANT_DICTIONARY_VERSION,
   associations:restaurantAssociations,
+  productLabels:restaurantProductLabels,
   clientNames:restaurantClientNames,
   cellBrands:restaurantCellBrands,
 }]]);

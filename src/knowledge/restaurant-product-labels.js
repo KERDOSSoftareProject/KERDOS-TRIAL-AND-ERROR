@@ -1,0 +1,189 @@
+import {restaurantAssociations} from './restaurant-associations.js';
+import {restaurantCellBrands} from './restaurant-dictionaries.js';
+
+// This profile is for the new label reader. The catalog's existing association
+// profile continues to serve its callers until the label reader is activated.
+const concepts = new Map(restaurantAssociations.concepts.map(concept => [concept.label.toLowerCase(), {
+  ...concept,
+  broader: restaurantAssociations.broaderConcepts[concept.label.toLowerCase()],
+}]));
+
+function concept(label, terms, broader) {
+  const key = label.toLowerCase();
+  const existing = concepts.get(key);
+  concepts.set(key, {label, terms: [...new Set([...(existing?.terms ?? []), ...terms])], broader: broader ?? existing?.broader});
+}
+
+const oilGrades = ['extra virgin olive oil', 'olive oil pure', 'pure olive oil', 'pomace oil', 'oil pomace'];
+const oliveTerms = [...oilGrades, ...concepts.get('extra virgin olive oil').terms, ...concepts.get('pomace oil').terms];
+concepts.delete('extra virgin olive oil');
+concepts.delete('pomace oil');
+concept('Olive Oil', oliveTerms);
+for (const [label, oldName] of [['Paper Towels', 'paper towel'], ['Trash Bags', 'trash liner']]) {
+  const old = concepts.get(oldName);
+  concept(label, [old.label, ...old.terms]);
+  concepts.delete(oldName);
+}
+
+concept('Balsamic Vinegar', ['balsamic vinegar', 'vinegar balsamic']);
+concept('Balsamic Vinaigrette', [], ['vinaigrette']);
+concept('Vinaigrette', ['vinaigrette']);
+concept('Parmesan Peppercorn Dressing', ['parmesan peppercorn', 'parmesan pepperco', 'peppercorn parmesan'], ['parmesan']);
+concept('Turkey Bacon', ['turkey bacon', 'bacon turkey'], ['turkey', 'bacon']);
+concept('Sausage', [], ['pork']);
+concept('Hamburger', ['hamburger'], ['beef']);
+concepts.get('beef patties').terms = concepts.get('beef patties').terms.filter(term => term !== 'hamburgers');
+concept('Beef Patties', ['hamburger patty', 'patty hamburger'], ['hamburger', 'beef']);
+concept('Beef Base', ['base beef'], ['beef']);
+concept('Chicken Base', ['base chicken'], ['chicken']);
+concept('Clam Base', ['clam base', 'base clam'], ['clams']);
+concept('Beef Stew Meat', ['beef stew cube', 'beef stew meat', 'stew beef'], ['beef']);
+concept('Beef Short Ribs', ['rib short beef', 'short rib beef', 'beef short rib'], ['beef']);
+concept('Eye of Round Beef', ['round beef', 'beef eye round'], ['beef']);
+concept('Gyro Meat', ['gyro beef', 'beef gyro', 'gyro meat'], ['beef']);
+concept('Chicken Breast', [], ['chicken']);
+concept('Chicken Thigh', [], ['chicken']);
+concept('Chicken Wing', [], ['chicken']);
+concept('Chicken Tender', [], ['chicken']);
+concept('Beef Brisket', ['beef brisket', 'brisket beef', 'brisket'], ['beef']);
+concept('Corned Beef', ['corned beef', 'beef corned'], ['beef']);
+concept('Sage', ['sage']);
+concept('Corn', ['corn']);
+concept('Whole Milk', ['whole milk', 'milk whole'], ['milk']);
+concept('Skim Milk', ['skim milk', 'milk skim'], ['milk']);
+concept('Buttermilk', ['buttermilk'], ['milk']);
+concept('Sour Cream', ['cream sour']);
+concept('Butter Blend', ['butter blend', 'blend butter'], ['butter']);
+concept('Butter Substitute', ['butter substitute', 'substitute butter', 'butter sub', 'oil butter sub'], ['butter']);
+concept('White Mushroom', ['white mushroom', 'mushroom white'], ['mushroom']);
+concept('Portabella Mushroom', ['portabella mushroom', 'mushroom portabella', 'portobello mushroom', 'mushroom portobello'], ['mushroom']);
+concept('Shiitake Mushroom', ['shiitake mushroom', 'mushroom shiitake', 'shitake mushroom', 'mushroom shitake'], ['mushroom']);
+concept('Garlic Powder', ['powder garlic'], ['garlic']);
+concept('Onion Powder', ['powder onion'], ['onion']);
+concept('Shallot', ['shallot']);
+concept('Yam', ['yam']);
+concept('Pickle', ['pickle']);
+concept('Black Bean', ['black bean']);
+concept('Red Kidney Bean', ['red kidney bean', 'red kidney', 'kidney bean']);
+concept('Cannellini Bean', ['cannellini bean', 'cannellini']);
+concept('Celery Root', ['celery root', 'celeriac'], ['celery']);
+concept('Red Cabbage', ['red cabbage', 'cabbage red'], ['cabbage']);
+concept('Green Cabbage', ['green cabbage', 'cabbage green'], ['cabbage']);
+concept('English Cucumber', ['english cucumber', 'cucumber english'], ['cucumber']);
+concept('Green Leaf Lettuce', ['green leaf lettuce', 'lettuce green leaf', 'greenleaf lettuce', 'lettuce greenleaf'], ['lettuce']);
+concept('Boston Lettuce', ['boston lettuce', 'lettuce boston', 'lettuce hydro boston'], ['lettuce']);
+concept('Salad Mix', ['lettuce salad mix', 'salad mix', 'lettuce mix'], ['lettuce']);
+concept('Spinach Wrap', ['spinach wrap', 'wrap spinach'], ['spinach', 'tortilla']);
+concept('Wheat Wrap', ['wheat wrap', 'wrap wheat', 'whole wheat tortilla'], ['tortilla']);
+concept('White Wrap', ['white wrap', 'wrap white'], ['tortilla']);
+concept('Sun-Dried Tomato Tortilla', ['sun dried tomato tortilla', 'sundried tomato tortilla'], ['tomato', 'tortilla']);
+concept('Tortilla', ['wrap']);
+concept('Grape Jelly', ['grape jelly', 'jelly grape'], ['grapes']);
+concept('Stuffed Grape Leaves', ['grape leaves', 'stuffed grape leaves', 'dolmade', 'dolma'], ['grapes']);
+concept('Green Grapes', ['green grape', 'grape green'], ['grapes']);
+concept('Red Grapes', ['red grape', 'grape red'], ['grapes']);
+concept('Yellow Squash', ['yellow squash', 'squash yellow'], ['squash']);
+concept('Green Squash', ['green squash', 'squash green'], ['squash']);
+concept('Spaghetti Squash', ['spaghetti squash', 'squash spaghetti'], ['spaghetti', 'squash']);
+concept('Strawberry Jam', ['strawberry jam', 'jam strawberry'], ['strawberry']);
+concept('Strawberry Jelly', ['strawberry jelly', 'jelly strawberry'], ['strawberry']);
+concept('Sazón Seasoning', ['sazon'], ['cilantro']);
+concept('Round Tomato', ['round tomato', 'tomato round'], ['tomato']);
+concept('Grape Tomato', ['grape tomato', 'tomato grape'], ['tomato', 'grapes']);
+concept('Cherry Tomato', ['cherry tomato', 'tomato cherry'], ['tomato']);
+concept('Plum Tomato', ['plum tomato', 'tomato plum'], ['tomato']);
+concept('Heirloom Tomato', ['heirloom tomato', 'tomato heirloom'], ['tomato']);
+concept('Cluster Tomato', ['cluster tomato', 'tomato cluster'], ['tomato']);
+concept('Vine Ripe Tomato', ['vine ripe tomato', 'tomato vine ripe'], ['tomato']);
+concept('Roma Tomato', ['roma tomato', 'tomato roma', 'pear tomato', 'tomato pear'], ['tomato']);
+concept('Spanish Onion', ['spanish onion', 'onion spanish']);
+concept('Vidalia Onion', ['vidalia onion', 'onion vidalia']);
+concept('Yukon Gold Potato', ['yukon potato', 'potato yukon'], ['potato']);
+concept('Russet Potato', ['idaho potato', 'potato idaho'], ['potato']);
+concept('Red Potato', ['potato red'], ['potato']);
+concept('Fingerling Potato', ['fingerling potato', 'potato fingerling'], ['potato']);
+concept('Parboiled Rice', ['parboiled rice', 'par boil rice', 'rice parboiled']);
+
+const defining = (label, terms, concepts, exclusive) => ({label, terms, concepts, exclusive, role:'defining'});
+const informational = (label, terms, concepts) => ({label, terms, concepts, role:'informational'});
+const poultry = ['chicken', 'turkey', 'duck'];
+const beans = ['black bean', 'red kidney bean', 'cannellini bean'];
+const herbs = ['basil', 'cilantro', 'dill', 'oregano', 'parsley', 'sage', 'mint'];
+
+const modifiers = [
+  defining('Breast', ['breast'], poultry, 'poultry cut'),
+  defining('Thigh', ['thigh'], poultry, 'poultry cut'),
+  defining('Wing', ['wing'], poultry, 'poultry cut'),
+  defining('Leg', ['leg'], poultry, 'poultry cut'),
+  defining('Leg Quarter', ['leg quarter'], poultry, 'poultry cut'),
+  defining('Drumstick', ['drumstick'], poultry, 'poultry cut'),
+  defining('Tender', ['tender'], poultry, 'poultry cut'),
+  defining('Link', ['link'], ['sausage'], 'sausage form'),
+  defining('Patty', ['patty', 'pattie'], ['sausage'], 'sausage form'),
+  defining('Canned', ['canned'], undefined, 'preservation'),
+  defining('Canned', ['can', 'cans'], beans, 'preservation'),
+  defining('Jarred', ['jarred'], undefined, 'preservation'),
+  defining('Dried', ['dried', 'dehydrated', 'sundried', 'sun dried'], undefined, 'preservation'),
+  defining('Dried', ['dry'], [...beans, ...herbs], 'preservation'),
+  defining('Halves', ['halves', 'halved']),
+  defining('Julienne', ['julienne', 'julienned']),
+  defining('Peeled', ['peel'], ['garlic', 'shallot', 'tomato']),
+  defining('Peeled', ['peeled']),
+  defining('Chips', ['chip'], ['pickle'], 'pickle cut'),
+  defining('Spears', ['spear'], ['pickle'], 'pickle cut'),
+  defining('Relish', ['relish'], ['pickle'], 'pickle cut'),
+  defining('Hearts', ['heart'], ['romaine lettuce'], 'romaine form'),
+  defining('Chopped', ['chopped'], undefined, 'preparation cut'),
+  defining('Cut', ['cut'], ['carrots']),
+  defining('Baby', ['baby', 'mini'], ['carrots']),
+  defining('Fillets', ['fillet'], ['green leaf lettuce']),
+  defining('Curly', ['curly'], ['parsley'], 'parsley variety'),
+  defining('Flat Leaf', ['plain', 'flat', 'flat leaf'], ['parsley'], 'parsley variety'),
+  defining('Sliced', ['sliced', 'slicing'], undefined, 'preparation cut'),
+  defining('Shredded', ['shredded'], undefined, 'preparation cut'),
+  defining('Diced', ['diced'], undefined, 'preparation cut'),
+  defining('Strips', ['strip', 'strips'], ['chicken', 'turkey', 'beef', 'pork', 'fish'], 'preparation cut'),
+  defining('Minced', ['minced']),
+  defining('Ground', ['ground']),
+  defining('Pureed', ['pureed', 'puree']),
+  defining('Granulated', ['granulated'], ['garlic', 'ginger', 'shallot']),
+  defining('Powdered', ['powder', 'powdered'], [...herbs, 'ginger', 'shallot']),
+  defining('Cooked', ['cooked', 'fully cooked', 'precooked', 'pre cooked'], undefined, 'cooking state'),
+  defining('Raw', ['raw', 'uncooked'], undefined, 'cooking state'),
+  defining('Breaded', ['breaded']),
+  defining('Battered', ['battered']),
+  defining('Roasted', ['roasted']),
+  defining('Grilled', ['grilled']),
+  defining('Braised', ['braised']),
+  defining('Blanched', ['blanched']),
+  defining('Marinated', ['marinated']),
+  defining('Pickled', ['pickled']),
+  defining('Crinkle Cut', ['crinkle cut']),
+  defining('Straight Cut', ['straight cut']),
+  defining('Shoestring', ['shoestring', 'shoe string']),
+  defining('Waffle Cut', ['waffle cut']),
+  defining('Roasted', ['roast'], ['green bell peppers', 'red bell peppers', 'orange bell peppers', 'yellow bell peppers']),
+  informational('Brand and packaging', ['layout', 'laid out'], ['bacon', 'turkey bacon']),
+  informational('Grade', ['extra virgin', 'pure', 'pomace'], ['olive oil']),
+  // These unqualified product names already denote the whole bulb.
+  informational('Whole', ['whole'], ['shallot', 'garlic']),
+  informational('Bone and skin', ['boneless skinless', 'boneless', 'skinless', 'bone in', 'skin on', 'deboned']),
+  informational('Size and grade', ['small', 'medium', 'med', 'large', 'lg', 'extra large', 'xl', 'jumbo', 'standard', 'choice', 'select', 'prime']),
+  informational('Storage state', ['fresh', 'frozen', 'individually quick frozen', 'refrigerated']),
+];
+
+export const restaurantProductLabels = {
+  concepts: [...concepts.values()],
+  modifiers,
+  standalone: ['american', 'brown', 'cheese', 'corn', 'green', 'hamburger', 'roast', 'sage', 'vinaigrette'],
+  knownWords: ['america', 'can', 'chip', 'chop', 'cube', 'fresh', 'grill', 'heart', 'one', 'pasta', 'peel', 'pot', 'roast', 'sage', 'size', 'slice', 'split', 'trim', 'whole'],
+  requiredBaseWords: ['breast', 'thigh', 'wing', 'leg quarter', 'drumstick'],
+  fragments: ['bagged', 'split', 'usa', 'mex', 'ct', 'lb', 'oz', 'case', 'total', 'subtotal', 'invoice', 'description', 'price', 'product prices'],
+  origins: ['al', 'arg', 'bel', 'cal', 'can', 'canada', 'chl', 'chn', 'col', 'cos', 'fl', 'florida', 'ga', 'gtm', 'hnd', 'ita', 'mex', 'mor', 'nj', 'ny', 'pa', 'per', 'ri', 'spa', 'tx', 'usa', 'wa'],
+  brandTerms: [...new Set([...restaurantAssociations.brandTerms, ...restaurantCellBrands])],
+  uncertainPhrases: [
+    {terms:['crn beef', 'beef crn'], reason:'CRN near beef could mean corned beef or corn'},
+    {terms:['wh grn', 'whole grn'], reason:'GRN near whole could mean grain or green'},
+    {terms:['grd beef', 'beef grd'], reason:'GRD near beef could mean ground or grade'},
+  ],
+};

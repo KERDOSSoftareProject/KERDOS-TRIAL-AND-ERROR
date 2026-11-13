@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {configureProcurement,compareProductIdentity,commonPurchasingPack,productKnowledge,pricePerUnit,suggestCategory} from "../procurement.js";
 import {industryDictionary} from "./category-profiles.js";
 import {createCatalogService,mappingVerification} from "../services/catalog.js";
+import "../core/product-label-test.mjs";
 
 configureProcurement({industry:" Restaurant "});
 const same=[

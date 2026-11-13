@@ -25,6 +25,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import { createRecords } from "../../../src/backend/records.js";
@@ -306,6 +307,30 @@ async function runPriceRowParityFixture(path, missingBasis=false, crossVendor=fa
 }
 
 const parityPath = process.argv[2];
+if (parityPath === "--product-label-parity") {
+  const { industry, vocabulary, text } = JSON.parse(readFileSync(0, "utf8"));
+  const organizationId = "org-1";
+  const bytes = csvBytes(text);
+  const backend = createInMemoryBackend({
+    bytes,
+    organizations: [{ id: organizationId, industry }],
+    vocabulary: vocabulary.map(entry => ({ ...entry, organization_id: organizationId })),
+    categories: [{ id: "holding", organization_id: organizationId, name: "Uncategorized", is_holding_pen: true, range_start: 900000 }],
+  });
+  const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
+  const result = await processAttachmentInBackground(backend, attachment, {
+    organizationId, vendorId: "vendor-1", documentType: "pricelist",
+  });
+  assert.ok(["auto_imported", "needs_review"].includes(result.outcome), result.reason);
+  assert.doesNotMatch(result.reason || "", /^Row save error/);
+  const procurement = createProcurementContext({ industry, vocabulary });
+  const readRows = backend._appliedQuotes.map(quote => {
+    const { code, description, brand = null, packSize = null } = quote.importRow.row;
+    return { code, description, brand, packSize, label: procurement.readProductLabel({ description, brand, packSize }) };
+  });
+  console.log(JSON.stringify(readRows));
+  process.exit(0);
+}
 if (parityPath === "manual" || parityPath === "email") {
   console.log(JSON.stringify(await runPriceRowParityFixture(parityPath,["missing-basis","cross-vendor"].includes(process.argv[3]),process.argv[3]==="cross-vendor")));
   process.exit(0);
