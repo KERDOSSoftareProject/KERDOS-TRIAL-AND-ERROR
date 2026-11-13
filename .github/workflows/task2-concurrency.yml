@@ -25,6 +25,17 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      catalog-postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,7 +51,7 @@ jobs:
           node src/backend/catalog-row-sql-test.mjs
       - name: Verify catalog label lookup, preservation, and concurrent numbering
         env:
-          KERDOS_CONCURRENCY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          KERDOS_CONCURRENCY_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
         run: |
           node scripts/test_task_b_product_label_sql.mjs
           node scripts/test_task_b_product_label_sql.mjs --concurrent
