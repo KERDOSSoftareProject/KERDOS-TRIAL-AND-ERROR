@@ -5,6 +5,7 @@ import {orderAmountText,orderLineAmountText} from "./core/estimated-orders.js";
 import {OrderBasket,mobileOrderQuery,useLayoutQuery} from './pages/OrderBasket.jsx';
 import {OrderGuideListings,useOrderGuideListingAutosave} from './pages/OrderGuideListings.jsx';
 import {automaticAlternativeVerified} from "./core/alternative-groups.js";
+import {productLabelLinked,productLabelOrderPath} from "./core/label-association.js";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { backend } from "./backend/index.js";
 import { createSessionController } from "./session.js";
@@ -19,10 +20,10 @@ import { createVendorService } from "./services/vendors.js";
 import { createCatalogService } from "./services/catalog.js";
 import { createOperationsService } from "./services/operations.js";
 import { loadSnapshot, saveSnapshot } from "./offline-store.js";
-import { configureProcurement, priceBasisFor, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
+import { configureProcurement, getProcurementContext, priceBasisFor, parsePackSize, brandsMatch, quoteStatus, comparePurchasingPack, compareProductIdentity, casePriceFromQuote } from "./procurement.js";
 import { blockReason, compareOrderOffers, orderable, priceForOffer, rankVendorOffers, solveOrder, supportsOrderUnit } from "./core/ordering.js";
 import {orderGuideGroups,orderGuideCategories} from './core/order-guide-groups.js';
-import {associationProfile,productAssociationIdentity,productGroupApproved} from './core/product-associations.js';
+import {productGroupApproved} from './core/product-associations.js';
 import {clientProductName} from './core/client-product-name.js';
 import {sourceOnlyListings} from './core/source-only-listings.js';
 import { configureLocale, formatDate, formatMoney } from "./localization.js";
@@ -492,7 +493,7 @@ export default function App() {
     const mappingsByCatalog=new Map();
     for(const mapping of mappings){const group=mappingsByCatalog.get(mapping.catalog_item_id)||[];group.push(mapping);mappingsByCatalog.set(mapping.catalog_item_id,group);}
     const categoriesById=new Map(categories.map(category=>[category.id,category]));
-    const groupProfile=associationProfile(org?.industry);
+    const procurement=getProcurementContext();
     const products=catalogItems.filter(ci=>(!ci.merged_into_id||mappingsByCatalog.has(ci.id))&&!sourceOnlyListings((mappingsByCatalog.get(ci.id)||[]).map(m=>viMap.get(m.vendor_item_id)).filter(Boolean))).map(ci=>{
       const ciMappings=mappingsByCatalog.get(ci.id)||[];
       const lockedBrand=ci.brand_locked?(ci.locked_brand||null):null;
@@ -507,6 +508,7 @@ export default function App() {
         const quote=quoteStatus(vi,org?.settings||{});
         const expired=quote==="expired";
         const invoiceOnly=quote==="invoice_only";
+        const labelLinked=productLabelLinked(m);
         const clientApproved=m.match_method==="manual"&&!!vi.field_resolutions?.row_approval;
         const costOverride=clientApproved?vi.field_resolutions?.unit_cost_override?.value:null;
         const pack=vi.pack_size||(costOverride?"Client-approved purchasing pack":null);
@@ -539,10 +541,11 @@ export default function App() {
           eachPrice:eachPack?.parsed&&Number(vi.price)>0?Number(vi.price):null, eachSize:eachPack?.eachStr||null,
           mappingId:m.id,
           matchConfidence:m.confidence_score, matchTrack:m.comparison_track, matchMethod:m.match_method,
+          labelLinked:productLabelOrderPath(ci,m,vi),labelOrderReady:labelLinked&&assessment.ready,
           expired,
           priceUnavailable:quote==="unavailable",
           invoiceOnly,
-          unverified:m.comparison_track!=="exact"||m.confidence_score!==100||!assessment.ready,
+          unverified:(!labelLinked&&(m.comparison_track!=="exact"||m.confidence_score!==100))||!assessment.ready,
           qualificationBlockers:assessment.blockers,qualificationReason:assessment.blockers.map(code=>BLOCKER_LABELS[code]).join("; "),
           brandMismatch,
           // Unresolved-field explanations and arithmetic conflicts from cell analysis
@@ -560,6 +563,7 @@ export default function App() {
       // Older manual links may predate verification. A mixed group is not a
       // valid price comparison even if every saved row says "exact".
       for(const option of options){
+        if(option.labelLinked)continue;
         const conflicting=options.some(other=>{
           if(other.vendorItemId===option.vendorItemId)return false;
           // A provisional pack cannot invalidate the other vendors' saved comparisons.
@@ -592,12 +596,14 @@ export default function App() {
         }
       }
       const displayUnit=ci.canonical_unit||orderComparisonUnit;
+      const linkedListings=ciMappings.map(m=>viMap.get(m.vendor_item_id)).filter(Boolean);
+      const clientName=clientProductName(ci,linkedListings,org?.industry,procurement);
 
       return {
         catalogItemId:ci.id,
         masterItemNumber:ci.master_item_number,
-        name:clientProductName(ci,ciMappings.map(m=>viMap.get(m.vendor_item_id)).filter(Boolean),org?.industry)||'Product name needed',
-        hasProductIdentity:!!clientProductName(ci,ciMappings.map(m=>viMap.get(m.vendor_item_id)).filter(Boolean),org?.industry)&&ciMappings.some(m=>{const row=viMap.get(m.vendor_item_id);return row&&productAssociationIdentity(row,groupProfile).key!==null;}),
+        name:clientName||'Product name needed',
+        hasProductIdentity:!!clientName&&(!!ci.concept_key||linkedListings.some(row=>procurement.readProductLabel(row).key!==null)),
         category:ci.catalog_categories?.name||penName,
         categoryReview:!!ci.category_review, categoryReason:ci.category_reason||null,
         createdAt:ci.created_at,
@@ -659,7 +665,7 @@ export default function App() {
   // Review belongs with catalog items and invoice comparisons. Price Sheets
   // is an archive of imported documents, so it has no item-activity badge.
   const needsAttentionCount=useMemo(()=>
-    mappings.filter(m=>m.comparison_track!=="exact"||m.confidence_score!==100).length,
+    mappings.filter(m=>!productLabelLinked(m)&&(m.comparison_track!=="exact"||m.confidence_score!==100)).length,
   [mappings]);
   const invoiceReviewCount=flaggedInvoiceLines.length;
 

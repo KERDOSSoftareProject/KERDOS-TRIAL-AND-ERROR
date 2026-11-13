@@ -3,6 +3,7 @@ import {buildProductAssociations} from '../core/product-associations.js';
 import {productGroupRequest} from '../services/product-associations.js';
 import {backend} from '../backend/index.js';
 import {clientProductName} from '../core/client-product-name.js';
+import {getProcurementContext} from '../procurement.js';
 import {btn,inp} from '../ui/styles.js';
 
 const groupStatusLabels={
@@ -21,9 +22,10 @@ export function ProductAssociationTrial({industry,orgId,vendorItems,catalogItems
   let active=true;if(open&&provider.catalog.productGroupHistory)provider.catalog.productGroupHistory(orgId).then(rows=>{if(active)setHistory(rows);}).catch(e=>{if(active)setError(e.message);});
   return ()=>{active=false;};
  },[orgId,open,historyEpoch,provider]);
- const preview=useMemo(()=>open?buildProductAssociations({industry,vendorItems,catalogItems,mappings}):null,[open,industry,vendorItems,catalogItems,mappings]);
+ const procurement=getProcurementContext();
+ const preview=useMemo(()=>open?buildProductAssociations({industry,vendorItems,catalogItems,mappings,procurement}):null,[open,industry,vendorItems,catalogItems,mappings,procurement]);
  const vendorNames=useMemo(()=>new Map(vendors.map(v=>[v.id,v.name])),[vendors]);
- const namedGroups=useMemo(()=>preview?.groups.map(g=>({...g,clientName:clientProductName({name:g.label},g.rows,industry),number:catalogItems.find(item=>item.id===g.targetCatalogItemId)?.master_item_number})).sort((a,b)=>String(a.clientName||'').localeCompare(String(b.clientName||''),undefined,{sensitivity:'base'}))||[],[preview,industry,catalogItems]);
+ const namedGroups=useMemo(()=>preview?.groups.map(g=>({...g,clientName:clientProductName({name:g.label},g.rows,industry,procurement),number:catalogItems.find(item=>item.id===g.targetCatalogItemId)?.master_item_number})).sort((a,b)=>String(a.clientName||'').localeCompare(String(b.clientName||''),undefined,{sensitivity:'base'}))||[],[preview,industry,catalogItems,procurement]);
  const unnamed=namedGroups.filter(g=>!g.clientName);
  const proposedCount=namedGroups.filter(g=>g.disposition==='proposed').length;
  const recordedCounts=Object.entries(groupStatusLabels).filter(([status])=>status!=='proposed').map(([status,label])=>({

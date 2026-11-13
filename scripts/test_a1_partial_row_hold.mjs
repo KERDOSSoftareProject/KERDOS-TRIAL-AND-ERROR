@@ -7,6 +7,7 @@ import {verifyResumeRows} from '../src/core/import-resume.js';
 import {retainedUnlinkedRows} from '../src/core/retained-import-rows.js';
 import { createRecords } from '../src/backend/records.js';
 import { processAttachmentInBackground } from '../supabase/functions/process-attachment/background-import.mjs';
+import { fixtureProductItemRpc } from './fixtures/price-import-backend.mjs';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,11 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
   let catalogCounter = 0;
   let mappingCounter = 0;
   let vendorCounter  = 0;
+  const insertCatalog = value => {
+    const row = { ...value, id: `cat-new-${++catalogCounter}` };
+    catalogItems.push(row);
+    return row;
+  };
 
   const fingerprint = `test-storage/partial:${new TextEncoder().encode(csv).length}`;
 
@@ -157,9 +163,7 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
     if (table === 'catalog_items') {
       if (action === 'select') return Promise.resolve({ data: eqFilter(catalogItems, filters), error: null });
       if (action === 'insert') {
-        catalogCounter++;
-        const row = { ...(Array.isArray(value) ? value[0] : value), id: `cat-new-${catalogCounter}` };
-        catalogItems.push(row);
+        const row = insertCatalog(Array.isArray(value) ? value[0] : value);
         return Promise.resolve({ data: cardinality === 'single' ? row : [row], error: null });
       }
     }
@@ -234,6 +238,7 @@ function makeBackend({ uncertainIndexes = [], preSeededKeys = [], csv } = {}) {
   const records = createRecords(execute);
 
   const backend = {
+    rpc: fixtureProductItemRpc(catalogItems,categories,insertCatalog),
     attachments: {
       download: async () => new TextEncoder().encode(csv),
       setStatus: async (id, status, reason, importDocId) => {

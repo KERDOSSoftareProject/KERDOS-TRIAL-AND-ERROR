@@ -9,6 +9,7 @@ import {CatalogRows} from "./CatalogRows.jsx";
 import {RetainedImportRows} from "./RetainedImportRows.jsx";
 import {createImportService} from "../services/imports.js";
 import {unitChoices} from "../core/catalog-fields.js";
+import {productLabelLinked} from "../core/label-association.js";
 import {backend} from "../backend/index.js";
 import {createCatalogService,mappingVerification,mappingGap,GAP_LABELS} from "../services/catalog.js";
 import {createCategoryService} from "../services/categories.js";
@@ -260,7 +261,11 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
     const trimmed=renameValue.trim();
     setRenamingId(null);
     if(!trimmed) return;
-    await act(()=>catalogService.renameItem(catalogItemId,trimmed));
+    const mapping=mappings.find(link=>link.catalog_item_id===catalogItemId&&viMap.has(link.vendor_item_id));
+    await act(()=>mapping
+      ?createCatalogRowsService(backend).save({organizationId:orgId,vendorItem:viMap.get(mapping.vendor_item_id),
+        mapping,patch:{item_name:trimmed.slice(0,120)}})
+      :catalogService.renameItem(catalogItemId,trimmed));
   }
 
   // Words shared by the just-allocated items that the destination
@@ -350,7 +355,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
   }
 
   const lowConfidenceMatches=useMemo(()=>
-    mappings.filter(m=>m.comparison_track!=="exact"||m.confidence_score!==100||productList.some(item=>item.catalogItemId===m.catalog_item_id&&item.options.some(option=>option.mappingId===m.id&&option.unverified))).map(m=>{
+    mappings.filter(m=>!productLabelLinked(m)&&(m.comparison_track!=="exact"||m.confidence_score!==100||productList.some(item=>item.catalogItemId===m.catalog_item_id&&item.options.some(option=>option.mappingId===m.id&&option.unverified)))).map(m=>{
       const vi=viMap.get(m.vendor_item_id); const ci=ciMap.get(m.catalog_item_id);
       const v=vi?vMap.get(vi.vendor_id):null;
       const others=showReview?catalogItems.filter(c=>c.id!==m.catalog_item_id):[];
@@ -369,7 +374,7 @@ export function ItemCatalogPanel({mobileDetails=false,industry="",orgId,role,use
         vendorDescription:vi?.description||"—",packSize:vi?.pack_size||null,brand:vi?.brand||null, confidence:m.confidence_score, track:m.comparison_track, matchMethod:m.match_method||null,
         canConfirm:currentVerification?.comparison_track==="exact",
         oneVendor:new Set((linkedByCatalog.get(ci?.id)||[]).map(peer=>peer.vendor_id)).size===1,
-        reason:!vi?.pack_size?"Pack size missing":currentVerification?.comparison_track==="review"?detail?.status!=="same"?detail?.reason:packCheck?.reason||"Check full product specifications with linked vendors":"Check the full product specifications",
+        reason:ci?.concept_review_reason||(!vi?.pack_size?"Pack size missing":currentVerification?.comparison_track==="review"?detail?.status!=="same"?detail?.reason:packCheck?.reason||"Check full product specifications with linked vendors":"Check the full product specifications"),
         suggestion:suggestion?{catalogItemId:suggestion.catalogItem.id,name:suggestion.catalogItem.name,score:Math.round(suggestion.score*100)}:null};
     }).sort((a,b)=>a.gap.code.localeCompare(b.gap.code)||(a.confidence??0)-(b.confidence??0)),
   [mappings,viMap,ciMap,vMap,catalogItems,productList,linkedByCatalog,showReview]);

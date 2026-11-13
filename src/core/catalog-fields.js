@@ -7,6 +7,8 @@ import {calculatedUnitCost} from "./quote-controls.js";
 import {priceBasisFor,getProcurementContext} from "../procurement.js";
 import {mappingVerification,mappingGap} from "../services/catalog.js";
 import {isOrderingQuoteUnit} from './source-units.js';
+import {productIdentityPending,productLabelLinked,productLabelOrderPath} from './label-association.js';
+import {catalogMigrationAssessment} from './catalog-migration-tier.js';
 
 export const CATALOG_COLUMNS=[
   ["itemNumber","KERDOS item #"],["vendor","Vendor name"],["vendorItemNumber","Vendor item number"],["category","Category"],
@@ -76,7 +78,9 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const manual=vi.field_resolutions||{};
   const byClient=(key)=>key==='selling_unit'?!!unitOrigin.confirmation:Object.hasOwn(manual,key);
   const otherVendors=peers.filter(p=>p.vendor_id&&p.vendor_id!==vi.vendor_id);
-  const comparableAlternatives=automaticAlternativeVerified(vi,item,peers,procurement)||(item.comparison_mode!=='exact'&&productGroupApproved(vi,item,mapping));
+  const labelLinked=productLabelLinked(mapping);
+  const comparableAlternatives=productLabelOrderPath(item,mapping,vi)||automaticAlternativeVerified(vi,item,peers,procurement)||
+    (item.comparison_mode!=='exact'&&productGroupApproved(vi,item,mapping));
   const source=(key,rawKey)=>manual[key]?.sourceValue??fieldSource(key).row[rawKey];
   // A second vendor on the same catalog item is not automatically an
   // independent witness. Require a matching trade identifier first.
@@ -164,7 +168,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     catWhy=item.category_review?(item.category_reason||"Best guess"):item.category_reason?item.category_reason:"Set or accepted";
     // Once the listing's product identity is confirmed, its KERDOS item's
     // category is authoritative. Do not reclassify each supplier's wording.
-    const grouped=productGroupApproved(vi,item,mapping);
+    const grouped=labelLinked||productGroupApproved(vi,item,mapping);
     if(grouped&&!item.category_review)catWhy='Category defined by the confirmed KERDOS item';
     const independent=!grouped&&categories.length?procurement.suggestCategory(vi.description,categories,[]):null;
     if(item.category_review&&independent?.confidence==="confident"&&independent.category?.id===category.id){
@@ -210,14 +214,17 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
   const descAcc=empty(vi.description)?null:descriptionConflict?GUESSED:descriptionCorroborated?100:STATED;
   const descWhy=descriptionConflict?"Edited description differs from original source; verify the product":descriptionCorroborated?"Product identity corroborated by a matching trade identifier":byClient("description")?"Cleaned up by you; verify against source":"As the vendor wrote it";
 
-  // Item name: yours once you've typed it; until then it is only the vendor's wording.
-  const named=!empty(item.name)&&item.name!==vi.description;
-  const nameAcc=empty(item.name)?null:named?STATED:GUESSED;
-  const nameWhy=named?"Your name for this product":"Still the vendor's wording; rename it when you like";
+  const nameConfirmation=[vi,...peers].map(row=>row.field_resolutions?.item_name)
+    .find(confirmation=>(confirmation?.confirmedBy||confirmation?.confirmedAt)&&confirmation.value===item.name);
+  const named=!!nameConfirmation||productGroupApproved(vi,item,mapping);
+  const nameStatus=empty(item.name)?null:named?'stated':'inferred';
+  const nameAcc=nameStatus==='stated'?100:nameStatus==='inferred'?DERIVED:null;
+  const nameWhy=named?"Your name for this product":"KERDOS named this from the vendor's description; rename it when you like.";
 
   // Association: proven by identifier or a second vendor, exact, or under review.
   const exact=mapping?.comparison_track==="exact"&&mapping?.confidence_score===100;
-  const numAcc=item.master_item_number==null?null:exact?descriptionCorroborated&&packAcc===100?100:STATED:mapping?.confidence_score!=null?Math.max(DOUBTFUL,Math.min(GUESSED,mapping.confidence_score)):GUESSED;
+  const numAcc=item.master_item_number==null?null:exact?descriptionCorroborated&&packAcc===100?100:STATED:
+    labelLinked?mapping.confidence_score:mapping?.confidence_score!=null?Math.max(DOUBTFUL,Math.min(GUESSED,mapping.confidence_score)):GUESSED;
   // The KERDOS number carries no percentage. It says how the association
   // was made: Automated by the engine, or Manual once a person changed it.
   const manualLink=mapping?.match_method==="manual"||Object.hasOwn(manual,"catalog_item_id");
@@ -254,7 +261,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
     vendor:field(vendor?.name||"",vendor?STATED:null,"Vendor selected at import"),
     vendorItemNumber:field(String(vi.vendor_item_code||"").trim()||vendorListingLabel(vi)||"",vi.vendor_item_code||vendorListingLabel(vi)?100:null,"Vendor code or persistent NVIN number"),
     category:clientField("category_id",category?.name||"Uncategorized",catAcc,catWhy||"No category yet"),
-    itemName:clientField("item_name",item.name||"",nameAcc,nameWhy),
+    itemName:{...field(item.name||"",nameAcc,nameWhy),status:nameStatus,by:editors[nameConfirmation?.confirmedBy]?.name||editors[nameConfirmation?.confirmedBy]?.full_name||""},
     product:clientField("description",vi.description,descAcc,descWhy),
     brand:clientField("brand",vi.brand||"",brandAcc,brandWhy||"Blank when absent"),
     pack:packField,
@@ -293,6 +300,18 @@ export function orderGuideAssessment(input){
   if(vendorItem.quoteBasisInference&&!blockers.includes("sellingUnit"))blockers.push("sellingUnit");
   if(vendorItem.import_row?.reviewRequired)blockers.push("source");
   if(item.brand_locked&&!procurement.brandsMatch(vendorItem.brand,item.locked_brand))blockers.push("brand");
+  if(productIdentityPending(item,mapping)){
+    return {ready:false,fieldsReady:blockers.length===0,blockers:[...blockers,"association"],evidence,verification:mapping};
+  }
+  if(productLabelOrderPath(item,mapping,vendorItem)){
+    // A product label establishes identity. Each listing still needs its own
+    // Tier 1 purchasing evidence before it may be ranked or ordered.
+    const migration=catalogMigrationAssessment({item,listing:vendorItem,mapping,settings,now,procurement});
+    if(migration.tier!==1)for(const key of migration.fields){
+      if(!blockers.includes(key))blockers.push(key);
+    }
+    return {ready:blockers.length===0,fieldsReady:blockers.length===0,blockers,evidence,verification:mapping};
+  }
   const fieldsReady=blockers.length===0;
   const approved=mapping.comparison_track==="exact"&&mapping.confidence_score===100;
   // A first-import item with no other vendor listing yet qualifies on field quality alone.
@@ -344,7 +363,7 @@ export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendor
   for(const m of mappings){const list=byCatalog.get(m.catalog_item_id)||[];list.push(m);byCatalog.set(m.catalog_item_id,list);}
   const out=[];
   for(const m of mappings){
-    if(m.comparison_track==="exact"&&m.confidence_score===100)continue;
+    if(productLabelLinked(m)||m.comparison_track==="exact"&&m.confidence_score===100)continue;
     const vi=viById.get(m.vendor_item_id),ci=ciById.get(m.catalog_item_id);
     if(!vi||!ci)continue;
     const category=cById.get(ci.category_id);
@@ -373,7 +392,7 @@ export function autoPlaceable({catalogItems=[],vendorItems=[],mappings=[],vendor
 const FIELDS={description:"description",brand:"brand",packSize:"pack_size"};
 export function rememberImportRow(row,prior,mapping=null, procurement=getProcurementContext()){
   if(!prior||(row.code?String(row.code)!==String(prior.vendor_item_code):!!prior.vendor_item_code))return row;
-  if(mapping?.vendor_item_id===prior.id&&mapping.comparison_track==="exact"&&mapping.confidence_score===100){
+  if(mapping?.vendor_item_id===prior.id&&(productLabelLinked(mapping)||mapping.comparison_track==="exact"&&mapping.confidence_score===100)){
     // The import resolved this vendor listing first. The saved association
     // and field corrections survive changes in document row order.
     const changes=knownItemChanges(row,prior, procurement);

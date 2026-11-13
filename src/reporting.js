@@ -1,5 +1,6 @@
 import {blockReason,orderable} from "./core/ordering.js";
 import {formatMoney} from "./localization.js";
+import {PRODUCT_LABEL_METHOD} from "./core/label-association.js";
 
 function csvEscape(value){const text=String(value??"");return /[",\n\r]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;}
 function rowsToCSV(rows){return rows.map(row=>row.map(csvEscape).join(",")).join("\r\n");}
@@ -15,7 +16,11 @@ export function buildCatalogExportCSV(productList,vendors){
   for(const item of productList){
     const cheapest=item.options.filter(orderable)[0]||item.options[0]||null;
     let status="No price on file",confidence="";
-    if(cheapest){if(!orderable(cheapest))status=blockReason(cheapest);else if(cheapest.matchTrack==="similar"){status="Needs review";confidence=`${cheapest.matchConfidence}%`;}else status="100% matched";}
+    if(cheapest){
+      if(!orderable(cheapest))status=blockReason(cheapest);
+      else if(cheapest.matchMethod===PRODUCT_LABEL_METHOD){status="Product label";confidence=`${cheapest.matchConfidence}%`;}
+      else status="100% matched";
+    }
     const vendorCells=vendors.map(vendor=>{const option=item.options.find(candidate=>candidate.vendorId===vendor.id);return option?.casePrice?formatMoney(option.casePrice):"";});
     const best=cheapest&&orderable(cheapest)?cheapest:null;
     rows.push([item.name,item.category,best?formatMoney(best.casePrice):"",best?best.vendorName:"",best?.perUnit?`${formatMoney(best.perUnit.price)}/${best.perUnit.unit}`:"",status,confidence,...vendorCells]);

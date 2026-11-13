@@ -242,6 +242,7 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     // Preserve exact source phrases and also recognize phrases formed by expansion.
     const details = informationalPositions(expanded.words, modifierIndex, conceptIndex);
     const identityWords = expanded.words.filter((word, index) => !details.has(index));
+    const comparisonText = identityWords.filter(Boolean).join(' ');
     const matches = identifyConcepts(conceptIndex, words, expanded.words, identityWords);
     const keys = unique(matches.map(match => match.entry.key));
     if (keys.length > 1) return review('Description identifies more than one product', expanded.evidence);
@@ -261,6 +262,8 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
         label: [title(base.label.toLowerCase()), ...variants.map(mark => title(mark.label.toLowerCase()))].join(' · '),
         reason: null,
         evidence: expanded.evidence,
+        comparisonText,
+        ...(variants.length?{formKey:variants.map(mark=>mark.key).join('|')}:{}),
       };
     }
     if (profile.requiredBaseWords && expanded.words.some(word => profile.requiredBaseWords.includes(singular(word)))) {
@@ -270,6 +273,7 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     const remaining = identityWords.filter(word => word && !fragments.has(word));
     const key = unique(remaining.map(singular)).sort().join(' ');
     if (!/[a-z]{2}/.test(key)) return review('No identifiable product description', expanded.evidence);
-    return {status: 'literal', key: 'literal:' + key, label: title(remaining.join(' ')), reason: null, evidence: expanded.evidence};
+    return {status: 'literal', key: 'literal:' + key, label: title(remaining.join(' ')), reason: null,
+      evidence:expanded.evidence,comparisonText,...(defining.length?{formKey:defining.map(mark=>mark.key).sort().join('|')}:{})};
   };
 }

@@ -124,6 +124,13 @@ export function createServiceBackend({
   // backend.records — the catalog field here is for browser-only
   // operations that are not available in background processing.
   const catalog = {
+    async findOrCreateProductItem(params) {
+      lease.assertLease();
+      const {data,error}=await supabase.rpc("kerdos_find_or_create_product_item",params);
+      if(error)throw new Error(`Resolve catalog product: ${error.message}`);
+      lease.assertLease();
+      return data;
+    },
     matchOrCreate: () => Promise.resolve(null),
     groupAutomaticAlternatives:    () => { throw new Error("not available in background processing"); },
     separateAutomaticAlternatives: () => { throw new Error("not available in background processing"); },

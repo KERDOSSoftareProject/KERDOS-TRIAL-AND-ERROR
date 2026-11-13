@@ -27,8 +27,8 @@ const org='10000000-0000-0000-0000-000000000001';
 const vendor='20000000-0000-0000-0000-000000000001';
 const text=node=>typeof node==='string'?node:(node.children||[]).map(text).join('');
 let passed=0;
-function fixture(){
- const f=createPriceImportFixture({text:csv});f.uploads=[];f.invoices=[];f.backend.invoices={record:async(header,lines)=>{f.invoices.push({header,lines});return {id:"b1-invoice"};}};
+function fixture(options={}){
+ const f=createPriceImportFixture({text:csv,...options});f.uploads=[];f.invoices=[];f.backend.invoices={record:async(header,lines)=>{f.invoices.push({header,lines});return {id:"b1-invoice"};}};
  f.downloads=[];f.backend.documents={upload:async(path,file)=>{f.uploads.push({path,name:file.name,bytes:await file.text()});},download:async(path)=>{f.downloads.push(path);const stored=f.uploads.find(u=>u.path===path);if(!stored)throw Error('stored original unavailable');return new TextEncoder().encode(stored.bytes);},remove:async()=>{}};
  globalThis.__b1Backend=f.backend;return f;
 }
@@ -64,22 +64,28 @@ async function productLabelParity(input){
   return {code:'LABEL-'+(index+1),description:row.description,brand:row.brand??null,packSize:row.packSize??null};
  });
  const csvText=['Code,Description,Brand,Pack,Price Unit,Price',...sourceRows.map(row=>[row.code,row.description,row.brand,row.packSize,'CASE','41.25'].map(cell).join(','))].join('\n');
- const f=fixture(),p=await open(vendor,'pricelist',{industry,vocabulary});
+ const f=fixture({multiRow:true}),p=await open(vendor,'pricelist',{industry,vocabulary});
  try{
   await upload(p,'picker',file('Product_Label_Parity_Prices.csv',csvText));await save(p);
   assert.equal(p.finished.length,1,JSON.stringify(p.tree.toJSON()));
   const procurement=createProcurementContext({industry,vocabulary});
   const browser=f.calls.applyQuote.map(quote=>{
    const {code,description,brand=null,packSize=null}=quote.importRow.row;
-   return {code,description,brand,packSize,label:procurement.readProductLabel({description,brand,packSize})};
+   const listing=f.vendorItems.find(item=>item.vendor_item_code===code);
+   const mapping=f.mappings[listing?.id];
+   const item=f.catalogItems.find(entry=>entry.id===mapping?.catalog_item_id);
+   assert.ok(item&&mapping,'manual import persists a mapping for each saved source row');
+   return {code,description,brand,packSize,label:procurement.readProductLabel({description,brand,packSize}),
+    assignment:{group:f.catalogItems.indexOf(item),label:item.concept_review_required?null:item.name,
+     conceptKey:item.concept_key??null,track:mapping.comparison_track,
+     method:mapping.match_method,confidence:mapping.confidence_score}};
   });
   assert.deepEqual(browser.map(({code})=>code),sourceRows.map(({code})=>code),'manual upload should produce each fixture row in source order');
-  // Task A reads candidate labels for assertions. Existing import writes and
-  // catalog grouping continue through their normal production path.
+  // Compare both label decisions and the actual persisted assignments.
   const worker=JSON.parse(execFileSync(process.execPath,['supabase/functions/process-attachment/process-attachment-test.mjs','--product-label-parity'],{
    input:JSON.stringify({industry,vocabulary,text:csvText}),encoding:'utf8',
   }));
-  assert.deepEqual(browser,worker,'manual-upload and email-worker rows should produce identical labels');
+  assert.deepEqual(browser,worker,'manual-upload and email-worker rows should produce identical labels and assignments');
   return browser.map(row=>row.label);
  }finally{p.tree.unmount();}
 }
@@ -520,7 +526,7 @@ try{
   b.onResolve({filter:/document-reader\.js$/},()=>({path:'reader',namespace:'b1'}));
   b.onLoad({filter:/reader/,namespace:'b1'},()=>({contents:'export async function fileToText(file,{onRead}={}){if(file.readingError)throw new Error(file.readingError);if(file.reading)onRead?.(file.reading);return file.reading?.text??file.text();}'}));
   b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'b1'}));
-  b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),download:(...args)=>globalThis.__b1Backend.documents.download(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
+  b.onLoad({filter:/backend/,namespace:'b1'},()=>({contents:'export const backend={catalog:{findOrCreateProductItem:(...args)=>globalThis.__b1Backend.catalog.findOrCreateProductItem(...args)},records:{query:(...args)=>globalThis.__b1Backend.records.query(...args)},documents:{upload:(...args)=>globalThis.__b1Backend.documents.upload(...args),download:(...args)=>globalThis.__b1Backend.documents.download(...args),remove:(...args)=>globalThis.__b1Backend.documents.remove(...args)},pricing:{applyQuote:(...args)=>globalThis.__b1Backend.pricing.applyQuote(...args)},invoices:{record:(...args)=>globalThis.__b1Backend.invoices.record(...args)}};'}));
  }}]});
  const args=inputMode?[outfile,'--product-label-parity']:[outfile];
  process.stdout.write(execFileSync(process.execPath,args,{input:suppliedInput??undefined,encoding:'utf8',timeout:60000,maxBuffer:16*1024*1024}));

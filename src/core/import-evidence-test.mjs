@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {explainImportRow} from "./import-evidence.js";
+import {configureProcurement,getProcurementContext} from "../procurement.js";
 
 const row={description:"Chicken breast",brand:"",packSize:"4/10 LB",price:80,sellingUnit:"CASE",sourceLine:"Chicken breast 4/10 LB 80.00"};
 const result=explainImportRow(row,{vendor:{name:"Supplier A"},categories:[{id:"meat",name:"Meat",keywords:["chicken"]}]});
@@ -32,4 +33,19 @@ const manuallyCategorized=explainImportRow({...row,description:"American cheese"
 assert.equal(manuallyCategorized.category.value,"Dairy");
 assert.equal(manuallyCategorized.category.accuracy,90);
 assert.equal(manuallyCategorized.category.source,"manual selection");
+
+configureProcurement({industry:'restaurant'});
+const bacon={description:'BCON LAYOUT 15LB',packSize:'15 LB',price:48,sellingUnit:'CASE'};
+const key=getProcurementContext().readProductLabel({description:'Bacon'}).key;
+const original={id:'original',organization_id:'org',name:'Bacon',concept_key:key,master_item_number:1010,created_at:'2026-01-01'};
+const split={...original,id:'split',concept_split_from_id:original.id,master_item_number:1020,created_at:'2025-01-01'};
+const foreign={...original,id:'foreign',organization_id:'other-org',master_item_number:1040,created_at:'2025-01-01'};
+const legacy={...original,id:'legacy',name:'  BACON ',concept_key:null,master_item_number:1030,created_at:'2025-01-01'};
+const preview=catalogItems=>explainImportRow(bacon,{organizationId:'org',catalogItems});
+assert.equal(preview([split,legacy,foreign,original]).itemNumber.value,1010);
+assert.equal(preview([split,legacy,foreign]).itemNumber.value,1030);
+const deferred=preview([split,foreign]);
+assert.equal(deferred.itemNumber.value,null);
+assert.match(deferred.itemNumber.reason,/checked on save/);
+configureProcurement();
 console.log("KERDOS field evidence tests passed");

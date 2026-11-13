@@ -779,7 +779,7 @@ function buildProcurementContext(profile,vocabularyProfile,rows) {
       const pack=comparePurchasingPack(packSize,ci.pack_size);
       const score=safeProductScore(description,ci.name);
       if(score<MATCH_POLICY.reviewFloor)return null;
-      const exact=identity.status==="same"&&pack.status==="same"&&score>=MATCH_POLICY.autoLink;
+      const exact=identity.status==="same"&&score>=MATCH_POLICY.autoLink;
       if(ci.matching_behavior==="strict"&&!exact)return null;
       return {catalogItem:ci,score,track:exact?"exact":"similar",
         reason:identity.status==="review"?identity.reason:pack.reason};
@@ -787,12 +787,11 @@ function buildProcurementContext(profile,vocabularyProfile,rows) {
     return ranked[0]||null;
   }
 
-  // A candidate can be worth showing even when its descriptions contain
-  // different unrecognized words. This NEVER links or prices the products:
-  // a complete, identical purchasing pack is required even for a suggestion.
+  // Description similarity suggests an identity. Pack evidence is returned
+  // separately for purchasing review.
   function bestPurchasingSuggestion(description,packSize,catalogItems=[]){
     return catalogItems.map(ci=>({catalogItem:ci,score:safeProductScore(description,ci.name),pack:comparePurchasingPack(packSize,ci.pack_size)}))
-      .filter(candidate=>candidate.pack.status==="same"&&candidate.score>=0.35)
+      .filter(candidate=>candidate.score>=0.35)
       .sort((a,b)=>b.score-a.score)[0]||null;
   }
 
@@ -871,6 +870,9 @@ export function configureProcurement({industry=null,vocabulary=[]}={}){
   configureCategoryProfile(industry);
   configureVocabulary(vocabulary);
 }
+
+export const conceptKey=(description,procurement=getProcurementContext())=>procurement.readProductLabel({description}).key;
+export const clientItemName=(description,procurement=getProcurementContext())=>procurement.readProductLabel({description}).label;
 
 export {MATCH_POLICY, UNIT_DEFINITIONS};
 export const productKnowledge=(...args)=>getProcurementContext().productKnowledge(...args);

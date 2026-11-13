@@ -196,7 +196,7 @@ export const restaurantProductLabels = {
   concepts: [...concepts.values()],
   modifiers,
   standalone: ['american', 'brown', 'cheese', 'corn', 'green', 'hamburger', 'roast', 'sage', 'vinaigrette'],
-  knownWords: ['america', 'can', 'chip', 'chop', 'cube', 'fresh', 'grill', 'heart', 'one', 'pasta', 'peel', 'pot', 'roast', 'sage', 'size', 'slice', 'split', 'trim', 'whole'],
+  knownWords: ['america', 'can', 'chip', 'chop', 'cube', 'fresh', 'grill', 'heart', 'jar', 'one', 'pasta', 'peel', 'pot', 'roast', 'sage', 'size', 'slice', 'split', 'trim', 'whole'],
   requiredBaseWords: ['breast', 'thigh', 'wing', 'leg quarter', 'drumstick'],
   fragments: ['bagged', 'split', 'usa', 'mex', 'ct', 'lb', 'oz', 'case', 'total', 'subtotal', 'invoice', 'description', 'price', 'product prices'],
   origins: ['al', 'arg', 'bel', 'cal', 'can', 'canada', 'chl', 'chn', 'col', 'cos', 'fl', 'florida', 'ga', 'gtm', 'hnd', 'ita', 'mex', 'mor', 'nj', 'ny', 'pa', 'per', 'ri', 'spa', 'tx', 'usa', 'wa'],

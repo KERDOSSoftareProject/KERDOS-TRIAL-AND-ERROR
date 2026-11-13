@@ -3,13 +3,12 @@
  *
  * Positive-control verification using the real importPriceRow pipeline.
  *
- * Proves two outcomes:
- *   1. Different purchasing packs (provolone 3/12 LB vs 1/12 LB) produce separate
- *      catalog items — the pack guard is enforced at every matching path.
- *   2. Equivalent products with matching packs from two different vendors share one
- *      catalog item (track="exact") and qualify for Order Guide when all required
- *      evidence is resolved (confirmed billing unit, invoice-confirmed quote, review
- *      accepted, known pack).
+ * Proves three outcomes:
+ *   1. Equivalent products with different purchasing packs share one catalog item
+ *      and preserve each vendor listing’s pack.
+ *   2. A product label places the listing in the catalog. Its own quote evidence
+ *      determines whether it qualifies for the Order Guide.
+ *   3. A shared barcode cannot join two different product cuts.
  *
  * Each test case runs inside its own fresh in-memory backend (no shared state).
  * importPriceRow is called for every row — no manual catalog_items / item_mappings
@@ -28,6 +27,7 @@ import {assertBackendContract} from '../backend/contract.js';
 import {createImportService} from '../services/imports.js';
 import {createCatalogService} from '../services/catalog.js';
 import fs from 'fs';
+import {fixtureProductItemRpc} from '../../scripts/fixtures/price-import-backend.mjs';
 
 configureProcurement({industry: 'restaurant'});
 configureCategoryProfile('restaurant');
@@ -106,6 +106,11 @@ function createFreshBackend() {
     rows('vendor_items').push(record);
     return record.id;
   };
+  const rpc=fixtureProductItemRpc(rows('catalog_items'),rows('catalog_categories'),value=>{
+    const item={id:`pc-${seq++}`,...value};
+    rows('catalog_items').push(item);
+    return item;
+  });
   const provider = assertBackendContract({
     kind:       'in-memory-pc-test',
     session:    {get: fn, subscribe: () => () => {}, signIn: fn, signUp: fn, signOut: fn},
@@ -115,6 +120,7 @@ function createFreshBackend() {
     realtime:   {subscribeToOrganization: () => () => {}},
     pricing:    {applyQuote},
     catalog:    {saveRow: fn},
+    rpc,
     invoices:   {record: fn},
     team:       {acceptInvite: fn},
     records:    createRecords(execute),
@@ -194,12 +200,12 @@ const BATCH = new Date().toISOString();
 const SOURCE_DOC = 'doc-pc-test';
 
 // ═══════════════════════════════════════════════════════════════════════
-// TEST CASE 1 — Different purchasing packs produce separate catalog items
+// TEST CASE 1 — Different purchasing packs share the product label
 // ═══════════════════════════════════════════════════════════════════════
 // Provolone 3/12 LB (Vendor A) is imported first, then 1/12 LB (Vendor B).
-// They must not share a catalog item — different packs are different purchasing entries.
+// Each pack stays on its own listing under the same catalog item.
 {
-  const ORG = 'org-pc-pack-sep';
+  const ORG = 'org-pc-shared-label';
   const fb = createFreshBackend();
   const cats = seedCategories(fb.rows, ORG);
   const wCI = [], wVI = [], wMaps = [];
@@ -227,20 +233,20 @@ const SOURCE_DOC = 'doc-pc-test';
   const mapA = fb.rows('item_mappings').find(m => m.vendor_item_id === resultA.vendorItemId);
   const mapB = fb.rows('item_mappings').find(m => m.vendor_item_id === resultB.vendorItemId);
 
-  ok('pack-sep: vendor item A saved', !!viA, `vendorItemId=${resultA.vendorItemId}`);
-  ok('pack-sep: vendor item B saved', !!viB, `vendorItemId=${resultB.vendorItemId}`);
-  ok('pack-sep: mapping A saved', !!mapA, `vendorItemId=${resultA.vendorItemId}`);
-  ok('pack-sep: mapping B saved', !!mapB, `vendorItemId=${resultB.vendorItemId}`);
-  ok('pack-sep: separate catalog items (different packs must not share an entry)',
-    mapA && mapB && mapA.catalog_item_id !== mapB.catalog_item_id,
+  ok('shared-label: vendor item A saved', !!viA, `vendorItemId=${resultA.vendorItemId}`);
+  ok('shared-label: vendor item B saved', !!viB, `vendorItemId=${resultB.vendorItemId}`);
+  ok('shared-label: mapping A saved', !!mapA, `vendorItemId=${resultA.vendorItemId}`);
+  ok('shared-label: mapping B saved', !!mapB, `vendorItemId=${resultB.vendorItemId}`);
+  ok('shared-label: one catalog item across different packs',
+    mapA && mapB && mapA.catalog_item_id === mapB.catalog_item_id,
     `catA=${mapA?.catalog_item_id} catB=${mapB?.catalog_item_id}`);
-  t('pack-sep: A pack stored correctly', viA?.pack_size, '3/12 LB');
-  t('pack-sep: B pack stored correctly', viB?.pack_size, '1/12 LB');
+  t('shared-label: A pack stored correctly', viA?.pack_size, '3/12 LB');
+  t('shared-label: B pack stored correctly', viB?.pack_size, '1/12 LB');
 
   results.push({
-    label: 'Different purchasing packs → separate catalog items',
+    label: 'Same product across different purchasing packs',
     orgId: ORG,
-    outcome: (mapA && mapB && mapA.catalog_item_id !== mapB.catalog_item_id) ? 'PASS' : 'FAIL',
+    outcome: (mapA && mapB && mapA.catalog_item_id === mapB.catalog_item_id) ? 'PASS' : 'FAIL',
     detail: `catalogItemA=${mapA?.catalog_item_id}  catalogItemB=${mapB?.catalog_item_id}`,
   });
 }
@@ -248,9 +254,8 @@ const SOURCE_DOC = 'doc-pc-test';
 // ═══════════════════════════════════════════════════════════════════════
 // TEST CASE 2 — Two vendors, matching packs → shared entry + readiness
 // ═══════════════════════════════════════════════════════════════════════
-// Vendor A and Vendor B supply the same IQF chicken breast (same GTIN, same pack).
-// Row A is imported first; row B is imported second. They share one catalog item
-// at track="exact" once the GTIN witness confirms identity.
+// Vendor A and Vendor B supply the same IQF chicken breast. The shared label
+// assigns both to one catalog item.
 //
 // Readiness is then verified by resolving all blockers:
 //   – sellingUnit: provided as 'CS' (sheet column) → DERIVED accuracy
@@ -299,7 +304,7 @@ const SOURCE_DOC = 'doc-pc-test';
   ok('shared: vendor item B saved', !!viB);
   ok('shared: mapping A saved', !!mapA);
   ok('shared: mapping B saved', !!mapB);
-  ok('shared: same catalog item (matching GTIN and pack → shared entry)',
+  ok('shared: same catalog item (same product label)',
     mapA && mapB && mapA.catalog_item_id === mapB.catalog_item_id,
     `catA=${mapA?.catalog_item_id} catB=${mapB?.catalog_item_id}`);
   ok('shared: catalog item exists in DB', !!catItem, `id=${mapA?.catalog_item_id}`);
@@ -312,7 +317,11 @@ const SOURCE_DOC = 'doc-pc-test';
   if (viA && mapA && catItem) {
     // Assign Meat category to the catalog item
     const meatCat = cats.find(c => c.name === 'Meat');
-    if (meatCat) catItem.category_id = meatCat.id;
+    if (meatCat) {
+      catItem.category_id = meatCat.id;
+      catItem.category_reason = 'confirmed';
+      catItem.category_review = false;
+    }
 
     // Assemble the exact vendor B record as a peer (for cross-vendor comparison)
     const peer = {
@@ -338,7 +347,7 @@ const SOURCE_DOC = 'doc-pc-test';
   }
 
   results.push({
-    label: 'Two vendors, same GTIN+pack → shared entry qualifies when evidence resolved',
+    label: 'Two vendors share a label and qualify on their quote evidence',
     orgId: ORG,
     outcome: (mapA && mapB && mapA.catalog_item_id === mapB.catalog_item_id) ? 'PASS' : 'FAIL',
     detail: `catalogItem=${mapA?.catalog_item_id}  trackB=${mapB?.comparison_track}  viA_price_basis=${viA?.price_basis}`,
@@ -346,7 +355,7 @@ const SOURCE_DOC = 'doc-pc-test';
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// TEST CASE 3 — Distinct products with different GTINs do not share entry
+// TEST CASE 3 — A shared GTIN cannot merge distinct cuts
 // ═══════════════════════════════════════════════════════════════════════
 {
   const ORG = 'org-pc-distinct';
@@ -367,9 +376,9 @@ const SOURCE_DOC = 'doc-pc-test';
     backend: fb.backend, importService: fb.importService, catalogService: fb.catalogService,
     orgId: ORG, vendorId: 'v-usf', sourceDocumentId: SOURCE_DOC, batchTime: BATCH,
     group: {name: 'Test Sheet', quoteValidUntil: null},
-    code: 'CHK-6OZ', description: 'CHICKEN BREAST BONELESS SKINLESS 6OZ',
+    code: 'THIGH-6OZ', description: 'CHICKEN THIGH BONELESS SKINLESS 6OZ',
     packSize: '2/5 LB', price: 43.50, priceUom: 'CS', sellingUnit: 'CS',
-    gtin: '00023700019303',
+    gtin: '00023700019302',
     workingCatalogItems: wCI, workingCategories: cats, workingVendorItems: wVI, workingMappings: wMaps,
   });
 
@@ -378,12 +387,12 @@ const SOURCE_DOC = 'doc-pc-test';
 
   ok('distinct: mapping A saved', !!mapA);
   ok('distinct: mapping B saved', !!mapB);
-  ok('distinct: separate catalog items (different GTINs must not collapse)',
+  ok('distinct: separate catalog items despite a shared GTIN',
     mapA && mapB && mapA.catalog_item_id !== mapB.catalog_item_id,
     `catA=${mapA?.catalog_item_id}  catB=${mapB?.catalog_item_id}`);
 
   results.push({
-    label: 'Different GTINs (4oz vs 6oz chicken) → separate catalog items',
+    label: 'Chicken breast and thigh keep distinct catalog items despite a shared GTIN',
     orgId: ORG,
     outcome: (mapA && mapB && mapA.catalog_item_id !== mapB.catalog_item_id) ? 'PASS' : 'FAIL',
     detail: `catalogItemA=${mapA?.catalog_item_id}  catalogItemB=${mapB?.catalog_item_id}`,

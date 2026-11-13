@@ -25,6 +25,7 @@ import {preparePriceImport} from './price-import-review.js';
 import {importResolutions} from './catalog-fields.js';
 import {captureRetainedSource,documentUnitConfirmationMatches,retainQuotedUnitRoot} from './listing-provenance.js';
 import {engineVerifiable} from '../services/catalog.js';
+import {PRODUCT_LABEL_METHOD} from './label-association.js';
 
 export const MISSING_DESCRIPTION = 'Product description is missing. Source row retained for review.';
 
@@ -165,16 +166,15 @@ export async function importPriceRow({
     const existingMapping = priorMapping || await importService.mapping(orgId, vendorItemId);
     if (!existingMapping) {
       const identity = needsBasis && ex
-        ? {description: ex.description, packSize: ex.pack_size, brand: ex.brand, gtin: ex.gtin, manufacturerCode: ex.manufacturer_code}
+        ? {description: ex.description, packSize: ex.pack_size, brand: ex.brand}
         : row;
       assertActive();
       match = await catalogService.matchOrCreate({
         organizationId: orgId, vendorId,
+        vendorListingId: vendorItemId,
         description: identity.description,
         packSize: identity.packSize,
         brand: identity.brand,
-        gtin: identity.gtin || null,
-        manufacturerCode: identity.manufacturerCode || null,
         categoryId: row.categoryId || null,
         catalogItems: workingCatalogItems,
         categories: workingCategories,
@@ -182,25 +182,26 @@ export async function importPriceRow({
         mappings: workingMappings,
       });
       if (match) {
+        const matchMethod=match.method===PRODUCT_LABEL_METHOD?PRODUCT_LABEL_METHOD:'rule_based';
         assertActive();
         savedMapping = await importService.createMapping({
           organization_id: orgId,
           catalog_item_id: match.catalogItemId,
           vendor_item_id: vendorItemId,
           confidence_score: Math.round((match.score ?? 0) * 100),
-          match_method: 'rule_based',
+          match_method: matchMethod,
           comparison_track: match.track,
         });
         workingVendorItems.push({id: vendorItemId, vendor_id: vendorId, description: identity.description,
-          pack_size: identity.packSize || null, brand: identity.brand || null,
-          gtin: identity.gtin || null, manufacturer_code: identity.manufacturerCode || null});
+          pack_size: identity.packSize || null, brand: identity.brand || null});
         workingMappings.push({id: savedMapping.id, catalog_item_id: match.catalogItemId,
           vendor_item_id: vendorItemId, comparison_track: match.track,
+          match_method: matchMethod,
           confidence_score: Math.round((match.score ?? 0) * 100)});
         if (applySelectedCategory && row.categoryId)
           await applySelectedCategory(match.catalogItemId, row.categoryId);
         // Promote to exact when a second vendor confirms identity and pack.
-        if (match.track === 'exact') {
+        if (match.track === 'exact' && matchMethod !== PRODUCT_LABEL_METHOD) {
           const verified = engineVerifiable({mappings: workingMappings, vendorItems: workingVendorItems, catalogItems: workingCatalogItems}, procurement)
             .filter(entry => entry.catalogItemId === match.catalogItemId);
           if (verified.length) {
@@ -222,5 +223,6 @@ export async function importPriceRow({
   if (!vendorItemId || !await importService.mapping(orgId, vendorItemId))
     throw new Error('The price was saved, but its catalog link is incomplete. This row can be resumed.');
 
-  return {vendorItemId, needsBasis, match, savedMapping, reviewReasons:prepared.reasons};
+  return {vendorItemId, needsBasis, match, savedMapping, reviewReasons:prepared.reasons,
+    identityReview:match?.identityReview ? {reason:match.reason} : null};
 }

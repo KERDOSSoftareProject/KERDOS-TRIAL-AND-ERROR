@@ -2,8 +2,8 @@
 // only on the provider's generic table capability; UI code never names or
 // imports a database vendor.
 import {prepareCatalogCorrection} from "./catalog-rows.js";
-import {productAssociationIdentity,productGroupApproved} from '../core/product-associations.js';
-import {nextCategoryRange,abbreviationPairs,getProcurementContext} from "../procurement.js";
+import {PRODUCT_LABEL_METHOD,productLabelLinked} from "../core/label-association.js";
+import {MATCH_POLICY,nextCategoryRange,abbreviationPairs,getProcurementContext} from "../procurement.js";
 
 // An association is a customer's assertion about identity. Ordering eligibility
 // additionally requires agreement with the existing vendor product's pack and
@@ -53,7 +53,7 @@ export function mappingVerification(vendorItem,catalogItem,linkedVendorItems=[],
 }
 async function run(promise,operation){
   const {data,error}=await promise;
-  if(error)throw new Error(`${operation}: ${error.message}`);
+  if(error)throw Object.assign(new Error(`${operation}: ${error.message}`),{code:error.code});
   return data;
 }
 
@@ -150,7 +150,7 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}, p
   for(const m of mappings){const list=byCatalog.get(m.catalog_item_id)||[];list.push(m);byCatalog.set(m.catalog_item_id,list);}
   const ready=[];
   for(const m of mappings){
-    if(m.comparison_track==="exact"&&m.confidence_score===100)continue;
+    if(productLabelLinked(m)||m.comparison_track==="exact"&&m.confidence_score===100)continue;
     const vendorItem=viById.get(m.vendor_item_id),catalogItem=ciById.get(m.catalog_item_id);
     if(!vendorItem||!catalogItem)continue;
     const peers=(byCatalog.get(m.catalog_item_id)||[]).filter(other=>other.id!==m.id).map(other=>viById.get(other.vendor_item_id)).filter(Boolean);
@@ -162,6 +162,40 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}, p
       verification:{...verification,match_method:"rule_based"}});
   }
   return ready;
+}
+
+function descriptionFallback({label,eligible,vendorItems,mappings,procurement}){
+  const listings=new Map(vendorItems.map(row=>[row.id,row]));
+  const peers=new Map();
+  for(const mapping of mappings){
+    const row=listings.get(mapping.vendor_item_id);
+    if(!row)continue;
+    const linked=peers.get(mapping.catalog_item_id)||[];
+    linked.push(row);
+    peers.set(mapping.catalog_item_id,linked);
+  }
+  const matches=[];
+  for(const item of eligible){
+    const descriptions=peers.get(item.id)||[];
+    const reads=[procurement.readProductLabel({description:item.name}),...descriptions.map(row=>procurement.readProductLabel(row))];
+    // Saved product keys and recognized peer forms can veto a wording match.
+    const recognized=[item.concept_key,...reads.filter(read=>read.status==="recognized").map(read=>read.key)]
+      .filter(key=>key?.startsWith("product:"));
+    if(label.status==="recognized"&&recognized.some(key=>key!==label.key))continue;
+    if(reads.some(read=>read.key&&(read.formKey||label.formKey)&&read.formKey!==label.formKey))continue;
+    if(item.concept_key&&item.concept_key!==label.key)continue;
+    const wording=reads.filter(read=>read.comparisonText).map(read=>({
+      comparison:procurement.compareProductIdentity(label.comparisonText,read.comparisonText),
+      score:procurement.safeProductScore(label.comparisonText,read.comparisonText),
+    }));
+    if(!wording.some(({comparison,score})=>comparison.status!=="different"&&score>=0.35))continue;
+    const clear=wording.some(({comparison,score})=>comparison.status==="same"&&score>=MATCH_POLICY.autoLink)
+      ||label.status==="recognized"&&reads.some(read=>read.key===label.key);
+    matches.push({item,clear});
+  }
+  const clear=matches.filter(candidate=>candidate.clear);
+  if(clear.length===1)return {item:clear[0].item,created:false};
+  return {reason:matches.length?"Description could match more than one reading; confirm the product":null};
 }
 
 export function createCatalogService(backend,importProcurement){
@@ -177,106 +211,64 @@ export function createCatalogService(backend,importProcurement){
     if(!updated?.length)throw new Error("The association changed since you loaded this page; refresh and try again.");
   }
   return {
-    async matchOrCreate({organizationId,vendorId,description,packSize,brand=null,gtin=null,manufacturerCode=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
+    async matchOrCreate({organizationId,description,packSize,brand=null,vendorListingId=null,categoryId=null,catalogItems,categories,vendorItems=[],mappings=[]}){
       const procurement=importProcurement??getProcurementContext();
-      const byId=new Map(vendorItems.map(vi=>[vi.id,vi]));
-      const linksByCatalog=new Map();
-      for(const mapping of mappings){
-        const row=byId.get(mapping.vendor_item_id);
-        if(!row)continue;
-        const links=linksByCatalog.get(mapping.catalog_item_id)||[];
-        links.push({row,mapping});
-        linksByCatalog.set(mapping.catalog_item_id,links);
-      }
-      const candidates=catalogItems.filter(ci=>!ci.merged_into_id).map(ci=>{
-        const links=linksByCatalog.get(ci.id)||[];
-        const linked=links.map(({row})=>row);
-        const knownPack=procurement.commonPurchasingPack(linked.map(vi=>vi.pack_size));
-        const knownBrands=[...new Set(linked.map(vi=>vi.brand).filter(Boolean))];
-        return {...ci,pack_size:knownPack,knownBrand:knownBrands.length===1?knownBrands[0]:null,
-          linkedVendorItems:linked,
-          hasApprovedGroup:links.some(({row,mapping})=>productGroupApproved(row,ci,mapping)),
-          otherVendorPresent:!!vendorId&&linked.some(vi=>vi.vendor_id&&vi.vendor_id!==vendorId)};
-      });
-      // A current identity approval can place a new listing across packs and
-      // brands. The listing still needs its own purchasing evidence.
-      const profile=procurement.associationProfile;
-      const identity=productAssociationIdentity({description,pack_size:packSize,brand},profile,procurement);
-      if(identity.key?.startsWith('concept:')){
-        const groups=candidates.filter(ci=>!ci.brand_locked&&!ci.preferred_brand&&ci.comparison_mode!=='exact'&&ci.hasApprovedGroup&&
-          ci.linkedVendorItems.every(v=>productAssociationIdentity(v,profile,procurement).key===identity.key));
-        if(groups.length===1)return {catalogItemId:groups[0].id,track:'review',score:0.7,method:'product_group',reason:'Associated by product concept; verify this listing’s own purchasing evidence'};
-      }
-      // Identifiers come first among the remaining ungrouped candidates.
-      // Same GTIN or manufacturer code + same pack = same item, same KERDOS number.
-      // Multiple vendors on the same entry is the goal.
-      const proven=identifierMatch({gtin,manufacturerCode,brand,packSize,vendorId},candidates,procurement);
-      if(proven?.track==="exact"){
-        const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},proven.catalogItem,procurement);
-        if(evidence.exact)return {catalogItemId:proven.catalogItem.id,track:"exact",score:1,method:"identifier",reason:proven.reason};
-      }
-      const match=proven||procurement.bestPurchasingMatch(description,packSize,candidates);
-      // Same description + same pack = same item = same KERDOS number.
-      // Link the incoming vendor item to the existing entry directly.
-      // Multiple vendors under one KERDOS number is exactly the goal.
-      // brand_locked=true: brands must agree for auto-exact.
-      // brand_locked=false (default): different brands are acceptable — unlocked items
-      // are generic; multiple competing brands share the same entry.
-      const brandLocked=match?.catalogItem?.brand_locked??false;
-      const brandVerified=match&&(!brandLocked||!brand||!match.catalogItem.knownBrand||procurement.brandsMatch(brand,match.catalogItem.knownBrand));
-      if(match?.track==="exact"&&brandVerified){
-        const evidence=associationEvidence({description,packSize,brand,gtin,manufacturerCode},match.catalogItem,procurement);
-        if(evidence.exact)return {catalogItemId:match.catalogItem.id,track:"exact",score:1,method:"description_pack",reason:"Same description and pack as an existing item"};
-      }
-      // Different purchasing packs are separate catalog items even when the product
-      // description is the same. 3/12 LB and 1/12 LB of CHEESE PROVOLONE SLICING are
-      // distinct purchasing units — sharing one catalog entry hides the distinction and
-      // makes price-per-unit comparison ambiguous. A human can always link two separate
-      // entries; a false shared entry is harder to undo.
-      // When a similar match exists (identity uncertain or pack doesn't match), fall through
-      // to create a new entry. Mixed or unknown packs do NOT trigger automatic attachment —
-      // without confirmed identity, pack, and brand-lock agreement a link is unsafe.
-      if(match?.track==="similar"){
-        // No automatic attachment for any similar match — fall through to new entry.
-        // If a suggestion exists with confirmed identity ("same"), it is offered below.
+      const candidate=procurement.readProductLabel({description,packSize,brand});
+      const label=candidate.key&&new TextEncoder().encode(candidate.key).length>1024
+        ?{...candidate,key:null,reason:"Product label is too long to identify safely"}:candidate;
+      const name=(label.label||String(description).trim()).slice(0,120);
+      const rejectedItems=new Set(mappings.filter(mapping=>mapping.match_method==="rejected").map(mapping=>mapping.catalog_item_id));
+      const eligible=catalogItems.filter(item=>!item.merged_into_id&&!item.retired_at
+        &&(!item.lifecycle_state||item.lifecycle_state==='active')
+        &&!item.concept_split_from_id&&!item.concept_review_required&&!rejectedItems.has(item.id)
+        &&(!item.organization_id||item.organization_id===organizationId));
+      const find=async placement=>{
+        const params={
+          p_organization_id:organizationId,p_concept_key:label.key,p_name:name,
+          p_category_id:placement?.category.id??null,p_category_review:placement?.review??false,
+          p_category_reason:placement?.reason??null,
+        };
+        if(backend.catalog?.findOrCreateProductItem)return backend.catalog.findOrCreateProductItem(params);
+        if(backend.rpc)return run(backend.rpc("kerdos_find_or_create_product_item",params),"Could not resolve the product label");
+        // Portable providers can supply the atomic operation through catalog.
+        // A records-only provider supports exact lookups but cannot create a keyed item.
+        const normalize=value=>String(value||'').trim().replace(/\s+/g,' ').toLowerCase();
+        const matches=eligible.filter(item=>item.concept_key===label.key)
+          .sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))||String(a.id).localeCompare(String(b.id)));
+        const item=matches[0]||eligible.find(row=>!row.concept_key&&normalize(row.name)===normalize(name));
+        if(item||!placement)return {item,created:false,sameLabelCount:matches.length};
+        throw new Error("This catalog provider does not support atomic product assignment.");
+      };
+      const placed=({item,created=false,sameLabelCount=0},reason)=>{
+        if(!catalogItems.some(current=>current.id===item.id))catalogItems.push(item);
+        const splitNotice=sameLabelCount>1?" More than one saved item has this label. The original or oldest eligible item was used.":"";
+        return {catalogItemId:item.id,track:"exact",score:0.9,method:PRODUCT_LABEL_METHOD,created,sameLabelCount,
+          reason:(reason||(created?"Created from the product label":"Matched the saved product label"))+splitNotice};
+      };
+      let reviewReason=label.reason;
+      if(label.key){
+        const saved=await find();
+        if(saved?.item)return placed(saved);
+        const fallback=descriptionFallback({label,eligible,vendorItems,mappings,procurement});
+        if(fallback.item)return placed(fallback,"Matched a compatible product description");
+        reviewReason=fallback.reason;
       }
 
-      // Fix 2: only suggest when description identity is confirmed same, not just plausible.
-      // "Chicken thigh" must never be suggested as the same item as "chicken breast".
-      // "CANDY SKITTLES" must never be linked to "CANDY M&M" even as a review suggestion —
-      // unresolved terms on either side may mean genuinely different products.
-      // Only allow suggestions when identity is "same"; "review" now falls through to new entry.
-      const rawSuggestion=procurement.bestPurchasingSuggestion(description,packSize,candidates);
-      const suggestionIdentity=rawSuggestion?procurement.compareProductIdentity(description,rawSuggestion.catalogItem.name):null;
-      // When the candidate is brand-locked and the incoming brand disagrees with the known brand,
-      // don't suggest linking — a brand-locked item must not absorb a different brand at review.
-      const suggestionBrandOk=!rawSuggestion||(()=>{
-        const ci=rawSuggestion.catalogItem;
-        if(!ci.brand_locked)return true;
-        return !brand||!ci.knownBrand||procurement.brandsMatch(brand,ci.knownBrand);
-      })();
-      // Allow a suggestion when identity is "same" (all defining terms confirmed) or "review"
-      // (incoming description is a subset — it omits qualifiers but conflicts with nothing).
-      // "CHICKEN BREAST" vs "BONELESS SKINLESS CHICKEN BREAST": onlyA=[], onlyB=["boneless","skinless"]
-      // → "review" → surfaced to a human to confirm; NOT auto-merged.
-      // Block when identity is "different" (conflicting terms on both sides) or any unrecognised
-      // status: "CANDY SKITTLES" vs "CANDY M&M" → "different" → no suggestion.
-      // Use an explicit allowlist so future statuses don't accidentally pass through.
-      const SUGGESTION_ALLOWED_STATUSES=new Set(["same","review"]);
-      const suggestionSafe=rawSuggestion&&SUGGESTION_ALLOWED_STATUSES.has(suggestionIdentity?.status)&&suggestionBrandOk;
-      const suggestion=suggestionSafe?rawSuggestion:null;
-      // If a plausible, identity-confirmed match exists, link to that item at review track
-      // so the client can confirm pack agreement. Only link when product identity is confirmed.
-      if(suggestion?.catalogItem?.id){
-        const suggestionScore=Math.round((suggestion.score??0.5)*100)/100;
-        return {catalogItemId:suggestion.catalogItem.id,track:"review",score:suggestionScore,
-          method:"suggestion",reason:suggestion.reason||"Possible match — confirm before including in price comparisons"};
-      }
-      // No match at all: create a new catalog entry.
       const placement=await this.placeInCategory({organizationId,description,categoryId,categories,catalogItems});
-      const created=await this.createItem({organizationId,name:description,categoryId:placement.category?.id||null,categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories});
-      catalogItems.push(created);
-      return {catalogItemId:created.id,track:"new",score:null,reason:"No existing item matched this description and pack"};
+      if(!reviewReason&&label.key){
+        const result=await find(placement);
+        if(!result?.item)throw new Error("The catalog did not return a product assignment.");
+        return placed(result);
+      }
+      // Keep ambiguous source evidence on its own provisional catalog entry.
+      // No automatic link is made to any of the competing products.
+      const reference=vendorListingId? ` [${vendorListingId}]` : "";
+      const reason=reviewReason||"Product identity needs review";
+      const item=await this.createItem({organizationId,name:name.slice(0,120-reference.length)+reference,categoryId:placement.category.id,
+        categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories,identityReview:reason});
+      catalogItems.push(item);
+      return {catalogItemId:item.id,track:"review",score:0.7,method:"rule_based",created:true,
+        identityReview:true,reason};
     },
     // Most likely category first, holding pen last. A guessed placement is
     // flagged for review so the client confirms or moves it, instead of
@@ -295,11 +287,19 @@ export function createCatalogService(backend,importProcurement){
       const existing=categories.find(category=>category.is_holding_pen)||null;
       if(existing)return existing;
       const {range_start,range_end}=nextCategoryRange(categories);
-      const created=await run(table("catalog_categories").insert({organization_id:organizationId,name:"Uncategorized",is_holding_pen:true,range_start,range_end,keywords:[]}).select().single(),"Could not create the holding category");
+      let created;
+      try{
+        created=await run(table("catalog_categories").insert({organization_id:organizationId,name:"Uncategorized",is_holding_pen:true,range_start,range_end,keywords:[]}).select().single(),"Could not create the holding category");
+      }catch(error){
+        if(error.code!=="23505")throw error;
+        created=await run(table("catalog_categories").select("*").eq("organization_id",organizationId)
+          .eq("is_holding_pen",true).maybeSingle(),"Could not load the holding category");
+        if(!created)throw error;
+      }
       categories.push(created);
       return created;
     },
-    async createItem({organizationId,name,categoryId,categoryReview=false,categoryReason=null,catalogItems,categories}){
+    async createItem({organizationId,name,categoryId,categoryReview=false,categoryReason=null,catalogItems,categories,conceptKey=null,splitFromId=null,identityReview=false}){
       const category=categories.find(candidate=>candidate.id===categoryId)||null;
       if(!category||!Number.isFinite(Number(category.range_start))||category.range_start==null||Number(category.range_start)<=0)throw new Error("This category needs an item-number range before creating an item.");
       // Include numbers from items later moved to another category. Their
@@ -308,7 +308,15 @@ export function createCatalogService(backend,importProcurement){
         item.master_item_number<=Number(category?.range_end||Number.MAX_SAFE_INTEGER));
       const masterItemNumber=itemsInCategory.length?Math.max(...itemsInCategory.map(item=>item.master_item_number||0))+1:(category.range_start);
       if(category.range_end!=null&&masterItemNumber>Number(category.range_end))throw new Error("This category item-number range is full.");
-      return run(table("catalog_items").insert({organization_id:organizationId,category_id:categoryId||null,master_item_number:masterItemNumber,name:name.slice(0,120),matching_behavior:"flexible",canonical_unit:null,brand_locked:false,category_review:!!categoryReview,category_reason:categoryReason||null}).select().single(),"Could not create the item");
+      const productFields=identityReview?{concept_review_required:true,concept_review_reason:identityReview}:{};
+      if(splitFromId){
+        productFields.concept_split_from_id=splitFromId;
+        if(conceptKey){
+          productFields.concept_key=conceptKey;
+          productFields.concept_key_set_at=new Date().toISOString();
+        }
+      }
+      return run(table("catalog_items").insert({organization_id:organizationId,category_id:categoryId||null,master_item_number:masterItemNumber,name:name.slice(0,120),matching_behavior:"flexible",canonical_unit:null,brand_locked:false,category_review:!!categoryReview,category_reason:categoryReason||null,...productFields}).select().single(),"Could not create the item");
     },
     // The client's word on a guessed placement: keep it where it is.
     confirmCategory(catalogItemId){
@@ -332,7 +340,8 @@ export function createCatalogService(backend,importProcurement){
       if(mapping.catalog_item_id!==expectedCatalogItemId)
         throw new Error("The association changed since you loaded this page; refresh and try again.");
       const placement=await this.placeInCategory({organizationId,description,categories,catalogItems});
-      const created=await this.createItem({organizationId,name:description,categoryId:placement.category?.id||null,categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories});
+      const original=catalogItems.find(item=>item.id===expectedCatalogItemId);
+      const created=await this.createItem({organizationId,name:description,categoryId:placement.category?.id||null,categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories,conceptKey:original?.concept_key,splitFromId:original?.concept_split_from_id||expectedCatalogItemId});
       const vendorItem=await run(table("vendor_items").select("*").eq("id",mapping.vendor_item_id).single(),"Could not read the vendor product");
       const verification=mappingVerification(vendorItem,created);
       // Concurrent-change guard: refuse if another session remapped this

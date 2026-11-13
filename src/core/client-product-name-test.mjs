@@ -4,12 +4,12 @@ import {configureProcurement} from '../procurement.js';
 configureProcurement({industry:'restaurant'});
 const examples=[
  ['-- ORZO - PASTA DRY 71','Orzo Pasta'],['( 275 ) GRN HERTG. T.TISS','Toilet Tissue'],
- ['( CANS-SMALL ) RED KIDNEY','Red Kidney Beans'],['( ITALIAN ) BREAD CRUMB','Breadcrumbs'],
+ ['( CANS-SMALL ) RED KIDNEY','Red Kidney Bean · Canned'],['( ITALIAN ) BREAD CRUMB','Breadcrumbs'],
  ['( VINYL ) LARGE GLOVE','Vinyl Gloves'],['( WINDEX ) GLASS CLEANER','Glass Cleaner'],
  ['(( FULL )) SHALLOW PAN','Shallow Food Pan'],['/ RP-200 \\ 2-LB FOOD TRAY','Food Tray'],
  ['1-PC ONLY BOURBON SAUCE','Bourbon Sauce'],['1-PC ONLY TZATZIKI SAUCE','Tzatziki'],
  ['Honey Mustard Dressing','Honey Mustard'],['DRESS HONEY MUSTARD','Honey Mustard'],['avocado','Avocados'],
- ['Pomace Oil — 100%','Pomace Oil'],['CHEESE AMERICAN SLICED WHITE','American Cheese'],['CHEESE PEPPER JACK LOAF','Pepper Jack Cheese'],["BLUE CHEESE CHUNKY KEN'S",'Blue Cheese Dressing'],
+ ['Pomace Oil — 100%','Olive Oil'],['CHEESE AMERICAN SLICED WHITE','American Cheese · Sliced'],['CHEESE PEPPER JACK LOAF','Pepper Jack Cheese'],["BLUE CHEESE CHUNKY KEN'S",'Blue Cheese Dressing'],
  ['ANISE (USA)','Anise'],['APPLE (NY) 4','Apple'],['ARCADIAN MIX (USA)','Arcadian Mix'],
 ];
 for(const [name,expected] of examples)assert.equal(clientProductName({name},[],'restaurant'),expected,name);
@@ -23,12 +23,12 @@ assert.equal(clientProductName({name:'Heinz Ketchup'},[{description:'Ketchup',br
 assert.equal(clientProductName({name:'Hilldale'},[{description:'American Cheese Hilldale',brand:'Hilldale'}],'restaurant'),'American Cheese','use stated product identity rather than the brand heading');
 assert.equal(clientProductName({name:'ACME'},[{description:'ACME',brand:'ACME'}],'restaurant'),null,'source-defined brands work without an industry-specific name list');
 for(const [name,expected] of [['B3339XH -H.D TUFF LINER','Trash Bags'],['B385813 BLACK LINER 60-G','Trash Bags'],['Bounty Paper Towels','Paper Towels'],['( 275 ) GRN HERTG. T.TISS','Toilet Tissue'],['PAPER CUP 12OZ','Paper Cups']])assert.equal(clientProductName({name},[],'restaurant'),expected);
-assert.equal(clientProductName({name:'BACON, PORK 18-22 COUNT SLICED LAID OUT HICKORY SMOKED CURED RAW 1-DIAMOND'},[{brand:'PATUXENT FARMS'}],'restaurant'),'Bacon');
+assert.equal(clientProductName({name:'BACON, PORK 18-22 COUNT SLICED LAID OUT HICKORY SMOKED CURED RAW 1-DIAMOND'},[{brand:'PATUXENT FARMS'}],'restaurant'),'Bacon · Raw · Sliced');
 assert.equal(clientProductName({name:'BAGGED (CAN)'},[],'restaurant'),null,'packaging alone is not an identified item');
 console.log('PASS client names: exact screenshot examples, plain product vocabulary, unidentifiable fragments kept for review, explicit client names and original source fields preserved.');
 const deliberate={id:'jelly-item',name:'Grape Jelly'};
 const jelly={description:'JELLY GRAPE P.C.',brand:null,field_resolutions:{product_group:{catalogItemId:'jelly-item',description:'JELLY GRAPE P.C.',brand:null,confirmedBy:'reviewer'}}};
 assert.equal(clientProductName(deliberate,[jelly],'restaurant'),'Grape Jelly','confirmed client product types must not collapse back into an ingredient word');
-assert.notEqual(clientProductName(deliberate,[{...jelly,description:'GRAPE GREEN SEEDLESS'}],'restaurant'),'Grape Jelly','changed source identity invalidates the old naming decision');
+assert.equal(clientProductName(deliberate,[{...jelly,description:'GRAPE GREEN SEEDLESS'}],'restaurant'),'Grape Jelly','the catalog name is read independently of a changed source listing');
 
 assert.equal(clientProductName({id:'orzo',name:'Orzo'},[{description:'-- ORZO - PASTA DRY 71',brand:'ORZO',field_resolutions:{product_group:{catalogItemId:'orzo',description:'-- ORZO - PASTA DRY 71',brand:'ORZO',confirmedBy:'reviewer'}}}],'restaurant'),'Orzo','a misplaced source brand cell cannot erase an explicitly identified KERDOS item');

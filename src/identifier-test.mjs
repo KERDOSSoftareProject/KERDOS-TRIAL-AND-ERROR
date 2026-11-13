@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {normalizeGtin,normalizeManufacturerCode,packFromDescription,abbreviationPairs,isAbbreviationOf,configureVocabulary,compareProductIdentity,parsePackSize,comparePurchasingPack,bestInvoiceMatch,assertKnownPriceBasis} from "./procurement.js";
+import {normalizeGtin,normalizeManufacturerCode,packFromDescription,abbreviationPairs,isAbbreviationOf,configureVocabulary,compareProductIdentity,parsePackSize,comparePurchasingPack,bestInvoiceMatch,assertKnownPriceBasis,createProcurementContext} from "./procurement.js";
 const packTail=packFromDescription;
 import {parseDocument} from "./ingestion.js";
 import {identifierMatch,mappingGap,createCatalogService,engineVerifiable} from "./services/catalog.js";
@@ -7,6 +7,7 @@ import {suggestCategory} from "./procurement.js";
 import {createCategoryService} from "./services/categories.js";
 import {autoPlaceable,orderGuideReady} from "./core/catalog-fields.js";
 import {configureCategoryProfile} from "./knowledge/category-profiles.js";
+import {fixtureProductItemRpc} from "../scripts/fixtures/price-import-backend.mjs";
 
 let passed=0;
 const test=async(name,fn)=>{try{await fn();passed++;}catch(err){console.error(`FAIL ${name}`);throw err;}};
@@ -85,14 +86,18 @@ await test("manufacturer code proves identity only with the same brand",()=>{
   assert.equal(identifierMatch({manufacturerCode:"TY-1001",brand:"PERDUE",packSize:"4/10 LB",vendorId:"B"},candidates),null);
   assert.equal(identifierMatch({manufacturerCode:"TY-1001",brand:null,packSize:"4/10 LB",vendorId:"B"},candidates),null);
 });
-await test("matchOrCreate: cross-vendor identifier match links to same KERDOS entry",async()=>{
-  // Same GTIN + same pack = same item. Vendor B links directly to c1.
-  // Multiple vendors under one KERDOS number is the goal.
-  const svc=createCatalogService({records:{query:()=>{throw new Error("no write — should link to existing entry");}}});
-  const result=await svc.matchOrCreate({organizationId:"o",vendorId:"B",description:"BONELESS SKINLESS CHICKEN BREAST FRESH",packSize:"4/10 LB",gtin:"00012345678905",
-    catalogItems:[{id:"c1",name:"CHIX BRST BNLS SKNLS"}],categories:[],vendorItems:linked,mappings:[{catalog_item_id:"c1",vendor_item_id:"v1"}]});
-  assert.equal(result.catalogItemId,"c1","cross-vendor GTIN match links to same KERDOS entry");
-  assert.equal(result.track,"exact","same GTIN + same pack = exact, no approval needed");
+await test("matchOrCreate groups by product label regardless of barcode or manufacturer code",async()=>{
+  const procurement=createProcurementContext({industry:"restaurant"});
+  const svc=createCatalogService({records:{query:()=>{throw new Error("no write — should link to existing entry");}}},procurement);
+  const description="BONELESS SKINLESS CHICKEN BREAST FRESH";
+  const common={organizationId:"o",vendorId:"B",description,packSize:"4/10 LB",
+    catalogItems:[{id:"c1",name:"Chicken Breast",concept_key:procurement.readProductLabel({description}).key}],
+    categories:[],vendorItems:linked,mappings:[{catalog_item_id:"c1",vendor_item_id:"v1"}]};
+  const byLabel=await svc.matchOrCreate(common);
+  const withCodes=await svc.matchOrCreate({...common,gtin:"00012345678905",manufacturerCode:"TY-1001"});
+  assert.equal(byLabel.catalogItemId,"c1");
+  assert.equal(byLabel.method,"product_label");
+  assert.deepEqual(withCodes,byLabel);
 });
 
 // --- why not 100%: one code per mapping ---
@@ -196,11 +201,14 @@ await test("prepared vegetables are reviewed outside Produce while fresh vegetab
 });
 await test("matchOrCreate files a new product under its best guess with the review flag",async()=>{
   const inserted=[];
-  const query=name=>({insert:row=>({select:()=>({single:()=>{inserted.push({table:name,row});return Promise.resolve({data:{id:"new",...row},error:null});}})})});
-  const service=createCatalogService({records:{query}});
+  const rpc=fixtureProductItemRpc(inserted,cats,value=>{
+    const item={id:"new",...value};inserted.push(item);return item;
+  });
+  const service=createCatalogService({records:{query:()=>{throw new Error("Expected atomic item creation");}},rpc});
   const result=await service.matchOrCreate({organizationId:"o",vendorId:"A",description:"PROVOLONE SLICED 6/5 LB",packSize:"6/5 LB",catalogItems:[{id:"x",name:"AMERICAN CHEESE SLICED",category_id:"dairy"}],categories:cats,vendorItems:[],mappings:[]});
-  assert.equal(result.track,"new");
-  const item=inserted.find(i=>i.table==="catalog_items").row;
+  assert.equal(result.method,"product_label");
+  assert.equal(inserted.length,1);
+  const item=inserted[0];
   assert.equal(item.category_id,"dairy");assert.equal(item.category_review,true);assert.match(item.category_reason,/guess/i);
 });
 await test("moving an item clears the review flag; confirming keeps it in place",async()=>{

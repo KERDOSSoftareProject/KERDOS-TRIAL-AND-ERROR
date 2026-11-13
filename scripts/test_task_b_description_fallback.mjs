@@ -15,7 +15,7 @@ const incumbentVendor = 'incumbent-vendor';
 const incomingVendor = 'incoming-vendor';
 const packSize = '4/10 LB';
 const category = {id:'category', name:'Uncategorized', range_start:10000, is_holding_pen:true};
-const comparisonMethods = ['bestPurchasingMatch', 'bestPurchasingSuggestion'];
+const comparisonMethods = ['compareProductIdentity', 'safeProductScore'];
 
 function setup() {
   const state = createPriceImportFixture({text:''});
@@ -80,6 +80,7 @@ test('description fallback runs only after the label lookup finds no item', asyn
   assert.deepEqual(hit.comparisonCalls, [], 'a saved-label hit skips description comparison');
   assert.deepEqual(hit.calls.createCatalog, []);
   assert.equal(missResult.catalogItemId, legacy.id, 'with no saved-label or exact name match, a clear wording match may link');
+  assert.ok(miss.comparisonCalls.includes('compareProductIdentity'), 'a label miss reaches description comparison');
 });
 
 test('reimport keeps an already label-placed listing and skips description fallback', async () => {

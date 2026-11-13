@@ -6,7 +6,7 @@
 import {preparePriceImport} from './price-import-review.js';
 import {resolveQuoteBasis} from './quote-basis.js';
 import {orderGuideAssessment, catalogRowEvidence} from './catalog-fields.js';
-import {casePriceFromQuote, quoteStatus, configureProcurement} from '../procurement.js';
+import {casePriceFromQuote, quoteStatus, configureProcurement, getProcurementContext} from '../procurement.js';
 import {rankVendorOffers, solveOrder} from './ordering.js';
 import {configureCategoryProfile} from '../knowledge/category-profiles.js';
 import {createRecords} from '../backend/records.js';
@@ -15,6 +15,7 @@ import {createImportService} from '../services/imports.js';
 import {createCatalogService} from '../services/catalog.js';
 import {createCategoryService} from '../services/categories.js';
 import {importPriceRow} from './import-price-row.js';
+import {fixtureProductItemRpc} from '../../scripts/fixtures/price-import-backend.mjs';
 configureProcurement({industry:'restaurant'});
 configureCategoryProfile('restaurant');
 
@@ -95,6 +96,11 @@ function createInMemoryBackend() {
     rows('vendor_items').push(record);
     return record.id;  // ← returns ID, matching production RPC
   };
+  const rpc=fixtureProductItemRpc(rows('catalog_items'),rows('catalog_categories'),value=>{
+    const item={id:`mem-${nextId++}`,...value};
+    rows('catalog_items').push(item);
+    return item;
+  });
   const provider = assertBackendContract({
     kind:'in-memory-test',
     session:{get:fn,subscribe:()=>()=>{},signIn:fn,signUp:fn,signOut:fn},
@@ -104,6 +110,7 @@ function createInMemoryBackend() {
     realtime:{subscribeToOrganization:()=>()=>{}},
     pricing:{applyQuote},
     catalog:{saveRow:fn},
+    rpc,
     invoices:{record:fn},
     team:{acceptInvite:fn},
     records:createRecords(execute),
@@ -330,7 +337,8 @@ const chickenCatalogItem = {
 // Shared row context for workflow tests 8–11
 const TEST_ORG = 'org-wf';
 const TEST_VENDOR = 'v-wf';
-const TEST_CATALOG_ITEM = {id:'ci-chicken', name:'Chicken Breast Boneless', category_id:'cat-meat', category_reason:'Meat product', category_review:false, brand_locked:false, master_item_number:'KDX-49200'};
+const TEST_CHICKEN_LABEL=getProcurementContext().readProductLabel({description:'CHIC BRST RAW BNLS RNDM CVP'}).key;
+const TEST_CATALOG_ITEM = {id:'ci-chicken', organization_id:TEST_ORG, name:'Chicken Breast Boneless', concept_key:TEST_CHICKEN_LABEL, category_id:'cat-meat', category_reason:'Meat product', category_review:false, brand_locked:false, master_item_number:'KDX-49200'};
 const TEST_CATEGORY = {id:'cat-meat', name:'Meat & Poultry', is_holding_pen:false, range_start:5000, range_end:5999, keywords:['chicken','beef','pork','turkey','meat','poultry']};
 const GROUP = {name:'horn.txt', quoteValidUntil:null};
 
@@ -499,26 +507,13 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
     'got: '+JSON.stringify(guardResult));
 }
 
-// ── TEST 12: Fully resolved row → orderGuideAssessment.ready=true automatically ──
-// A row with explicit sellingUnit and priceBasis passes through importPriceRow with
-// needsBasis=false and a confirmed price. When the working sets already contain a
-// vendor item from a second vendor linked to the same catalog item, matchOrCreate
-// returns exact track and engineVerifiable confirms the mapping. All blockers clear.
-//
-// This proves the engine's end-to-end automatic migration path: two vendors
-// confirming the same item + an explicit price quote = ready for the Order Guide
-// without any manual review step.
+// ── TEST 12: Confirmed pricing and a product label qualify independently ────
 {
   const {provider, importService, catalogService} = createInMemoryBackend();
-
-  // Pre-existing catalog item identified by GTIN, and a prior vendor item from a
-  // *different* vendor already linked at exact track. matchOrCreate finds the catalog
-  // item via GTIN identifier match (exact track immediately). engineVerifiable
-  // confirms the mapping when two vendors share the same GTIN+pack.
   const GTIN = '00012345678901';
   const workingCatalogItems = [{...TEST_CATALOG_ITEM, gtin: GTIN}];
   const workingCategories = [TEST_CATEGORY];
-  // Prior vendor item from a different vendor shares the GTIN — proves identity
+  // A prior vendor offers the same labeled product.
   const priorVendorItem = {
     id: 'vi-prior', vendor_id: 'v-prior',
     description: 'CHIC BRST RAW BNLS RNDM CVP', pack_size: '4/10 LB',
@@ -531,13 +526,10 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   const workingVendorItems = [priorVendorItem];
   const workingMappings = [priorMappingEntry];
 
-  // Seed the catalog item into the in-memory DB so the post-import lookup finds it.
-  // matchOrCreate finds it via GTIN in workingCatalogItems and skips creating a new one;
-  // without this seed, the records.query('catalog_items').eq('id', ...) returns null.
+  // Seed the saved label for the post-import lookup.
   await provider.records.query('catalog_items').insert({...TEST_CATALOG_ITEM, gtin: GTIN}).select().single();
 
-  // Row that arrives fully resolved: selling unit and price basis explicitly stated,
-  // GTIN enables identifier-based exact matching
+  // The row supplies its own selling unit, price basis and pack evidence.
   const sourceRow = {
     code: '49204',
     description: 'CHIC BRST RAW BNLS RNDM CVP',
@@ -564,8 +556,9 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   const mapping = await importService.mapping(TEST_ORG, result.vendorItemId);
   ok('auto-ready: saved vendor item found', !!vendorItem);
   ok('auto-ready: mapping found', !!mapping);
-  // mapping must be at exact track — engineVerifiable confirmed it via second vendor
   t('auto-ready: mapping at exact track', mapping?.comparison_track, 'exact');
+  t('auto-ready: label match keeps identity confidence below purchasing confirmation', mapping?.confidence_score, 90);
+  t('auto-ready: matching method records product label', mapping?.match_method, 'product_label');
 
   const {data:catalogItem} = await provider.records.query('catalog_items').select().eq('id', mapping.catalog_item_id).maybeSingle();
   ok('auto-ready: catalog item found from mapping', !!catalogItem);
@@ -593,16 +586,7 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   t('auto-ready: ready=true', assessment.ready, true);
 }
 
-// ── TEST 13: Single-vendor fresh item — automatic readiness path ─────────────
-// A fresh single-vendor item with resolved identity, category, pack and pricing
-// must become orderable automatically. A second vendor enables cross-vendor price
-// comparison but is not required for ordering.
-//
-// Engine behavior after the standalone-qualification fix:
-//   - matchOrCreate creates a new catalog item (track:"new", no prior links)
-//   - The standalone path fires when !peers.length && fieldsReady
-//   - The association blocker is suppressed: no conflicting peers, all fields clear
-//   - assessment.ready === true immediately after the first import
+// ── TEST 13: A newly labeled product can qualify on its own quote evidence ───
 {
   const {provider, importService, catalogService} = createInMemoryBackend();
   // No prior vendor items — this is the very first import of this item
@@ -630,8 +614,7 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
     applySelectedCategory:null,
   });
   t('single-vendor: needsBasis=false (explicit unit)', result.needsBasis, false);
-  // matchOrCreate creates a new catalog item — no existing item could match
-  t('single-vendor: match track is new (no prior links)', result.match?.track, 'new');
+  t('single-vendor: product label is assigned on creation', result.match?.method, 'product_label');
 
   const vendorItem = await importService.findVendorItem({organizationId:TEST_ORG, vendorId:TEST_VENDOR, code:sourceRow.code});
   const mapping = await importService.mapping(TEST_ORG, result.vendorItemId);
@@ -640,8 +623,8 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   ok('single-vendor: mapping created', !!mapping);
   ok('single-vendor: new catalog item created', !!catalogItem);
   t('single-vendor: price_unavailable=false', vendorItem.price_unavailable, false);
-  // comparison_track is "new", not "exact" — automatic approval not triggered
-  t('single-vendor: mapping track is new', mapping?.comparison_track, 'new');
+  t('single-vendor: identity is exact', mapping?.comparison_track, 'exact');
+  t('single-vendor: identity confidence is distinct from purchasing confirmation', mapping?.confidence_score, 90);
 
   // Standalone qualification: no peers, all fields resolved → ready immediately.
   // A second vendor enables price comparison; it is not required for ordering.
@@ -719,26 +702,18 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
 }
 
 // ── CATALOG MATCHING GATE TESTS (17–25) ────────────────────────────────────────
-// Regression tests for the compareProductIdentity + comparePurchasingPack gates
-// added to matchOrCreate. Each test seeds a catalog item for the first vendor
-// description, then calls matchOrCreate for the second vendor description and
-// asserts that the engine does NOT collapse them to the same catalog item, or
-// that the match is held at confidence_score 0 (review-only suggestion).
-//
-// Rules under test:
-//   status "different"  → reject match, create new catalog item
-//   status "review"     → suggestion only: comparison_track "review", confidence_score 0
-//   pack "different"    → create new catalog item (separate purchasing entry)
-
+// The fixtures cover product label identity and the secondary wording comparison.
 // Shared helper: seed one catalog item and run matchOrCreate for a second description.
-async function matchOrCreateAgainstSeeded(catalogService, seededName, seededPack, incomingDesc, incomingPack) {
+async function matchOrCreateAgainstSeeded({catalogService,provider}, seededName, seededPack, incomingDesc, incomingPack) {
   const holdingCategory = {id:'cat-hold', name:'Uncategorized', is_holding_pen:true, range_start:9000, range_end:9999};
-  const seededItem = {id:`ci-seed-${Math.random().toString(36).slice(2)}`, name:seededName,
+  const seededItem = {id:`ci-seed-${Math.random().toString(36).slice(2)}`, name:seededName, organization_id:'org-gate',
+    concept_key:getProcurementContext().readProductLabel({description:seededName}).key,
     category_id:'cat-hold', category_review:false, brand_locked:false, master_item_number:9001};
+  await provider.records.query('catalog_items').insert(seededItem).select().single();
   const workingCatalogItems = [seededItem];
   const workingCategories = [holdingCategory];
-  const workingVendorItems = [];
-  const workingMappings = [];
+  const workingVendorItems = [{id:'existing-vendor-item',vendor_id:'another-vendor',description:seededName,pack_size:seededPack}];
+  const workingMappings = [{catalog_item_id:seededItem.id,vendor_item_id:workingVendorItems[0].id}];
   const match = await catalogService.matchOrCreate({
     organizationId:'org-gate', vendorId:'v-gate',
     description:incomingDesc, packSize:incomingPack,
@@ -753,137 +728,103 @@ async function matchOrCreateAgainstSeeded(catalogService, seededName, seededPack
 // M&M Peanut is a genuinely different product from plain M&M. The engine must
 // not link them to the same catalog entry, even at review/score=0.
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'CANDY M&M', '1/36 CT', 'CANDY M&M PEANUT', '1/36 CT');
+    backend, 'CANDY M&M', '1/36 CT', 'CANDY M&M PEANUT', '1/36 CT');
   ok('candy-mam-peanut: separate catalog items (different products must not share an entry)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('candy-mam-peanut: new track (no match found)', match.track, 'new');
+  t('candy-mam-peanut: new product label', match.method, 'product_label');
 }
 
 // TEST 18: CANDY M&M vs CANDY SKITTLES ORIGINAL — must get separate catalog items
 // Skittles is a different brand/product from M&M. Separate entries required.
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'CANDY M&M', '1/36 CT', 'CANDY SKITTLES ORIGINAL', '1/36 CT');
+    backend, 'CANDY M&M', '1/36 CT', 'CANDY SKITTLES ORIGINAL', '1/36 CT');
   ok('candy-skittles: separate catalog items (different products must not share an entry)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('candy-skittles: new track (no match found)', match.track, 'new');
+  t('candy-skittles: new product label', match.method, 'product_label');
 }
 
 // TEST 19: CANDY M&M vs CANDY SNICKERS SINGLE BARS — must get separate catalog items
 // Snickers is a different brand/product from M&M. Separate entries required.
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'CANDY M&M', '1/36 CT', 'CANDY SNICKERS SINGLE BARS', '1/36 CT');
+    backend, 'CANDY M&M', '1/36 CT', 'CANDY SNICKERS SINGLE BARS', '1/36 CT');
   ok('candy-snickers: separate catalog items (different products must not share an entry)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('candy-snickers: new track (no match found)', match.track, 'new');
+  t('candy-snickers: new product label', match.method, 'product_label');
 }
 
 // TEST 20: SAUSAGE BKF LINK H-C 2.85 OZ vs SAUSAGE BKF PATY B&S 2 WD
 // link vs patty: genuinely different products (link sausage vs patty sausage).
 // Must get separate catalog entries — not a review-flagged shared entry.
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'SAUSAGE BKF LINK H-C 2.85 OZ', '1/64 CT', 'SAUSAGE BKF PATY B&S 2 WD', '1/64 CT');
+    backend, 'SAUSAGE BKF LINK H-C 2.85 OZ', '1/64 CT', 'SAUSAGE BKF PATY B&S 2 WD', '1/64 CT');
   ok('sausage-link-patty: separate catalog items (link and patty are different products)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('sausage-link-patty: new track (no match found)', match.track, 'new');
+  t('sausage-link-patty: uncertain wording is retained for review', match.track, 'review');
 }
 
 // TEST 21: DRESS HONEY MUSTARD vs HONEY P.C. — must get separate catalog items
 // Different products (honey mustard dressing vs honey portion control packets).
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'DRESS HONEY MUSTARD', '1/1 GL', 'HONEY P.C.', '200 CT');
+    backend, 'DRESS HONEY MUSTARD', '1/1 GL', 'HONEY P.C.', '200 CT');
   ok('dress-honey-mustard-pc: separate catalog items (different products must not share an entry)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('dress-honey-mustard-pc: new track (no match found)', match.track, 'new');
+  t('dress-honey-mustard-pc: new product label', match.method, 'product_label');
 }
 
-// TEST 22: MILK WHITE 2% vs MILK WHITE 2% LO/FAT UHT — must get separate catalog items
-// UHT (ultra high temperature) is a different product specification — separate entry.
+// TEST 22: A different milk fat level joins the Milk product label.
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'MILK WHITE 2%', '1/1 GL', 'MILK WHITE 2% LO/FAT UHT', '1/1 GL');
-  ok('milk-2pct-uht: separate catalog items (UHT milk is a different product specification)',
-    match.catalogItemId !== seededId,
-    `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('milk-2pct-uht: new track (no match found)', match.track, 'new');
+    backend, 'WHOLE MILK', '1/1 GL', 'MILK WHITE 2% LO/FAT UHT', '1/1 GL');
+  t('milk grades: reuse Milk item', match.catalogItemId, seededId);
+  t('milk grades: product label', match.method, 'product_label');
 }
 
 // TEST 23: PROD TOMATO 5 X 6 vs PROD TOMATO GRAPE PINTS — must get separate catalog items
 // Grape tomatoes are a different variety than 5x6 tomatoes. Separate entries required.
 {
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'PROD TOMATO 5 X 6', '1/25 LB', 'PROD TOMATO GRAPE PINTS', '12/1 PT');
+    backend, 'PROD TOMATO 5 X 6', '1/25 LB', 'PROD TOMATO GRAPE PINTS', '12/1 PT');
   ok('tomato-5x6-grape: separate catalog items (different tomato varieties must not share an entry)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('tomato-5x6-grape: new track (no match found)', match.track, 'new');
+  t('tomato-5x6-grape: new product label', match.method, 'product_label');
 }
 
-// TEST 24: CHEESE PROVOLONE SLICING 3/12 LB vs CHEESE PROVOLONE SLICING 1/12 LB — separate entries
-// Same product name, different purchasing packs. Different purchasing packs are always
-// separate catalog entries — the pack_conflict review path has been removed.
-// A separate catalog item (track="new") is the correct outcome; the seeded 3/12 LB entry
-// must not be reused for the 1/12 LB item.
+// TEST 24: The same product label can have different purchasing packs.
 {
-  const {catalogService} = createInMemoryBackend();
-  const holdingCategory = {id:'cat-hold-cheese', name:'Uncategorized', is_holding_pen:true, range_start:9000, range_end:9999};
-  const seededItem = {id:'ci-provolone-3lb', name:'CHEESE PROVOLONE SLICING',
-    category_id:'cat-hold-cheese', category_review:false, brand_locked:false, master_item_number:9001};
-  // Seed a vendor item with pack 3/12 LB linked to the catalog item so its known pack is set
-  const seededVendorItem = {id:'vi-prov-3lb', vendor_id:'v-existing',
-    description:'CHEESE PROVOLONE SLICING', pack_size:'3/12 LB', brand:null, gtin:null, manufacturer_code:null};
-  const seededMapping = {id:'m-prov-3lb', catalog_item_id:'ci-provolone-3lb', vendor_item_id:'vi-prov-3lb',
-    comparison_track:'exact', confidence_score:100};
-  const workingCatalogItems = [seededItem];
-  const workingCategories = [holdingCategory];
-  const workingVendorItems = [seededVendorItem];
-  const workingMappings = [seededMapping];
-  const match = await catalogService.matchOrCreate({
-    organizationId:'org-gate', vendorId:'v-gate',
-    description:'CHEESE PROVOLONE SLICING', packSize:'1/12 LB',
-    brand:null, gtin:null, manufacturerCode:null, categoryId:null,
-    catalogItems:workingCatalogItems, categories:workingCategories,
-    vendorItems:workingVendorItems, mappings:workingMappings,
-  });
-  // Different purchasing packs always produce separate catalog entries.
-  // The 1/12 LB item must not reuse the 3/12 LB catalog entry.
-  ok('cheese-provolone-pack: separate catalog item for different purchasing pack',
-    match.catalogItemId !== 'ci-provolone-3lb',
-    `catalogItemId=${match.catalogItemId} track=${match.track}`);
-  t('cheese-provolone-pack: new track (separate entry, not reuse)', match.track, 'new');
-  ok('cheese-provolone-pack: not promoted to exact (different items)',
-    match.track !== 'exact',
-    `track=${match.track} method=${match.method}`);
-}
-
-// TEST 25: SODA BIRCH WHITE DIET GLASS vs SODA BIRCH WHITE GLASS — review (diet)
-{
-  const {catalogService} = createInMemoryBackend();
+  const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
-    catalogService, 'SODA BIRCH WHITE GLASS', '4/6 BT', 'SODA BIRCH WHITE DIET GLASS', '4/6 BT');
-  ok('soda-birch-diet: different catalog items or review with score 0',
-    match.catalogItemId !== seededId || (match.track === 'review' && match.score === 0),
+    backend, 'CHEESE PROVOLONE SLICING', '3/12 LB', 'CHEESE PROVOLONE SLICING', '1/12 LB');
+  t('cheese-provolone-pack: label reuses the catalog item', match.catalogItemId, seededId);
+  t('cheese-provolone-pack: label link', match.method, 'product_label');
+  t('cheese-provolone-pack: label confidence', match.score, .9);
+}
+
+// TEST 25: Preserve defining wording in unrecognized product labels.
+{
+  const backend = createInMemoryBackend();
+  const {match, seededId} = await matchOrCreateAgainstSeeded(
+    backend, 'SODA BIRCH WHITE GLASS', '4/6 BT', 'SODA BIRCH WHITE DIET GLASS', '4/6 BT');
+  ok('soda-birch-diet: incompatible literal labels stay separate',
+    match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  if(match.catalogItemId === seededId) {
-    t('soda-birch-diet: review track only', match.track, 'review');
-    t('soda-birch-diet: confidence_score 0', match.score, 0);
-  }
 }
 
 // ── TEST 26: Mixed-batch independence — unresolved pack row does not hold back resolved row ─
@@ -1088,11 +1029,7 @@ async function runMixedBatch(label, importRowA_first) {
   t(`${label}: 6/#10 CN vs 6/#10 CN → same (named cans are stable identifiers)`,
     cmpNamedSame.status, 'same');
 
-  // ── Ranking-path safety: bestPurchasingMatch must not promote 6/10 CN to "exact" ──
-  // A catalog item with an established named-can pack must not match as exact when the
-  // incoming row carries an ambiguous "6/10 CN" pack. The pack comparison returns "review",
-  // which blocks the exact track. If the product description also matches, the result
-  // may still be "similar", but the pack status must not be "same".
+  // Description matches and purchasing pack checks are independent.
   const catalogItemWithKnownPack = {
     id: 'ci-tomatoes-known',
     name: 'TOMATOES CANNED WHOLE PEELED',
@@ -1103,26 +1040,14 @@ async function runMixedBatch(label, importRowA_first) {
     matching_behavior: null,
   };
   const rankResult = bpm('TOMATOES CANNED WHOLE PEELED', '6/10 CN', [catalogItemWithKnownPack]);
-  // bestPurchasingMatch returns similar candidates even when pack is "different" — "exact"
-  // requires both identity:"same" AND pack:"same". With pack:"different", the track is "similar".
-  // Guard: the result must not be "exact".
-  ok(`${label}: bestPurchasingMatch with 6/10 CN does not produce exact track`,
-    !rankResult || rankResult.track !== 'exact',
-    rankResult ? `track=${rankResult.track}` : 'no match');
+  t(`${label}: an unreadable pack does not block an exact description match`, rankResult?.track, 'exact');
 
-  // bestPurchasingSuggestion is stricter: it requires pack.status==="same".
-  // "6/10 CN" vs "6/#10 CN" is "different", so the catalog item must be filtered out entirely.
-  // This is the ranking-path that must block the ambiguous pack from promoting a catalog match.
   const suggResult = bps('TOMATOES CANNED WHOLE PEELED', '6/10 CN', [catalogItemWithKnownPack]);
-  t(`${label}: bestPurchasingSuggestion with 6/10 CN vs #10 pack → null (pack different blocks suggestion)`,
-    suggResult, null);
+  t(`${label}: a suggestion retains the different pack evidence`, suggResult?.pack.status, 'different');
 
-  // Additional: bestPurchasingSuggestion with identical ambiguous pack also blocked.
-  // Even same-string "6/10 CN" is now "review" — not "same" — so suggestions are not surfaced.
   const catalogItemWithAmbiguousPack = {...catalogItemWithKnownPack, id:'ci-tomatoes-amb', pack_size:'6/10 CN'};
   const suggResultSameAmb = bps('TOMATOES CANNED WHOLE PEELED', '6/10 CN', [catalogItemWithAmbiguousPack]);
-  t(`${label}: bestPurchasingSuggestion with 6/10 CN vs 6/10 CN (both ambiguous) → null (pack review blocks suggestion)`,
-    suggResultSameAmb, null);
+  t(`${label}: a suggestion retains the unresolved pack evidence`, suggResultSameAmb?.pack.status, 'review');
 
   // ── Price-ranking consumer: quotePriceOnBasis with 6/10 CN ───────────────────
   // quotePriceOnBasis is called by ImportModal to produce a comparable quote for
