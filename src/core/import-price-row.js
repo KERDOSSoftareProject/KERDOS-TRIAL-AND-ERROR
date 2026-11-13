@@ -13,7 +13,7 @@
 // Returns:
 //   {vendorItemId, needsBasis, match, savedMapping}
 //     vendorItemId — the saved or pre-existing vendor item id
-//     needsBasis   — true when the row was held for review (no applyQuote call)
+//     needsBasis   — true when the incoming source needs review
 //     match        — result from catalogService.matchOrCreate, or null
 //     savedMapping — result from importService.createMapping, or null
 //
@@ -134,7 +134,8 @@ export async function importPriceRow({
       manufacturerCode: row.manufacturerCode || null,
       packSize: row.packSize || ex?.pack_size || null,
       price: row.price,
-      priceUnavailable: !!row.priceUnavailable || needsBasis,
+      // An incoming review hold is recorded separately in importRow.
+      priceUnavailable: !!row.priceUnavailable || !Number.isFinite(Number(row.price)) || Number(row.price)<=0,
       effectiveDate: importBatchTime,
       quoteValidUntil: sourceRow.sourceProvenance?.quoteValidUntil ?? group.quoteValidUntil ?? null,
       sourceFilePath: sourceFilePath || null,

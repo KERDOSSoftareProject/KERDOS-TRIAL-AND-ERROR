@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {configureProcurement,createProcurementContext} from '../procurement.js';
 import {importPriceRow} from './import-price-row.js';
 import {catalogRowEvidence,orderGuideAssessment} from './catalog-fields.js';
-import {resolveQuoteBasis} from './quote-basis.js';
+import {normalizeCatalogQuote,resolveQuoteBasis} from './quote-basis.js';
 import {parseDocument} from '../ingestion.js';
 
 configureProcurement({industry:'construction'});
@@ -280,6 +280,40 @@ await test('a raw case statement cannot borrow the source attribution of mismatc
   assert.doesNotMatch(String(origin.source),/invoice/i);
   const evidence=fixture(listing).evidence();
   assert.doesNotMatch(evidence.sellingUnit.reason,/invoice/i,'the displayed CASE cannot claim the mismatched invoice as its proof');
+});
+
+await test('a retained order type cannot confirm, calculate, or qualify a price',async()=>{
+  const listing=seed({inferred:false});
+  const binding={evidence:'stated',rawValue:'CSE',header:'Type:'};
+  const row={...original,sellingUnit:'CSE',sellingUnitSource:'header: Type:',fieldIdentification:{bindings:{sellingUnit:binding}}};
+  const legacyRoot={source:'sheet',value:'CASE',organizationId,vendorId,vendorItemCode:original.code,
+    description:original.description,packSize:original.packSize,brand:original.brand,
+    documentIds:['original-document'],binding,statedSource:row.sellingUnitSource};
+  listing.import_row={...listing.import_row,row,evidence:{...row,fieldEvidence:{sellingUnit:legacyRoot}}};
+  const retained=captureRetainedSource(listing);
+  const held={...listing,import_row:{...listing.import_row,retainedSource:retained}};
+  assert.equal(quotedUnitOrigin(held,procurement).root,null);
+  assert.equal(quotedUnitOrigin(held,procurement).orderingUnitOnly,true);
+  assert.equal(resolveQuoteBasis(original,held,procurement),null);
+  assert.equal(fixture(held).evidence().unitCost.value,null);
+  assert.ok(fixture(held).assessment().blockers.includes('sellingUnit'));
+  const projected=normalizeCatalogQuote(held,[],{procurement});
+  assert.equal(projected.selling_unit,null);
+  assert.equal(projected.price,listing.price);
+  assert.deepEqual(projected.import_row,held.import_row);
+
+  const confirmed={...held,selling_unit:'LB',price_basis:'measure',
+    field_resolutions:{selling_unit:{value:'LB',sourceValue:'CSE',confirmedBy:'editor'}}};
+  assert.equal(quotedUnitOrigin(confirmed,procurement).status,'confirmed');
+  assert.equal(fixture(confirmed).evidence().unitCost.value,35);
+  assert.ok(!fixture(confirmed).assessment().blockers.includes('sellingUnit'));
+
+  const explicit={...listing,selling_unit:'LB',price_basis:'measure',
+    import_row:{...listing.import_row,evidence:{...row,sellingUnit:'LB',sellingUnitSource:'price cell'}}};
+  assert.equal(quotedUnitOrigin(explicit,procurement).root?.statedSource,'price cell');
+  assert.equal(quotedUnitOrigin(explicit,procurement).root?.binding,null);
+  assert.equal(fixture(explicit).evidence().unitCost.value,35);
+  assert.ok(!fixture(explicit).assessment().blockers.includes('sellingUnit'));
 });
 
 console.log(`${passed} retained-quote provenance regression cases passed (isolated in-memory importer; no hosted writes).`);

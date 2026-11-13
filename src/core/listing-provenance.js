@@ -1,4 +1,5 @@
 import {getProcurementContext} from '../procurement.js';
+import {isOrderingHeader,isOrderingQuoteUnit} from './source-units.js';
 
 const own=(value,key)=>Object.hasOwn(value||{},key);
 const valueFields=['description','brand','pack_size','selling_unit','price','price_basis','gtin','manufacturer_code','unit_cost_unit'];
@@ -44,8 +45,10 @@ const identity=listing=>({organizationId:listing.organization_id||null,vendorId:
 function sheetRoot(listing,source,procurement){
   const raw=source.row,e=source.evidence;
   const stated=sameUnit(raw.sellingUnit,listing.selling_unit,procurement)&&
+    !isOrderingQuoteUnit(raw)&&
     !['remembered','inferred'].includes(raw.sellingUnitSource)?raw:
     sameUnit(e.sellingUnit,listing.selling_unit,procurement)&&
+    !isOrderingQuoteUnit(e)&&(!isOrderingQuoteUnit(raw)||e.sellingUnitSource&&e.sellingUnitSource!=='document')&&
     !['remembered','inferred','invoice'].includes(e.sellingUnitSource)?e:null;
   if(!stated||!source.sourceDocumentId)return null;
   return {source:'sheet',value:listing.selling_unit,...identity(listing),
@@ -54,7 +57,8 @@ function sheetRoot(listing,source,procurement){
     ...quotedUnitLocation(stated)};
 }
 export function quotedUnitLocation(row){
-  const binding=row.fieldIdentification?.bindings?.sellingUnit||null;
+  const unitBinding=row.fieldIdentification?.bindings?.sellingUnit;
+  const binding=unitBinding&&!isOrderingHeader(unitBinding.header)?unitBinding:null;
   const provenance=row.sourceProvenance;
   const cells=binding?provenance?.cells?.[binding.columnIndex]?.cells:[];
   return {binding,locator:{worksheet:provenance?.worksheet||null,page:provenance?.page??null,
@@ -87,6 +91,8 @@ function invoiceRoot(listing,source,procurement){
     reference:proof.references.map(r=>r.number||r.date||r.documentId).join(', '),
     references:proof.references};
 }
+const orderingSheetRoot=root=>root?.source==='sheet'&&
+  isOrderingQuoteUnit({sellingUnitHeader:root.binding?.header,sellingUnitSource:root.statedSource});
 function rootMatches(root,listing,procurement){
   if(!root||!sameUnit(root.value,listing.selling_unit,procurement))return false;
   for(const [key,field] of [['organizationId','organization_id'],['vendorId','vendor_id'],['vendorItemCode','vendor_item_code']])
@@ -106,7 +112,7 @@ function rootMatches(root,listing,procurement){
   }
   if(!root.documentIds?.length||root.documentIds.some(id=>!id))return false;
   if(root.source==='invoice')return !!root.references?.length&&root.references.every(r=>r.documentId&&sameUnit(r.billingUnitEvidence?.unit,listing.selling_unit,procurement))&&root.references.every(r=>root.documentIds.includes(r.documentId));
-  if(root.source!=='sheet'||!root.binding&&!root.sourceLine&&!root.statedSource)return false;
+  if(root.source!=='sheet'||orderingSheetRoot(root)||!root.binding&&!root.sourceLine&&!root.statedSource)return false;
   return !root.binding||root.binding.evidence==='stated'&&sameUnit(root.binding.rawValue,listing.selling_unit,procurement);
 }
 
@@ -136,14 +142,19 @@ export function quotedUnitOrigin(listing,procurement=getProcurementContext()){
   const remembered=source.evidence.sellingUnitSource==='remembered';
   const stated=sheetRoot(listing,source,procurement);
   const direct=rootMatches(stated,listing,procurement)?stated:null;
+  if(source.evidence.sellingUnitSource==='invoice'){
+    const root=invoiceRoot(listing,source,procurement);
+    return {...source,status:root?'confirmed':'inferred',confirmation:null,source:root?'invoice':'inferred',root,missingRoot:!root};
+  }
+  if(!direct&&!carried&&(same(source.row.sellingUnit)&&isOrderingQuoteUnit(source.row)||
+    same(source.evidence.sellingUnit)&&isOrderingQuoteUnit(source.evidence)||
+    same(stored?.value)&&orderingSheetRoot(stored))){
+    return {...source,status:null,confirmation:null,source:null,root:null,orderingUnitOnly:true};
+  }
   if(remembered){
     const root=direct||carried;
     return {...source,status:root?'confirmed':'inferred',confirmation:null,source:root?'remembered':'inferred',root,
       missingRoot:!root};
-  }
-  if(source.evidence.sellingUnitSource==='invoice'){
-    const root=invoiceRoot(listing,source,procurement);
-    return {...source,status:root?'confirmed':'inferred',confirmation:null,source:root?'invoice':'inferred',root,missingRoot:!root};
   }
   if(same(source.evidence.sellingUnit)||same(source.row.sellingUnit)){
     // Direct source fields retain their existing display policy. Automatic

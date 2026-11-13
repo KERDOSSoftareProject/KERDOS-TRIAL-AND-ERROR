@@ -53,8 +53,44 @@ for(const industry of ['restaurant','construction']){
  assert.equal(supported.quoteBasisInference?.value,'CASE','a legacy ordering Type token leaves room for evidence-backed pricing inference');
  assert.deepEqual(catalogPackEachCost(supported,context),{price:8.75,estimated:true});
  assert.equal(catalogMigrationAssessment({item,listing:supported,mapping,procurement:context}).tier,2);
- assert.equal(catalogPackEachCost(normalizeCatalogQuote(legacyType,peers.slice(0,1),{item,mapping,procurement:context}),context),null,
+ const insufficient=normalizeCatalogQuote(legacyType,peers.slice(0,1),{item,mapping,procurement:context});
+ assert.equal(catalogPackEachCost(insufficient,context),null,
    'the same Type token and price cannot establish a price per each without independent support');
+ assert.deepEqual(catalogMigrationAssessment({item,listing:insufficient,mapping,procurement:context}),
+   {tier:3,fields:new Set(['sellingUnit'])},'a usable amount with no supported pricing basis still requires a choice');
+ const retainedCase={...legacyType,import_row:{...legacyType.import_row,row:{...row,priceHeader:'Case Price'}}};
+ assert.deepEqual(catalogMigrationAssessment({item,listing:retainedCase,mapping,procurement:context}),
+   {tier:2,fields:new Set(['sellingUnit'])},'retained explicit case evidence supports direct confirmation');
+ const conflicting={...supported,import_row:{...supported.import_row,
+   reviewFields:['description','selling_unit'],conflicts:['Product description changed','Quoted unit is unresolved.']}};
+ assert.deepEqual(catalogMigrationAssessment({item,listing:conflicting,mapping,procurement:context}),
+   {tier:2,fields:new Set(['product','sellingUnit']),holdFields:new Set(['product'])},
+   'a supported price inference coexists with the product hold');
+ assert.deepEqual(catalogPackEachCost(conflicting,context),{price:8.75,estimated:true});
+ assert.ok(orderGuideAssessment({item,vendorItem:conflicting,mapping,procurement:context}).blockers.includes('source'));
+ const lockedItem={...item,brand_locked:true,locked_brand:'Preferred'};
+ const independentBrandHold={...peers[0],brand:'Different'};
+ assert.deepEqual(catalogMigrationAssessment({item:lockedItem,listing:independentBrandHold,mapping,procurement:context}),
+   {tier:2,fields:new Set(['brand']),holdFields:new Set(['brand'])},
+   'an established price with a locked brand mismatch still has a supported cost');
+ assert.equal(calculatedUnitCost(independentBrandHold,{procurement:context}).price,1.7);
+ assert.ok(orderGuideAssessment({item:lockedItem,vendorItem:independentBrandHold,mapping,procurement:context}).blockers.includes('brand'));
+ const wrongAssociation={...item,name:'COPPER PIPE'};
+ const reviewMapping={...mapping,comparison_track:'review'};
+ assert.deepEqual(catalogMigrationAssessment({item:wrongAssociation,listing:independentBrandHold,mapping:reviewMapping,procurement:context}),
+   {tier:2,fields:new Set(['product']),holdFields:new Set(['product'])},
+   'a supported cost remains available while the product association is in review');
+ assert.ok(orderGuideAssessment({item:wrongAssociation,vendorItem:independentBrandHold,mapping:reviewMapping,procurement:context}).blockers.includes('association'));
+ const pricingConflict={...conflicting,import_row:{...conflicting.import_row,
+   conflicts:['Product description changed','Pricing basis needs review because invoice evidence conflicts.']}};
+ assert.deepEqual(catalogMigrationAssessment({item,listing:pricingConflict,mapping,procurement:context}),
+   {tier:3,fields:new Set(['product','sellingUnit'])},'a pricing conflict prevents use of the projected cost');
+ const heldNewAmount={...independentBrandHold,import_row:{...independentBrandHold.import_row,
+   reviewRequired:true,reviewFields:['brand','price'],conflicts:['Brand changed from “Old” to “New”.']}};
+ assert.deepEqual(catalogMigrationAssessment({item,listing:heldNewAmount,mapping,procurement:context}),
+   {tier:3,fields:new Set(['brand','price'])},'a held new amount requires more than resolving the brand');
+ assert.deepEqual(catalogMigrationAssessment({item:lockedItem,listing:insufficient,mapping,procurement:context}),
+   {tier:3,fields:new Set(['brand','sellingUnit'])},'a separate brand conflict does not supply a missing price interpretation');
  assert.equal(normalizeCatalogQuote({...legacyType,import_row:{...legacyType.import_row,row:{...legacyType.import_row.row,
    sellingUnitSource:'header: Quoted per'}}},peers,{item,mapping,procurement:context}).quoteBasisInference,undefined,
    'an unresolved printed pricing unit remains evidence for review');
@@ -131,7 +167,8 @@ for(const industry of ['restaurant','construction']){
  const unresolved=normalizeCatalogQuote({...wronglyApproved,price:1,import_row:{...wronglyApproved.import_row,
   row:{...wronglyApproved.import_row.row,price:1}}},threeVendors,{item,mapping,procurement:context});
  assert.equal(unresolved.quoteBasisInference.kind,'unresolved');
- assert.equal(catalogMigrationAssessment({item,listing:unresolved,mapping,procurement:context}).tier,4);
+ assert.deepEqual(catalogMigrationAssessment({item,listing:unresolved,mapping,procurement:context}),
+   {tier:3,fields:new Set(['sellingUnit'])});
  assert.ok(orderGuideAssessment({item,vendorItem:unresolved,mapping,procurement:context}).blockers.includes('sellingUnit'));
 
  const statedCase={...singleUnit,import_row:{...singleUnit.import_row,row:{...singleUnit.import_row.row,packSize:'4/5 LB'}}};

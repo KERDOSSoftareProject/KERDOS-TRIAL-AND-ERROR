@@ -1,5 +1,6 @@
 import {PGlite} from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {priceQuoteFixture,upgradePriceQuoteRecovery} from './fixtures/price-quote-db.mjs';
 const db=new PGlite();
 try{
@@ -71,3 +72,112 @@ try{
  assert.equal((await legacyDb.query('select count(*)::int as n from vendor_items')).rows[0].n,count);
  console.log('PASS legacy staged recovery: exact identity retained; absent/ambiguous/edited listings stay for review with no new listing; legacy marker cannot be bypassed');
 }finally{await legacyDb.close();}
+
+const availabilityDb=new PGlite();
+try{
+ const f=await priceQuoteFixture(availabilityDb);
+ const {owner,actor,call,quote,document}=f;
+ const source={price:17.50,packSize:'2/10 LB',sourceLine:'TEST-1,Example product,2/10 LB,17.50'};
+ const heldQuote=(doc,{item=null,pack=source.packSize,unavailable=false,unit=null,basis=null}={})=>{
+  const row=pack===source.packSize?source:{...source,packSize:pack};
+  const command=quote(doc,{item,pack,price:row.price,line:row.sourceLine,unavailable,
+    importRow:{rowKey:'row:0',sourceDocumentId:doc,row,reviewRequired:true}});
+  command.args[14]=unit;
+  command.args[15]=basis;
+  return command;
+ };
+ const listing=async item=>(await availabilityDb.query('select * from vendor_items where id=$1',[item])).rows[0];
+ const history=async doc=>(await availabilityDb.query('select price,selling_unit,price_basis from price_history where source_document_id=$1',[doc])).rows;
+ const receipts=async doc=>(await availabilityDb.query('select staged_row_receipts from import_documents where id=$1',[doc])).rows[0].staged_row_receipts;
+
+ await actor(availabilityDb,owner);
+ const oldDoc=await document(),oldHeld=await call(availabilityDb,heldQuote(oldDoc,{unavailable:true}));
+ const oldListing=await listing(oldHeld),oldReceipt=await receipts(oldDoc);
+ await availabilityDb.query('reset role');
+ await availabilityDb.exec(`
+  create role service_role;
+  create table inbound_attachments(id uuid primary key,processing_lease_token uuid);
+  create table item_mappings(id uuid primary key);
+ `);
+ const migration=await readFile(new URL('../supabase/migrations/20261112205930_separate_price_availability_from_review.sql',import.meta.url),'utf8');
+ await availabilityDb.exec(migration);
+ await availabilityDb.exec(migration);
+ await actor(availabilityDb,owner);
+
+ assert.equal(await call(availabilityDb,heldQuote(oldDoc)),oldHeld,'replaying a pre-upgrade held row must recover its original listing');
+ assert.deepEqual(await listing(oldHeld),oldListing,'a replay does not reinterpret an older listing');
+ assert.deepEqual(await receipts(oldDoc),oldReceipt,'a replay does not replace an immutable pre-upgrade receipt');
+ assert.deepEqual(await history(oldDoc),[]);
+
+ const heldDoc=await document(),cmd=heldQuote(heldDoc),item=await call(availabilityDb,cmd);
+ const staged=await listing(item),receipt=await receipts(heldDoc);
+ assert.equal(Number(staged.price),source.price);
+ assert.equal(staged.price_unavailable,false,'the supplied amount remains available while its interpretation is reviewed');
+ assert.equal(staged.selling_unit,null);
+ assert.equal(staged.price_basis,null);
+ assert.equal(staged.import_row.reviewRequired,true);
+ assert.deepEqual(staged.import_row.row,source);
+ assert.equal(receipt['row:0']?.vendorItemId,item,'a held amount still has a staged receipt');
+ assert.deepEqual(await history(heldDoc),[],'a held amount must never become invoice comparison history');
+ assert.equal(await call(availabilityDb,cmd),item,'exact retry returns the held listing identity');
+ assert.deepEqual(await listing(item),staged,'exact retry leaves the held listing unchanged');
+
+ const confirmed=quote(heldDoc,{item,price:source.price,line:source.sourceLine,
+  importRow:{rowKey:'row:0',sourceDocumentId:heldDoc,row:source,reviewRequired:false}});
+ assert.equal(await call(availabilityDb,confirmed),item,'deliberate approval can publish the held source to history');
+ assert.deepEqual(await history(heldDoc),[{price:String(source.price),selling_unit:'CS',price_basis:'case'}]);
+ const accepted=await listing(item);
+ assert.equal(accepted.import_row.reviewRequired,false);
+ assert.equal(await call(availabilityDb,cmd),item,'old held retry returns the identity after approval');
+ assert.deepEqual(await listing(item),accepted,'old held retry cannot undo approval');
+ assert.deepEqual(await receipts(heldDoc),receipt);
+
+ const conflictDoc=await document();
+ const conflict=await call(availabilityDb,heldQuote(conflictDoc,{unit:'CS',basis:'case'}));
+ assert.equal((await listing(conflict)).price_unavailable,false);
+ assert.deepEqual(await history(conflictDoc),[],'a recognized unit does not clear an unrelated review hold');
+
+ const missingPackDoc=await document(),missingPack=heldQuote(missingPackDoc,{pack:null});
+ const packless=await call(availabilityDb,missingPack);
+ assert.equal((await listing(packless)).pack_size,null);
+ assert.equal((await listing(packless)).price_unavailable,false,'a missing pack does not make a supplied amount unavailable');
+ assert.equal(await call(availabilityDb,missingPack),packless);
+ assert.equal((await receipts(missingPackDoc))['row:0'].vendorItemId,packless);
+ assert.deepEqual(await history(missingPackDoc),[]);
+ const nextPacklessDoc=await document();
+ await call(availabilityDb,heldQuote(nextPacklessDoc,{item:packless,pack:null}));
+ assert.equal((await listing(packless)).price_unavailable,false,'an update with a still-missing pack preserves the amount');
+ assert.deepEqual(await history(nextPacklessDoc),[]);
+
+ const withdrawnDoc=await document();
+ const withdrawn=await call(availabilityDb,quote(withdrawnDoc,{price:null,unavailable:true}));
+ assert.equal((await listing(withdrawn)).price_unavailable,true,'a genuinely unavailable amount remains unavailable');
+ assert.deepEqual(await history(withdrawnDoc),[]);
+
+ const autoDoc=await document(),autoUpdateDoc=await document(),staleDoc=await document(),cleanDoc=await document();
+ await availabilityDb.query('reset role');
+ const {id:attachmentId,processing_lease_token:lease}=(await availabilityDb.query(`
+  insert into inbound_attachments values(gen_random_uuid(),gen_random_uuid()) returning *
+ `)).rows[0];
+ const autoCall=async (command,token=lease)=>{
+  const args=[...command.args,token,attachmentId];
+  return (await availabilityDb.query(`select kerdos_auto_apply_price_quote(${args.map((_,i)=>'$'+(i+1)).join(',')}) as value`,args)).rows[0].value;
+ };
+ await availabilityDb.query('set role service_role');
+ await assert.rejects(autoCall(heldQuote(staleDoc),null),/requires p_lease_token/);
+ assert.equal(await autoCall(heldQuote(staleDoc),attachmentId),null,'a stale worker lease cannot save the amount');
+ const auto=await autoCall(heldQuote(autoDoc,{pack:null}));
+ await autoCall(heldQuote(autoUpdateDoc,{item:auto,pack:null}));
+ await autoCall(quote(cleanDoc,{price:42.25}));
+ await actor(availabilityDb,owner);
+ const automatic=await listing(auto);
+ assert.equal(Number(automatic.price),source.price);
+ assert.equal(automatic.pack_size,null);
+ assert.equal(automatic.price_unavailable,false);
+ assert.equal(automatic.import_row.reviewRequired,true);
+ assert.deepEqual(await history(autoDoc),[],'the worker must also keep a held amount out of invoice comparison history');
+ assert.deepEqual(await history(autoUpdateDoc),[]);
+ assert.deepEqual(await history(staleDoc),[]);
+ assert.deepEqual(await history(cleanDoc),[{price:'42.25',selling_unit:'CS',price_basis:'case'}]);
+ console.log('PASS supplied-price availability: browser and worker review amounts stay out of quote history, with approval, staged receipt recovery and legacy retries');
+}finally{await availabilityDb.close();}

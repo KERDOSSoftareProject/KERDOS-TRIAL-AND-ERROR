@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {priceQuoteFixture} from './fixtures/price-quote-db.mjs';
 import {preparePriceImport} from '../src/core/price-import-review.js';
-import {workspaceProcurement} from '../src/core/source-review-recheck.js';
+import {planDocumentQuoteConfirmation,planSourceReviewRecheck,workspaceProcurement} from '../src/core/source-review-recheck.js';
 
 const db = new PGlite();
 try {
@@ -253,6 +253,43 @@ try {
   for (const change of [{packSize:'3/10 LB'},{sellingUnit:'EA',sellingUnitSource:'column'}]) {
     assert.equal(preparePriceImport({...nextSheet,...change},readyListing,mapping,[],[],scope,procurement).requiresReview,true);
   }
+
+  const legacyDocumentId=await f.document();
+  await db.query("update import_documents set fingerprint='scope-fingerprint' where id=$1",[legacyDocumentId]);
+  const legacyId=await seedListing(f.org,f.vendor,legacyDocumentId,'row:0');
+  const legacySeed=await readListing(legacyId);
+  const retainedRow={...legacySeed.import_row.row,description:legacySeed.description,code:legacySeed.vendor_item_code,
+    sellingUnit:'CSE',sellingUnitSource:'header: Type:',
+    fieldIdentification:{bindings:{sellingUnit:{header:'Type:',rawValue:'CSE',evidence:'stated'}}}};
+  const retained={...legacySeed.import_row,row:retainedRow,evidence:retainedRow,baseline:retainedRow};
+  await db.query("update vendor_items set selling_unit='CSE',price_unavailable=false,import_row=$2::jsonb where id=$1",
+    [legacyId,JSON.stringify(retained)]);
+  const legacy=await readListing(legacyId);
+  const legacyMapping=await readMapping(legacyId);
+  const legacyDocument={id:legacyDocumentId,organization_id:f.org,vendor_id:f.vendor,
+    fingerprint:'scope-fingerprint',document_kind:'pricelist',status:'complete'};
+  const legacyContext={organization:{id:f.org,industry:'construction',settings:{}},vocabulary:refreshed.vocabulary,
+    document:legacyDocument,listings:[legacy],mappings:[legacyMapping],unit:'LB',now:new Date('2026-11-11T12:00:00Z')};
+  const legacyPlan=planDocumentQuoteConfirmation(legacyContext);
+  assert.equal(legacyPlan.rows.length,1,'the planner admits the retained ordering token');
+  const legacyHistory=await readHistory();
+  await db.exec('set role service_role');
+  const legacyReceipt=await write(f.manager,randomUUID(),'confirm',{
+    ...planFor(legacyDocumentId,legacyPlan.rows,confirmPlan.summary),unit:'LB',vocabulary:refreshed.vocabulary,
+  });
+  await db.exec('reset role');
+  const corrected=await readListing(legacyId);
+  assert.equal(corrected.selling_unit,'LB');
+  assert.equal(corrected.price_basis,'measure');
+  assert.equal(corrected.price,legacy.price);
+  assert.equal(corrected.pack_size,legacy.pack_size);
+  assert.deepEqual(corrected.import_row,retained,'the ordering token and document remain untouched');
+  assert.equal(legacyReceipt.rows[0].confirmation.sourceValue,'CSE');
+  assert.deepEqual(await readMapping(legacyId),legacyMapping);
+  assert.deepEqual(await readHistory(),legacyHistory);
+  const legacyRecheck=planSourceReviewRecheck({...legacyContext,documents:[legacyDocument],listings:[corrected]});
+  assert.equal(legacyRecheck.rows.length,1,'the supported correction can proceed through the existing recheck');
+  console.log('PASS legacy Type-only document confirmation with exact original row, quote and association retained.');
   console.log('PASS document quoted-unit SQL: service-only scope, verified actor receipt, protected carried proof, stale and idempotent multi-document recheck, exact write allowlist.');
 } finally {
   await db.close();

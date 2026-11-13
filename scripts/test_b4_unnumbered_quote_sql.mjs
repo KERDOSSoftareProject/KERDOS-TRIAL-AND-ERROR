@@ -10,7 +10,9 @@ import {parseDocument} from '../src/ingestion.js';
 const db=new PGlite();
 try{
   const f=await priceQuoteFixture(db);
+  await db.exec('create role service_role; create table item_mappings(id uuid primary key)');
   await db.exec(readFileSync(new URL('../knowledge/migration_012_vendor_nvim.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/20261112205930_separate_price_availability_from_review.sql',import.meta.url),'utf8'));
   await f.actor(db,f.owner);
   const mappings=new Map();
   const importService={mapping:async(_org,id)=>mappings.get(id)||null,createMapping:async row=>{
@@ -80,14 +82,14 @@ try{
   assert.equal(missing.selling_unit,null);
   assert.equal(missing.price_basis,null);
   assert.equal(Number(missing.price),2.06);
-  assert.equal(missing.price_unavailable,true);
+  assert.equal(missing.price_unavailable,false);
   assert.equal(missing.import_row.reviewRequired,true);
   assert.ok(missing.import_row.reviewFields.includes('selling_unit'));
   assert.equal(missing.import_row.row.sellingUnit,null);
   assert.notEqual(missing.import_row.evidence.sellingUnitSource,'inferred');
   assert.deepEqual(missing.import_row.evidence.quoteBasisReview.alternatives.map(option=>option.sellingUnit),['CASE','EACH','LB']);
   const heldHistory=(await db.query('select selling_unit,price_basis from price_history where vendor_item_id=$1',[held.vendorItemId])).rows;
-  assert.ok(heldHistory.every(row=>row.selling_unit===null&&row.price_basis===null));
+  assert.deepEqual(heldHistory,[]);
   await db.query('reset role');
   const references=[];
   for(const price of [80,82]){
@@ -103,7 +105,8 @@ try{
     importBatchTime:'2026-11-10T00:00:00Z',group:{name:'CrossVendor.csv'},sourceFilePath:null,
     workingCatalogItems:[],workingCategories:[],workingVendorItems:references,workingMappings:[]});
   const savedGuess=(await db.query('select * from vendor_items where id=$1',[cross.vendorItemId])).rows[0];
-  assert.equal(savedGuess.selling_unit,'CASE');assert.equal(savedGuess.price_unavailable,true);assert.equal(cross.needsBasis,true);
+  assert.equal(savedGuess.selling_unit,'CASE');assert.equal(savedGuess.price_unavailable,false);assert.equal(cross.needsBasis,true);
+  assert.equal(savedGuess.import_row.reviewRequired,true);
   assert.equal(savedGuess.import_row.row.sellingUnit,null);assert.equal(savedGuess.import_row.evidence.fieldInference.sellingUnit.accuracy,70);
   assert.equal(savedGuess.import_row.evidence.fieldInference.sellingUnit.evidence.references.length,2);
   console.log('PASS C1.5 actual SQL: compared source-backed vendor quotes fill a held inferred unit, preserve the blank original, and retain both references.');

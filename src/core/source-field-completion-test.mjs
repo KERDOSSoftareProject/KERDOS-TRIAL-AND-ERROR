@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
 import {parseDocument} from '../ingestion.js';
 import {sourceFieldCompletion,trialSourceValue,twoStepSourceCompletion,sourceBrandReferences,trialSourceCanCalculate,sourceTrialUnitCost} from './source-field-completion.js';
+import {printedQuoteEvidence} from './source-units.js';
+import {preparePriceImport} from './price-import-review.js';
 const source=text=>{const parsed=parseDocument(text);return sourceFieldCompletion(parsed.rows[0],parsed);};
 const stated=source('Description,Brand,Pack,Price,Product UOM\nAmerican Cheese,Example Brand,4/5 LB,65.64,CS');
 assert.equal(stated.brand.value,'Example Brand');assert.equal(stated.pack_size.value,'4/5 LB');assert.equal(stated.selling_unit.value,'CASE');
 const ordering=source('Item#,Pack & Size:,Type:,Brand:,Description:,Sell\n1,4/5 LB,CSE,,American Cheese,65.64');
 assert.equal(ordering.brand.status,'not-stated');assert.equal(ordering.selling_unit.value,null,'an order type cannot establish a price unit');
+for(const [header,cell,expected] of [['Sell','5.29',null],['Price per LB','5.29','LB'],['Sell','$5.29/lb','LB']]){
+  const row=parseDocument(`Item#,Pack & Size:,Type:,Brand:,Description:,${header}\n1,70-LB,CSE,,Example product,${cell}`).rows[0];
+  assert.equal(row.orderingUnit,'CSE');
+  assert.equal(row.sellingUnit,expected);
+  assert.equal(row.price,5.29);
+  assert.equal(printedQuoteEvidence(row).unit,expected);
+  assert.equal(preparePriceImport(row).resolved?.sellingUnit??null,expected);
+}
 const weight=source('Product Price\nCHEESE AMERICAN SLICED (USA) 5 lb. 16.75');
 assert.equal(weight.brand.status,'not-stated');assert.equal(weight.pack_size.value,'5 lb');assert.equal(weight.selling_unit.value,null);
 assert.equal(sourceFieldCompletion({description:'5X6 TOMATOES',packSize:'5X6 TOMATOES'}).pack_size.value,null,'a product name is not a pack');

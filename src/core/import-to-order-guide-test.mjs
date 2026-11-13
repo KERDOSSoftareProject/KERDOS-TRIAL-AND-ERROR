@@ -6,7 +6,8 @@
 import {preparePriceImport} from './price-import-review.js';
 import {resolveQuoteBasis} from './quote-basis.js';
 import {orderGuideAssessment, catalogRowEvidence} from './catalog-fields.js';
-import {quoteStatus, configureProcurement} from '../procurement.js';
+import {casePriceFromQuote, quoteStatus, configureProcurement} from '../procurement.js';
+import {rankVendorOffers, solveOrder} from './ordering.js';
 import {configureCategoryProfile} from '../knowledge/category-profiles.js';
 import {createRecords} from '../backend/records.js';
 import {assertBackendContract} from '../backend/contract.js';
@@ -365,6 +366,7 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   t('missing basis: saved unit stays blank', vendorItem.selling_unit, null);
   t('missing basis: source remains unstated', vendorItem.import_row.evidence.sellingUnitSource, '');
   t('missing basis: original amount retained', vendorItem.price, 2.06);
+  t('missing basis: source stays in review', vendorItem.import_row.reviewRequired, true);
 
   // mapping was created by matchOrCreate + createMapping through the actual services
   const mapping = await importService.mapping(TEST_ORG, result.vendorItemId);
@@ -381,12 +383,10 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   t('missing basis: no sellingUnit value', evidence.sellingUnit.value || null, null);
   t('missing basis: no derived unit cost', evidence.unitCost.value, null);
   const qs = quoteStatus(vendorItem, {}, new Date());
-  t('missing basis: quoteStatus unavailable', qs, 'unavailable');
+  t('missing basis: supplied amount is available', qs, 'current');
 }
 
-// TEST 9: Missing quoted-per is an independent blocker.
-// importPriceRow → load saved record → orderGuideAssessment must include sellingUnit
-// even with comparison_track="exact" and a clean association.
+// TEST 9: A cheaper quote held for a source conflict must not win.
 {
   const {provider, importService, catalogService} = createInMemoryBackend();
   const workingCatalogItems = [TEST_CATALOG_ITEM];
@@ -398,7 +398,8 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   const sourceRow = {code:'49201', description:'CHIC BRST RAW BNLS RNDM CVP', packSize:'4/10 LB', price:2.06, sellingUnit:'', sellingUnitSource:''};
   await importPriceRow({
     backend:provider, importService, catalogService,
-    sourceRow, row:{...sourceRow}, ex:null, priorMapping:null, rowIssues:[], rowNeedsReview:false,
+    sourceRow, row:{...sourceRow}, ex:null, priorMapping:null,
+    rowIssues:['The sheet gives conflicting pricing information for this amount.'], rowNeedsReview:true,
     invoiceSources:[], orgId:TEST_ORG, vendorId:TEST_VENDOR,
     sourceDocumentId:'doc-9', completedKey:'row:0', importBatchTime:'2026-10-07',
     group:GROUP, sourceFilePath:null,
@@ -409,10 +410,26 @@ const GROUP = {name:'horn.txt', quoteValidUntil:null};
   const mapping = await importService.mapping(TEST_ORG, vendorItem?.id);
   const {data:actualCatalogItem9} = await provider.records.query('catalog_items').select().eq('id', mapping.catalog_item_id).maybeSingle();
   ok('missing basis: catalog item loaded from mapping', !!actualCatalogItem9);
-  const assessment = orderGuideAssessment({item:actualCatalogItem9, vendorItem, mapping, vendor:{id:TEST_VENDOR,name:'Test Vendor'}, category:TEST_CATEGORY, peers:[], categories:[TEST_CATEGORY], settings:{}, now:new Date()});
+  const exactMapping = {...mapping, comparison_track:'exact', confidence_score:100};
+  const assessment = orderGuideAssessment({item:actualCatalogItem9, vendorItem, mapping:exactMapping, vendor:{id:TEST_VENDOR,name:'Test Vendor'}, category:TEST_CATEGORY, peers:[], categories:[TEST_CATEGORY], settings:{}, now:new Date()});
   ok('missing basis: sellingUnit is a blocker', assessment.blockers.includes('sellingUnit'),
     'blockers: '+JSON.stringify(assessment.blockers));
   t('missing basis: not ready', assessment.ready, false);
+  ok('conflicting quote: source hold remains', assessment.blockers.includes('source'));
+  t('conflicting quote: supplied price remains available', vendorItem.price_unavailable, false);
+
+  const price = casePriceFromQuote(vendorItem.price, vendorItem.price_basis, null, vendorItem.pack_size);
+  const heldOffer = {
+    vendorId:TEST_VENDOR, vendorItemId:vendorItem.id, packSize:vendorItem.pack_size,
+    matchTrack:exactMapping.comparison_track, matchConfidence:exactMapping.confidence_score,
+    price, casePrice:price, priceUnavailable:vendorItem.price_unavailable, unverified:!assessment.ready,
+  };
+  const confirmedOffer = {...heldOffer, vendorId:'confirmed', vendorItemId:'confirmed-item',
+    price:80, casePrice:80, unverified:false};
+  const offers = [heldOffer, confirmedOffer];
+  t('conflicting quote: lower apparent price does not win ranking', rankVendorOffers(offers)[0].vendorId, 'confirmed');
+  const [line] = solveOrder([{catalogItemId:actualCatalogItem9.id, quantity:1, orderUnit:'case', options:offers}], []);
+  t('conflicting quote: automatic order selects confirmed offer', line.assignedVendorId, 'confirmed');
 }
 
 // ── TEST 10: Confirmed unit (explicit on sheet) clears sellingUnit gate ────────

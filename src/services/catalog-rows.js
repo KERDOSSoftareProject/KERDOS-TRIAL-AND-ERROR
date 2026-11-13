@@ -1,5 +1,6 @@
 import {comparisonUnits} from "../core/quote-controls.js";
 import {priceBasisFor,casePriceFromQuote,parsePackSize} from "../procurement.js";
+import {quotedUnitOrigin} from "../core/listing-provenance.js";
 
 export function prepareCatalogCorrection({organizationId,vendorItem,mapping,patch}){
   if(!vendorItem?.id||!mapping?.id||vendorItem.organization_id!==organizationId||mapping.organization_id!==organizationId||mapping.vendor_item_id!==vendorItem.id)
@@ -30,8 +31,10 @@ export function prepareCatalogCorrection({organizationId,vendorItem,mapping,patc
     const options=comparisonUnits(next.pack_size);
     if(options.length&&!options.includes(cleaned.unit_cost_unit))throw new Error("Select a unit cost metric compatible with the pack.");
   }
-  // Any field may be saved while others are missing. Calculations wait.
-  const convertible=basis&&pack?.parsed&&Number(next.price)>0&&casePriceFromQuote(Number(next.price),basis.basis,basis.unit||next.selling_unit,next.pack_size)!=null;
+  // An explicit unit correction or established evidence can support history.
+  // A legacy ordering token must not become accepted pricing evidence on edit.
+  const verifiedUnit="selling_unit" in cleaned||!!quotedUnitOrigin(next).root;
+  const convertible=verifiedUnit&&basis&&pack?.parsed&&Number(next.price)>0&&casePriceFromQuote(Number(next.price),basis.basis,basis.unit||next.selling_unit,next.pack_size)!=null;
   return {organizationId,vendorItemId:vendorItem.id,mappingId:mapping.id,expectedRevision:vendorItem.row_revision||0,
     patch:cleaned,priceBasis:basis?.basis||null,priceAvailable:!!convertible};
 }

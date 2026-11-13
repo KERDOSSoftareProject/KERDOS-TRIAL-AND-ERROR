@@ -8,7 +8,7 @@ try{
  writeFileSync(join(dir,'run.mjs'),String.raw`
 import React from 'react';import Renderer,{act} from 'react-test-renderer';import assert from 'node:assert/strict';
 const {OrderGuideListings,useOrderGuideListingAutosave}=await import('./listing.mjs');
-const rows=['one','two'].map((id,i)=>({id,organization_id:'org',vendor_id:'same-vendor',description:'Honey Mustard',pack_size:'4/1 GAL',selling_unit:'CS',price:20+i*5,row_revision:3,field_resolutions:{}}));
+const rows=['one','two'].map((id,i)=>({id,organization_id:'org',vendor_id:'same-vendor',description:'Honey Mustard',pack_size:'4/1 GAL',selling_unit:'CS',price:20+i*5,row_revision:3,field_resolutions:{selling_unit:{value:'CS',confirmedBy:'owner'}}}));
 const mappings=rows.map(row=>({id:'mapping-'+row.id,organization_id:'org',catalog_item_id:'catalog',vendor_item_id:row.id}));
 let saved,selected,applied=0,fail=false;
 const backend={catalog:{saveRow:async request=>{if(fail)throw Error('Listing changed; refresh.');saved=request;Object.assign(rows.find(row=>row.id===request.vendorItemId),request.patch);}}};

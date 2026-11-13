@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {createCatalogService,mappingVerification,associationEvidence} from "./catalog.js";
 import {configureProcurement} from "../procurement.js";
+import {prepareCatalogCorrection} from "./catalog-rows.js";
 configureProcurement({industry:"restaurant",vocabulary:[]});
 await new Promise(r=>setTimeout(r,10));
 
@@ -33,6 +34,12 @@ assert.equal(corrected,true);
 assert.deepEqual(calls.at(-1).catalogSave.patch,{description:"American cheese sliced",brand:"Brand A",pack_size:"4/10 LB"});
 await service.correctVendorFields({organizationId:"o1",vendorItem:{id:"v2",organization_id:"o1",description:"American cheese",pack_size:"120 CT"},mappingId:"m1",description:"American cheese",brand:"",packSize:"nonsense"});
 assert.equal(calls.at(-1).catalogSave.priceAvailable,false,"an unfinished pack may be saved but its quote cannot compete");
+const legacyOrderingUnit={id:"v2",organization_id:"o1",description:"American cheese",price:20,price_basis:"case",
+  pack_size:"4/10 LB",selling_unit:"CSE",import_row:{sourceDocumentId:"sheet",row:{sellingUnit:"CSE",sellingUnitSource:"header: Type:"}}};
+const prepare=patch=>prepareCatalogCorrection({organizationId:"o1",vendorItem:legacyOrderingUnit,
+  mapping:{id:"m1",organization_id:"o1",vendor_item_id:"v2"},patch});
+assert.equal(prepare({price:22}).priceAvailable,false,"a Type-only listing cannot publish new history when its amount is edited");
+assert.equal(prepare({selling_unit:"LB"}).priceAvailable,true,"an explicit price unit supports the pack calculation");
 await service.confirmMapping("m1",verified,"c1");
 assert.deepEqual(calls.at(-1).update,{comparison_track:"exact",confidence_score:100,match_method:"manual"});
 await service.renameItem("c1","Client Product");

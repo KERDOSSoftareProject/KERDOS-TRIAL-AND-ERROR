@@ -3,7 +3,7 @@ import {invoiceEvidence} from './invoice-evidence.js';
 import {quotedUnitOrigin} from './listing-provenance.js';
 import {preparePriceImport} from './price-import-review.js';
 import {resolveFromInvoiceArithmetic} from './quote-basis.js';
-import {canonicalQuoteUnit,documentQuoteEvidence,hasPrintedQuoteUnit} from './source-units.js';
+import {canonicalQuoteUnit,documentQuoteEvidence,hasPrintedQuoteUnit,isOrderingQuoteUnit} from './source-units.js';
 
 // Match the importer's interpretation context without mutating the browser or
 // worker default. A successfully loaded empty vocabulary is valid.
@@ -33,11 +33,22 @@ function observationProblem(listing,mapping,document,organization,procurement,no
   return null;
 }
 
+function isRetainedOrderingToken(observation,value,procurement){
+  const token=String(value||'').trim().toUpperCase();
+  if(!token)return false;
+  const unit=canonicalQuoteUnit(token,procurement);
+  return [observation.row,observation.evidence].some(source=>source&&isOrderingQuoteUnit(source)&&
+    [source.sellingUnit,source.originalFields?.sellingUnit,source.fieldIdentification?.bindings?.sellingUnit?.rawValue]
+      .some(candidate=>String(candidate||'').trim().toUpperCase()===token||
+        unit&&canonicalQuoteUnit(candidate,procurement)===unit));
+}
+
 function prepareObservation(listing,mapping,source,unit,invoices,listings,procurement){
   const scope={organizationId:listing.organization_id,vendorId:listing.vendor_id};
   const scopedInvoices=invoices.filter(entry=>entry.organizationId===scope.organizationId&&entry.vendorId===scope.vendorId);
   const issues=invoiceEvidence(source,scopedInvoices,procurement).conflicts;
   const incoming=unit?{...source,sellingUnit:unit,sellingUnitSource:'manual'}:source;
+  let prior=listing;
   // An explicit confirmation bypasses the importer's blank-unit invoice
   // inference branch. Check that evidence independently before supplying it.
   if(unit){
@@ -45,9 +56,22 @@ function prepareObservation(listing,mapping,source,unit,invoices,listings,procur
     if(invoice?.conflict)issues.push(`Pricing basis needs review because invoice evidence conflicts. ${invoice.reason}.`);
     else if(invoice&&canonicalQuoteUnit(invoice.sellingUnit,procurement)!==canonicalQuoteUnit(unit,procurement))
       issues.push('Pricing basis differs from verified invoice evidence.');
+    // A legacy ordering token is not a prior price decision. Ignore it
+    // only in the comparison; the plan still binds the full saved listing.
+    const observation=listing.import_row;
+    const baseline=observation.baseline||observation.row;
+    const orderingBaseline=isRetainedOrderingToken(observation,baseline.sellingUnit,procurement);
+    const orderingPrior=isRetainedOrderingToken(observation,listing.selling_unit,procurement)&&
+      quotedUnitOrigin(listing,procurement).status!=='confirmed';
+    if(orderingBaseline||orderingPrior){
+      prior={...listing,
+        selling_unit:orderingPrior?null:listing.selling_unit,
+        import_row:{...observation,baseline:{...baseline,sellingUnit:orderingBaseline?null:baseline.sellingUnit}},
+      };
+    }
   }
   try {
-    return preparePriceImport(incoming,listing,mapping,issues,scopedInvoices,scope,procurement,listings);
+    return preparePriceImport(incoming,prior,mapping,issues,scopedInvoices,scope,procurement,listings);
   } catch(error) {
     return {reasons:[error.message],requiresReview:true};
   }
@@ -60,14 +84,19 @@ function measureInference(listing,procurement){
 }
 
 function confirmationProblem(listing,document,origin,unit,procurement){
-  const source=listing.import_row.row;
+  const observation=listing.import_row;
+  const source=observation.row;
   if(hasPrintedQuoteUnit(source,procurement)||origin.status==='confirmed')
     return 'The pricing basis is already stated or confirmed.';
   const declared=documentQuoteEvidence(document.original_text,procurement);
   if(declared.present&&declared.unit!==unit)return 'The selected unit conflicts with the document terms.';
-  if(listing.selling_unit&&origin.status!=='inferred')
-    return 'The saved pricing basis is not a blank or an unconfirmed inference.';
-  if(measureInference(listing,procurement))return 'A weight or volume inference requires individual review.';
+  const orderingOnly=origin.orderingUnitOnly||!origin.status&&!origin.root&&
+    isRetainedOrderingToken(observation,listing.selling_unit,procurement);
+  if(orderingOnly&&hasPrintedQuoteUnit(observation.evidence||{},procurement))
+    return 'The saved evidence includes an explicit pricing basis.';
+  if(listing.selling_unit&&origin.status!=='inferred'&&!orderingOnly)
+    return 'The saved pricing basis has no eligible source evidence.';
+  if(origin.status==='inferred'&&measureInference(listing,procurement))return 'A weight or volume inference requires individual review.';
   // A withdrawn price cannot be revived by a document confirmation. The
   // existing importer marks unresolved unit observations unavailable and held.
   const hasUnitHold=listing.import_row.reviewRequired===true&&

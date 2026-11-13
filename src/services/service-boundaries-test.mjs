@@ -10,12 +10,28 @@ function query(table){
   const chain={select(value){state.select=value;return chain;},insert(value){state.insert=value;return chain;},update(value){state.update=value;return chain;},delete(){state.delete=true;return chain;},eq(column,value){(state.eq??=[]).push([column,value]);return chain;},in(column,value){state.in=[column,value];return chain;},lte(column,value){state.lte=[column,value];return chain;},order(column,options){(state.order??=[]).push([column,options]);return chain;},range(from,to){state.range=[from,to];return chain;},limit(value){state.limit=value;return chain;},maybeSingle(){state.maybeSingle=true;return chain;},single(){state.single=true;return chain;},then(resolve){calls.push({...state});resolve({data:state.single?{id:"created"}:state.maybeSingle?null:[],error:null});}};
   return chain;
 }
-const backend={records:{query},orders:{async submit(value){calls.push({order:value});return {id:"created"};}}};
+const backend={records:{query},orders:{async submit(value){calls.push({order:value});return {id:"created"};}},
+  catalog:{async saveRow(value){calls.push({catalogSave:value});return {id:value.vendorItemId};}}};
 const vendors=createVendorService(backend);
 await vendors.add({organizationId:"o1",name:" Vendor ",email:"",minimumDollar:"100",minimumUnits:"5"});
 assert.equal(calls.at(-1).insert.name,"Vendor");
 await vendors.expireQuotes({organizationId:"o1",vendorId:"v1",vendorItemIds:["i1","i2"]});
 assert.deepEqual(calls.at(-1).in,["id",["i1","i2"]]);
+const vendorItem={id:'i1',organization_id:'o1',pack_size:'2/10 LB',selling_unit:'CS',price_basis:'case',row_revision:7,
+  field_resolutions:{selling_unit:{value:'CS',confirmedBy:'u1'}}};
+const mapping={id:'m1',organization_id:'o1',vendor_item_id:'i1'};
+const beforeManualEdit=calls.length;
+await vendors.recordManualPrice({organizationId:'o1',item:vendorItem,mapping,price:17.50});
+assert.deepEqual(calls.slice(beforeManualEdit),[{catalogSave:{organizationId:'o1',vendorItemId:'i1',mappingId:'m1',
+  expectedRevision:7,patch:{price:17.5,vendor_price_edit:true},priceBasis:'case',priceAvailable:true}}],
+ 'Vendor Detail uses one revision-checked correction write');
+await vendors.recordManualPrice({organizationId:'o1',item:{...vendorItem,pack_size:null},price:12.5});
+assert.equal(calls.at(-1).catalogSave.mappingId,null);
+assert.equal(calls.at(-1).catalogSave.priceAvailable,false,'an unlinked price is saved without publishing a quote');
+await vendors.recordManualPrice({organizationId:'o1',item:{...vendorItem,field_resolutions:{}},mapping,price:12.5});
+assert.equal(calls.at(-1).catalogSave.priceAvailable,false,'a stored unit without evidence cannot produce quote history');
+await assert.rejects(vendors.recordManualPrice({organizationId:'elsewhere',item:vendorItem,price:17.5}),/organization/);
+await assert.rejects(vendors.recordManualPrice({organizationId:'o1',item:vendorItem,price:Infinity}),/positive/);
 
 const operations=createOperationsService(backend);
 await operations.updateInvoice("inv1",{invoice_number:"42"});

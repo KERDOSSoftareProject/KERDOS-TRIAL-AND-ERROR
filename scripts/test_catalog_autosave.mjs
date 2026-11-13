@@ -7,6 +7,7 @@ try{
  await build({stdin:{contents:String.raw`
 import React from 'react';import Renderer,{act} from 'react-test-renderer';import assert from 'node:assert/strict';
 import {CatalogRows} from './src/pages/CatalogRows.jsx';import {ItemCatalogPanel} from './src/pages/ItemCatalogPanel.jsx';import {configureProcurement} from './src/procurement.js';import {orderGuideAssessment} from './src/core/catalog-fields.js';
+import {PRICE_UNIT_CONFLICT_REASON} from './src/core/source-units.js';
 configureProcurement({industry:'restaurant'});
 const cache=new Map();globalThis.window={localStorage:{getItem:k=>cache.get(k)||null,setItem:(k,v)=>cache.set(k,v)}};
 const org='00000000-0000-0000-0000-000000000001',id='00000000-0000-0000-0000-000000000011';
@@ -18,7 +19,9 @@ let current=structuredClone(row),fail=false,calls=[],refreshes=0;
 globalThis.__autosaveBackend={records:{query(){throw Error('Unexpected read');}},catalog:{saveRow:async request=>{
  if(fail)throw Error('Offline: edits not saved');assert.equal(request.expectedRevision,current.row_revision,'each edit uses the latest accepted revision');calls.push(request);
  for(const [key,value]of Object.entries(request.patch)){current[key]=value;current.field_resolutions[key]={value,confirmedBy:'owner'};}
- current.price_basis=request.priceBasis;current.price_unavailable=!request.priceAvailable;current.row_revision++;return structuredClone(current);
+ current.price_basis=request.priceBasis;
+ if(Object.hasOwn(request.patch,'price'))current.price_unavailable=!(Number(current.price)>0);
+ current.row_revision++;return structuredClone(current);
 }}};
 const props={autoSave:true,userId:'owner',baseFieldsOnly:true,orgId:org,industry:'restaurant',items:[{catalogItemId:id}],catalogItems:[item],vendorItems:[row],mappings:[mapping],vendors:[{id:'vendor',name:'Supplier'}],categories:[category,{id:'dairy',name:'Dairy',range_start:30000,range_end:39999}],vocabulary:[],canManage:true,onUpdated:async()=>{refreshes++;},onDetails:()=>{}};
 let tree;const mount=async more=>{await act(async()=>{tree=Renderer.create(React.createElement(CatalogRows,{...props,...more}));});await toggle(true);};
@@ -32,7 +35,7 @@ assert.equal(tree.root.findAll(n=>String(n.props['aria-label']||'').startsWith('
 assert.equal(input('Brand for 000012').props.value,'');assert.equal(input('Brand for 000012').props.placeholder,'No brand');assert.equal(input('Brand for 000012').props.disabled,false);assert.equal(input('Pack for 000012').props.value,'');assert.equal(text(input('Calculated unit cost for 000012')),'');assert.equal(tree.root.findAllByProps({'aria-label':'Unit cost for 000012'}).length,0);
 assert.ok(input('Category for 000012').findAllByType('option').some(n=>text(n)==='Dairy'),'established client category is available without industry tagging');
 assert.equal(current.brand,'Original','vendor brand stays on its listing and does not fill the catalog Brand field');
-await change('price for 000012','3.50');await settle();assert.equal(calls.length,1);assert.deepEqual(calls.at(-1).patch,{price:3.5});assert.equal(current.selling_unit,null);assert.equal(current.pack_size,null);assert.equal(current.price_unavailable,true);
+await change('price for 000012','3.50');await settle();assert.equal(calls.length,1);assert.deepEqual(calls.at(-1).patch,{price:3.5});assert.equal(current.selling_unit,null);assert.equal(current.pack_size,null);assert.equal(current.price_unavailable,false);
 assert.equal(orderGuideAssessment({item,vendorItem:current,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
 await change('Pack for 000012','case');await change('Count for 000012','4');await change('Amount in each for 000012','1');await change('Each measurement for 000012','GAL');await settle();assert.ok(calls.at(-1).patch.pack_size);assert.ok(!Object.hasOwn(calls.at(-1).patch,'approve_row'));
 assert.equal(tree.root.findAllByProps({'aria-label':'Quoted per for 000012'}).length,0);
@@ -59,7 +62,7 @@ assert.equal(prefer().props.checked,false);
 await act(async()=>prefer().props.onChange({target:{checked:true}}));
 assert.deepEqual(calls.at(-1).patch,{brand:'USA'});assert.deepEqual(preferredWrites,[{itemId:id,brand:'USA'}]);
 const other={...branded,id:'other',vendor_item_code:'000013',brand:'Other',field_resolutions:{}};
-const acceptedBrand={...branded,brand:'USA',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,row_revision:current.row_revision,field_resolutions:{...branded.field_resolutions,brand:{value:'USA',confirmedBy:'owner'}}};
+const acceptedBrand={...branded,brand:'USA',pack_size:'4/5 LB',selling_unit:'CASE',price:16.75,row_revision:current.row_revision,field_resolutions:{...branded.field_resolutions,brand:{value:'USA',confirmedBy:'owner'},selling_unit:{value:'CASE',confirmedBy:'owner'}}};
 await act(async()=>tree.update(React.createElement(CatalogRows,{...props,catalogItems:[{...item,preferred_brand:'USA',brand_locked:true,locked_brand:'USA'}],vendorItems:[acceptedBrand,other],mappings:[mapping,{...mapping,id:'mapping-other',vendor_item_id:'other'}],
  onPreferBrand:async(itemId,brand)=>{preferredWrites.push({itemId,brand});return true;}})));
 assert.equal(input('Brand for 000012').props.value,'USA');
@@ -106,17 +109,43 @@ const tierListings=[
 ];
 await mount({baseFieldsOnly:false,vendorItems:tierListings,mappings:tierListings.map(v=>({...mapping,id:v.id,vendor_item_id:v.id}))});
 const tierRows=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null);
-assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,4]);
+assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,3]);
 const tierCells=tierRows.map(row=>row.findByProps({'data-field-label':'Item name'}));
 assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').map(text).join('')),
-  ['', 'Tier 2 · Inferred Migration','Tier 3 · No Unit Migration','Tier 4 · Client Required Migration']);
-assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Confirm'],['Confirm'],['Confirm'],['Confirm']]);
+  ['Tier 1 · Confirmed', 'Tier 2 · Inferred Migration','Tier 3 · Client Required Migration','Tier 3 · Client Required Migration']);
+assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Confirm'],['Confirm'],[],[]]);
+assert.deepEqual(tierCells.map(cell=>cell.findAllByProps({'aria-label':'Pricing basis'}).length),[0,0,0,1]);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));
 
-assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],[],[],['Quoted price']],
+assert.deepEqual(tierRows.map(n=>n.findAllByType('td').filter(c=>c.props['data-catalog-review-field']).map(c=>c.props['data-field-label'])),[[],[],['Quoted price'],[]],
  'an unresolved pricing basis does not highlight the unrelated unit-cost metric');
 assert.match(tree.root.findByType('style').children.join(''),/\[data-catalog-review-field\] :is\(input, select\):enabled \{ background-color: #E3F2FD; box-shadow: inset 0 0 0 2px #1565C0; \}/,'flagged writable controls use one blue fill and border');
 for(const n of tierRows)assert.ok(n.findAllByType('td').every(cell=>!cell.props.style.backgroundColor),'surrounding cells stay neutral');
+await act(async()=>tree.unmount());
+cache.clear();
+const pricedListing={...tierBase,field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}}};
+const brandLocked={...item,brand_locked:true,locked_brand:'Preferred'};
+await mount({baseFieldsOnly:false,catalogItems:[brandLocked],vendorItems:[pricedListing]});
+assert.ok(tree.root.findByProps({'data-migration-tier':2}));
+assert.match(text(tree.toJSON()),/Resolve brand conflict/);
+assert.equal(text(input('Calculated unit cost for 000012')),'$5.00','a separate brand conflict preserves the supported cost');
+assert.equal(tree.root.findAllByProps({'aria-label':'Confirm listing 000012'}).length,0);
+assert.equal(orderGuideAssessment({item:brandLocked,vendorItem:pricedListing,mapping,vendor:props.vendors[0],category,categories:props.categories}).ready,false);
+await act(async()=>tree.unmount());
+const associationReviews=[];
+await mount({baseFieldsOnly:false,catalogItems:[{...item,name:'Steel Washers'}],vendorItems:[pricedListing],
+ mappings:[{...mapping,comparison_track:'review'}],onDetails:itemId=>associationReviews.push(itemId)});
+assert.ok(tree.root.findByProps({'data-migration-tier':2}));
+assert.equal(text(input('Calculated unit cost for 000012')),'$5.00','a separate association conflict preserves the supported cost');
+const beforeAssociationReview=calls.length;
+await act(async()=>tree.root.findAllByType('button').find(button=>text(button)==='Review association').props.onClick());
+assert.deepEqual(associationReviews,[id]);
+assert.equal(calls.length,beforeAssociationReview,'opening an association review does not approve the row');
+await act(async()=>tree.unmount());
+await mount({baseFieldsOnly:false,vendorItems:[{...pricedListing,pack_size:null}]});
+assert.ok(tree.root.findByProps({'data-migration-tier':3}));
+assert.match(text(tree.root.findByProps({'data-field-label':'Pack'})),/Fix pack/);
+assert.equal(Number(input('price for 000012').props.value),20,'a missing pack leaves the supplied price visible');
 await act(async()=>tree.unmount());
 cache.clear();calls.length=0;
 const baconItem={...item,id,brand_locked:true,locked_brand:'Wrights',preferred_brand:'Wrights'};
@@ -135,7 +164,8 @@ const baconProps={baseFieldsOnly:false,catalogItems:[baconItem],vendorItems:[str
 await mount(baconProps);await change('price for 000012','2');await change('price for 000012','2.');
 await change('price for 000012','2.97');assert.equal(input('price for 000012').props.value,'2.97');
 assert.equal(calls.length,0,'typing does not write to the server or interrupt the edit');
-await act(async()=>tree.root.findByProps({'aria-label':'Confirm listing 000012'}).props.onClick());
+assert.equal(text(input('Calculated unit cost for 000012')),'$2.97/lb');
+await act(async()=>tree.root.findByProps({'aria-label':'Confirm pricing basis'}).props.onClick());
 assert.equal(calls.length,1,'one confirmation writes once');
 assert.equal(calls[0].patch.price,2.97);assert.equal(calls[0].patch.selling_unit,'LB');
 assert.equal(calls[0].patch.approve_row,true);assert.equal(Object.hasOwn(calls[0].patch,'pack_size'),false);
@@ -171,13 +201,13 @@ const tierPanel={...props,role:'owner',productList:[{catalogItemId:id,name:item.
 await act(async()=>{tree=Renderer.create(React.createElement(ItemCatalogPanel,tierPanel));});
 const visibleTiers=()=>tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null).map(n=>n.props['data-migration-tier']);
 const writesBeforeFilter=calls.length;
-for(const tier of [1,2,3,4]){
+for(const tier of [1,2,3]){
  await change('Sort',String(tier));
- assert.deepEqual(visibleTiers(),[tier],'a mixed-tier group shows only its matching vendor listing');
+ assert.deepEqual(visibleTiers(),tier===3?[3,3]:[tier],'a mixed-tier group shows only its matching vendor listings');
  assert.equal(tree.root.findAllByProps({'data-catalog-group':id}).length,1,'retain the shared KERDOS group');
 }
 await change('Sort','alphabetical');
-assert.deepEqual(visibleTiers(),[1,2,3,4]);
+assert.deepEqual(visibleTiers(),[1,2,3,3]);
 assert.equal(calls.length,writesBeforeFilter,'tier browsing does not write listings');
 await act(async()=>tree.unmount());
 cache.clear();
@@ -199,9 +229,34 @@ current={...rawPackQuote,price_unavailable:true,import_row:{...rawPackQuote.impo
  conflicts:['Quoted unit is unresolved.'],row:{...rawPackQuote.import_row.row,priceHeader:'Price',sellingUnit:'P'}}};
 await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)]});
 const unresolvedCost=tree.root.findByProps({'data-field-label':'Unit cost'});
-assert.match(text(unresolvedCost),/Pricing basis needs evidence/);
+assert.match(text(unresolvedCost),/Choose what the price covers/);
 assert.doesNotMatch(text(unresolvedCost),/Empty/);
 assert.equal(text(input('Calculated unit cost for 000012')),'');
+await act(async()=>tree.unmount());
+cache.clear();
+current={...tierBase,id:row.id,vendor_item_code:row.vendor_item_code,pack_size:'4/5 LB',
+ field_resolutions:{selling_unit:{value:'CASE',confirmedBy:'owner'}},
+ import_row:{evidence:{packSource:'description'},row:{price:20,packSize:'4/5 LB',sellingUnit:'CASE'}}};
+await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)]});
+assert.equal(tree.root.findByProps({'data-migration-tier':2}).props['data-migration-tier'],2);
+await act(async()=>input('Confirm listing 000012').props.onClick());
+assert.deepEqual(calls.at(-1).patch,{approve_row:true,pack_size:'4/5 LB'},'confirm records the inferred pack even when its value was already saved');
+await act(async()=>tree.unmount());
+cache.clear();
+current={...row,description:'PORK LINK',pack_size:'5-LBS',price:15.95,price_unavailable:false};
+await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)]});
+assert.deepEqual(input('Pricing basis').findAllByType('option').map(text),['Choose price unit','$15.95 · per case','$15.95 · per lb']);
+await act(async()=>tree.unmount());
+cache.clear();
+current={...row,description:'PORK LINK',pack_size:'5-LBS',price:15.95,selling_unit:'LB',price_basis:'measure',price_unavailable:false,
+ import_row:{reviewRequired:true,reviewFields:['selling_unit'],conflicts:[PRICE_UNIT_CONFLICT_REASON],
+  row:{price:15.95,sourceLine:'PORK LINK | 5-LBS | LB | 15.95/CS'}}};
+await mount({baseFieldsOnly:false,vendorItems:[structuredClone(current)]});
+assert.match(text(tree.toJSON()),/Review conflicting price units/);
+assert.match(text(tree.toJSON()),/15\.95\/CS/);
+assert.equal(text(input('Calculated unit cost for 000012')),'','contradictory declarations do not display a chosen cost');
+await act(async()=>input('Pricing basis').props.onChange({target:{value:'CASE'}}));
+assert.deepEqual(calls.at(-1).patch,{selling_unit:'CASE'},'the buyer chooses one field without approving the whole row');
 await act(async()=>tree.unmount());
 console.log('PASS catalog autosave: unchanged columns, editable blank source fields, calculated unit cost, no group/status/action additions, established client categories, delayed partial writes, fresh revisions, no unit invention/blanket approval, readiness after field completion, persistent failed drafts, actor isolation, read-only roles and unmount cancellation.');
 `,resolveDir:process.cwd(),sourcefile:'autosave-test.mjs',loader:'js'},outfile:join(dir,'test.mjs'),bundle:true,platform:'node',format:'esm',jsx:'automatic',external:['react','react-dom','react-test-renderer'],logLevel:'silent',plugins:[{name:'autosave-backend',setup(b){b.onResolve({filter:/backend\/index\.js$/},()=>({path:'backend',namespace:'autosave'}));b.onLoad({filter:/.*/,namespace:'autosave'},()=>({contents:'export const backend={records:{query:(...args)=>globalThis.__autosaveBackend.records.query(...args)},catalog:{saveRow:(...args)=>globalThis.__autosaveBackend.catalog.saveRow(...args)}};'}));}}]});

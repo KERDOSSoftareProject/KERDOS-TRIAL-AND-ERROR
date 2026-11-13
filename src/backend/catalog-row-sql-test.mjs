@@ -205,6 +205,117 @@ await db.query("update item_mappings set comparison_track='exact',confidence_sco
 await save(await nextRevision(),{brand:'Client chosen brand'});
 assert.equal((await db.query('select comparison_track from item_mappings where id=$1',[mapping])).rows[0].comparison_track,'exact','brand-only client entry keeps the confirmed product link');
 assert.equal((await db.query('select brand from vendor_items where id=$1',[vi])).rows[0].brand,'Client chosen brand');
+
+await db.exec(`create role anon; create role service_role; create table inbound_attachments(id uuid primary key,processing_lease_token uuid);`);
+await db.exec(fs.readFileSync(root+'/supabase/migrations/20261102135151_staged_price_row_receipts.sql','utf8'));
+const availabilityMigration=fs.readFileSync(root+'/supabase/migrations/20261112205930_separate_price_availability_from_review.sql','utf8');
+await db.exec(availabilityMigration);
+await db.exec(availabilityMigration);
+await db.exec('BEGIN');
+try {
+ const historyCount=async()=>Number((await db.query('select count(*) from price_history where vendor_item_id=$1',[vi])).rows[0].count);
+ const currentHistory=await historyCount();
+ const source={sourceDocumentId:docId,rowKey:'row:2',row:{price:17.5},reviewRequired:true,reviewFields:['pack_size','selling_unit']};
+ const legacy=async observation=>db.query(`update vendor_items set pack_size=null,selling_unit=null,price_basis=null,
+  price=17.50,price_unavailable=true,price_source='price_list',price_expired_at='2026-10-01',price_quote_valid_until='2026-10-02',
+  field_resolutions='{}',import_row=$1::jsonb where id=$2`,[JSON.stringify(observation),vi]);
+ await legacy(source);
+ let saved=(await save(await nextRevision(),{pack_size:'2/10 LB'},null,false)).rows[0].row;
+ assert.equal(Number(saved.price),17.5,'pack-only correction keeps the positive source amount');
+ assert.equal(saved.price_unavailable,false,'a matching active source recovers a legacy unavailable flag');
+ assert.deepEqual(saved.import_row.reviewFields,['selling_unit']);
+ assert.equal(saved.price_expired_at.slice(0,10),'2026-10-01','pack-only correction does not renew an expired quote');
+ assert.equal(saved.price_quote_valid_until,'2026-10-02');
+ assert.equal(await historyCount(),currentHistory,'the incomplete correction is not invoice quote history');
+ saved=(await save(await nextRevision(),{selling_unit:'CS'},'case',true)).rows[0].row;
+ assert.equal(saved.import_row.reviewRequired,false);
+ assert.equal(await historyCount(),currentHistory,'a convertible but expired correction does not become current invoice quote history');
+ await db.query('update vendor_items set price_expired_at=null,price_quote_valid_until=null where id=$1',[vi]);
+ saved=(await save(await nextRevision(),{selling_unit:'CS'},'case',true)).rows[0].row;
+ assert.equal(saved.import_row.reviewRequired,false);
+ assert.equal(await historyCount(),currentHistory+1,'the final convertible correction records the released amount');
+ saved=(await save(await nextRevision(),{pack_size:''},'case',false)).rows[0].row;
+ assert.equal(saved.price_unavailable,false,'a new incomplete pack leaves the amount available');
+ assert.equal(await historyCount(),currentHistory+1);
+ saved=(await save(await nextRevision(),{price:null},'case',false)).rows[0].row;
+ assert.equal(saved.price_unavailable,true,'clearing the price makes it unavailable');
+
+ for(const observation of [{...source,row:{price:17.5,priceUnavailable:true}},
+   {...source,row:{price:18}}, {...source,retainedSource:{values:{price:17.5}}}]){
+  await legacy(observation);
+  saved=(await save(await nextRevision(),{pack_size:'2/10 LB'},null,false)).rows[0].row;
+  assert.equal(saved.price_unavailable,true,'a withdrawn, changed, or incoming amount cannot revive an unavailable price');
+ }
+ await legacy({...source,reviewFields:['pack_size','brand']});
+ await db.query("update vendor_items set selling_unit='CS',price_basis='case' where id=$1",[vi]);
+ saved=(await save(await nextRevision(),{pack_size:'2/10 LB',price:21},'case',true)).rows[0].row;
+ assert.equal(Number(saved.price),21);
+ assert.equal(saved.price_unavailable,false);
+ assert.deepEqual(saved.import_row.reviewFields,['brand']);
+ assert.equal(await historyCount(),currentHistory+1,'a convertible price under an unrelated source hold stays out of invoice quote history');
+ const manualPatch={price:29,vendor_price_edit:true};
+ await db.exec('SAVEPOINT invalid_vendor_price');
+ await assert.rejects(save(await nextRevision(),{...manualPatch,approve_row:true},'case',true),/only a positive quoted amount/);
+ await db.exec('ROLLBACK TO SAVEPOINT invalid_vendor_price');
+ const heldBeforeManual=saved.import_row;
+ saved=(await save(await nextRevision(),manualPatch,'case',true)).rows[0].row;
+ assert.equal(saved.price_source,'manual_edit');
+ assert.equal(saved.price_expired_at,null);
+ assert.equal(saved.price_quote_valid_until,null);
+ assert.deepEqual(saved.import_row,heldBeforeManual,'Vendor Detail refresh does not release any source hold');
+ assert.equal(await historyCount(),currentHistory+1);
+ await db.query("update vendor_items set import_row='{}',price_expired_at='2026-10-01',price_quote_valid_until='2026-10-02' where id=$1",[vi]);
+ const manualRevision=await nextRevision();
+ saved=(await save(manualRevision,{...manualPatch,price:30},'case',true)).rows[0].row;
+ assert.equal(saved.price_source,'manual_edit');
+ assert.equal(saved.price_expired_at,null);
+ assert.equal(saved.price_quote_valid_until,null);
+ assert.equal(saved.price_unavailable,false);
+ assert.equal(saved.price_basis,'case');
+ assert.equal(saved.selling_unit,'CS');
+ assert.equal(await historyCount(),currentHistory+2);
+ assert.deepEqual((await db.query("select price,source,selling_unit,price_basis from price_history where vendor_item_id=$1 and source='manual_edit'",[vi])).rows,
+  [{price:'30',source:'manual_edit',selling_unit:'CS',price_basis:'case'}]);
+ await db.exec('SAVEPOINT stale_vendor_price');
+ await assert.rejects(save(manualRevision,{...manualPatch,price:31},'case',true),/changed since/);
+ await db.exec('ROLLBACK TO SAVEPOINT stale_vendor_price');
+ assert.equal(await historyCount(),currentHistory+2,'a stale write cannot leave a history row');
+ const unlinked=(await db.query(`insert into vendor_items(organization_id,vendor_id,description,price_source,price_unavailable)
+   values($1,$2,'Unlinked vendor item','price_list',true) returning id`,[org,vendor])).rows[0].id;
+ const unlinkedEdit=(await db.query(`select kerdos_save_catalog_row($1,$2,null,0,$3::jsonb,null,false) as row`,
+   [org,unlinked,JSON.stringify(manualPatch)])).rows[0].row;
+ assert.equal(Number(unlinkedEdit.price),29);
+ assert.equal(unlinkedEdit.price_unavailable,false);
+ assert.equal(unlinkedEdit.pack_size,null);
+ assert.equal((await db.query('select count(*)::int as n from price_history where vendor_item_id=$1',[unlinked])).rows[0].n,0);
+ const contradiction='The price column and row state different pricing bases.';
+ const conflictingSource={...source,row:{price:17.5,packSize:'2/10 LB',sellingUnit:'LB',issues:[contradiction]},
+  reviewFields:['price'],conflicts:[contradiction]};
+ await legacy(conflictingSource);
+ await db.query(`update vendor_items set pack_size='2/10 LB',selling_unit='LB',price_basis='measure',
+   price_expired_at=null,price_quote_valid_until=null where id=$1`,[vi]);
+ await db.exec('SAVEPOINT legacy_approve_without_unit');
+ await assert.rejects(save(await nextRevision(),{approve_row:true},'measure',true),/Choose the price unit/);
+ await db.exec('ROLLBACK TO SAVEPOINT legacy_approve_without_unit');
+ saved=(await save(await nextRevision(),{price:19},'measure',true)).rows[0].row;
+ assert.equal(Number(saved.price),19);
+ assert.equal(saved.import_row.reviewRequired,true,'a legacy price-only edit leaves the price unit conflict on hold');
+ assert.deepEqual(saved.import_row.reviewFields,['selling_unit']);
+ assert.deepEqual(saved.import_row.row,conflictingSource.row,'a price edit retains the conflicting source values');
+ assert.equal(await historyCount(),currentHistory+2,'the unconfirmed legacy unit cannot enter history');
+ saved=(await save(await nextRevision(),{selling_unit:'CASE'},'case',true)).rows[0].row;
+ assert.equal(saved.import_row.reviewRequired,false);
+ assert.equal(saved.field_resolutions.selling_unit.confirmedBy,user);
+ assert.deepEqual(saved.import_row.row,conflictingSource.row);
+ assert.equal(await historyCount(),currentHistory+3,'an explicit compatible unit choice releases the corrected amount');
+ await db.query(`update vendor_items set import_row=$1::jsonb where id=$2`,
+   [JSON.stringify({...conflictingSource,retainedSource:{values:{price:19,selling_unit:'CASE'}}}),vi]);
+ saved=(await save(await nextRevision(),{price:21},'case',true)).rows[0].row;
+ assert.deepEqual(saved.import_row.reviewFields,['selling_unit'],'an earlier unit confirmation does not clear the incoming contradiction');
+ assert.equal(await historyCount(),currentHistory+3);
+ console.log('Price availability passed: catalog corrections preserve supplied amounts, safely recover a legacy flag, respect expiry, and keep unresolved values out of history.');
+}finally{await db.exec('ROLLBACK');}
+
 await db.exec(`alter table catalog_categories add column range_start bigint; alter table catalog_categories add column range_end bigint;
 update catalog_categories set range_start=1000,range_end=1999;
 insert into catalog_categories(id,organization_id,is_holding_pen,range_start,range_end) values('00000000-0000-0000-0000-000000000080','${org}',false,3000,3002);`);

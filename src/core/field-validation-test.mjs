@@ -91,6 +91,7 @@ assert.equal(mixedResult.retain,true,'one leaked column label does not erase ano
 assert.equal(mixedResult.issues.find(issue=>issue.kind==='missing-price')?.field,'price');
 const priceCases=[
  ['plain decimal','20.00',20,'present'],
+ ['single trailing period','4.39.',4.39,'present'],
  ['currency symbol','$20.00',20,'present'],
  ['decimal comma','"12,50"',12.5,'present'],
  ['accounting credit','(24.00)',-24,'present'],
@@ -101,6 +102,8 @@ const priceCases=[
  ['qualified group separators','"$1,234.50 per case"',1234.5,'present'],
  ['unrecognized suffix','40.00XX',null,'invalid'],
  ['multiple decimal points','40.00.12',null,'invalid'],
+ ['multiple trailing periods','4.39..',null,'invalid'],
+ ['period before unit suffix','4.39./LB',null,'invalid'],
  ['malformed comma separators','"12,3456/LB"',null,'invalid'],
  ['empty price','',null,'missing'],
  ['unreadable price','bad',null,'invalid'],
@@ -111,6 +114,9 @@ for(const [name,cell,value,status] of priceCases){
  assert.equal(parsed.rows[0].price,value,`${name}: extract assigned value`);
  assert.equal(parsed.rows[0].fieldValidation.fields.price.status,status,`${name}: validate the same cell`);
 }
+const punctuatedPrice=parseDocument('Description,Price\nTurkey breast,4.39.').rows[0];
+assert.equal(punctuatedPrice.fieldIdentification.bindings.price.rawValue,'4.39.','retain the original decimal text');
+assert.equal(punctuatedPrice.priceUnavailable,false);
 const garbledQuote=parseDocument('Description,Pack,Price,Price Unit\nFixture Oil,4/1 GAL,40.00XX,CASE').rows[0];
 assert.equal(preparePriceImport(garbledQuote,null,null,garbledQuote.issues).requiresReview,true);
 assert.equal(garbledQuote.fieldIdentification.bindings.price.rawValue,'40.00XX');

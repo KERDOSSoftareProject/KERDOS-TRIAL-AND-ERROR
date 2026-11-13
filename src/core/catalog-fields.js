@@ -6,6 +6,7 @@ import {vendorListingLabel} from "./vendor-listing.js";
 import {calculatedUnitCost} from "./quote-controls.js";
 import {priceBasisFor,getProcurementContext} from "../procurement.js";
 import {mappingVerification,mappingGap} from "../services/catalog.js";
+import {isOrderingQuoteUnit} from './source-units.js';
 
 export const CATALOG_COLUMNS=[
   ["itemNumber","KERDOS item #"],["vendor","Vendor name"],["vendorItemNumber","Vendor item number"],["category","Category"],
@@ -59,13 +60,15 @@ export function initialsFor(person){
 }
 
 export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peers=[],categories=[],industry="",editors={},procurement=getProcurementContext()}){
-  const vi=vendorItem,pack=procurement.parsePackSize(vi.pack_size),basis=procurement.priceBasisFor(vi.selling_unit);
+  const vi=vendorItem,pack=procurement.parsePackSize(vi.pack_size);
+  const unitOrigin=quotedUnitOrigin(vi,procurement);
+  const sellingUnit=unitOrigin.orderingUnitOnly?null:vi.selling_unit;
+  const basis=procurement.priceBasisFor(sellingUnit);
   const amount=vi.price==null||vi.price===""?null:Number(vi.price);
   const hasPrice=Number.isFinite(amount)&&amount>0;
   const fieldSource=key=>listingSourceForField(vi,key);
   const packProvenance=fieldSource('pack_size').evidence;
   const brandProvenance=fieldSource('brand').evidence;
-  const unitOrigin=quotedUnitOrigin(vi,procurement);
   const provenance=unitOrigin.evidence;
   const changes=vi.import_row?.reviewRequired?(vi.import_row?.changes||[]).map(c=>c.field):[];
   const casePrice=hasPrice&&basis?procurement.casePriceFromQuote(amount,basis.basis,basis.unit||vi.selling_unit,vi.pack_size):null;
@@ -115,7 +118,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
 
   // Quoted unit: stated on the sheet, chosen for the whole sheet, or set here.
   let unitAcc=null,unitWhy="";
-  if(!empty(vi.selling_unit)){
+  if(!empty(sellingUnit)){
     if(!basis){unitAcc=DOUBTFUL;unitWhy=["WEIGHT","VOLUME","MEASURE"].includes(vi.selling_unit)?"Choose the measurement for this quoted price":"Not a unit KERDOS recognises";}
     else{
       unitAcc=byClient("selling_unit")?STATED:["sheet","invoice"].includes(unitOrigin.source)?DERIVED:unitOrigin.status==="inferred"?GUESSED:STATED;
@@ -133,7 +136,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
         else{unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; the pack isn't measured in "+(basis.unit||vi.selling_unit);}
       }
       if(vi.price_basis&&vi.price_basis!==basis.basis){unitAcc=Math.min(unitAcc,DOUBTFUL);unitWhy+="; saved price basis conflicts with pricing basis";}
-      const sourceUnit=source("selling_unit","sellingUnit");
+      const sourceUnit=isOrderingQuoteUnit(unitOrigin.row)?null:source("selling_unit","sellingUnit");
       if(byClient("selling_unit")&&sourceUnit&&JSON.stringify(procurement.priceBasisFor(sourceUnit))!==JSON.stringify(basis)){
         unitAcc=Math.min(unitAcc,GUESSED);unitWhy+="; differs from the original source";
       }
@@ -239,7 +242,7 @@ export function catalogRowEvidence({item,vendorItem,mapping,vendor,category,peer
 
   const packField=clientField("pack_size",vi.pack_size||"",packAcc,packWhy||"No pack yet");
   const priceField=clientField("price",hasPrice?amount:null,priceAcc,priceWhy||"No price");
-  const unitField=clientField("selling_unit",vi.selling_unit||"",unitAcc,unitWhy||"Choose what the quoted price is per");
+  const unitField=clientField("selling_unit",sellingUnit||"",unitAcc,unitWhy||"Choose what the quoted price is per");
   unitField.status=unitField.value?unitOrigin.status:null;
   if(unitField.value&&!unitOrigin.status&&!byClient('selling_unit'))unitField.reason='Confirmation source is not recorded for this pricing basis';
   // Unit cost is as sure as the least sure of the three it comes from.
