@@ -1,5 +1,7 @@
 import {restaurantAssociations} from './restaurant-associations.js';
 import {restaurantCellBrands} from './restaurant-dictionaries.js';
+import {dictionaryTokens} from '../core/term-dictionary.js';
+import vocabulary from './restaurant-vocabulary-v1-1.json' with {type:'json'};
 
 // This profile is for the new label reader. The catalog's existing association
 // profile continues to serve its callers until the label reader is activated.
@@ -95,7 +97,7 @@ concept('White Wrap', ['white wrap', 'wrap white'], ['tortilla']);
 concept('Sun-Dried Tomato Tortilla', ['sun dried tomato tortilla', 'sundried tomato tortilla'], ['tomato', 'tortilla']);
 concept('Tortilla', ['wrap']);
 concept('Grape Jelly', ['grape jelly', 'jelly grape'], ['grapes']);
-concept('Stuffed Grape Leaves', ['grape leaves', 'stuffed grape leaves', 'dolmade', 'dolma'], ['grapes']);
+concept('Stuffed Grape Leaves', ['stuffed grape leaves', 'dolmade', 'dolma'], ['grapes']);
 concept('Green Grapes', ['green grape', 'grape green'], ['grapes']);
 concept('Red Grapes', ['red grape', 'grape red'], ['grapes']);
 concept('Yellow Squash', ['yellow squash', 'squash yellow'], ['squash']);
@@ -192,18 +194,122 @@ const modifiers = [
   informational('Storage state', ['fresh', 'frozen', 'individually quick frozen', 'refrigerated']),
 ];
 
+const spelling = value => dictionaryTokens(value).join(' ');
+const spellings = entry => [entry.name, ...entry.aliases, ...(entry.reversed_aliases || [])];
+const pending = new Set(vocabulary.undecided_terms.flatMap(spellings).map(spelling));
+// These exact product names describe the baby-versus-regular decision in the draft.
+const pendingProducts = new Set(['baby carrot', 'baby spinach']);
+const pendingProductTerms = vocabulary.products.filter(entry => pendingProducts.has(entry.name)).flatMap(spellings);
+const existingProductKeys = new Map([
+  ['beef patty', 'beef patties'],
+  ['carrot', 'carrots'],
+  ['paper towel', 'paper towels'],
+  ['paper plate', 'paper plates'],
+  ['paper hot cup', 'paper cups'],
+  ['trash bag', 'trash bags'],
+  ['leek', 'leeks'],
+  ['napkin', 'napkins'],
+  ['banana', 'bananas'],
+  ['lemon', 'lemons'],
+  ['lime', 'limes'],
+  ['orange', 'oranges'],
+  ['feta', 'feta cheese'],
+  ['gouda', 'gouda cheese'],
+  ['green bell pepper', 'green bell peppers'],
+  ['red bell pepper', 'red bell peppers'],
+  ['orange bell pepper', 'orange bell peppers'],
+  ['fuji apple', 'fuji apples'],
+  ['gala apple', 'gala apples'],
+  ['granny smith apple', 'granny smith apples'],
+  ['golden delicious apple', 'golden delicious apples'],
+  ['red delicious apple', 'red delicious apples'],
+  ['mcintosh apple', 'mcintosh apples'],
+  ['honeycrisp apple', 'honeycrisp apples'],
+  ['portobello mushroom', 'portabella mushroom'],
+  ['yellow bell pepper', 'yellow bell peppers'],
+  ['eye of round', 'eye of round beef'],
+  ['strip loin', 'beef strip loin'],
+  ['beef short rib', 'beef short ribs'],
+  ['shaved steak', 'shaved beef steak'],
+  ['black beans', 'black bean'],
+  ['kidney beans', 'red kidney bean'],
+  ['cannellini beans', 'cannellini bean'],
+]);
+const additionalSpellings = new Map([
+  ['dry milk', ['milk powder', 'dried milk', 'milk dried', 'skim milk powder', 'whole milk powder']],
+  ['bacon', ['bacon sliced']],
+  ['birch beer', ['soda birch', 'birch soda']],
+  ['chicken', ['whole chicken without giblets']],
+]);
+const broaderProducts = new Map([
+  ['broccolini', ['broccoli']],
+  ['orzo', ['pasta']],
+  ['romaine hearts', ['romaine lettuce']],
+  ['grape leaves', ['grapes']],
+  ['birch beer', ['soda']],
+  ['canola oil', ['fryer oil']],
+  ['wheat wrap', ['wrap','tortilla']],
+  ['white wrap', ['wrap','tortilla']],
+  ['spinach wrap', ['wrap','tortilla','spinach']],
+  ['sun-dried tomato wrap', ['wrap','tortilla','sun-dried tomato']],
+]);
+const draftConcepts = vocabulary.products.filter(entry => !pendingProducts.has(entry.name)).map(entry => {
+  const old = concepts.get(existingProductKeys.get(entry.name) || entry.name);
+  return {
+    ...old,
+    label:old?.label || entry.name,
+    terms:[...new Set([...spellings(entry), ...(old?.terms || []), ...(additionalSpellings.get(entry.name) || [])])],
+    broader:[...new Set([...(old?.broader || []), ...(broaderProducts.get(entry.name) || []),
+      ...(entry.name.endsWith(' apple') ? ['apple'] : [])])],
+    authoritative:true,
+    ...(entry.name === 'american cheese' ? {definingOutsideName:['sliced']} : {}),
+  };
+});
+// Established product names that happen to contain a manufacturer name.
+draftConcepts.push(
+  {label:'Candy M&M',terms:['candy m m'],authoritative:true,broader:['candy']},
+  {label:'Candy M&M Peanut',terms:['candy m m peanut'],authoritative:true,broader:['candy','peanuts']},
+  {label:'Candy Skittles',terms:[],authoritative:true,broader:['candy']},
+  {label:'Candy Snickers',terms:[],authoritative:true,broader:['candy']},
+);
+const draftProductLabels = new Set(draftConcepts.map(entry => spelling(entry.label)));
+const draftModifiers = [
+  ...vocabulary.defining_terms.map(entry => {
+    const prior = modifiers.find(rule => rule.role === 'defining'
+      && [rule.label, ...rule.terms].some(term => spelling(term) === spelling(entry.name)));
+    return {...prior,label:prior?.label || entry.name,terms:spellings(entry),role:'defining',authoritative:!prior,
+      concepts:entry.group === 'Cuts' ? prior?.concepts : undefined};
+  }),
+  ...vocabulary.information_terms.map(entry => ({
+    label:entry.name,terms:[...entry.aliases,
+      ...(entry.name === 'peeled and deveined' ? ['peeled deveined tail on'] : []),
+      ...(entry.name === 'angus' ? ['certified angus beef'] : [])],
+    role:/^(Grade or level|Fat level|Size|Packing medium)/.test(entry.group) ? 'level' : 'informational',
+    authoritative:true,
+    ...(entry.name === 'whole (fat level)' ? {concepts:['milk']} : {}),
+  })),
+];
+const draftModifierTerms = new Set(draftModifiers.flatMap(entry => [entry.label, ...entry.terms]).map(spelling));
+const legacyModifiers = modifiers.flatMap(entry => {
+  if (entry.label === 'Baby') return [];
+  const terms = [entry.label, ...entry.terms].filter(term => !pending.has(spelling(term))
+    && !draftModifierTerms.has(spelling(term)));
+  return terms.length ? [{...entry,terms,includeLabel:false}] : [];
+});
+
 export const restaurantProductLabels = {
-  concepts: [...concepts.values()],
-  modifiers,
+  concepts: [
+    ...draftConcepts,
+    ...[...concepts.values()].filter(entry => !draftProductLabels.has(spelling(entry.label))),
+  ],
+  modifiers: [...draftModifiers, ...legacyModifiers],
+  shorthand: vocabulary.shorthand.map(entry => entry.shorthand === 'GRD'
+    ? {...entry,requireExplicitMeaning:true} : entry),
+  undecidedTerms: [...pending, ...pendingProductTerms.filter(term => /\bmini\b/.test(term))],
   standalone: ['american', 'brown', 'cheese', 'corn', 'green', 'hamburger', 'roast', 'sage', 'vinaigrette'],
   knownWords: ['america', 'can', 'chip', 'chop', 'cube', 'fresh', 'grill', 'heart', 'jar', 'one', 'pasta', 'peel', 'pot', 'roast', 'sage', 'size', 'slice', 'split', 'trim', 'whole'],
   requiredBaseWords: ['breast', 'thigh', 'wing', 'leg quarter', 'drumstick'],
   fragments: ['bagged', 'split', 'usa', 'mex', 'ct', 'lb', 'oz', 'case', 'total', 'subtotal', 'invoice', 'description', 'price', 'product prices'],
   origins: ['al', 'arg', 'bel', 'cal', 'can', 'canada', 'chl', 'chn', 'col', 'cos', 'fl', 'florida', 'ga', 'gtm', 'hnd', 'ita', 'mex', 'mor', 'nj', 'ny', 'pa', 'per', 'ri', 'spa', 'tx', 'usa', 'wa'],
-  brandTerms: [...new Set([...restaurantAssociations.brandTerms, ...restaurantCellBrands])],
-  uncertainPhrases: [
-    {terms:['crn beef', 'beef crn'], reason:'CRN near beef could mean corned beef or corn'},
-    {terms:['wh grn', 'whole grn'], reason:'GRN near whole could mean grain or green'},
-    {terms:['grd beef', 'beef grd'], reason:'GRD near beef could mean ground or grade'},
-  ],
+  brandTerms: [...new Set([...vocabulary.brands, ...restaurantAssociations.brandTerms, ...restaurantCellBrands])],
 };

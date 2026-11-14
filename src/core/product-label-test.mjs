@@ -26,6 +26,22 @@ const same = [
   ['BEEF BASE SELECT', 'BASE BEEF ROYAL'],
   ['CHICKEN BASE SELECT', 'BASE CHICKEN ROYAL'],
   ['GARLIC POWDER', 'POWDER GARLIC'],
+  ['HAMBURGER', 'HAMBURGER PATTY', 'BEEF PATTY'],
+  ['SLICED BACON', 'BACON SLICED', 'BACON'],
+  ['LETTUCE ROM', 'ROMAINE LETTUCE'],
+  ['CHICKEN BREAST', 'CHIX BRST BNLS', 'B/S BNLS SKINLESS CHIX BRST'],
+  ['SPINACH', 'BABY SPINACH', 'ORGANIC SPINACH', 'SPINACH FRZN'],
+  ['BUTTER', 'SALTED BUTTER', 'BUTTER UNSLT', 'BUTTER NSA'],
+  ['AMERICAN CHEESE', 'WHITE AMERICAN CHEESE', 'AMERICAN CHEESE YEL'],
+  ['ARTICHOKE HEARTS', 'HEARTS ARTICHOKE'],
+  ['SHRIMP', 'P&D SHRMP'],
+  ['HOT DOG', 'FRANKFURTER'],
+  ['CHICKEN', 'WOG'],
+  ['COD', 'COD S/O SKIN ON', 'PBO COD'],
+  ['SHRIMP', 'PDTO SHRIMP'],
+  ['DICED PEACHES IN SYRUP', 'DICED PEACHES IN JUICE'],
+  ['GROUND BEEF', 'GROUND BEEF GRD'],
+  ['RED DELICIOUS APPLE', 'APPLE RED DEL'],
 ];
 const distinct = [
   ['SAUSAGE LINKS 2OZ', 'SAUSAGE PATTIES 2OZ'],
@@ -44,11 +60,14 @@ const distinct = [
   ['BEEF BASE SELECT', 'GROUND BEEF'],
   ['CHICKEN STRIPS', 'CHICKEN'],
   ['SAGE POWDER', 'SAGE'],
-  ['HAMBURGER', 'HAMBURGER PATTY', 'HAMBURGER BUN'],
+  ['HAMBURGER', 'HAMBURGER MEAT', 'HAMBURGER BUN'],
   ['MILK', 'BUTTERMILK', 'DRIED MILK'],
   ['CREAM', 'SOUR CREAM', 'WHIPPED CREAM', 'HALF AND HALF CREAM'],
   ['WHOLE CHICKEN', 'CHICKEN BREAST', 'CHICKEN THIGH'],
   ['RED PEPPER', 'ROASTED RED PEPPER'],
+  ['COD', 'COD H&G'],
+  ['CORN', 'WHOLE KERNEL CORN', 'CREAM STYLE CORN'],
+  ['GRAPE LEAVES', 'STUFFED GRAPE LEAVES'],
 ];
 for (const list of [...same, ...distinct]) {
   const outcomes = list.map(description => reader({description}));
@@ -58,15 +77,16 @@ for (const list of [...same, ...distinct]) {
 }
 
 const expansions = {
-  CHS:'cheese', GRN:'green', BRWN:'brown', CRN:'corn', BRST:'breast', PRK:'pork',
+  CHS:'cheese', BRWN:'brown', BRST:'breast', PRK:'pork',
   CHOC:'chocolate', TORT:'tortilla', AMER:'american', HAMB:'hamburger', VINAIGR:'vinaigrette',
-  RST:'roast', BCON:'bacon',
+  BCON:'bacon',
 };
 for (const [description, expected] of Object.entries(expansions)) {
   assert.equal(reader({description}).evidence.find(entry => entry.spelling === description.toLowerCase())?.result, expected, description);
 }
 for (const description of ['DELI TRIM CRN BEEF', 'BREAD WH GRN SL GLUTEN FREE', 'BLACK LABEL BNLS BRST',
-  'FF HASHBROWNS', 'CANNED JARRED ARTICHOKE HEARTS']) {
+  'FF HASHBROWNS', 'CANNED JARRED ARTICHOKE HEARTS', 'GRN', 'CRN', 'RST', 'B/S CHICKEN BREAST',
+  'BREAD WH', 'CHEESE BL PHILADELPHIA', '1 PC CHICKEN', 'POT DETERGENT', 'COD S/O', 'GRD BEEF']) {
   const result = reader({description});
   assert.equal(result.status, 'review', description);
   assert.equal(result.key, null, description);

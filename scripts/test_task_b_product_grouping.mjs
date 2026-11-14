@@ -222,6 +222,12 @@ test('10. after all sheets there are no unintended duplicate product labels',asy
     const assigned=Object.values(state.mappings);
     const catalogById=new Map(state.catalogItems.map(item=>[item.id,item]));
     const review=assigned.filter(mapping=>catalogById.get(mapping.catalog_item_id)?.concept_review_required).length;
+    const readerStatus={recognized:0,literal:0,review:0};
+    for(const {description,pack_size,brand} of state.vendorItems){
+      const {status}=state.procurement.readProductLabel({description,pack_size,brand});
+      readerStatus[status]++;
+    }
+    const noDictionaryProduct=readerStatus.literal+readerStatus.review;
     const groupVendors=new Map();
     for(const listing of state.vendorItems){
       const catalogItemId=state.mappings[listing.id].catalog_item_id;
@@ -237,11 +243,11 @@ test('10. after all sheets there are no unintended duplicate product labels',asy
       const {tier}=catalogMigrationAssessment({item,listing,mapping,procurement:state.procurement,now:'2026-11-13'});
       tiers[tier]++;
     }
-    console.log(`Four-sheet baseline: ${state.processedRows} source rows, ${state.vendorItems.length} listings, ${state.catalogItems.length} catalog entries, ${crossVendor} cross-vendor groups, ${review} identity reviews, ${state.heldRows} source/price holds, tiers ${JSON.stringify(tiers)}.`);
+    console.log(`Four-sheet replay: ${state.processedRows} source rows, ${state.vendorItems.length} listings, ${state.catalogItems.length} catalog entries, ${crossVendor} cross-vendor groups, ${review} identity reviews, ${noDictionaryProduct} without a dictionary product (${readerStatus.literal} literal, ${readerStatus.review} reader review), ${state.heldRows} source/price holds, tiers ${JSON.stringify(tiers)}.`);
     const reportPath=process.env.KERDOS_TASK_B_REPORT;
     if(reportPath)writeFileSync(reportPath,JSON.stringify({
       sourceRows:state.processedRows,listings:state.vendorItems.length,catalogEntries:state.catalogItems.length,
-      crossVendor,identityReviews:state.reviews,sourceHolds:state.heldRows,tiers,
+      crossVendor,review,noDictionaryProduct,readerStatus,identityReviews:state.reviews,sourceHolds:state.heldRows,tiers,
       groupExamples:state.catalogItems.filter(item=>['product:bacon','product:milk'].includes(item.concept_key)).map(item=>({
         itemNumber:item.master_item_number,name:item.name,conceptKey:item.concept_key,
         listings:state.vendorItems.filter(listing=>state.mappings[listing.id].catalog_item_id===item.id)

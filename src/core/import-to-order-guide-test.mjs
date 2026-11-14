@@ -817,13 +817,13 @@ async function matchOrCreateAgainstSeeded({catalogService,provider}, seededName,
   t('cheese-provolone-pack: label confidence', match.score, .9);
 }
 
-// TEST 25: Preserve defining wording in unrecognized product labels.
+// TEST 25: A pending diet term contributes no grouping decision.
 {
   const backend = createInMemoryBackend();
   const {match, seededId} = await matchOrCreateAgainstSeeded(
     backend, 'SODA BIRCH WHITE GLASS', '4/6 BT', 'SODA BIRCH WHITE DIET GLASS', '4/6 BT');
-  ok('soda-birch-diet: incompatible literal labels stay separate',
-    match.catalogItemId !== seededId,
+  ok('soda-birch-diet: pending diet wording does not change the saved label',
+    match.catalogItemId === seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
 }
 

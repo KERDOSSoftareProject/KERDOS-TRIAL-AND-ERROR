@@ -23,7 +23,7 @@ function isVowelShortening(short, full) {
 function indexRules(entries) {
   const indexed = new Map();
   for (const entry of entries) {
-    for (const spelling of unique([entry.label, ...entry.terms])) {
+    for (const spelling of unique([...(entry.includeLabel === false ? [] : [entry.label]), ...entry.terms])) {
       const words = dictionaryTokens(spelling);
       if (!words.length) continue;
       const key = singular(words[0]);
@@ -48,31 +48,39 @@ const isWithin = (inner, outer) => inner.start >= outer.start && inner.end <= ou
 function keepMostSpecific(matches) {
   return matches.filter(match => !matches.some(other =>
     other !== match && ((other.entry.key !== match.entry.key && other.entry.broader.has(match.entry.key))
-      || (other.words.length > match.words.length && isWithin(match, other)))));
+      || (((other.words.length > match.words.length)
+        || (other.words.length === match.words.length && other.entry.authoritative && !match.entry.authoritative))
+        && isWithin(match, other)))));
 }
 
-function identifyConcepts(index, ...representations) {
-  const matches = representations.flatMap(words => keepMostSpecific(findSpans(words, index)));
-  return matches.filter(match => !matches.some(other =>
-    other.entry.key !== match.entry.key && other.entry.broader.has(match.entry.key)));
+function identifyConcepts(words, index, modifierIndex) {
+  const forms = findSpans(words, modifierIndex).filter(span =>
+    span.entry.role === 'defining' && span.words.length > 1 && !span.entry.concepts.size);
+  return keepMostSpecific(findSpans(words, index).filter(product =>
+    !forms.some(form => form.words.length > product.words.length && isWithin(product,form))));
 }
 
-function informationalPositions(words, modifierIndex, conceptIndex) {
-  const products = findSpans(words, conceptIndex).filter(match => match.words.length > 1);
-  const modifiers = findSpans(words, modifierIndex).filter(match => !match.entry.concepts.size);
-  return new Set(modifiers.filter(match =>
-    match.entry.role !== 'defining' && !products.some(product => spansOverlap(match, product))
+function informationalPositions(words, modifierIndex, products, concept, undecided) {
+  const productPhrases = products.filter(match => match.words.length > 1);
+  const modifiers = findSpans(words, modifierIndex).filter(match =>
+    !match.entry.concepts.size || match.entry.concepts.has(concept));
+  const pending = findSpans(words, undecided);
+  const information = modifiers.filter(match => match.entry.role !== 'defining'
     && (match.entry.role === 'level' || !modifiers.some(form =>
-      form.entry.role === 'defining' && spansOverlap(match, form))))
+      form.entry.role === 'defining' && spansOverlap(match, form) && form.words.length >= match.words.length)));
+  return new Set([...pending, ...information]
+    .filter(match => !productPhrases.some(product => spansOverlap(match, product)))
     .flatMap(span => words.slice(span.start, span.end).map((_, offset) => span.start + offset)));
 }
 
-function definingModifiers(words, index, concept) {
+function definingModifiers(words, index, concept, products) {
   const eligible = findSpans(words, index)
     .filter(match => !match.entry.concepts.size || match.entry.concepts.has(concept));
-  const levels = eligible.filter(match => match.entry.role === 'level');
   return eligible.filter(match => match.entry.role === 'defining'
-    && !levels.some(level => isWithin(match, level))).map(match => match.entry);
+    && !products.some(product => product.words.length > 1 && isWithin(match, product)
+      && !product.entry.definingOutsideName.has(match.entry.key))
+    && !eligible.some(other => other.entry.role === 'defining'
+      && other.words.length > match.words.length && isWithin(match, other))).map(match => match.entry);
 }
 
 function indexAliases(groups, vocabulary) {
@@ -102,7 +110,7 @@ function indexAliases(groups, vocabulary) {
   return {indexed, ambiguous, productWords};
 }
 
-function expand(words, aliases, standalone, known) {
+function expand(words, aliases, standalone, known, shorthand, conceptIndex, undecided) {
   const isKnown = word => known.has(word) || known.has(singular(word));
   function candidatesFor(word) {
     const exact = word.length >= 3 ? standalone.filter(full => consonants(full) === word && word !== full) : [];
@@ -120,14 +128,38 @@ function expand(words, aliases, standalone, known) {
     return {candidates, method: exact.length ? 'vowels removed' : 'shorthand'};
   }
 
+  const matchingRule = (word, start) => shorthand.get(word)?.find(rule =>
+    rule.words.every((value, offset) => value === words[start + offset]));
   const oneWord = word => {
     if (isKnown(word)) return null;
     return candidatesFor(word);
   };
   const units = [];
   for (let start = 0; start < words.length;) {
-    const multi = aliases.phrases.get(words[start])?.find(rule =>
-      rule.words.every((word, offset) => word === words[start + offset]));
+    const matches = rule => rule.words.every((word, offset) => word === words[start + offset]);
+    const explicit = matchingRule(words[start], start);
+    if (explicit) {
+      units.push({...explicit,method:'profile shorthand'});
+      start += explicit.words.length;
+      continue;
+    }
+    const pending = undecided.get(singular(words[start]))?.find(rule =>
+      rule.words.every((word, offset) => singular(word) === singular(words[start + offset] || '')));
+    if (pending) {
+      units.push({spelling:words.slice(start, start + pending.words.length).join(' ')});
+      start += pending.words.length;
+      continue;
+    }
+    const product = conceptIndex.get(singular(words[start]))?.find(rule => rule.words.length > 1
+      && rule.words.every((word, offset) => singular(word) === singular(words[start + offset] || '')
+        && !matchingRule(words[start + offset],start+offset)?.needsContext));
+    if (product) {
+      units.push({spelling:words.slice(start,start+product.words.length).join(' ')});
+      start += product.words.length;
+      continue;
+    }
+    const multi = aliases.phrases.get(words[start])?.find(rule => matches(rule) &&
+      !rule.words.some((word, offset) => matchingRule(word, start + offset)?.needsContext));
     if (multi) {
       units.push({spelling: multi.spelling, method: 'dictionary phrase', candidates: aliases.indexed.get(multi.spelling)});
       start += multi.words.length;
@@ -143,9 +175,28 @@ function expand(words, aliases, standalone, known) {
   });
   const hasCue = cue => cueWords.some((word, start) =>
     cue.every((value, offset) => singular(value) === singular(cueWords[start + offset] || '')));
+  const contextualWords = units.map(unit =>
+    dictionaryTokens(unit.meanings && !unit.needsContext ? unit.meanings[0] : unit.spelling));
   const evidence = [];
   const expanded = [];
-  for (const {spelling, candidates, method} of units) {
+  for (const [unitIndex, {spelling, candidates, method, meanings, needsContext, requireExplicitMeaning}] of units.entries()) {
+    if (meanings) {
+      const before = needsContext ? contextualWords.slice(0,unitIndex).flat() : [];
+      const after = needsContext ? contextualWords.slice(unitIndex+1).flat() : [];
+      const supported = needsContext ? meanings.filter(target => {
+        const targetWords = dictionaryTokens(target);
+        const explicitMeaning = [before,after].some(side => side.some((word, index) =>
+          word && targetWords.every((value, offset) => singular(value) === singular(side[index + offset] || ''))));
+        const substituted = [...before,...targetWords,...after];
+        const completesProduct = !requireExplicitMeaning && findSpans(substituted, conceptIndex).some(span =>
+          span.start <= before.length && span.end >= before.length + targetWords.length && span.words.length > targetWords.length);
+        return explicitMeaning || completesProduct;
+      }) : meanings;
+      const result = supported.length === 1 ? supported[0] : null;
+      evidence.push({spelling,result,method,...(!result ? {candidates:meanings} : {})});
+      expanded.push(...dictionaryTokens(result ?? spelling));
+      continue;
+    }
     if (candidates?.size === 1) {
       const [[target, cues]] = candidates;
       if (!cues.length || cues.some(hasCue)) {
@@ -177,9 +228,11 @@ const review = (reason, evidence = []) => ({status: 'review', key: null, label: 
 export function createProductLabelReader({profile = {}, dictionaries, vocabulary, unitWords = []} = {}) {
   const concepts = (profile.concepts || []).map(entry => ({
     label: entry.levelOf || entry.label,
+    authoritative: entry.authoritative,
     key: phrase(entry.levelOf || entry.label),
     terms: [entry.label, ...(entry.terms || [])],
     broader: new Set((entry.broader || []).map(phrase)),
+    definingOutsideName: new Set((entry.definingOutsideName || []).map(phrase)),
   }));
   const modifiers = (profile.modifiers || []).map(entry => ({
     ...entry,
@@ -192,11 +245,31 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     ...modifiers,
     {label: 'whole', terms: [], role: 'informational', concepts: new Set()},
   ]);
-  const knownBrands = (profile.brandTerms || []).map(label => ({label, terms: []}));
+  const undecided = indexRules((profile.undecidedTerms || []).map(label => ({label,terms:[]})));
+  const shorthand = new Map();
+  for (const entry of profile.shorthand || []) {
+    const words = dictionaryTokens(entry.shorthand);
+    if (!words.length) continue;
+    const spelling = words.join(' ');
+    const meanings = unique(entry.meanings.map(phrase));
+    if (!entry.needs_context && [spelling, ...meanings].some(value => {
+      const tokens = dictionaryTokens(value);
+      return findSpans(tokens, undecided).some(span => span.words.length === tokens.length);
+    })) continue;
+    const rules = shorthand.get(words[0]) || [];
+    rules.push({words,spelling,meanings,needsContext:entry.needs_context,
+      requireExplicitMeaning:entry.requireExplicitMeaning});
+    rules.sort((a,b) => b.words.length - a.words.length);
+    shorthand.set(words[0], rules);
+  }
+  const knownBrands = (profile.brandTerms || []).map(label => {
+    const words = dictionaryTokens(label);
+    const terms = words.at(-1) === 's' ? [words.slice(0,-1).join(' ')] : [];
+    return {label,terms};
+  });
   const brandIndex = indexRules(knownBrands);
   const origins = new Set((profile.origins || []).map(phrase));
   const fragments = new Set((profile.fragments || []).map(phrase));
-  const uncertainty = indexRules((profile.uncertainPhrases || []).map(entry => ({...entry, label: ''})));
   const aliases = indexAliases(dictionaries, vocabulary);
   aliases.phrases = new Map();
   for (const spelling of aliases.indexed.keys()) {
@@ -208,7 +281,8 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     aliases.phrases.set(words[0], entries);
   }
   const standalone = unique([...aliases.productWords, ...(profile.standalone || []).map(phrase),
-    ...concepts.map(entry => entry.key), ...modifiers.map(entry => entry.key)])
+    ...concepts.filter(entry => !entry.authoritative).map(entry => entry.key),
+    ...modifiers.filter(entry => !entry.authoritative).map(entry => entry.key)])
     .filter(word => /^[a-z]+$/.test(word)).sort();
   const known = new Set(['whole', ...standalone, ...(profile.knownWords || []).flatMap(dictionaryTokens),
     ...concepts.flatMap(entry => dictionaryTokens(entry.label)), ...modifiers.flatMap(entry => dictionaryTokens(entry.label))]);
@@ -224,31 +298,39 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
   return function readProductLabel({description, brand, packSize, pack_size: storedPack} = {}) {
     const input = String(description || '').replace(statedLevels, ' ').replace(/\(([^()]*)\)/g, (span, content) =>
       origins.has(phrase(content)) ? ' ' : span);
-    const source = dictionaryTokens(packs ? input.replace(packs, ' ') : input);
+    const source = dictionaryTokens(packs ? input.replace(packs, span => dictionaryTokens(span).some(word =>
+      shorthand.get(word)?.some(rule => rule.words.length === 1 && rule.needsContext)) ? span : ' ') : input);
     const stated = [brand, packSize || storedPack].filter(Boolean).map(label => ({label, terms: []}));
     const protectedSpans = [...findSpans(source, conceptIndex), ...findSpans(source, modifierIndex)];
-    const sourceDetails = findSpans(source, indexRules(stated))
-      .filter(span => !protectedSpans.some(knownSpan => spansOverlap(span, knownSpan)));
-    const skipped = new Set([...findSpans(source, brandIndex), ...sourceDetails]
+    const sourceDetails = findSpans(source, indexRules(stated)).filter(span =>
+      !protectedSpans.some(knownSpan => spansOverlap(span, knownSpan))
+      && !source.slice(span.start,span.end).some(word => shorthand.get(word)?.some(rule => rule.needsContext)));
+    const productBrandAliases = protectedSpans.filter(span => span.entry.authoritative);
+    const brands = findSpans(source, brandIndex).filter(span =>
+      !productBrandAliases.some(product => isWithin(span,product)));
+    const skipped = new Set([...brands, ...sourceDetails]
       .flatMap(span => source.slice(span.start, span.end).map((_, offset) => span.start + offset)));
     const words = source.map((word, index) => skipped.has(index) ? '' : word);
-    const uncertain = findSpans(words, uncertainty)[0];
-    if (uncertain) return review(uncertain.entry.reason);
-    const expanded = expand(words, aliases, standalone, known);
-    if (expanded.evidence.some(entry => entry.result === null)) {
-      return review('Vendor shorthand has more than one reading or needs context', expanded.evidence);
+    const expanded = expand(words, aliases, standalone, known, shorthand, conceptIndex, undecided);
+    const unresolved = expanded.evidence.filter(entry => entry.result === null);
+    if (unresolved.length) {
+      const candidates = unresolved.filter(entry => entry.candidates.length).map(entry =>
+        `${entry.spelling.toUpperCase()} could mean ${entry.candidates.join(' or ')}`);
+      const reason = ['Vendor shorthand has more than one reading or needs context',...candidates].join('. ');
+      return review(reason, expanded.evidence);
     }
 
-    // Preserve exact source phrases and also recognize phrases formed by expansion.
-    const details = informationalPositions(expanded.words, modifierIndex, conceptIndex);
-    const identityWords = expanded.words.filter((word, index) => !details.has(index));
-    const comparisonText = identityWords.filter(Boolean).join(' ');
-    const matches = identifyConcepts(conceptIndex, words, expanded.words, identityWords);
+    // Match the expanded line once so a shorter source spelling cannot compete
+    // with a complete product phrase made visible by shorthand expansion.
+    const products = identifyConcepts(expanded.words, conceptIndex, modifierIndex);
+    const details = informationalPositions(expanded.words, modifierIndex, products, products[0]?.entry.key, undecided);
+    const identityWords = expanded.words.filter((word, index) => word && !details.has(index));
+    const comparisonText = identityWords.join(' ');
+    const matches = identifyConcepts(identityWords, conceptIndex, modifierIndex);
     const keys = unique(matches.map(match => match.entry.key));
     if (keys.length > 1) return review('Description identifies more than one product', expanded.evidence);
     const base = matches[0]?.entry;
-    const defining = [...new Map([words, expanded.words]
-      .flatMap(sourceWords => definingModifiers(sourceWords, modifierIndex, base?.key))
+    const defining = [...new Map(definingModifiers(identityWords, modifierIndex, base?.key, matches)
       .map(mark => [mark.key, mark])).values()];
     const exclusive = defining.filter(mark => mark.exclusive).map(mark => mark.exclusive);
     if (new Set(exclusive).size < exclusive.length) {
