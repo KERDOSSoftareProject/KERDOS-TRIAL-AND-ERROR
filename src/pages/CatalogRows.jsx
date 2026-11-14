@@ -81,7 +81,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
   const categoryId=linkDirty?displayItem.category_id:draft.category_id??item.category_id;
   const category=categories.find(c=>c.id===categoryId);
   const evidenceItem={...displayItem,category_id:categoryId,category_review:'category_id' in draft?!!category?.is_holding_pen:displayItem.category_review};
-  const previewMapping=linkDirty?{...mapping,catalog_item_id:displayItem.id,comparison_track:"review",confidence_score:null}:mapping;
+  const previewMapping=linkDirty?{...mapping,catalog_item_id:displayItem.id,comparison_track:"review",confidence_score:null,match_method:"manual"}:mapping;
   const quoteContext={item:evidenceItem,mapping:previewMapping,
     groupMappings:allMappings.filter(link=>link.catalog_item_id===displayItem.id),settings,
     checkEditedAmount:Object.hasOwn(draft,"price")};
@@ -191,7 +191,7 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
       if(baseFieldsOnly&&!autoSave&&!Object.keys(basePatch).length)return;
       const patch=autoSave?{...draft,...confirmation,...(original.field_resolutions?.unit_cost_override&&(confirmation||["price","pack_size","selling_unit","unit_cost_unit"].some(key=>Object.hasOwn(draft,key)))?{unit_cost_override:null}:{}),...(nameDirty?{item_name:nameDraft.trim()}:{}),...(linkDirty?{catalog_item_id:destination.id}:{})}:baseFieldsOnly?basePatch:{description:current.description,brand:current.brand||"",pack_size:current.pack_size||"",selling_unit:current.selling_unit||"",price:current.price||override?.packPrice, ...draft,approve_row:true,
         unit_cost_override:override||current.field_resolutions?.unit_cost_override?.value||null,
-        ...(!linkDirty?{category_id:categoryId,item_name:nameDraft?.trim()||item.name}:{}),...(nameDirty?{item_name:nameDraft.trim()}:{ }),...(linkDirty?{catalog_item_id:destination.id}:{})};
+        ...(!linkDirty?{category_id:categoryId}:{}),...(nameDirty?{item_name:nameDraft.trim().slice(0,120)}:{ }),...(linkDirty?{catalog_item_id:destination.id}:{})};
       const receipt=await service.save({organizationId:orgId,vendorItem:base||vendorItem,mapping,patch});
       if(autoSave&&storageKey){try{window.localStorage.setItem(storageKey,JSON.stringify({draft:{},nameDraft:null,numberDraft:null,visible:trialVisible,revision:receipt?.row_revision??((original.row_revision||0)+1),overrideCost:Object.hasOwn(patch,"unit_cost_override")?"":overrideCost}));}catch{}}
       if(!mounted.current)return;
@@ -286,6 +286,9 @@ function EditableRow({autoSave=false,editorOpen=false,onPreferBrand,userId,edito
               onChange={event=>{const selected=event.target.checked,brand=String(current.brand||"").trim();void (async()=>{if(selected&&Object.hasOwn(draft,"brand")&&!await save())return;await onPreferBrand(displayItem.id,selected?brand:null);})();}} /> Prefer brand
           </label>}
           {key==="itemName"&&<>
+            {!baseFieldsOnly&&f.status&&<small data-item-name-origin={f.status} style={{display:"block",marginTop:4}} title={f.reason}>
+              {f.status==="stated"?"Stated":"Inferred"}
+            </small>}
             {tiers[tier]&&<small style={{display:"block",marginTop:4,color:tiers[tier].color}}>Tier {tier} · {holdFields?.size?"Review":tiers[tier].label}</small>}
             {holdFields?.size>0&&<small style={{display:"block",marginTop:4,color:"#8D5900"}}>
               {holdFields.has('brand')&&'Resolve brand conflict'}{holdFields.has('brand')&&holdFields.has('product')&&' · '}{holdFields.has('product')&&'Resolve product association'}

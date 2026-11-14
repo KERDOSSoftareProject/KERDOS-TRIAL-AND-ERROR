@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import {configureProcurement,compareProductIdentity,commonPurchasingPack,productKnowledge,pricePerUnit,suggestCategory} from "../procurement.js";
+import {configureProcurement,compareProductIdentity,commonPurchasingPack,productKnowledge,pricePerUnit,suggestCategory,getProcurementContext} from "../procurement.js";
 import {industryDictionary} from "./category-profiles.js";
 import {createCatalogService,mappingVerification} from "../services/catalog.js";
+import "../core/product-label-test.mjs";
 
 configureProcurement({industry:" Restaurant "});
 const same=[
@@ -63,18 +64,16 @@ assert.equal(suggestCategory("CNND ARTICHOKE HTS",categories).category.id,"g");
 // Product verification and the automatic importer use the same dictionary.
 const peers=[{id:"a",vendor_id:"vendor-a",description:"YUKON GOLD",pack_size:"50 LB"},
   {id:"b",vendor_id:"vendor-b",description:"YUKON GOLD POTATOES",pack_size:"50LB"}];
-const catalog=[{id:"c",name:"YUKON GOLD POTATOES",matching_behavior:"flexible",master_item_number:1000}];
+const conceptKey=getProcurementContext().readProductLabel({description:"YUKON GOLD POTATOES"}).key;
+const catalog=[{id:"c",name:"YUKON GOLD POTATOES",concept_key:conceptKey,matching_behavior:"flexible",master_item_number:1000}];
 const mappings=peers.map(p=>({vendor_item_id:p.id,catalog_item_id:"c"}));
-// Cross-vendor import now creates a new entry (2026-10-05).
-// The third vendor gets its own KERDOS number; Item Catalog shows the proposed link.
-const service=createCatalogService({records:{query(t){
-  // stub insert for createItem
-  const chain={insert(v){return {...chain,_v:v};},select(){return chain;},single(){return chain;},then(r){r({data:{id:"created",...(chain._v||{})},error:null});}};
-  return chain;
+const service=createCatalogService({records:{query(){
+  throw new Error("A saved label should resolve without creating a catalog item.");
 }}});
-const result=await service.matchOrCreate({organizationId:"org",vendorId:"vendor-c",description:"YUKON GOLD",packSize:"50 LB",catalogItems:catalog,categories,vendorItems:peers,mappings});
-assert.equal(result.catalogItemId,"c","third vendor with matching description+pack links to same KERDOS entry");
-assert.ok(["exact","review"].includes(result.track),"links to existing entry");
+const result=await service.matchOrCreate({organizationId:"org",vendorId:"vendor-c",description:"YUKON GOLD",packSize:"40 LB",catalogItems:catalog,categories,vendorItems:peers,mappings});
+assert.equal(result.catalogItemId,"c","another vendor with the same label joins across packs");
+assert.equal(result.track,"exact");
+assert.equal(result.method,"product_label");
 assert.equal(mappingVerification({id:"c",description:"YUKON GOLD",pack_size:"50 LB"},catalog[0],peers).comparison_track,"exact");
 assert.equal(mappingVerification({id:"c",description:"YUKON GOLD A",pack_size:"50 LB"},catalog[0],peers).comparison_track,"review");
 

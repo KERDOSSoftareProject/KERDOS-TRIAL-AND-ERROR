@@ -2,6 +2,12 @@ import {PGlite} from '@electric-sql/pglite';
 import fs from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
+import {catalogMigrationAssessment} from '../core/catalog-migration-tier.js';
+import {importPriceRow} from '../core/import-price-row.js';
+import {PRODUCT_LABEL_METHOD,productLabelLinked} from '../core/label-association.js';
+import {orderable} from '../core/ordering.js';
+import {createProcurementContext} from '../procurement.js';
+import {createCatalogRowsService} from '../services/catalog-rows.js';
 const db=new PGlite();
 const org='00000000-0000-0000-0000-000000000001',user='00000000-0000-0000-0000-000000000002',vendor='00000000-0000-0000-0000-000000000003',cat='00000000-0000-0000-0000-000000000004',item='00000000-0000-0000-0000-000000000005',mapping='00000000-0000-0000-0000-000000000006';
 await db.exec(`create schema auth; create role authenticated;
@@ -436,6 +442,95 @@ assert.equal(autoRows.every(row=>row.field_resolutions.automatic_group_excluded=
 for(const x of autoIds)assert.equal((await db.query('select catalog_item_id from item_mappings where vendor_item_id=$1',[x.row.id])).rows[0].catalog_item_id,x.ci,'undo restores original KERDOS numbers');
 await assert.rejects(autoGroup(Object.fromEntries(autoRows.map(r=>[r.id,r.row_revision]))),/details/);
 console.log('Automatic grouping SQL passed: shared number, no fabricated approvals, readiness, source review, stale revisions, key validation, organization isolation and persistent undo.');
+
+// Task B test 17. Seed the persisted label link used by new imports, then
+// run the unchanged SQL confirmation and per-row reimport paths against it.
+await db.exec('BEGIN');
+try {
+  const procurement=createProcurementContext({industry:'restaurant'});
+  const category={id:cat,name:'Meat'};
+  const itemRow={id:target,name:'Bacon',category_id:cat,master_item_number:2010,
+    concept_key:procurement.readProductLabel({description:'Bacon'}).key};
+  const checkedAt=new Date('2026-11-13T17:00:00Z');
+  const makeLinkedListing=async(code,vendorId,description,pack,unit)=>{
+    const source={code,description,packSize:pack,price:48,sellingUnit:unit,
+      ...(unit?{sellingUnitSource:'price header'}:{})};
+    const importRow={row:source,evidence:{...source,packSource:'column'},rowKey:code,
+      sourceDocumentId:docId,reviewRequired:!unit,reviewFields:unit?[]:['selling_unit'],
+      conflicts:unit?[]:['Pricing basis is unresolved.']};
+    const listing=(await db.query(`insert into vendor_items(organization_id,vendor_id,vendor_item_code,
+      description,pack_size,selling_unit,price_basis,price,price_source,last_updated,price_unavailable,import_row)
+      values($1,$2,$3,$4,$5,$6,$7,48,'price_list',$8,false,$9::jsonb) returning *`,
+      [org,vendorId,code,description,pack,unit,unit?'case':null,checkedAt,JSON.stringify(importRow)])).rows[0];
+    const link=(await db.query(`insert into item_mappings values(gen_random_uuid(),$1,$2,$3,'exact',90,$4) returning *`,
+      [org,listing.id,itemRow.id,PRODUCT_LABEL_METHOD])).rows[0];
+    return {listing:{...listing,price:Number(listing.price)},link:{...link,confidence_score:Number(link.confidence_score)}};
+  };
+  const established=await makeLinkedListing('LABEL-ESTABLISHED',vendor,'BACON LAYOUT','1/15 LB','CASE');
+  const unresolved=await makeLinkedListing('LABEL-UNRESOLVED',autoOtherVendor,'BCON LAYOUT','2/6 LB',null);
+  const toConfirm=await makeLinkedListing('LABEL-CONFIRM',autoOtherVendor,'BCON LAYOUT','2/5 LB',null);
+  function verify(entry,expectedTier,peers){
+    const tier=catalogMigrationAssessment({item:itemRow,listing:entry.listing,mapping:entry.link,now:checkedAt,procurement});
+    const assessment=orderGuideAssessment({item:itemRow,vendorItem:entry.listing,mapping:entry.link,category,
+      peers,now:checkedAt,procurement});
+    assert.equal(tier.tier,expectedTier,entry.listing.vendor_item_code);
+    assert.equal(tier.fields.has('product'),false,'label grouping adds no product hold');
+    assert.equal(assessment.blockers.includes('association'),false,'label grouping needs no purchase approval of identity');
+    assert.equal(assessment.ready,expectedTier===1,JSON.stringify(assessment.blockers));
+    assert.equal(orderable({matchTrack:entry.link.comparison_track,matchConfidence:entry.link.confidence_score,
+      labelOrderReady:productLabelLinked(entry.link)&&assessment.ready,packSize:entry.listing.pack_size,
+      unverified:!assessment.ready}),expectedTier===1);
+    assert.ok(entry.link.confidence_score>0);
+    assert.equal(entry.listing.field_resolutions?.row_approval!=null,entry.link.match_method==='manual');
+  }
+  verify(established,1,[unresolved.listing,toConfirm.listing]);
+  verify(unresolved,3,[established.listing,toConfirm.listing]);
+  verify(toConfirm,3,[established.listing,unresolved.listing]);
+  const provisional={...itemRow,concept_key:null,concept_review_required:true};
+  const pendingLink={...established.link,comparison_track:'review',confidence_score:70,match_method:'rule_based'};
+  const pending=orderGuideAssessment({item:provisional,vendorItem:established.listing,mapping:pendingLink,category,procurement});
+  assert.equal(pending.ready,false,'a provisional identity stays on hold even when all pricing fields are ready');
+  assert.ok(pending.blockers.includes('association'));
+  assert.ok(catalogMigrationAssessment({item:provisional,listing:established.listing,mapping:pendingLink,procurement}).fields.has('product'));
+  const saveRow=async args=>(await db.query(`select kerdos_save_catalog_row($1,$2,$3,$4,$5::jsonb,$6,$7) as row`,
+    [args.organizationId,args.vendorItemId,args.mappingId,args.expectedRevision,JSON.stringify(args.patch),args.priceBasis,args.priceAvailable])).rows[0].row;
+  const saved=await createCatalogRowsService({catalog:{saveRow}}).save({organizationId:org,
+    vendorItem:toConfirm.listing,mapping:toConfirm.link,patch:{selling_unit:'CASE',approve_row:true}});
+  const currentLink=async()=> {
+    const link=(await db.query('select * from item_mappings where id=$1',[toConfirm.link.id])).rows[0];
+    return {...link,confidence_score:Number(link.confidence_score)};
+  };
+  const confirmed={listing:{...saved,price:Number(saved.price)},link:await currentLink()};
+  verify(confirmed,1,[established.listing,unresolved.listing]);
+  assert.equal(confirmed.link.catalog_item_id,itemRow.id);
+  assert.equal(confirmed.link.match_method,'manual');
+  assert.equal(confirmed.link.confidence_score,100);
+
+  const source={code:confirmed.listing.vendor_item_code,description:confirmed.listing.description,
+    packSize:confirmed.listing.pack_size,price:49,sellingUnit:'CASE',sellingUnitSource:'price header'};
+  const applyQuote=async quote=>(await db.query(`select kerdos_apply_price_quote(
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20::jsonb,$21) as id`,
+    [quote.vendorItemId,quote.organizationId,quote.vendorId,quote.vendorItemCode,quote.description,quote.packSize,
+      quote.price,quote.priceUnavailable,quote.effectiveDate,quote.quoteValidUntil,quote.sourceFilePath,quote.sourceFileName,
+      quote.sourceLine,quote.sourceDocumentId,quote.sellingUnit,quote.priceBasis,quote.gtin,quote.manufacturerCode,
+      JSON.stringify(quote.importRow),JSON.stringify(quote.fieldResolutions),quote.brand])).rows[0].id;
+  const nextDoc=(await db.query(`insert into import_documents(organization_id,vendor_id,document_kind,fingerprint,original_text,status)
+    values($1,$2,'pricelist','task-b-tier-17','Bacon reimport','complete') returning id`,[org,autoOtherVendor])).rows[0].id;
+  const imported=await importPriceRow({backend:{pricing:{applyQuote}},importService:{mapping:currentLink},
+    catalogService:{matchOrCreate:()=>{throw Error('Reimport must retain its mapping');}},
+    sourceRow:source,row:source,ex:confirmed.listing,priorMapping:confirmed.link,rowIssues:[],rowNeedsReview:false,
+    invoiceSources:[],orgId:org,vendorId:autoOtherVendor,sourceDocumentId:nextDoc,completedKey:source.code,
+    importBatchTime:checkedAt.toISOString(),group:{name:'Task B confirmation replay'},
+    workingCatalogItems:[itemRow],workingCategories:[category],workingVendorItems:[established.listing,unresolved.listing],
+    workingMappings:[established.link,unresolved.link,confirmed.link]},procurement);
+  assert.equal(imported.needsBasis,false);
+  assert.equal(imported.vendorItemId,confirmed.listing.id);
+  const reloaded=(await db.query('select * from vendor_items where id=$1',[confirmed.listing.id])).rows[0];
+  verify({listing:{...reloaded,price:Number(reloaded.price)},link:await currentLink()},1,[established.listing,unresolved.listing]);
+  console.log('Task B #17 passed: product links keep positive identity confidence and Tier 1 or Tier 3 evidence; SQL confirmation stays Tier 1 after reimport.');
+} finally {
+  await db.exec('ROLLBACK');
+}
 await db.exec(`update organization_members set role='employee';`);
 await assert.rejects(save(Number((await db.query('select row_revision from vendor_items')).rows[0].row_revision),{price:9}),/Owner or manager/);
 console.log('Database check passed: repeat migration, partial fields, quote calculation readiness, atomic rollback, stale edits, preserved item number, price update without duplication, and role/organization checks.');

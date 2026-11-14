@@ -26,6 +26,7 @@ import {importPriceRow} from "./import-price-row.js";
 import {createImportService} from "../services/imports.js";
 import {assertBackendContract} from "../backend/contract.js";
 import {createRecords} from "../backend/records.js";
+import {fixtureProductItemRpc} from "../../scripts/fixtures/price-import-backend.mjs";
 
 // ── In-memory backend (same shape as import-to-order-guide-test.mjs) ──────────
 function createBackend() {
@@ -88,6 +89,11 @@ function createBackend() {
     rows("vendor_items").push(row);
     return row.id;
   };
+  const rpc=fixtureProductItemRpc(rows("catalog_items"),rows("catalog_categories"),value=>{
+    const item={id:`m${nextId++}`,...value};
+    rows("catalog_items").push(item);
+    return item;
+  });
   const provider = assertBackendContract({
     kind:"in-memory-test",
     session:{get:fn,subscribe:()=>()=>{},signIn:fn,signUp:fn,signOut:fn},
@@ -97,6 +103,7 @@ function createBackend() {
     realtime:{subscribeToOrganization:()=>()=>{}},
     pricing:{applyQuote},
     catalog:{saveRow:fn},
+    rpc,
     invoices:{record:fn},
     team:{acceptInvite:fn},
     records:createRecords(execute),

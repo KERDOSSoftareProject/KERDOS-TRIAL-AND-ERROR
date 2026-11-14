@@ -2,6 +2,7 @@ import {getProcurementContext} from '../procurement.js';
 import {listingSourceForField, quotedUnitOrigin} from './listing-provenance.js';
 import {verifiedFullPackPrice} from './quote-controls.js';
 import {PRICE_UNIT_CONFLICT_REASON} from './source-units.js';
+import {productIdentityPending} from './label-association.js';
 
 // Older imports saved unresolved quote bases as unavailable prices. Recognize
 // those recorded reasons for display without clearing any persisted hold.
@@ -34,7 +35,7 @@ export function catalogMigrationAssessment({item, listing, mapping, settings, no
   const sourceHold=basisConflict||priceOrPackReview||
     conflicts.some(reason=>!basisReviewReason.test(reason)&&!ordinaryBrandChange.test(reason)&&!productChange.test(reason))||
     (saved.reviewRequired&&!conflicts.length&&reviewFields.some(field=>!['selling_unit','brand','description'].includes(field)));
-  const associationHold=mapping.comparison_track!=='exact'&&
+  const associationHold=productIdentityPending(item,mapping)||mapping.comparison_track!=='exact'&&
     procurement.compareProductIdentity(listing.description,item.description||item.name).status!=='same';
   const packMissing=!pack?.parsed||pack.dimension==='unknown'&&!/^#\d/.test(pack.unit||'');
   const brandMismatch=item.brand_locked&&!procurement.brandsMatch(listing.brand,item.locked_brand);

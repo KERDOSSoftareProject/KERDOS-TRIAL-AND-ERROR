@@ -55,7 +55,15 @@ export function createImportService(backend){
       return listings;
     },
     mapping(organizationId,vendorItemId){return run(table("item_mappings").select("*").eq("organization_id",organizationId).eq("vendor_item_id",vendorItemId).maybeSingle(),"Could not check the catalog link");},
-    createMapping(row){return run(table("item_mappings").insert(row).select("id").single(),"Could not link the item to your catalog");},
+    async createMapping(row){
+      const {data,error}=await table("item_mappings").insert(row).select("id").single();
+      if(!error)return data;
+      if(error.code==="23505"){
+        const existing=await this.mapping(row.organization_id,row.vendor_item_id);
+        if(existing?.catalog_item_id===row.catalog_item_id)return existing;
+      }
+      throw new Error(`Could not link the item to your catalog: ${error.message}`);
+    },
     async invoiceSources(organizationId,vendorId){
       const invoices=[];
       for(let start=0;;start+=100){

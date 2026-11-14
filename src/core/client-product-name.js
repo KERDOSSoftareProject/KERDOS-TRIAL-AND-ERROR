@@ -1,18 +1,18 @@
-import {associationProfile,productAssociationIdentity} from './product-associations.js';
 import {industryClientNames} from '../knowledge/category-profiles.js';
 import {dictionaryTokens} from './term-dictionary.js';
-import {productKnowledge} from '../procurement.js';
+import {createProcurementContext} from '../procurement.js';
 
 const title=value=>String(value||'').replace(/\b[a-z]+/g,word=>word[0].toUpperCase()+word.slice(1));
 const text=value=>dictionaryTokens(value).join(' ');
-export function clientProductName(item,rows=[],industry=''){
+export function clientProductName(item,rows=[],industry='',procurement=createProcurementContext({industry})){
  let current=String(item.name||'').trim();
  const confirmedGroup=rows.length>0&&rows.every(row=>{
   const decision=row.field_resolutions?.product_group;
   return decision?.confirmedBy&&decision.catalogItemId===item.id&&decision.description===row.description&&decision.brand===(row.brand??null);
  });
- if(confirmedGroup)return current;
- const vocabulary=industryClientNames(industry),profile=associationProfile(industry);
+ if(confirmedGroup||item.concept_key||item.concept_split_from_id||rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
+ const vocabulary=industryClientNames(industry);
+ const clientLabel=value=>Object.entries(vocabulary.labels||{}).find(([key])=>text(key)===text(value))?.[1]||value;
  // A brand is metadata, never the item identity. Remove exact brand phrases
  // supplied by the listings or industry vocabulary before interpreting names.
  const brands=[...new Set([...(vocabulary.brands||[]),...rows.map(row=>row.brand).filter(Boolean)])];
@@ -21,24 +21,17 @@ export function clientProductName(item,rows=[],industry=''){
  if(text(withoutBrands)!==text(current)){
   const meaningful=dictionaryTokens(withoutBrands).filter(word=>!/^\d/.test(word)&&!vocabulary.nonProducts?.includes(word));
   if(!meaningful.length){
-   const identities=rows.map(row=>productAssociationIdentity(row,profile)).filter(identity=>identity.key?.startsWith('concept:'));
+   const identities=rows.map(procurement.readProductLabel).filter(identity=>identity.status==='recognized');
    const labels=[...new Set(identities.map(identity=>identity.label))];
    if(labels.length!==1)return null;
    current=labels[0];
   }else current=withoutBrands.trim();
  }
- // Deliberately entered client names still take precedence over synonyms.
- if(rows.some(row=>row.field_resolutions?.item_name?.confirmedBy))return current;
  const sourceWords=dictionaryTokens(current);
  if(!sourceWords.some(word=>/[a-z]/i.test(word)&&!vocabulary.nonProducts?.includes(word)&&!/^\d/.test(word)))return null;
- const identity=productAssociationIdentity({description:current},profile);
- if(identity.key?.startsWith('concept:')){
-  if(vocabulary.labels?.[identity.label])return vocabulary.labels[identity.label];
-  const [base,...details]=identity.label.split(' — ');
-  const name=vocabulary.labels?.[base]||base;
-  return title(name)+(profile.groupDetails!==false&&details.length?' — '+title(details.join(' — ')):'');
- }
- const normalized=' '+text(productKnowledge(current).text)+' ';
+ const identity=procurement.readProductLabel({description:current});
+ if(identity.status==='recognized')return clientLabel(identity.label);
+ const normalized=' '+text(procurement.productKnowledge(current).text)+' ';
  const aliases=(vocabulary.aliases||[]).filter(entry=>entry.terms.some(term=>normalized.includes(' '+text(term)+' ')));
  if(aliases.length===1)return aliases[0].label;
  // Unknown names stay source-derived. Remove formatting/known brand/pack

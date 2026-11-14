@@ -384,13 +384,13 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
   const showEvidenceEditor=step===2&&(inboxReview||!!saveReview);
   const uncodedListings=useMemo(()=>vendorItems.filter(vi=>vi.vendor_id===vendorId&&!vi.vendor_item_code),[vendorItems,vendorId]);
   const evidenceRows=useMemo(()=>!showEvidenceEditor?[]:parsedGroups.flatMap(g=>g.rows.map((row,index)=>({row,group:g,index,key:`${g.id}:${index}`,
-    evidence:explainImportRow(row,{organizationId:orgId,vendor:vendors.find(v=>v.id===vendorId),categories,catalogItems,vendorItems,mappings,documentRows:g.rows,invoices:invoiceSources})})))
+    evidence:explainImportRow(row,{organizationId:orgId,vendor:vendors.find(v=>v.id===vendorId),categories,catalogItems,vendorItems,mappings,invoices:invoiceSources,procurement})})))
     .sort((a,b)=>{
       const av=a.evidence[sortField]?.value,bv=b.evidence[sortField]?.value;
       if(av==null&&bv==null)return a.index-b.index;
       if(av==null)return 1;if(bv==null)return -1;
       return sortDirection*(typeof av==="number"&&typeof bv==="number"?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true}));
-    }),[showEvidenceEditor,orgId,parsedGroups,vendors,vendorId,categories,catalogItems,vendorItems,mappings,invoiceSources,sortField,sortDirection]);
+    }),[showEvidenceEditor,orgId,parsedGroups,vendors,vendorId,categories,catalogItems,vendorItems,mappings,invoiceSources,procurement,sortField,sortDirection]);
   const allSkipped=parsedGroups.flatMap(g=>g.skipped.map(s=>({...s,_source:g.name})));
   const allIncomplete=allRows.filter(r=>r.priceUnavailable);
   const showSourceTags=parsedGroups.length>1;
@@ -644,7 +644,8 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
         if(needsBasis)basisReview++;
         if(match&&savedMapping){
           mapped++;
-          identified.push({description:row.description,packSize:row.packSize||ex?.pack_size||null,price:row.price,track:match.track,confidence:match.score==null?null:Math.round(match.score*100),reason:match.reason||null});
+          identified.push({description:row.description,packSize:row.packSize||ex?.pack_size||null,price:row.price,track:match.track,
+            method:match.method,identityReview:match.identityReview,confidence:match.score==null?null:Math.round(match.score*100),reason:match.reason||null});
         }
         // Inbox resolution must preserve the worker's saved-row contract.
         // Staging an unresolved quote is not completion of that source row.
@@ -781,7 +782,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           // silently misleading.
           if(!matched&&!codeConflict&&row.description){
             try{
-              pendingCatalog=await catalogService.matchOrCreate({organizationId:orgId,vendorId,description:row.description,packSize:row.packSize,catalogItems:workingCatalogItems,categories:workingCategories,vendorItems:workingVendorItems,mappings:workingMappings});
+              pendingCatalog=await catalogService.matchOrCreate({organizationId:orgId,description:row.description,packSize:row.packSize,catalogItems:workingCatalogItems,categories:workingCategories,vendorItems:workingVendorItems,mappings:workingMappings});
               method="created_from_invoice"; confidence=null;
               invoiceIdentified.push({description:row.description,packSize:row.packSize||null,price:row.price,track:pendingCatalog.track,confidence:pendingCatalog.score==null?null:Math.round(pendingCatalog.score*100),reason:pendingCatalog.reason||null,invoice:true});
             }catch(err){
@@ -793,7 +794,7 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
           // no catalog link. An invoice must repair that gap too.
           if(matched&&!workingMappings.some(link=>link.vendor_item_id===matched.id)){
             try{
-              pendingCatalog=await catalogService.matchOrCreate({organizationId:orgId,vendorId,description:matched.description,packSize:matched.pack_size||row.packSize,brand:matched.brand||null,gtin:matched.gtin||null,manufacturerCode:matched.manufacturer_code||null,catalogItems:workingCatalogItems,categories:workingCategories,vendorItems:workingVendorItems,mappings:workingMappings});
+              pendingCatalog=await catalogService.matchOrCreate({organizationId:orgId,description:matched.description,packSize:matched.pack_size||row.packSize,brand:matched.brand||null,catalogItems:workingCatalogItems,categories:workingCategories,vendorItems:workingVendorItems,mappings:workingMappings});
               invoiceIdentified.push({description:row.description,packSize:matched.pack_size||row.packSize||null,price:row.price,track:pendingCatalog.track,confidence:pendingCatalog.score==null?null:Math.round(pendingCatalog.score*100),reason:pendingCatalog.reason||null,invoice:true});
               workingMappings.push({vendor_item_id:matched.id,catalog_item_id:pendingCatalog.catalogItemId});
             }catch(error){saveError=(saveError?saveError+" ":"")+`"${row.description}": catalog link needs review (${error.message||String(error)}).`;}
@@ -1131,15 +1132,18 @@ export function PasteModal({industry="",vendors,orgId,orgSettings,catalogItems,c
             <div style={{fontSize:40,marginBottom:12}}>{result.error?"⚠️":"✅"}</div>
             <h3 style={{margin:"0 0 8px"}}>{result.error?"Done with items needing attention":"Done"} · {result.vendor}</h3>
             {result.mode==="pricelist"
-              ?<p style={{color:"#666",fontSize:14}}>{result.updated} items updated · {result.created} new items added · {result.mapped} linked to your catalog{result.identified?.length?` · ${result.identified.filter(item=>item.track==="exact"&&item.confidence===100).length} of ${result.identified.length} verified automatically`:""}</p>
+              ?<p style={{color:"#666",fontSize:14}}>{result.updated} items updated · {result.created} new items added · {result.mapped} linked to your catalog</p>
               :<p style={{color:"#666",fontSize:14}}>{result.invoicesCreated} invoice{result.invoicesCreated===1?"":"s"} recorded · {result.count} line{result.count===1?"":"s"} · {result.invoiceLinks} catalog link{result.invoiceLinks===1?"":"s"} saved · {formatMoney(result.invoiceTotal)} total{result.packsFilled?` · ${result.packsFilled} missing pack size${result.packsFilled===1?"":"s"} filled from this invoice`:""}</p>}
             {result.identified?.length>0&&<div style={{textAlign:"left",background:"#F7F9FC",borderRadius:8,padding:12,maxHeight:230,overflowY:"auto"}}>
               <div style={{fontWeight:700,fontSize:13,marginBottom:7}}>{result.identified.length} vendor listing{result.identified.length===1?"":"s"} linked to your catalog</div>
               {result.identified.map((item,i)=><div key={i} style={{background:"white",border:"1px solid #E1E7F0",borderRadius:6,padding:8,marginBottom:5,fontSize:12}}>
                 <b>{item.description}</b><div>Pack: {item.packSize||"Not provided"} · {formatMoney(item.price)}{item.invoice?" paid on invoice (historical)":" quoted"}</div>
-                <div style={{color:item.track==="exact"&&item.confidence===100&&item.packSize?"#2E7D32":"#B26A00"}}>{item.track==="exact"&&item.confidence===100&&item.packSize?"Linked · verified 100%":"Linked · needs verification"}{item.track==="review"&&item.confidence!=null?` · ${item.confidence}% wording similarity`:""}{item.track==="review"&&item.reason?` · ${item.reason}`:""}</div>
+                <div style={{color:item.track==="exact"?"#2E7D32":"#B26A00"}}>
+                  {item.method==="product_label"?"Linked by product label":item.identityReview?"Product identity needs review":item.track==="exact"&&item.confidence===100&&item.packSize?"Linked · verified 100%":"Linked · needs verification"}
+                  {(item.track==="review"||item.method==="product_label")&&item.reason?` · ${item.reason}`:""}
+                </div>
               </div>)}
-              {result.identified.some(item=>item.track!=="exact"||item.confidence!==100||!item.packSize)&&<div style={{fontSize:11,color:"#666"}}>Finish mapping these products in Item Catalog before their prices appear in the Order Guide.</div>}
+              {result.identified.some(item=>item.track!=="exact")&&<div style={{fontSize:11,color:"#666"}}>Review the flagged product identities in Item Catalog.</div>}
             </div>}
             {result.error&&<div style={{background:"#FFF3E0",color:"#E65100",padding:"10px 12px",borderRadius:8,fontSize:13,marginTop:12,textAlign:"left"}}>{result.error}</div>}
             {result.basisReview>0&&<div style={{background:"#FFF3E0",color:"#875200",padding:"10px 12px",borderRadius:8,fontSize:13,marginTop:12,textAlign:"left"}}>{result.basisReview} incoming row{result.basisReview===1?"":"s"} saved for review in Item Catalog. Open the row details for the specific field that needs attention. Existing item links and saved quotations are retained; unresolved incoming quotes are not used for ordering.</div>}

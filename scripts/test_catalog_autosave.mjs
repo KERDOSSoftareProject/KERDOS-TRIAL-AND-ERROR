@@ -111,8 +111,11 @@ await mount({baseFieldsOnly:false,vendorItems:tierListings,mappings:tierListings
 const tierRows=tree.root.findAll(n=>n.type==='tr'&&n.props['data-migration-tier']!=null);
 assert.deepEqual(tierRows.map(n=>n.props['data-migration-tier']),[1,2,3,3]);
 const tierCells=tierRows.map(row=>row.findByProps({'data-field-label':'Item name'}));
-assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').map(text).join('')),
+assert.deepEqual(tierCells.map(cell=>cell.findAllByType('small').filter(label=>!label.props['data-item-name-origin']).map(text).join('')),
   ['Tier 1 · Confirmed', 'Tier 2 · Inferred Migration','Tier 3 · Client Required Migration','Tier 3 · Client Required Migration']);
+assert.ok(tierCells.every(cell=>text(cell.findByProps({'data-item-name-origin':'inferred'}))==='Inferred'));
+assert.equal(tierCells[0].findByProps({'data-item-name-origin':'inferred'}).props.title,
+  "KERDOS named this from the vendor's description; rename it when you like.");
 assert.deepEqual(tierCells.map(cell=>cell.findAllByType('button').map(text)),[['Confirm'],['Confirm'],[],[]]);
 assert.deepEqual(tierCells.map(cell=>cell.findAllByProps({'aria-label':'Pricing basis'}).length),[0,0,0,1]);
 assert.ok(!tree.root.findAllByType('th').some(n=>text(n).includes('Quoted per')));

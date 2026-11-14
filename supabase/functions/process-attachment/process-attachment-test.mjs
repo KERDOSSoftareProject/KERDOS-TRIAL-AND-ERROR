@@ -25,6 +25,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import { createRecords } from "../../../src/backend/records.js";
@@ -36,6 +37,7 @@ import { createImportService } from "../../../src/services/imports.js";
 import { readWorkbook } from "../../../src/core/document-reading.js";
 import { parseStructuredDocument } from "../../../src/core/document-structuring.js";
 import { createSourceRowSnapshot } from "../../../src/core/import-resume.js";
+import { fixtureProductItemRpc } from "../../../scripts/fixtures/price-import-backend.mjs";
 
 // ── In-memory backend ────────────────────────────────────────────────────────
 // Matches the interface required by background-import.mjs and service-backend.mjs.
@@ -67,6 +69,11 @@ function createInMemoryBackend({
   const writes = [];
   let downloadCount = 0;
   let applyQuoteAttempts = 0;
+  function insertCatalog(row) {
+    const item = {...row,id:createdCatalogItems.length ? `new-catalog-item-${createdCatalogItems.length + 1}` : "new-catalog-item"};
+    createdCatalogItems.push(item);
+    return item;
+  }
 
   // execute(spec) — called by createRecords when a chain is awaited.
   // Returns { data, error } to match Supabase client convention expected by
@@ -87,7 +94,7 @@ function createInMemoryBackend({
       if (table === unavailableTable) throw new Error("Simulated context read failure");
       let rows;
       if (table === "vendor_items")        rows = vendorItems;
-      else if (table === "catalog_items")  rows = catalogItems;
+      else if (table === "catalog_items")  rows = [...catalogItems, ...createdCatalogItems];
       else if (table === "catalog_categories") rows = categories;
       else if (table === "item_mappings")  rows = [...mappings, ...createdMappings];
       else if (table === "organizations")  rows = organizations;
@@ -121,9 +128,7 @@ function createInMemoryBackend({
         return [newDoc];
       }
       if (table === "catalog_items") {
-        const item = { ...row, id: createdCatalogItems.length ? `new-catalog-item-${createdCatalogItems.length + 1}` : "new-catalog-item" };
-        createdCatalogItems.push(item);
-        return item;
+        return insertCatalog(row);
       }
       if (table === "item_mappings") {
         const mapping = { ...row, id: `new-mapping-${createdMappings.length + 1}` };
@@ -148,8 +153,10 @@ function createInMemoryBackend({
     return null;
   }
 
+  const rpc = (name, args) => fixtureProductItemRpc([...catalogItems, ...createdCatalogItems], categories, insertCatalog)(name, args);
   return {
     kind: "in-memory",
+    rpc,
     records: createRecords(execute),
     pricing: {
       applyQuote(quote) {
@@ -166,6 +173,7 @@ function createInMemoryBackend({
       }
     },
     catalog: {
+      async findOrCreateProductItem(args) {return (await rpc('kerdos_find_or_create_product_item',args)).data;},
       matchOrCreate: () => Promise.resolve(null),
       // The following are browser-only catalog ops — not needed in background import
       groupAutomaticAlternatives:    () => { throw new Error("not available in background processing"); },
@@ -306,6 +314,36 @@ async function runPriceRowParityFixture(path, missingBasis=false, crossVendor=fa
 }
 
 const parityPath = process.argv[2];
+if (parityPath === "--product-label-parity") {
+  const { industry, vocabulary, text } = JSON.parse(readFileSync(0, "utf8"));
+  const organizationId = "org-1";
+  const bytes = csvBytes(text);
+  const backend = createInMemoryBackend({
+    bytes,
+    organizations: [{ id: organizationId, industry }],
+    vocabulary: vocabulary.map(entry => ({ ...entry, organization_id: organizationId })),
+    categories: [{ id: "holding", organization_id: organizationId, name: "Uncategorized", is_holding_pen: true, range_start: 900000 }],
+  });
+  const attachment = { ...ATTACHMENT_BASE, file_size_bytes: bytes.length };
+  const result = await processAttachmentInBackground(backend, attachment, {
+    organizationId, vendorId: "vendor-1", documentType: "pricelist",
+  });
+  assert.ok(["auto_imported", "needs_review"].includes(result.outcome), result.reason);
+  assert.doesNotMatch(result.reason || "", /^Row save error/);
+  const procurement = createProcurementContext({ industry, vocabulary });
+  const readRows = backend._appliedQuotes.map((quote,index) => {
+    const { code, description, brand = null, packSize = null } = quote.importRow.row;
+    const mapping = backend._createdMappings.find(row => row.vendor_item_id === `item-${index + 1}`);
+    const item = backend._createdCatalogItems.find(row => row.id === mapping?.catalog_item_id);
+    assert.ok(item && mapping, "email import persists a mapping for each saved source row");
+    return { code, description, brand, packSize, label: procurement.readProductLabel({ description, brand, packSize }),
+      assignment: { group:backend._createdCatalogItems.indexOf(item),label:item.concept_review_required?null:item.name,
+        conceptKey:item.concept_key??null,track:mapping.comparison_track,
+        method:mapping.match_method, confidence:mapping.confidence_score } };
+  });
+  console.log(JSON.stringify(readRows));
+  process.exit(0);
+}
 if (parityPath === "manual" || parityPath === "email") {
   console.log(JSON.stringify(await runPriceRowParityFixture(parityPath,["missing-basis","cross-vendor"].includes(process.argv[3]),process.argv[3]==="cross-vendor")));
   process.exit(0);
@@ -441,13 +479,13 @@ await test("email CSV uses the same decoding as manual import and blocks invalid
   }
 });
 
-await test("email import uses current cross-vendor group approval without reusing the other vendor's listing", async () => {
+await test("email import uses cross-vendor product labels without reusing another vendor's listing or requiring prior approval", async () => {
   const options = { organizationId: "org-1", vendorId: "vendor-1", documentType: "pricelist" };
   const localSynonym={kind:"synonym",term:"sample blend",canonical:"extra virgin olive oil"};
   for (const { industry, confirmed, expected, incoming, prior, vocabulary=[] } of [
     { industry: "restaurant", confirmed: true, expected: "oil" },
-    { industry: "restaurant", confirmed: false, expected: "new-catalog-item" },
-    { industry: "construction", confirmed: true, expected: "new-catalog-item" },
+    { industry: "restaurant", confirmed: false, expected: "oil" },
+    { industry: "construction", confirmed: true, expected: "oil", incoming:"OIL POMACE 100%" },
     { industry: "restaurant", confirmed: true, expected: "oil", incoming:"E.V.O.O.", prior:"Extra Virgin Olive Oil" },
     { industry: "restaurant", confirmed: true, expected: "oil", incoming:"Sample Blend", prior:"Extra Virgin Olive Oil",
       vocabulary:[{...localSynonym,organization_id:"org-1"}] },
@@ -478,8 +516,8 @@ await test("email import uses current cross-vendor group approval without reusin
     const result = await processAttachmentInBackground(backend, attachment, options);
     assert.equal(result.outcome, "auto_imported", result.reason);
     assert.deepEqual(backend._appliedQuotes.map(q => [q.vendorId, q.vendorItemId, q.price]), [["vendor-1", null, 62.95]]);
-    assert.deepEqual(backend._createdMappings.map(m => [m.catalog_item_id, m.comparison_track]), [
-      [expected, expected === "oil" ? "review" : "new"],
+    assert.deepEqual(backend._createdMappings.map(m => [m.catalog_item_id, m.comparison_track, m.match_method]), [
+      [expected, "exact", "product_label"],
     ], `${industry} / ${incoming||"POMACE OIL 100%"}`);
   }
 });
@@ -514,9 +552,9 @@ await test("abbreviated price rows have identical stored outcomes in fresh manua
   const email = run("email");
   assert.deepEqual(email, run("manual"));
   assert.deepEqual(email.map(row => [row.description, row.category, row.pack, row.basis, row.group, row.track]), [
-    ["CHIX THIGH BNLS", "meat", "4/10 LB", "case", "new-catalog-item", "new"],
-    ["CHICKEN BREAST BONELESS", "meat", "4/10 LB", "case", "breast", "review"],
-    ["CHIC BRST RAW BNLS RNDM CVP", "meat", "4/10 LB", "measure", "breast", "review"],
+    ["CHIX THIGH BNLS", "meat", "4/10 LB", "case", "new-catalog-item", "exact"],
+    ["CHICKEN BREAST BONELESS", "meat", "4/10 LB", "case", "breast", "exact"],
+    ["CHIC BRST RAW BNLS RNDM CVP", "meat", "4/10 LB", "measure", "new-catalog-item-2", "exact"],
   ]);
   assert.equal(email[0].sourceDescription,"CHIX THIGH BNLS 4/10 LB");
   assert.equal(email[0].packPlacement.status,"missing");
@@ -558,8 +596,8 @@ await test("back-to-back attachments in one worker use only their own workspace'
     assert.equal(result.outcome, "auto_imported", result.reason);
   }
   assert.deepEqual(backend._createdMappings.map(row => [row.organization_id, row.catalog_item_id, row.comparison_track]), [
-    ["org-1", "org-1-oil", "review"],
-    ["org-2", "new-catalog-item", "new"],
+    ["org-1", "org-1-oil", "exact"],
+    ["org-2", "new-catalog-item", "exact"],
   ]);
 });
 

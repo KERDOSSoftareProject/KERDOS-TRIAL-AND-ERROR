@@ -48,9 +48,13 @@ await test("a price that changed on the newest sheet is 70 until looked at",()=>
   const e=ev({...base,import_row:{reviewRequired:true,changes:[{field:"price"}],row:{}}});
   assert.equal(e.price.accuracy,70);assert.match(e.price.reason,/last quote/);
 });
-await test("an item name copied from a vendor is 70 and a client name still needs validation",()=>{
-  assert.equal(ev(base).itemName.accuracy,70);
-  assert.equal(ev(base,{item:{...item,name:"Bacon"}}).itemName.accuracy,90);
+await test("an engine-derived item name is inferred and a matching client rename is stated",()=>{
+  assert.equal(ev(base).itemName.status,'inferred');
+  const named={...item,name:"Bacon"};
+  assert.equal(ev(base,{item:named}).itemName.status,'inferred');
+  const renamed={...base,field_resolutions:{item_name:{value:"Bacon",confirmedBy:"u1"}}};
+  assert.equal(ev(renamed,{item:named}).itemName.status,'stated');
+  assert.equal(ev(renamed).itemName.status,'inferred');
 });
 await test("independent vendor agreement can corroborate identity fields",()=>{
   const e=ev({...base,gtin:"123456"},{peers:[{id:"v2",vendor_id:"B",description:base.description,pack_size:base.pack_size,brand:base.brand,gtin:"123456"}]});

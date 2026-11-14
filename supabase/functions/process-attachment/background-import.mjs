@@ -399,6 +399,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
   // report their row keys separately without corrupting resume's saved-row set.
   const heldKeys = [];
   const heldRows = [];
+  const identityReviews = [];
   let saveError = null;
 
   // A1.7.b: use row:N (0-based across all groups) as the completedKey so the
@@ -475,6 +476,7 @@ export async function processAttachmentInBackground(backend, attachment, { organ
           applySelectedCategory: null,
         },procurement);
         backend.attachments.assertLease?.();
+        if(result.identityReview)identityReviews.push({key:completedKey,reason:result.identityReview.reason});
 
         if (result.needsBasis) {
           // Hold this row — continue processing the remaining rows rather than
@@ -525,11 +527,12 @@ export async function processAttachmentInBackground(backend, attachment, { organ
       reason: reviewReason,
       heldKeys,
       heldRows,
+      ...(identityReviews.length?{identityReviews}:{}),
       savedCount: newCompletedKeys.length,
     };
   }
 
   await importService.finalizeDocument(documentId, "complete", newCompletedKeys);
   await backend.attachments.setStatus(attachmentId, "auto_imported", null, documentId);
-  return { outcome: "auto_imported" };
+  return { outcome: "auto_imported", ...(identityReviews.length?{identityReviews}:{}) };
 }

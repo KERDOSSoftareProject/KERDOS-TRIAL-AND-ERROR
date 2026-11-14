@@ -3,9 +3,10 @@ import {defaultComparisonUnit} from "./quote-controls.js";
 // Industry-neutral ordering rules. UI and persistence adapters supply plain
 // items/vendors; this module decides eligibility and allocation.
 const money=value=>Math.round(Number(value)*100)/100;
+const qualifiedLink=option=>option.matchTrack==="exact"&&(option.matchConfidence===100||option.labelOrderReady===true);
 
 export function orderable(option){
-  return option.matchTrack==="exact"&&option.matchConfidence===100&&!!option.packSize&&
+  return qualifiedLink(option)&&!!option.packSize&&
     !option.expired&&!option.brandMismatch&&!option.priceUnavailable&&!option.invoiceOnly&&!option.unverified&&
     !option.basisUnconvertible;
 }
@@ -21,7 +22,7 @@ export function blockReason(option){
   // A price quoted per pound, per gallon or per each can only join the
   // ranking once the pack tells KERDOS how many of that unit a case holds.
   if(option.basisUnconvertible)return `Priced per ${option.quoteUnit||option.quoteBasis||"unit"} — pack can't convert it to a case price; correct the pack in Item Catalog`;
-  if(option.unverified||option.matchTrack!=="exact"||option.matchConfidence!==100||!option.packSize)return "Product not mapped at 100% — review in Item Catalog";
+  if(option.unverified||!qualifiedLink(option)||!option.packSize)return "Product not mapped at 100% — review in Item Catalog";
   if(option.brandMismatch)return option.brand?`${option.brand} — not the locked brand`:"Brand not listed";
   return null;
 }

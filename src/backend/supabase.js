@@ -188,6 +188,7 @@ export function createSupabaseBackend({url,anonKey}, clientFactory=createClient)
       },
     },
     catalog:{
+      findOrCreateProductItem(params){return providerResult(client.rpc("kerdos_find_or_create_product_item",params),"Resolve catalog product");},
       productGroupHistory(organizationId){return providerResult(client.from('product_association_events').select('request_id,created_at,restored_at,result,payload').eq('organization_id',organizationId).order('created_at',{ascending:false}).limit(30),'Load product grouping history');},
       associateProductGroup(row){return providerResult(client.rpc('kerdos_associate_product_group',{p_organization_id:row.organizationId,p_request_id:row.requestId,p_target_catalog_item_id:row.targetCatalogItemId,p_name:row.name,p_members:row.members,p_version:row.version,p_confirmed:row.confirmed}),'Save product association');},
       restoreProductGroup(row){return providerResult(client.rpc('kerdos_restore_product_group',{p_organization_id:row.organizationId,p_request_id:row.requestId}),'Restore product associations');},
