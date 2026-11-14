@@ -8,7 +8,7 @@ configureProcurement({industry:'restaurant'});
 for(const brand of ['Heinz',"Ken's",'Daisy','Windex'])assert.equal(getProcurementContext().readProductLabel({description:brand}).key,null,'brand-only text never creates a product group');
 for(const [description,label] of [['Heinz Ketchup','ketchup'],['Bounty Paper Towels','Paper Towels'],['B3339XH H.D TUFF LINER','Trash Bags']])assert.equal(getProcurementContext().readProductLabel({description}).label.toLowerCase(),label.toLowerCase());
 const ambiguousTissue = getProcurementContext().readProductLabel({description:'(275) GRN HERTG. T.TISS'});
-assert.equal(ambiguousTissue.status,'review');
+assert.equal(ambiguousTissue.key,'product:toilet tissue');
 assert.deepEqual(ambiguousTissue.evidence.find(entry => entry.spelling === 'grn')?.candidates,['green','grain']);
 const row=(id,description,pack_size='4/1 GAL',brand='')=>({id,description,pack_size,brand,price:20,selling_unit:'CASE',vendor_id:'vendor'+id,row_revision:0,field_resolutions:{}});
 const a=row('a','OIL POMACE 100%'),b=row('b','POMACE OIL 100% ANTONIO','4/3 LITER'),c=row('c','( POMACE ) OIL 100 %','46174 CT');

@@ -32,6 +32,7 @@ function indexRules(entries) {
       indexed.set(key, candidates);
     }
   }
+  for (const rules of indexed.values()) rules.sort((a,b) => b.words.length-a.words.length);
   return indexed;
 }
 
@@ -46,11 +47,12 @@ const spansOverlap = (a, b) => a.start < b.end && b.start < a.end;
 const isWithin = (inner, outer) => inner.start >= outer.start && inner.end <= outer.end;
 
 function keepMostSpecific(matches) {
-  return matches.filter(match => !matches.some(other =>
-    other !== match && ((other.entry.key !== match.entry.key && other.entry.broader.has(match.entry.key))
-      || (((other.words.length > match.words.length)
-        || (other.words.length === match.words.length && other.entry.authoritative && !match.entry.authoritative))
-        && isWithin(match, other)))));
+  const longest = matches.filter(match => !matches.some(other =>
+    other.words.length > match.words.length && isWithin(match,other)));
+  return longest.filter(match => !longest.some(other => other !== match && (
+    (other.words.length === match.words.length && isWithin(match,other)
+      && other.entry.authoritative && !match.entry.authoritative)
+    || (other.entry.key !== match.entry.key && other.entry.broader.has(match.entry.key)))));
 }
 
 function identifyConcepts(words, index, modifierIndex) {
@@ -178,22 +180,27 @@ function expand(words, aliases, standalone, known, shorthand, conceptIndex, unde
   const contextualWords = units.map(unit =>
     dictionaryTokens(unit.meanings && !unit.needsContext ? unit.meanings[0] : unit.spelling));
   const evidence = [];
+  const ambiguousSpans = [];
   const expanded = [];
-  for (const [unitIndex, {spelling, candidates, method, meanings, needsContext, requireExplicitMeaning}] of units.entries()) {
+  for (const [unitIndex, {spelling, candidates, method, meanings, needsContext, cues}] of units.entries()) {
     if (meanings) {
       const before = needsContext ? contextualWords.slice(0,unitIndex).flat() : [];
       const after = needsContext ? contextualWords.slice(unitIndex+1).flat() : [];
+      const hasPhrase = targetWords => [before,after].some(side => side.some((word,index) =>
+        word && targetWords.every((value,offset) => singular(value) === singular(side[index+offset] || ''))));
       const supported = needsContext ? meanings.filter(target => {
+        if (cues) return (cues.get(target) || []).some(hasPhrase);
         const targetWords = dictionaryTokens(target);
-        const explicitMeaning = [before,after].some(side => side.some((word, index) =>
-          word && targetWords.every((value, offset) => singular(value) === singular(side[index + offset] || ''))));
         const substituted = [...before,...targetWords,...after];
-        const completesProduct = !requireExplicitMeaning && findSpans(substituted, conceptIndex).some(span =>
+        const completesProduct = findSpans(substituted, conceptIndex).some(span =>
           span.start <= before.length && span.end >= before.length + targetWords.length && span.words.length > targetWords.length);
-        return explicitMeaning || completesProduct;
+        return hasPhrase(targetWords) || completesProduct;
       }) : meanings;
+      const candidatesForReview = supported.length > 1 ? supported : meanings;
       const result = supported.length === 1 ? supported[0] : null;
-      evidence.push({spelling,result,method,...(!result ? {candidates:meanings} : {})});
+      const entry = {spelling,result,method,...(!result ? {candidates:candidatesForReview} : {})};
+      evidence.push(entry);
+      if (!result) ambiguousSpans.push({entry,start:expanded.length,length:dictionaryTokens(spelling).length});
       expanded.push(...dictionaryTokens(result ?? spelling));
       continue;
     }
@@ -206,11 +213,13 @@ function expand(words, aliases, standalone, known, shorthand, conceptIndex, unde
       }
     }
     if (candidates?.size || aliases.ambiguous.has(spelling)) {
-      evidence.push({spelling, result: null, candidates: [...(candidates?.keys() || [])].sort(), method});
+      const entry = {spelling, result: null, candidates: [...(candidates?.keys() || [])].sort(), method};
+      evidence.push(entry);
+      ambiguousSpans.push({entry,start:expanded.length,length:dictionaryTokens(spelling).length});
     }
     expanded.push(...dictionaryTokens(spelling));
   }
-  return {words: expanded, evidence};
+  return {words: expanded, evidence, ambiguousSpans};
 }
 
 function packPattern(unitWords) {
@@ -258,7 +267,8 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
     })) continue;
     const rules = shorthand.get(words[0]) || [];
     rules.push({words,spelling,meanings,needsContext:entry.needs_context,
-      requireExplicitMeaning:entry.requireExplicitMeaning});
+      cues:entry.cues && new Map(Object.entries(entry.cues).map(([meaning,words]) =>
+        [phrase(meaning),words.map(dictionaryTokens).filter(tokens => tokens.length)]))});
     rules.sort((a,b) => b.words.length - a.words.length);
     shorthand.set(words[0], rules);
   }
@@ -295,11 +305,52 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
   for (const word of [...known]) known.add(singular(word));
   const packs = packPattern(unitWords);
 
+  function interpret(words,evidence) {
+    // Match the expanded line once so a shorter source spelling cannot compete
+    // with a complete product phrase made visible by shorthand expansion.
+    const products = identifyConcepts(words, conceptIndex, modifierIndex);
+    const details = informationalPositions(words, modifierIndex, products, products[0]?.entry.key, undecided);
+    const identityWords = words.filter((word, index) => word && !details.has(index));
+    const comparisonText = identityWords.join(' ');
+    const matches = identifyConcepts(identityWords, conceptIndex, modifierIndex);
+    const keys = unique(matches.map(match => match.entry.key));
+    const base = matches[0]?.entry;
+    const defining = [...new Map(definingModifiers(identityWords, modifierIndex, base?.key, matches)
+      .map(mark => [mark.key, mark])).values()];
+    const variants = defining.sort((a, b) => a.key.localeCompare(b.key));
+    const formKey = variants.map(mark => mark.key).join('|');
+    const exclusive = defining.filter(mark => mark.exclusive).map(mark => mark.exclusive);
+    const conflictingForms = new Set(exclusive).size < exclusive.length;
+    const forReview = reason => ({...review(reason, evidence), comparisonText,
+      ...(formKey ? {formKey} : {}), ...(conflictingForms ? {conflictingForms:true} : {})});
+    if (keys.length > 1) return forReview('Description identifies more than one product');
+    if (conflictingForms) return forReview('Description has conflicting product forms');
+    if (base) {
+      return {
+        status: 'recognized',
+        key: ['product:' + base.key, ...variants.map(mark => mark.key)].join('|'),
+        label: [title(base.label.toLowerCase()), ...variants.map(mark => title(mark.label.toLowerCase()))].join(' · '),
+        reason: null,
+        evidence,
+        comparisonText,
+        ...(formKey ? {formKey} : {}),
+      };
+    }
+    if (profile.requiredBaseWords && words.some(word => profile.requiredBaseWords.includes(singular(word)))) {
+      return forReview('Product form is stated but the base product is unclear');
+    }
+
+    const remaining = identityWords.filter(word => word && !fragments.has(word));
+    const key = unique(remaining.map(singular)).sort().join(' ');
+    if (!/[a-z]{2}/.test(key)) return forReview('No identifiable product description');
+    return {status: 'literal', key: 'literal:' + key, label: title(remaining.join(' ')), reason: null,
+      evidence,comparisonText,...(formKey ? {formKey} : {})};
+  }
+
   return function readProductLabel({description, brand, packSize, pack_size: storedPack} = {}) {
     const input = String(description || '').replace(statedLevels, ' ').replace(/\(([^()]*)\)/g, (span, content) =>
       origins.has(phrase(content)) ? ' ' : span);
-    const source = dictionaryTokens(packs ? input.replace(packs, span => dictionaryTokens(span).some(word =>
-      shorthand.get(word)?.some(rule => rule.words.length === 1 && rule.needsContext)) ? span : ' ') : input);
+    const source = dictionaryTokens(packs ? input.replace(packs, ' ') : input);
     const stated = [brand, packSize || storedPack].filter(Boolean).map(label => ({label, terms: []}));
     const protectedSpans = [...findSpans(source, conceptIndex), ...findSpans(source, modifierIndex)];
     const sourceDetails = findSpans(source, indexRules(stated)).filter(span =>
@@ -312,50 +363,38 @@ export function createProductLabelReader({profile = {}, dictionaries, vocabulary
       .flatMap(span => source.slice(span.start, span.end).map((_, offset) => span.start + offset)));
     const words = source.map((word, index) => skipped.has(index) ? '' : word);
     const expanded = expand(words, aliases, standalone, known, shorthand, conceptIndex, undecided);
-    const unresolved = expanded.evidence.filter(entry => entry.result === null);
-    if (unresolved.length) {
-      const candidates = unresolved.filter(entry => entry.candidates.length).map(entry =>
-        `${entry.spelling.toUpperCase()} could mean ${entry.candidates.join(' or ')}`);
-      const reason = ['Vendor shorthand has more than one reading or needs context',...candidates].join('. ');
-      return review(reason, expanded.evidence);
-    }
+    const original = interpret(expanded.words,expanded.evidence);
+    if (!expanded.ambiguousSpans.length) return original;
 
-    // Match the expanded line once so a shorter source spelling cannot compete
-    // with a complete product phrase made visible by shorthand expansion.
-    const products = identifyConcepts(expanded.words, conceptIndex, modifierIndex);
-    const details = informationalPositions(expanded.words, modifierIndex, products, products[0]?.entry.key, undecided);
-    const identityWords = expanded.words.filter((word, index) => word && !details.has(index));
-    const comparisonText = identityWords.join(' ');
-    const matches = identifyConcepts(identityWords, conceptIndex, modifierIndex);
-    const keys = unique(matches.map(match => match.entry.key));
-    if (keys.length > 1) return review('Description identifies more than one product', expanded.evidence);
-    const base = matches[0]?.entry;
-    const defining = [...new Map(definingModifiers(identityWords, modifierIndex, base?.key, matches)
-      .map(mark => [mark.key, mark])).values()];
-    const exclusive = defining.filter(mark => mark.exclusive).map(mark => mark.exclusive);
-    if (new Set(exclusive).size < exclusive.length) {
-      return review('Description has conflicting product forms', expanded.evidence);
+    // Only admit an unresolved shorthand when every plausible reading has
+    // the same identity. A common review outcome never establishes identity.
+    const combinations = expanded.ambiguousSpans.reduce((count,{entry}) => count*entry.candidates.length,1);
+    let agreed;
+    if (combinations > 0 && combinations <= 256) {
+      let consistent = true;
+      function compareReadings(index,offset,words) {
+        if (!consistent) return;
+        const span = expanded.ambiguousSpans[index];
+        if (!span) {
+          const reading = interpret(words,expanded.evidence);
+          consistent = Boolean(reading.key) && (!agreed || agreed.key === reading.key);
+          agreed ??= reading;
+          return;
+        }
+        for (const meaning of span.entry.candidates) {
+          const replacement = dictionaryTokens(meaning);
+          const start = span.start + offset;
+          const next = [...words.slice(0,start),...replacement,...words.slice(start+span.length)];
+          compareReadings(index+1,offset+replacement.length-span.length,next);
+          if (!consistent) break;
+        }
+      }
+      compareReadings(0,0,expanded.words);
+      if (consistent) return original.key === agreed.key ? original : agreed;
     }
-    if (base) {
-      const variants = defining.sort((a, b) => a.key.localeCompare(b.key));
-      return {
-        status: 'recognized',
-        key: ['product:' + base.key, ...variants.map(mark => mark.key)].join('|'),
-        label: [title(base.label.toLowerCase()), ...variants.map(mark => title(mark.label.toLowerCase()))].join(' · '),
-        reason: null,
-        evidence: expanded.evidence,
-        comparisonText,
-        ...(variants.length?{formKey:variants.map(mark=>mark.key).join('|')}:{}),
-      };
-    }
-    if (profile.requiredBaseWords && expanded.words.some(word => profile.requiredBaseWords.includes(singular(word)))) {
-      return review('Product form is stated but the base product is unclear', expanded.evidence);
-    }
-
-    const remaining = identityWords.filter(word => word && !fragments.has(word));
-    const key = unique(remaining.map(singular)).sort().join(' ');
-    if (!/[a-z]{2}/.test(key)) return review('No identifiable product description', expanded.evidence);
-    return {status: 'literal', key: 'literal:' + key, label: title(remaining.join(' ')), reason: null,
-      evidence:expanded.evidence,comparisonText,...(defining.length?{formKey:defining.map(mark=>mark.key).sort().join('|')}:{})};
+    const candidates = expanded.ambiguousSpans.filter(({entry}) => entry.candidates.length).map(({entry}) =>
+      `${entry.spelling.toUpperCase()} could mean ${entry.candidates.join(' or ')}`);
+    const reason = ['Vendor shorthand has more than one reading or needs context',...candidates].join('. ');
+    return {...original,...review(reason,expanded.evidence)};
   };
 }

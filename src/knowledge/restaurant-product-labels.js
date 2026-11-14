@@ -1,7 +1,7 @@
 import {restaurantAssociations} from './restaurant-associations.js';
 import {restaurantCellBrands} from './restaurant-dictionaries.js';
 import {dictionaryTokens} from '../core/term-dictionary.js';
-import vocabulary from './restaurant-vocabulary-v1-1.json' with {type:'json'};
+import vocabulary from './restaurant-vocabulary-v1-3.json' with {type:'json'};
 
 // This profile is for the new label reader. The catalog's existing association
 // profile continues to serve its callers until the label reader is activated.
@@ -303,8 +303,7 @@ export const restaurantProductLabels = {
     ...[...concepts.values()].filter(entry => !draftProductLabels.has(spelling(entry.label))),
   ],
   modifiers: [...draftModifiers, ...legacyModifiers],
-  shorthand: vocabulary.shorthand.map(entry => entry.shorthand === 'GRD'
-    ? {...entry,requireExplicitMeaning:true} : entry),
+  shorthand: vocabulary.shorthand,
   undecidedTerms: [...pending, ...pendingProductTerms.filter(term => /\bmini\b/.test(term))],
   standalone: ['american', 'brown', 'cheese', 'corn', 'green', 'hamburger', 'roast', 'sage', 'vinaigrette'],
   knownWords: ['america', 'can', 'chip', 'chop', 'cube', 'fresh', 'grill', 'heart', 'jar', 'one', 'pasta', 'peel', 'pot', 'roast', 'sage', 'size', 'slice', 'split', 'trim', 'whole'],

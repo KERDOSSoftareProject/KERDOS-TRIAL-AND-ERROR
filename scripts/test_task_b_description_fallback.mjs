@@ -153,3 +153,24 @@ test('description fallback never joins different cuts or forms recognized by the
   }
   assert.deepEqual(wrongLinks, [], 'wording must never link products with different cuts or forms, even for review');
 });
+
+test('reader review uses description fallback and requires exactly one clear match', async () => {
+  const description = 'BRD PEPPERONI SLICE/LEONI';
+  for (const candidates of [0,1,2]) {
+    const state = setup();
+    assert.equal(state.context.readProductLabel({description}).status,'review');
+    for (let index=0;index<candidates;index++){
+      seed(state,{id:'candidate-'+index,name:'Pepperoni Sliced '+index,description,conceptKey:'product:pepperoni|sliced'});
+    }
+    const result = await match(state,description);
+    assert.equal(result.fallback.linked,candidates===1);
+    if(candidates===1){
+      assert.equal(result.catalogItemId,'candidate-0');
+      assert.equal(result.fallback.closest.score,1);
+    }else{
+      assert.equal(result.track,'review');
+      assert.match(result.reason,/BRD could mean/);
+      assert.equal(result.fallback.closest?.score,candidates===0?undefined:1);
+    }
+  }
+});

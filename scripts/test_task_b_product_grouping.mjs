@@ -137,12 +137,12 @@ test('6. levels share one catalog item while original vendor grades remain visib
 
 test('7. ambiguous wording flags review without joining an existing item',async()=>{
   const state=setup();
-  const known=await manual(state,vendorA,makeRow('CORNED BEEF'));
-  const uncertain=await manual(state,vendorB,makeRow('DELI TRIM CRN BEEF'),'ambiguous');
+  const known=await manual(state,vendorA,makeRow('GROUND BEEF'));
+  const uncertain=await manual(state,vendorB,makeRow('GRD'),'ambiguous');
   const mapping=mappingFor(state,vendorB);
   assert.notEqual(mapping.catalog_item_id,known.match.catalogItemId);
   assert.equal(mapping.comparison_track,'review');
-  assert.match(JSON.stringify(uncertain.identityReview||uncertain.match?.reason),/corn/i);
+  assert.match(JSON.stringify(uncertain.identityReview||uncertain.match?.reason),/ground|grade/i);
   assert.equal(state.catalogItems.find(item=>item.id===mapping.catalog_item_id).concept_key??null,null);
 });
 
@@ -187,6 +187,7 @@ async function baselineImport(){
     let processed=0;
     let held=0;
     const reviews=[];
+    const fallbackAttempts=new Map();
     for(const [sheetIndex,sheet] of sheets.entries()){
       const vendorId=`00000000-0000-4000-8000-${String(sheetIndex+10).padStart(12,'0')}`;
       for(const [index,row] of sheet.rows.entries()){
@@ -196,6 +197,10 @@ async function baselineImport(){
         assert.ok(result.vendorItemId,`${sheet.file} source row ${index+1} has a listing`);
         processed++;
         if(result.needsBasis)held++;
+        if(result.match?.fallback)fallbackAttempts.set(result.vendorItemId,{
+          sheet:sheet.file,row:index+1,description:source.description,...result.match.fallback,
+          ...(result.match.fallback.linked?{catalogItemId:result.match.catalogItemId}:{}),
+        });
         if(result.identityReview)reviews.push({sheet:sheet.file,row:index+1,
           description:source.description,reason:result.identityReview.reason});
       }
@@ -205,6 +210,7 @@ async function baselineImport(){
     state.processedRows=processed;
     state.heldRows=held;
     state.reviews=reviews;
+    state.fallbackAttempts=[...fallbackAttempts.values()];
     return state;
   })();
   return baseline;
@@ -244,10 +250,13 @@ test('10. after all sheets there are no unintended duplicate product labels',asy
       tiers[tier]++;
     }
     console.log(`Four-sheet replay: ${state.processedRows} source rows, ${state.vendorItems.length} listings, ${state.catalogItems.length} catalog entries, ${crossVendor} cross-vendor groups, ${review} identity reviews, ${noDictionaryProduct} without a dictionary product (${readerStatus.literal} literal, ${readerStatus.review} reader review), ${state.heldRows} source/price holds, tiers ${JSON.stringify(tiers)}.`);
+    const fallbackLinked=state.fallbackAttempts.filter(attempt=>attempt.linked).length;
+    console.log(`Description fallback: ${state.fallbackAttempts.length} listings evaluated, ${fallbackLinked} linked.`);
     const reportPath=process.env.KERDOS_TASK_B_REPORT;
     if(reportPath)writeFileSync(reportPath,JSON.stringify({
       sourceRows:state.processedRows,listings:state.vendorItems.length,catalogEntries:state.catalogItems.length,
       crossVendor,review,noDictionaryProduct,readerStatus,identityReviews:state.reviews,sourceHolds:state.heldRows,tiers,
+      fallback:{sent:state.fallbackAttempts.length,linked:fallbackLinked,attempts:state.fallbackAttempts},
       groupExamples:state.catalogItems.filter(item=>['product:bacon','product:milk'].includes(item.concept_key)).map(item=>({
         itemNumber:item.master_item_number,name:item.name,conceptKey:item.concept_key,
         listings:state.vendorItems.filter(listing=>state.mappings[listing.id].catalog_item_id===item.id)

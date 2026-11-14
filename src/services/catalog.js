@@ -164,7 +164,7 @@ export function engineVerifiable({mappings=[],vendorItems=[],catalogItems=[]}, p
   return ready;
 }
 
-function descriptionFallback({label,eligible,vendorItems,mappings,procurement}){
+function descriptionFallback({label,description,eligible,vendorItems,mappings,procurement}){
   const listings=new Map(vendorItems.map(row=>[row.id,row]));
   const peers=new Map();
   for(const mapping of mappings){
@@ -174,28 +174,41 @@ function descriptionFallback({label,eligible,vendorItems,mappings,procurement}){
     linked.push(row);
     peers.set(mapping.catalog_item_id,linked);
   }
-  const matches=[];
+  const named=Boolean(label.key);
+  const incoming=named?label.comparisonText:description;
+  const clear=[];
+  let possible=false;
+  let closest=null;
   for(const item of eligible){
-    const descriptions=peers.get(item.id)||[];
-    const reads=[procurement.readProductLabel({description:item.name}),...descriptions.map(row=>procurement.readProductLabel(row))];
-    // Saved product keys and recognized peer forms can veto a wording match.
+    const sources=[{description:item.name},...(peers.get(item.id)||[])];
+    const reads=sources.map(row=>procurement.readProductLabel(row));
     const recognized=[item.concept_key,...reads.filter(read=>read.status==="recognized").map(read=>read.key)]
       .filter(key=>key?.startsWith("product:"));
-    if(label.status==="recognized"&&recognized.some(key=>key!==label.key))continue;
-    if(reads.some(read=>read.key&&(read.formKey||label.formKey)&&read.formKey!==label.formKey))continue;
-    if(item.concept_key&&item.concept_key!==label.key)continue;
-    const wording=reads.filter(read=>read.comparisonText).map(read=>({
-      comparison:procurement.compareProductIdentity(label.comparisonText,read.comparisonText),
-      score:procurement.safeProductScore(label.comparisonText,read.comparisonText),
-    }));
-    if(!wording.some(({comparison,score})=>comparison.status!=="different"&&score>=0.35))continue;
-    const clear=wording.some(({comparison,score})=>comparison.status==="same"&&score>=MATCH_POLICY.autoLink)
-      ||label.status==="recognized"&&reads.some(read=>read.key===label.key);
-    matches.push({item,clear});
+    const blocked=label.conflictingForms
+      || reads.some(read=>read.key&&(named||label.formKey)&&(read.formKey||label.formKey)&&read.formKey!==label.formKey)
+      || (named&&item.concept_key&&item.concept_key!==label.key)
+      || (label.status==="recognized"&&recognized.some(key=>key!==label.key));
+    let itemClear=false;
+    for(const [index,read] of reads.entries()){
+      const wording=named?read.comparisonText:sources[index].description;
+      if(!wording)continue;
+      const score=procurement.safeProductScore(incoming,wording);
+      if(score>0&&(!closest||score>closest.score||(score===closest.score&&item.id<closest.catalogItemId))){
+        closest={catalogItemId:item.id,itemNumber:item.master_item_number,name:item.name,
+          description:sources[index].description,score};
+      }
+      if(blocked||score<0.35)continue;
+      const comparison=procurement.compareProductIdentity(incoming,wording);
+      if(comparison.status==="different")continue;
+      possible=true;
+      itemClear ||= comparison.status==="same"&&score>=MATCH_POLICY.autoLink
+        || label.status==="recognized"&&read.key===label.key;
+    }
+    if(itemClear)clear.push(item);
   }
-  const clear=matches.filter(candidate=>candidate.clear);
-  if(clear.length===1)return {item:clear[0].item,created:false};
-  return {reason:matches.length?"Description could match more than one reading; confirm the product":null};
+  const item=clear.length===1?clear[0]:null;
+  return {item,created:false,closest,
+    reason:possible?"Description could match more than one reading; confirm the product":null};
 }
 
 export function createCatalogService(backend,importProcurement){
@@ -245,20 +258,20 @@ export function createCatalogService(backend,importProcurement){
         return {catalogItemId:item.id,track:"exact",score:0.9,method:PRODUCT_LABEL_METHOD,created,sameLabelCount,
           reason:(reason||(created?"Created from the product label":"Matched the saved product label"))+splitNotice};
       };
-      let reviewReason=label.reason;
       if(label.key){
         const saved=await find();
         if(saved?.item)return placed(saved);
-        const fallback=descriptionFallback({label,eligible,vendorItems,mappings,procurement});
-        if(fallback.item)return placed(fallback,"Matched a compatible product description");
-        reviewReason=fallback.reason;
       }
+      const fallback=descriptionFallback({label,description,eligible,vendorItems,mappings,procurement});
+      const fallbackEvidence={linked:Boolean(fallback.item),closest:fallback.closest};
+      if(fallback.item)return {...placed(fallback,"Matched a compatible product description"),fallback:fallbackEvidence};
+      const reviewReason=label.reason||fallback.reason;
 
       const placement=await this.placeInCategory({organizationId,description,categoryId,categories,catalogItems});
       if(!reviewReason&&label.key){
         const result=await find(placement);
         if(!result?.item)throw new Error("The catalog did not return a product assignment.");
-        return placed(result);
+        return {...placed(result),fallback:fallbackEvidence};
       }
       // Keep ambiguous source evidence on its own provisional catalog entry.
       // No automatic link is made to any of the competing products.
@@ -268,7 +281,7 @@ export function createCatalogService(backend,importProcurement){
         categoryReview:placement.review,categoryReason:placement.reason,catalogItems,categories,identityReview:reason});
       catalogItems.push(item);
       return {catalogItemId:item.id,track:"review",score:0.7,method:"rule_based",created:true,
-        identityReview:true,reason};
+        identityReview:true,reason,fallback:fallbackEvidence};
     },
     // Most likely category first, holding pen last. A guessed placement is
     // flagged for review so the client confirms or moves it, instead of

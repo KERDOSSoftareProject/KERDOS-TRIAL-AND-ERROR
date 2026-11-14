@@ -771,7 +771,7 @@ async function matchOrCreateAgainstSeeded({catalogService,provider}, seededName,
   ok('sausage-link-patty: separate catalog items (link and patty are different products)',
     match.catalogItemId !== seededId,
     `catalogItemId=${match.catalogItemId} seededId=${seededId} track=${match.track} score=${match.score}`);
-  t('sausage-link-patty: uncertain wording is retained for review', match.track, 'review');
+  t('sausage-link-patty: both shorthand readings preserve the patty identity', match.track, 'exact');
 }
 
 // TEST 21: DRESS HONEY MUSTARD vs HONEY P.C. — must get separate catalog items

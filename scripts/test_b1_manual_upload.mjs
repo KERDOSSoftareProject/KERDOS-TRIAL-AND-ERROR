@@ -97,7 +97,7 @@ if(process.argv[2]==='--product-label-parity'){
 }
 await check('Task A candidate labels agree for rendered manual upload and the email worker',async()=>{
  const labels=await productLabelParity({industry:'restaurant',vocabulary:[{kind:'synonym',term:'label proof rasher',canonical:'bacon'}],descriptions:[
-  'BCON LAYOUT 15LB','BACON','SAUSAGE LINKS 2OZ','SAUSAGE PATTIES 2OZ','DELI TRIM CRN BEEF','LABEL PROOF RASHER',
+  'BCON LAYOUT 15LB','BACON','SAUSAGE LINKS 2OZ','SAUSAGE PATTIES 2OZ','BRD PEPPERONI SLICE','LABEL PROOF RASHER',
  ]});
  assert.equal(labels[0].key,labels[1].key);
  assert.ok(labels[1].key);
