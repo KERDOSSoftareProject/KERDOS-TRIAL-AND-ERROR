@@ -1,3 +1,4 @@
+import {parallelOfferBoundaries,splitOfferLine} from './pdf-offer-boundaries.js';
 import {getProcurementContext} from "../procurement.js";
 import {placeDocumentFields,mapColumnsFromHeader,isTableHeader,detectDocumentKind,findQuoteValidity,findInvoiceNumber} from '../ingestion.js';
 import {applySourceUnits,documentQuoteUnit} from './source-units.js';
@@ -152,7 +153,20 @@ function pdfSegments(reading){
       const candidates=lines.filter(line=>!furniture(line.words.map(word=>word.text).join(' '))).map(line=>({...line,cells:chunks(line.words)}));
       const count=candidates[0]?.cells.length;
       const aligned=candidates.length>=3&&count>=2&&candidates.every(row=>row.cells.length===count&&row.cells.every((cell,index)=>Math.abs(cell.x-candidates[0].cells[index].x)<=height));
-      if(aligned)segments.push({kind:'positioned-unlabelled',page:page.number,rows:candidates.map(line=>({cells:line.cells,lines:[line.index]}))});
+      const boundaries=parallelOfferBoundaries(candidates.map(line=>line.words));
+      if(boundaries.length){
+        const lanes=Array.from({length:boundaries.length+1},()=>[]);
+        const excluded=new Set(skipped.filter(entry=>entry.page===page.number&&/non-product/.test(entry.reason)).map(entry=>entry.lineNumber));
+        for(const line of lines){
+          if(excluded.has(line.index))continue;
+          splitOfferLine(line.words,boundaries).forEach((words,index)=>{
+            if(words.length&&!furniture(words.map(word=>word.text).join(' ')))lanes[index].push(sourceLine({...line,words}));
+          });
+        }
+        for(const rows of lanes){
+          if(rows.length)segments.push({kind:'freeform',page:page.number,rows,reason:'Repeated side-by-side offer boundaries'});
+        }
+      }else if(aligned)segments.push({kind:'positioned-unlabelled',page:page.number,rows:candidates.map(line=>({cells:line.cells,lines:[line.index]}))});
       else segments.push({kind:'freeform',page:page.number,text:page.text,rows:lines.map(sourceLine),reason:'Geometry does not establish reliable columns'});
     }
   }

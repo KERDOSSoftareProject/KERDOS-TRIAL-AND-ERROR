@@ -109,6 +109,38 @@ await check('headerless aligned geometry yields rows without inventing an explic
   const p=parseStructuredDocument('',r);assert.deepEqual(p.rows.map(row=>row.price),[40,50,60]);
   assert.ok(p.rows.every(row=>!row.billingUnitEvidence&&row.priceNeedsReview));
 });
+await check('headerless staggered offer columns preserve all rows and keep their source text separate',()=>{
+  const left=(name,price,y)=>[item(name,24,y,120),item(price,218,y,40)];
+  const right=(name,price,y)=>[item(name,365,y,125),item(price,515,y,45)];
+  const r=positioned([
+    ...left('Linen napkins','$12.00',520),...right('Wooden trays','$22.00',520),
+    ...left('Glass bowls','$13.00',499),...right('Steel scoops','$23.00',498),
+    ...left('Paper sleeves','$14.00',477),...right('Cotton towels','$24.00',477),
+    ...left('Total','$39.00',440),...right('Copper lids','$25.00',440),
+  ]);
+  const parsed=parseStructuredDocument('',r);
+  assert.deepEqual(parsed.rows.map(row=>[row.description,row.price]),[
+    ['Linen napkins',12],['Glass bowls',13],['Paper sleeves',14],
+    ['Wooden trays',22],['Steel scoops',23],['Cotton towels',24],['Copper lids',25],
+  ]);
+  assert.deepEqual(parsed.rows.map(row=>row.sourceProvenance.lines),[[0],[1],[2],[0],[1],[2],[3]]);
+  for(const row of parsed.rows){
+    const words=row.sourceProvenance.cells.flatMap(cell=>cell.words);
+    assert.equal(words.length,2);
+    assert.equal(words[0].text,row.description);
+    assert.equal(Number(words[1].text.slice(1)),row.price);
+  }
+});
+await check('one offer with two printed prices stays one offer',()=>{
+  const rows=['Apricot','Maple syrup','Grapefruit'].flatMap((name,index)=>{
+    const y=510-index*24;
+    return [item(name,21,y,120),item('$45.00',222,y,52),item('Case',275,y,24),item('$4.00',350,y,45),item('Each',397,y,30)];
+  });
+  const r=positioned(rows,'Apricot $45.00 Case $4.00 Each\nMaple syrup $45.00 Case $4.00 Each\nGrapefruit $45.00 Case $4.00 Each');
+  const parsed=parseStructuredDocument(r.text,r);
+  assert.equal(parsed.rows.length,3);
+  assert.equal(parsed.structure.segments.length,1);
+});
 await check('ragged geometry keeps freeform parsing rather than forcing invented columns',()=>{
   const text='Chicken Breast 20 LB $40.00\nTurkey Breast 20 LB $50.00';
   const r=positioned([item('Chicken Breast 20 LB $40.00',20,510,300),item('Turkey Breast 20 LB $50.00',250,450,300)],text);
